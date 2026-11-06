@@ -23,8 +23,8 @@ def test_the_whole_text_comes_back_unchanged(text: str) -> None:
     assert line_range(text, 0, 0) == (text, len(text.split("\n")), f"all {len(text.split(chr(10)))} lines")
 
 
-def _fed(data: bytes, size: int, *args: int) -> tuple[str, int, str]:
-    window = LineWindow(*args)
+def _fed(data: bytes, size: int, line_start: int = 0, line_end: int = 0) -> tuple[str, int, str]:
+    window = LineWindow(line_start, line_end)
     for start in range(0, len(data), size):
         window.feed(data[start:start + size])
     return window.result()

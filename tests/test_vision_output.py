@@ -11,6 +11,7 @@ import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
@@ -20,6 +21,7 @@ from _vision_fakes import blank_jpeg, noise_jpeg
 from aifred.lib import vision_utils
 from aifred.lib.config import VISION_OVERLAY_SUFFIX_ZOOM
 from aifred.lib.frame_sources import Frame
+from aifred.lib.vision_filters.zone_mask import ZoneMask
 from aifred.lib.vision_output import OutputChain
 
 TS = datetime(2026, 3, 4, 5, 6, 7, 123456)
@@ -35,17 +37,31 @@ def _fixed_label(monkeypatch):
     monkeypatch.setattr(vision_utils, "source_overlay_label", lambda source_id: "Testkamera")
 
 
-class _BlackoutMask:
+if TYPE_CHECKING:
+    # For mypy the stand-ins are the real mask, so their members are checked against ZoneMask's.
+    # At runtime they stay plain classes without a grid.
+    _MaskBase = ZoneMask
+else:
+    _MaskBase = object
+
+
+class _BlackoutMask(_MaskBase):
     blacks_out = True
 
-    def blackout(self, arr: np.ndarray) -> np.ndarray:
-        return np.zeros_like(arr)
+    def __init__(self) -> None:
+        """No grid: everything is blacked out."""
+
+    def blackout(self, img: np.ndarray) -> np.ndarray:
+        return np.zeros_like(img)
 
 
-class _PassiveMask:
+class _PassiveMask(_MaskBase):
     blacks_out = False
 
-    def blackout(self, arr: np.ndarray) -> np.ndarray:  # pragma: no cover
+    def __init__(self) -> None:
+        """No grid and no blackout cell."""
+
+    def blackout(self, img: np.ndarray) -> np.ndarray:  # pragma: no cover
         raise AssertionError("darf nicht aufgerufen werden")
 
 
@@ -141,7 +157,7 @@ class TestBlackout:
         decoded = cv2.imdecode(
             np.frombuffer(result.detect.image_bytes, np.uint8), cv2.IMREAD_COLOR,
         )
-        assert decoded.max() <= 2
+        assert decoded is not None and decoded.max() <= 2
         assert Path(result.path).read_bytes() == result.detect.image_bytes
         assert result.detect.source_id == SOURCE and result.detect.timestamp == TS
 
@@ -190,4 +206,4 @@ class TestBlackout:
         decoded = cv2.imdecode(
             np.frombuffer(result.detect.image_bytes, np.uint8), cv2.IMREAD_COLOR,
         )
-        assert decoded.shape == (240, 320, 3)
+        assert decoded is not None and decoded.shape == (240, 320, 3)

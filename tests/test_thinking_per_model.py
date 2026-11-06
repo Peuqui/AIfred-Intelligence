@@ -8,6 +8,7 @@ task: they think as the vision row says for the model that describes.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
@@ -27,6 +28,14 @@ from aifred.lib.gguf_utils import ReasoningInfo
 from aifred.lib.llm_client import build_llm_options
 from aifred.state._agent_config_mixin import AgentConfigMixin
 
+if TYPE_CHECKING:
+    # For mypy the stand-in is the state (build_llm_options takes an AIState), so its fields and
+    # borrowed methods are checked against the real ones. At runtime it stays a plain class: a
+    # Reflex state refuses undeclared attributes.
+    from aifred.state import AIState as _StateBase
+else:
+    _StateBase = object
+
 GLM = "GLM-5.3-Flash-NVFP4-DFlash2-vllm"
 SMALL_VL = "Qwen3VL-4B-Instruct-Q8_0"
 
@@ -44,7 +53,7 @@ def templates_unknown():
         yield resolve
 
 
-class _State:
+class _State(_StateBase):
     backend_type = "vllm"
     ui_language = "de"
 
@@ -53,9 +62,16 @@ class _State:
     _thinking_on_option = AgentConfigMixin._thinking_on_option
     _agent_thinking_options = AgentConfigMixin._agent_thinking_options
     _agent_thinking_mode = AgentConfigMixin._agent_thinking_mode
+    _set_agent_thinking_mode = AgentConfigMixin._set_agent_thinking_mode
 
     def __init__(self) -> None:
         self.agent_tuning = {agent: default_tuning(agent) for agent in ("aifred", "sokrates", "vision")}
+
+    def add_debug(self, message: str) -> None:
+        pass
+
+    def _save_settings(self) -> None:
+        pass
 
 
 def _config(thinking: bool) -> AgentConfig:
@@ -143,9 +159,9 @@ class TestBuildLlmOptions:
     def test_options_carry_the_choice_on_the_requested_model(self, agents_default_on_except_vision):
         state = _State()
         set_thinking_mode(state, "aifred", GLM, "high")
-        options = build_llm_options(state, "aifred", GLM, 0.7, 8192)  # type: ignore[arg-type]
+        options = build_llm_options(state, "aifred", GLM, 0.7, 8192)
         assert (options.enable_thinking, options.reasoning_effort) == (True, "high")
-        other = build_llm_options(state, "aifred", SMALL_VL, 0.7, 8192)  # type: ignore[arg-type]
+        other = build_llm_options(state, "aifred", SMALL_VL, 0.7, 8192)
         assert (other.enable_thinking, other.reasoning_effort) == (True, None)
 
     def test_hub_path_reads_settings_json(self, agents_default_on_except_vision):
@@ -164,7 +180,7 @@ class TestMenuShowsOnlyWhatTheModelCan:
         state = _State()
         state.agent_tuning["vision"].model_id = model
         with patch("aifred.lib.gguf_utils.resolve_reasoning_info", return_value=info):
-            return state._agent_thinking_options("vision"), state._agent_thinking_mode("vision")  # type: ignore[misc]
+            return state._agent_thinking_options("vision"), state._agent_thinking_mode("vision")
 
     def test_always_thinking_model_offers_no_off(self, agents_default_on_except_vision):
         # Vision default "off" cannot be carried out by GLM: the menu shows its template default.
@@ -181,13 +197,10 @@ class TestMenuShowsOnlyWhatTheModelCan:
     def test_choosing_the_default_entry_stores_the_template_default(self, agents_default_on_except_vision):
         state = _State()
         state.agent_tuning["vision"].model_id = GLM
-        state._set_agent_thinking_mode = AgentConfigMixin._set_agent_thinking_mode.__get__(state)  # type: ignore[attr-defined]
-        state.add_debug = lambda message: None  # type: ignore[attr-defined]
-        state._save_settings = lambda: None  # type: ignore[attr-defined]
         with patch("aifred.lib.gguf_utils.resolve_reasoning_info", return_value=GLM_INFO):
-            state._set_agent_thinking_mode("vision", "max (Standard)")  # type: ignore[attr-defined]
+            state._set_agent_thinking_mode("vision", "max (Standard)")
             assert state.agent_tuning["vision"].thinking_by_model == {thinking_model_key(GLM): THINKING_ON}
-            state._set_agent_thinking_mode("vision", "high")  # type: ignore[attr-defined]
+            state._set_agent_thinking_mode("vision", "high")
             assert thinking_mode(state, "vision", GLM) == "high"
 
     def test_switchable_model_offers_off_on_and_levels(self, agents_default_on_except_vision):
@@ -206,7 +219,7 @@ class TestMenuShowsOnlyWhatTheModelCan:
     def test_requests_send_what_the_menu_shows(self, agents_default_on_except_vision):
         state = _State()
         with patch("aifred.lib.gguf_utils.resolve_reasoning_info", return_value=GLM_INFO):
-            options = build_llm_options(state, "vision", GLM, 0.7, 8192)  # type: ignore[arg-type]
+            options = build_llm_options(state, "vision", GLM, 0.7, 8192)
         assert (options.enable_thinking, options.reasoning_effort) == (True, None)
 
 

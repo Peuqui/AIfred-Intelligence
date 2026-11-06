@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any
 
 import pytest
 
@@ -26,12 +27,13 @@ def announced(monkeypatch: pytest.MonkeyPatch):
     return calls
 
 
-def _announce(agent_id: str, **arguments) -> dict:
+def _announce(agent_id: str, **arguments) -> dict[str, Any]:
     from aifred.plugins.channels.freeecho2_channel import FreeEchoChannel
 
     ctx = PluginContext(agent_id=agent_id, lang="de", session_id="browser-session")
     tool = next(t for t in FreeEchoChannel().get_tools(ctx) if t.name == "freeecho2_announce")
-    return json.loads(asyncio.run(tool.executor(**arguments)))
+    result: dict[str, Any] = json.loads(asyncio.run(tool.executor(**arguments)))
+    return result
 
 
 def test_the_announcement_goes_into_the_rooms_with_the_agent_as_sender(announced) -> None:

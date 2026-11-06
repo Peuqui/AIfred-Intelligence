@@ -365,7 +365,7 @@ def test_the_catalog_is_cached_for_the_ttl_only_the_settings_never(service, sett
     settings.data["tts_escalation"] = [stored("xtts", enabled=False)]    # a change of the list shows at once
     assert not tts_service.entries()[0].enabled
     assert fake.reads() == 1
-    fake.clock["now"] += TTS_SUITE_CACHE_TTL_S + 0.1  # type: ignore[attr-defined]
+    fake.clock["now"] += TTS_SUITE_CACHE_TTL_S + 0.1
     tts_service.entries()
     assert fake.reads() == 2
 

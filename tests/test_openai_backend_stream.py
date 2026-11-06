@@ -16,6 +16,7 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any
 
+import httpx2
 import pytest
 from openai.types.chat import ChatCompletionChunk
 
@@ -246,9 +247,9 @@ def test_thinking_of_every_round_is_summed(monkeypatch) -> None:
 # after 15 minutes of silent retries.
 
 
-def _request_url() -> Any:
-    import httpx
-    return httpx.Request("POST", "http://swap/v1/chat/completions")
+def _request_url() -> httpx2.Request:
+    # openai 3 has its own transport (httpx2); its errors carry httpx2 objects, not httpx ones.
+    return httpx2.Request("POST", "http://swap/v1/chat/completions")
 
 
 def _connection_error() -> Exception:
@@ -257,9 +258,8 @@ def _connection_error() -> Exception:
 
 
 def _server_error(message: str, status: int = 502) -> Exception:
-    import httpx
     import openai
-    return openai.InternalServerError(message, response=httpx.Response(status, request=_request_url()), body=None)
+    return openai.InternalServerError(message, response=httpx2.Response(status, request=_request_url()), body=None)
 
 
 def _turn_with_failures(monkeypatch, failures: list[Exception]) -> tuple[list[dict[str, Any]], int, list[float], list[str]]:

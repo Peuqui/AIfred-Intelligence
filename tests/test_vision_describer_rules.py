@@ -157,7 +157,7 @@ def test_no_describer_is_loaded_while_a_main_model_loads(world):
     world(fits=True, loading=MAIN)
     visiond, fit = vision_routing.fitting_visiond(VLM)
     assert visiond is None
-    assert MAIN in fit.message
+    assert fit is not None and MAIN in fit.message
 
 
 def test_loaded_describer_keeps_working_while_a_main_model_loads(world):
@@ -193,4 +193,5 @@ def test_the_traffic_light_is_gpu_orcs(monkeypatch) -> None:
 
 def test_a_gpu_orc_that_says_nothing_is_no_green_light(monkeypatch) -> None:
     monkeypatch.setattr(gpu_orc_client, "_default_client", gpu_orc_client.GpuOrcClient("http://127.0.0.1:9"))
-    assert "GPU-Orc gibt keine Auskunft" in vision_routing.load_in_progress()
+    progress = vision_routing.load_in_progress()
+    assert progress is not None and "GPU-Orc gibt keine Auskunft" in progress

@@ -393,9 +393,9 @@ def test_an_upload_to_a_further_source_stays_out_of_the_index(tmp_path: Path, mo
 
 
 def test_the_indexing_runs_as_a_background_event_of_the_state() -> None:
-    event = AIState.doc_index_uploaded(["a.txt"])
-    assert isinstance(event, EventSpec)
-    assert AIState.event_handlers["doc_index_uploaded"].is_background
+    handler = AIState.event_handlers["doc_index_uploaded"]
+    assert isinstance(handler(["a.txt"]), EventSpec)
+    assert handler.is_background
 
 
 def test_a_rename_of_a_folder_does_not_run_on_the_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:

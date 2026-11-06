@@ -1,14 +1,10 @@
 """Autoscan prunes an entry when its --model file OR its local draft model is gone."""
 
-import importlib.util
 from pathlib import Path
 
-_SPEC = importlib.util.spec_from_file_location(
-    "llama_swap_autoscan",
-    Path(__file__).resolve().parent.parent / "scripts" / "llama-swap-autoscan.py",
-)
-autoscan = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(autoscan)
+from script_module import load_script
+
+autoscan = load_script("llama-swap-autoscan.py", "llama_swap_autoscan")
 
 
 def _dflash_cmd(target: Path, draft: str) -> str:

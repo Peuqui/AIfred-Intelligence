@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -100,8 +101,9 @@ def printing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, lpstat):
     return tools, commands, tmp_path
 
 
-def _call(tool, **arguments) -> dict:
-    return json.loads(asyncio.run(tool.executor(**arguments)))
+def _call(tool, **arguments) -> dict[str, Any]:
+    result: dict[str, Any] = json.loads(asyncio.run(tool.executor(**arguments)))
+    return result
 
 
 class TestPrintFile:

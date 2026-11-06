@@ -746,6 +746,7 @@ class TestObjectClasses:
         # Weitwinkel (dunkel, verwackelt): keine Person; Zoom: eine.
         detector = ScriptedPersonDetector(counts_per_call=[{"person": 0}, {"person": 1}])
         config = _edge_config()
+        assert config.edge_ai is not None
         config = dataclasses.replace(config, edge_ai=dataclasses.replace(config.edge_ai, face_channel=1))
 
         async def scenario(w: VisionWatcher) -> None:

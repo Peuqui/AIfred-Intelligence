@@ -18,7 +18,7 @@ MODEL = "DeepSeek-vllm"
 
 
 @pytest.mark.parametrize("backend_class", [vLLMBackend, LlamaCppBackend])
-def test_preload_is_the_load_of_the_request(monkeypatch: pytest.MonkeyPatch, backend_class: type) -> None:
+def test_preload_is_the_load_of_the_request(monkeypatch: pytest.MonkeyPatch, backend_class: type[OpenAICompatibleBackend]) -> None:
     assert backend_class.preload_model is OpenAICompatibleBackend.preload_model
     backend = backend_class.__new__(backend_class)
     checked: list[str] = []

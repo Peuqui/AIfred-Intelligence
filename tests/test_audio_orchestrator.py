@@ -188,7 +188,7 @@ class TestPlayNotification:
     def test_tones_are_required(self, bridge):
         orc = AudioOrchestrator("room1", bridge)
         with pytest.raises(TypeError):
-            run(orc.play_notification(b"\x00" * 10))
+            run(orc.play_notification(b"\x00" * 10))  # type: ignore[call-arg]  # the missing arguments are the test
 
 
 class TestPlayResult:

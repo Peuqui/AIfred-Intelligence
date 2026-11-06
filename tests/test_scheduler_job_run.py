@@ -4,6 +4,7 @@ no self-sending, owner-gated memory and retrieved-data marking."""
 import asyncio
 import json
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -212,7 +213,7 @@ class TestNoSelfSending:
 @pytest.fixture
 def rooms(monkeypatch):
     """Two connected pucks; records what the announcement paths get."""
-    calls = {"into_rooms": [], "to_channel": []}
+    calls: dict[str, list[tuple[Any, ...]]] = {"into_rooms": [], "to_channel": []}
 
     async def into_rooms(channel, targets, text, speaker, metadata):
         calls["into_rooms"].append((channel, targets, text, speaker, metadata))

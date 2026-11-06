@@ -55,10 +55,20 @@ def _register_msg(room: str, token: str | None = None) -> MagicMock:
     return msg
 
 
+class _RecordingChannel(FreeEchoChannel):
+    """Keeps its log lines for the test instead of writing them."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.logged: list[str] = []
+
+    def channel_log(self, msg: str, level: str = "info") -> None:
+        self.logged.append(msg)
+
+
 def _run_handshake(messages, configured_token: str, auth_required: str = ""):
     """_handle_ws mit gefaktem WS + Broker-Token durchspielen."""
-    channel = FreeEchoChannel()
-    channel.channel_log = MagicMock()
+    channel = _RecordingChannel()
     fake_ws = FakeWS(messages)
     request = MagicMock()
     request.remote = "203.0.113.7"
@@ -87,10 +97,7 @@ class TestRegisterTokenCheck:
         # Genau die Erfolgs-Zeile matchen — der Disconnect-Log enthält
         # "(unregistered)" und würde einen Substring-Match "registered"
         # fälschlich treffen.
-        return any(
-            str(c.args[0]).startswith("FreeEcho.2 registered:")
-            for c in channel.channel_log.call_args_list
-        )
+        return any(line.startswith("FreeEcho.2 registered:") for line in channel.logged)
 
     def test_missing_token_rejected(self):
         channel, ws = _run_handshake(

@@ -17,22 +17,16 @@ Kontrakt:
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import subprocess
-import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import pytest
+from script_module import load_script
 
-_PATH = Path(__file__).resolve().parents[1] / "scripts" / "epim_deletions_to_nextcloud.py"
-_SPEC = importlib.util.spec_from_file_location("epim_deletions_to_nextcloud", _PATH)
-assert _SPEC is not None and _SPEC.loader is not None
-tool = importlib.util.module_from_spec(_SPEC)
-sys.modules["epim_deletions_to_nextcloud"] = tool
-_SPEC.loader.exec_module(tool)
+tool = load_script("epim_deletions_to_nextcloud.py", "epim_deletions_to_nextcloud")
 
 START = datetime(2026, 11, 2, 10, 0)
 

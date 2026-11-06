@@ -4,7 +4,7 @@ Blase, Abbruch, Fehler als Meldung, und die nächste Antwort wartet auf die Lesu
 
 import asyncio
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from fake_tts_service import (
@@ -31,7 +31,15 @@ CATALOG = [catalog_row("xtts"), catalog_row("browser", browser=True, needs_gpu=F
 TRACE = [{"entry": "xtts", "outcome": "spoke", "reason": None, "detail": ""}]
 
 
-class _Reply:
+if TYPE_CHECKING:
+    # For mypy the stand-in is the mixin, so its fields and borrowed methods are checked against the
+    # real ones. At runtime it stays a plain class: a Reflex state refuses attributes it does not declare.
+    _ReplyBase = TTSStreamingMixin
+else:
+    _ReplyBase = object
+
+
+class _Reply(_ReplyBase):
     """The parts of the Reflex state the reading touches."""
 
     enable_tts = True

@@ -125,6 +125,22 @@ sieht die anderen nicht.
   lässt sich aus State-Code nicht direkt aufrufen („not callable“). Das nackte
   `@rx.event` tut zur Laufzeit nichts; nötig ist es nur mit Optionen wie
   `background=True`.
+- **Stellvertreter in Tests** (eine kleine Klasse statt des echten States oder
+  Objekts) erben für mypy von der echten Klasse und zur Laufzeit von `object`:
+  ```python
+  if TYPE_CHECKING:
+      _StateBase = TTSStreamingMixin
+  else:
+      _StateBase = object
+
+  class _Reply(_StateBase):
+      stream_text_to_ui = TTSStreamingMixin.stream_text_to_ui  # echte Methode geliehen
+  ```
+  mypy prüft dann Felder, geliehene Methoden und Überschreibungen gegen die
+  echten. Eine echte Unterklasse geht bei Reflex-States nicht (sie lehnen
+  undeklarierte Attribute ab), und `Any` oder `cast` würden nichts prüfen.
+  Reflex-States und Dataclasses verlangen im Konstruktor alle Felder: Der
+  Stellvertreter braucht ein eigenes `__init__`.
 
 ---
 
@@ -144,8 +160,8 @@ python3 -m py_compile aifred/DATEI.py
 # 2. Linting mit Ruff
 ~/.venv/devtools/bin/ruff check aifred/DATEI.py
 
-# 3. Type-Checking mit mypy (ganzes Paket, rund 40 s)
-~/.venv/devtools/bin/mypy aifred/ --python-executable venv/bin/python --ignore-missing-imports
+# 3. Type-Checking mit mypy (Code und Tests, rund 50 s)
+~/.venv/devtools/bin/mypy aifred/ tests/ --python-executable venv/bin/python --ignore-missing-imports
 ```
 
 **Mehrere Dateien auf einmal:**

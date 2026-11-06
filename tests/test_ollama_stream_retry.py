@@ -22,7 +22,7 @@ ANSWER = "\n".join(json.dumps(line) for line in [
 
 
 def run_turn(
-    monkeypatch: pytest.MonkeyPatch, answers: list[Any], thinking: bool = False,
+    monkeypatch: pytest.MonkeyPatch, answers: list[httpx.Response | Exception], thinking: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[float]]:
     """Each request takes the next of ``answers``: an httpx.Response, or an exception to raise.
     Returns the items of the turn, the payloads sent and the waits."""

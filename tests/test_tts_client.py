@@ -661,6 +661,7 @@ def test_stream_sends_no_authorization_header() -> None:
     seen: list[str | None] = []
 
     async def handler(socket: ServerConnection) -> None:
+        assert socket.request is not None  # set by the handshake that runs before the handler
         seen.append(socket.request.headers.get("Authorization"))
         await socket.recv()
         await socket.send(summary())

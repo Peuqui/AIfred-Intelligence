@@ -1,5 +1,7 @@
 """Stimmen der Agenten je Engine: Auflösung (Einstellung, Agent, aifred) und das Dict für SpeakRequest.voices."""
 
+from typing import Any
+
 import pytest
 
 import aifred.lib.settings as settings_module
@@ -17,7 +19,7 @@ from aifred.lib.tts_voices import (
 @pytest.fixture
 def voices(monkeypatch):
     """User settings and the defaults of ``agents.json`` set per test."""
-    state = {"user": {}, "defaults": {}}
+    state: dict[str, dict[Any, Any]] = {"user": {}, "defaults": {}}
     monkeypatch.setattr(
         settings_module, "persisted_settings", lambda: {"tts_agent_voices_per_engine": state["user"]},
     )

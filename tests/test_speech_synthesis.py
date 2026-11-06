@@ -211,10 +211,17 @@ class TestSpokenAudioOnTheBubble:
     def bubble(self, monkeypatch):
         saved: list[tuple] = []
         attached: list[tuple] = []
-        monkeypatch.setattr("aifred.lib.audio_processing.save_audio_to_session",
-                            lambda urls, sid: saved.append((list(urls), sid)) or f"/_upload/audio/{sid}/joined.wav")
-        monkeypatch.setattr("aifred.lib.session_storage.attach_reply_audio",
-                            lambda sid, url, note: attached.append((sid, url, note)) or True)
+
+        def save(urls: list[str], sid: str) -> str:
+            saved.append((list(urls), sid))
+            return f"/_upload/audio/{sid}/joined.wav"
+
+        def attach(sid: str, url: str, note: str) -> bool:
+            attached.append((sid, url, note))
+            return True
+
+        monkeypatch.setattr("aifred.lib.audio_processing.save_audio_to_session", save)
+        monkeypatch.setattr("aifred.lib.session_storage.attach_reply_audio", attach)
         return saved, attached
 
     def test_every_segment_lands_on_the_bubble_with_the_note(self, service, bubble, tmp_path):

@@ -30,7 +30,8 @@ DIMENSIONS = 16
 def _unit(*weights: float) -> list[float]:
     vector = np.zeros(DIMENSIONS)
     vector[: len(weights)] = weights
-    return (vector / np.linalg.norm(vector)).tolist()
+    unit: list[float] = (vector / np.linalg.norm(vector)).tolist()
+    return unit
 
 
 class FakeCollection:
@@ -50,7 +51,7 @@ class FakeCollection:
             include: list[str] | None = None, **_: Any) -> dict[str, Any]:
         if ids is None:
             self.loads += 1 if offset == 0 else 0
-            chosen = list(self.chunks)[offset:offset + limit]
+            chosen = list(self.chunks)[offset:None if limit is None else offset + limit]  # None: all, as in Chroma
         else:
             chosen = [i for i in ids if i in self.chunks]
         return {
@@ -63,7 +64,7 @@ class FakeCollection:
 
 def _store(collection: FakeCollection, query_vector: list[float]) -> DocumentStore:
     store = DocumentStore.__new__(DocumentStore)
-    store._collection = collection  # type: ignore[assignment]
+    store._collection = collection
     store._embed_query = lambda _input: [query_vector]  # type: ignore[assignment]
     store._folder_cache = None
     store._search_index = None

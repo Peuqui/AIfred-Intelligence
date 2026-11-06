@@ -4,6 +4,7 @@ Sitzung samt Vermerk, Fehler des Dienstes gehen an den Aufrufer (der sie zeigt).
 import asyncio
 import json
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import pytest
 from fake_tts_service import (
@@ -25,6 +26,13 @@ from aifred.state import _tts_streaming_mixin
 from aifred.state._tts_streaming_mixin import TTSStreamingMixin
 
 TRACE = [{"entry": "xtts", "outcome": "spoke", "reason": None, "detail": ""}]
+
+if TYPE_CHECKING:
+    # For mypy the stand-ins are the mixin, so their fields and borrowed methods are checked against
+    # the real ones. At runtime they stay plain classes: a Reflex state refuses undeclared attributes.
+    _StateBase = TTSStreamingMixin
+else:
+    _StateBase = object
 
 
 @pytest.fixture
@@ -78,7 +86,7 @@ def test_a_service_error_goes_to_the_caller(service) -> None:
         synthesize(request())
 
 
-class _Bubbles:
+class _Bubbles(_StateBase):
     def __init__(self, shown: str, llm_content: str = "[AIFRED]: der Verlauf für das Modell") -> None:
         self.session_id = "s1"
         self.ui_language = "de"
@@ -228,7 +236,18 @@ def _bubble(audio: list[str]) -> SimpleNamespace:
 
 def test_a_bubble_only_the_browser_spoke_has_no_audio_url_but_its_sentences() -> None:
     chat = _bubble(["/old.wav"])
-    state = SimpleNamespace(_chat_sub=lambda: chat, _save_current_session=lambda: None)
+
+    class _BubbleState(_StateBase):
+        def __init__(self) -> None:
+            """Only the two methods below; none of the mixin's fields."""
+
+        def _chat_sub(self) -> SimpleNamespace:
+            return chat
+
+        def _save_current_session(self) -> None:
+            pass
+
+    state = _BubbleState()
     spoken = [{"text": "Ein Satz.", "language": "de"}]
     assert TTSStreamingMixin._apply_bubble_audio(state, 0, "t", "", "Browser", save_session=False, browser_speech=spoken)
     bubble = chat.chat_history[0]

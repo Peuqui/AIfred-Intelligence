@@ -2,10 +2,12 @@
 
 import asyncio
 import json
+from typing import Any
 
 import pytest
 
 from aifred.lib.plugin_base import PluginContext, plugin_display_name
+from aifred.lib.scheduler import get_job_store
 from aifred.plugins.tools.scheduler_tool import SchedulerPlugin
 
 
@@ -37,6 +39,12 @@ def temp_job_store(tmp_path):
 def _run(coro):
     """Helper to run async tool executors."""
     return asyncio.new_event_loop().run_until_complete(coro)
+
+
+def _stored_payload(job_id: int) -> dict[str, Any]:
+    job = get_job_store().get(job_id)
+    assert job is not None, f"job {job_id} is not in the store"
+    return job.payload
 
 
 class TestSchedulerPlugin:
@@ -128,10 +136,9 @@ class TestFixedText:
         )))
 
     def test_a_fixed_text_on_the_pucks(self, plugin, ctx):
-        from aifred.lib.scheduler import get_job_store
         data = self._create(plugin, ctx, delivery="announce", channel="freeecho2", recipient="*",
                             fixed_text=True, audio_type="alarm")
-        payload = get_job_store().get(data["job_id"]).payload
+        payload = _stored_payload(data["job_id"])
         assert payload["fixed_text"] is True and payload["audio_type"] == "alarm" and payload["recipient"] == "*"
 
     def test_models_may_send_the_word_true(self, plugin, ctx):
@@ -145,13 +152,12 @@ class TestFixedText:
         assert "fixed_text" in self._create(plugin, ctx, delivery="announce", channel="email", fixed_text="ja")["error"]
 
     def test_update_can_switch_it_on_and_off(self, plugin, ctx):
-        from aifred.lib.scheduler import get_job_store
         update = next(t for t in plugin.get_tools(ctx) if t.name == "scheduler_update")
         job_id = self._create(plugin, ctx, delivery="announce", channel="email")["job_id"]
         _run(update.executor(job_id=job_id, fixed_text=True))
-        assert get_job_store().get(job_id).payload["fixed_text"] is True
+        assert _stored_payload(job_id)["fixed_text"] is True
         _run(update.executor(job_id=job_id, fixed_text=False))
-        assert get_job_store().get(job_id).payload["fixed_text"] is False
+        assert _stored_payload(job_id)["fixed_text"] is False
 
     def test_update_refuses_a_fixed_text_without_a_channel(self, plugin, ctx):
         update = next(t for t in plugin.get_tools(ctx) if t.name == "scheduler_update")

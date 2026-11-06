@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Coroutine
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock
 
 import httpx
@@ -44,21 +46,21 @@ def test_incomplete_route_is_refused_loudly(tmp_path: Path):
 # ── Weitergabe (echter HTTP-Server als Gegenstelle) ─────────────────
 
 def _serve(handler) -> tuple[web.AppRunner, int]:
-    async def start():
+    async def start() -> tuple[web.AppRunner, int]:
         app = web.Application()
         app.router.add_post("/api/voice", handler)
         runner = web.AppRunner(app)
         await runner.setup()
-        site = web.TCPSite(runner, "127.0.0.1", 0)
-        await site.start()
-        return runner, site._server.sockets[0].getsockname()[1]  # type: ignore[union-attr]
+        await web.TCPSite(runner, "127.0.0.1", 0).start()
+        port: int = runner.addresses[0][1]
+        return runner, port
     return run_with_loop(start())
 
 
 _LOOP = asyncio.new_event_loop()
 
 
-def run_with_loop(coro):
+def run_with_loop[T](coro: Coroutine[Any, Any, T]) -> T:
     return _LOOP.run_until_complete(coro)
 
 
@@ -70,8 +72,10 @@ def orc_endpoint(tmp_path: Path):
         seen["auth"] = request.headers.get("Authorization")
         form = await request.post()
         seen["fields"] = {k: v for k, v in form.items() if k != "audio"}
-        seen["audio_type"] = form["audio"].content_type
-        seen["body"] = form["audio"].file.read()
+        audio = form["audio"]
+        assert isinstance(audio, web.FileField), "the audio must arrive as a file"
+        seen["audio_type"] = audio.content_type
+        seen["body"] = audio.file.read()
         if seen["auth"] != "Bearer geheim":
             return web.json_response({"detail": "no"}, status=401)
         return web.json_response({"action": "asked", "agent": "Whisper"})
@@ -148,7 +152,9 @@ def test_success_closes_the_round_and_documents_it(routed, monkeypatch):
 
 
 @pytest.mark.parametrize("error", [
-    httpx.ConnectError("refused"), httpx.HTTPStatusError("502", request=None, response=None), ValueError("empty"),
+    httpx.ConnectError("refused"), httpx.HTTPStatusError(
+        "502", request=httpx.Request("POST", "http://orc.test/api/voice"), response=httpx.Response(502),
+    ), ValueError("empty"),
 ])
 def test_failure_is_loud_closes_with_route_failed_and_does_not_fall_back(routed, monkeypatch, error):
     channel, recorded = routed

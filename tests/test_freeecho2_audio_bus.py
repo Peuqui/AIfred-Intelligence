@@ -143,7 +143,7 @@ class TestSendAudioEnd:
         rid, ws = room
         ch = FreeEchoChannel()
         with pytest.raises(TypeError):
-            run(ch.send_audio_end(rid))
+            run(ch.send_audio_end(rid))  # type: ignore[call-arg]  # the missing argument is the test
         ws.send_str.assert_not_awaited()
 
     @pytest.mark.parametrize("bad", [1, "yes", None])

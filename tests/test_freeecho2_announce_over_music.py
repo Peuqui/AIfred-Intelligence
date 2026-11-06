@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import aifred.lib.audio_channels as ac
@@ -20,8 +21,8 @@ def _frames(ws) -> list[dict]:
     return [json.loads(c.args[0]) for c in ws.send_str.await_args_list]
 
 
-def _summary(frames: list[dict]) -> list[tuple]:
-    out = []
+def _summary(frames: list[dict]) -> list[tuple[Any, ...]]:
+    out: list[tuple[Any, ...]] = []
     for frame in frames:
         kind = frame["type"]
         if kind == "audio_flag":

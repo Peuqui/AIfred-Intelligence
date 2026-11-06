@@ -90,7 +90,12 @@ def test_loading_goes_through_the_backend_and_closes_it(monkeypatch: pytest.Monk
             done.append("close")
 
     created: list[str] = []
-    monkeypatch.setattr("aifred.backends.BackendFactory.create", lambda backend_type: created.append(backend_type) or Backend())
+
+    def create(backend_type: str) -> Backend:
+        created.append(backend_type)
+        return Backend()
+
+    monkeypatch.setattr("aifred.backends.BackendFactory.create", create)
     assert asyncio.run(service_control.load_llamaswap_model("vllm", MAIN)) == 12.5
     assert (created, done) == (["vllm"], [f"load {MAIN}", "close"])
 
@@ -105,7 +110,12 @@ class FakeResponse:
 
 def test_unloading_asks_llama_swap_for_exactly_this_model(monkeypatch: pytest.MonkeyPatch) -> None:
     posted: list[str] = []
-    monkeypatch.setattr(service_control.requests, "post", lambda url, timeout: posted.append(url) or FakeResponse(200))
+
+    def post(url: str, timeout: float) -> FakeResponse:
+        posted.append(url)
+        return FakeResponse(200)
+
+    monkeypatch.setattr(service_control.requests, "post", post)
     service_control.unload_llamaswap_model(PLACEMENT)
     assert posted == [f"{service_control.LLAMASWAP_BASE_URL}/api/models/unload/{PLACEMENT}"]
 
@@ -134,14 +144,17 @@ def test_a_click_releases_the_suites_with_force_a_running_reading_included(
     result = [GpuReleaseResult("item", outcome, "detail")]
     stt_asked: list[tuple[bool, str]] = []
     tts_asked: list[tuple[list[str], bool]] = []
-    monkeypatch.setattr(
-        "aifred.lib.stt_client.get_default_client",
-        lambda: SimpleNamespace(gpu_release=lambda force, reason: stt_asked.append((force, reason)) or result),
-    )
-    monkeypatch.setattr(
-        "aifred.lib.tts_client.get_tts_client",
-        lambda: SimpleNamespace(gpu_release=lambda items, force, reason: tts_asked.append((items, force)) or result),
-    )
+
+    def stt_release(force: bool, reason: str) -> list[GpuReleaseResult]:
+        stt_asked.append((force, reason))
+        return result
+
+    def tts_release(items: list[str], force: bool, reason: str) -> list[GpuReleaseResult]:
+        tts_asked.append((items, force))
+        return result
+
+    monkeypatch.setattr("aifred.lib.stt_client.get_default_client", lambda: SimpleNamespace(gpu_release=stt_release))
+    monkeypatch.setattr("aifred.lib.tts_client.get_tts_client", lambda: SimpleNamespace(gpu_release=tts_release))
     for release in (service_control.release_stt_gpu(), service_control.release_tts_engine("qwen3local")):
         if key is None:
             asyncio.run(release)

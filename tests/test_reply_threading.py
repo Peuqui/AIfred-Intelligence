@@ -33,8 +33,8 @@ def test_telegram_reply_names_the_answered_message() -> None:
             message=SimpleNamespace(text="Danke", date=None, reply_to_message=reply_to),
         )
 
-    replied = _build_inbound(update(SimpleNamespace(message_id=101)))  # type: ignore[arg-type]
+    replied = _build_inbound(update(SimpleNamespace(message_id=101)))
     assert replied.metadata[REPLY_TO_MESSAGE_KEY] == message_route_key(42, 101)
-    plain = _build_inbound(update(None))  # type: ignore[arg-type]
+    plain = _build_inbound(update(None))
     assert REPLY_TO_MESSAGE_KEY not in plain.metadata
     assert plain.channel_id == replied.channel_id == "42"  # the reply still goes back to the chat

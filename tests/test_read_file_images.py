@@ -73,7 +73,8 @@ def test_image_file_is_copied_into_the_session_upload(upload_dir, tmp_path):
     assert result["type"] == "image"
     assert urls == [result["image_url"]]
     assert result["image_url"].startswith(f"/_upload/images/{SESSION}/Zaehlerstand_")
-    assert vision_utils.url_to_file_path(result["image_url"], SESSION).exists()
+    path = vision_utils.url_to_file_path(result["image_url"], SESSION)
+    assert path is not None and path.exists()
 
 
 def test_without_valid_session_nothing_is_stored(upload_dir, mixed_pdf):

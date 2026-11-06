@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from types import MethodType, SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
 
 from aifred.lib import tts_service
+from aifred.lib.agent_tuning import default_tuning
 from aifred.lib.tts_client import TTSClient
 from aifred.state._tts_config_mixin import TTSConfigMixin
 
@@ -102,16 +102,26 @@ def toasts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
     return raised
 
 
-class FakeState:
+if TYPE_CHECKING:
+    # For mypy the stand-in is the mixin, so its fields and borrowed method are checked against the
+    # real ones. At runtime it stays a plain class: a Reflex state refuses undeclared attributes.
+    _StateBase = TTSConfigMixin
+else:
+    _StateBase = object
+
+
+class FakeState(_StateBase):
     """What the editor's handlers and computed vars touch of the Reflex state."""
 
     ui_language = "de"
+    _edit_tts_lists = TTSConfigMixin._edit_tts_lists
+    tts_agent_enabled = TTSConfigMixin.tts_agent_enabled
 
     def __init__(self, file: SettingsFile | None = None) -> None:
         self.file = file
         self.tts_list_revision = 0
-        self.agent_tuning = {"aifred": SimpleNamespace(model_id="model")}
-        self._edit_tts_lists = MethodType(TTSConfigMixin._edit_tts_lists, self)  # type: ignore[attr-defined]
+        self.agent_tuning = {"aifred": default_tuning("aifred")}
+        self.agent_tuning["aifred"].model_id = "model"
 
     def _write_settings_file(self, settings: dict[str, Any]) -> None:
         assert self.file is not None
@@ -191,10 +201,10 @@ def test_engine_labels_show_the_failure_instead_of_raising_while_the_service_is_
     # Found in the sandbox (25.10.): the app compiles these vars at start; raising there kept AIfred from starting.
     settings_file([stored("xtts")])
     state = FakeState()  # the conftest client points at a dead address
-    state.editor_agent_id = "aifred"  # type: ignore[attr-defined]
-    state.editor_tts_engine = "xtts"  # type: ignore[attr-defined]
-    state.narrator_voice_engine = "xtts"  # type: ignore[attr-defined]
-    state.tts_agent_enabled = lambda agent_id: True  # type: ignore[attr-defined]
+    state.editor_agent_id = "aifred"
+    state.editor_tts_engine = "xtts"
+    state.narrator_voice_engine = "xtts"
+    state.tts_agents = {}  # no entry: every agent speaks
     assert computed("editor_tts_engine_label", state).startswith(UNREACHABLE_PREFIX)
     assert computed("narrator_engine_display", state).startswith(UNREACHABLE_PREFIX)
 
@@ -231,7 +241,7 @@ def test_move_entry_swaps_neighbours_and_saves_the_complete_matched_list(service
         catalog=[catalog_row("xtts"), catalog_row("piper"), catalog_row("edge"), catalog_row("extra_engine")],
     )
     state = FakeState(file)
-    events = run(TTSConfigMixin.move_tts_entry, state, 1, -1)  # type: ignore[arg-type]
+    events = run(TTSConfigMixin.move_tts_entry, state, 1, -1)
     assert file.data["tts_escalation"] == [
         stored("piper"), stored("xtts"), stored("edge"), stored("extra_engine", enabled=False),   # the unknown row is saved, off
     ]
@@ -240,7 +250,7 @@ def test_move_entry_swaps_neighbours_and_saves_the_complete_matched_list(service
 
 def test_enable_entry_changes_only_the_flag_of_that_entry(service, toasts) -> None:
     _, file = service([stored("xtts"), stored("xtts", "Box"), stored("piper")])
-    events = run(TTSConfigMixin.set_tts_entry_enabled, FakeState(file), 1, False)  # type: ignore[arg-type]
+    events = run(TTSConfigMixin.set_tts_entry_enabled, FakeState(file), 1, False)
     assert file.data["tts_escalation"] == [stored("xtts"), stored("xtts", "Box", enabled=False), stored("piper")]
     assert events == []
 
@@ -249,7 +259,7 @@ def test_switching_off_keeps_every_configuration(service, toasts) -> None:
     _, file = service([stored("piper")])
     file.data["tts_toggles_per_engine"] = {"piper": {"unit": "whole"}}
     file.data["tts_agent_voices_per_engine"] = {"piper": {"aifred": {"voice": "Ramona"}}}
-    run(TTSConfigMixin.set_tts_entry_enabled, FakeState(file), 0, False)  # type: ignore[arg-type]
+    run(TTSConfigMixin.set_tts_entry_enabled, FakeState(file), 0, False)
     assert file.data["tts_toggles_per_engine"] == {"piper": {"unit": "whole"}}
     assert file.data["tts_agent_voices_per_engine"] == {"piper": {"aifred": {"voice": "Ramona"}}}
     assert file.data["tts_escalation"] == [stored("piper", enabled=False)]
@@ -257,7 +267,7 @@ def test_switching_off_keeps_every_configuration(service, toasts) -> None:
 
 def test_a_stale_index_is_a_toast_not_a_wrong_change(service, toasts) -> None:
     _, file = service([stored("xtts")])
-    events = run(TTSConfigMixin.set_tts_entry_enabled, FakeState(file), 5, False)  # type: ignore[arg-type]
+    events = run(TTSConfigMixin.set_tts_entry_enabled, FakeState(file), 5, False)
     assert len(events) == 1 and events[0][0] == "error" and "no entry at position 5" in events[0][1]
     assert file.writes == 0
 
@@ -266,7 +276,7 @@ def test_set_unit_writes_it_under_the_engine_and_keeps_the_rest(service, toasts)
     _, file = service([stored("piper")])
     file.data["tts_toggles_per_engine"] = {"piper": {"autoplay": True, "unit": "sentence"}}
     state = FakeState(file)
-    run(TTSConfigMixin.set_tts_entry_unit, state, "piper", "whole")  # type: ignore[arg-type]
+    run(TTSConfigMixin.set_tts_entry_unit, state, "piper", "whole")
     assert file.data["tts_toggles_per_engine"]["piper"] == {"autoplay": True, "unit": "whole"}
     assert state.tts_list_revision == 1
     assert tts_service.speech_unit_for("piper") == "whole"   # what the editor saved, the adapter reads back
@@ -275,13 +285,13 @@ def test_set_unit_writes_it_under_the_engine_and_keeps_the_rest(service, toasts)
 
 def test_set_unit_for_an_engine_without_choice_creates_it(service, toasts) -> None:
     _, file = service([stored("piper")])
-    run(TTSConfigMixin.set_tts_entry_unit, FakeState(file), "piper", "paragraph")  # type: ignore[arg-type]
+    run(TTSConfigMixin.set_tts_entry_unit, FakeState(file), "piper", "paragraph")
     assert file.data["tts_toggles_per_engine"] == {"piper": {"unit": "paragraph"}}
 
 
 def test_an_unknown_unit_is_a_toast_and_nothing_is_written(service, toasts) -> None:
     _, file = service([stored("piper")])
-    events = run(TTSConfigMixin.set_tts_entry_unit, FakeState(file), "piper", "chapter")  # type: ignore[arg-type]
+    events = run(TTSConfigMixin.set_tts_entry_unit, FakeState(file), "piper", "chapter")
     assert len(events) == 1 and events[0][0] == "error" and "speech unit" in events[0][1]
     assert file.writes == 0
 
@@ -289,7 +299,7 @@ def test_an_unknown_unit_is_a_toast_and_nothing_is_written(service, toasts) -> N
 def test_editing_needs_the_service_because_the_match_needs_the_catalog(settings_file, toasts) -> None:
     file = settings_file([stored("xtts"), stored("piper")])
     state = FakeState(file)   # the conftest client points at a dead address
-    events = run(TTSConfigMixin.move_tts_entry, state, 1, -1)  # type: ignore[arg-type]
+    events = run(TTSConfigMixin.move_tts_entry, state, 1, -1)
     assert len(events) == 1 and events[0][0] == "error" and events[0][1].startswith(f"TTS: {UNREACHABLE_PREFIX}")
     assert file.writes == 0 and state.tts_list_revision == 0
 

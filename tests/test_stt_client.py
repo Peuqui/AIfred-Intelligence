@@ -187,8 +187,13 @@ def test_an_unreachable_service_is_an_error_not_an_empty_transcript(monkeypatch)
 def test_the_container_starts_with_the_cpu_compose_file_only_without_an_nvidia_gpu(monkeypatch, tmp_path, gpus, overrides):
     compose = tmp_path / "docker-compose.yml"
     compose.write_text("services: {}")
-    calls = []
-    monkeypatch.setattr(stt_client, "docker_compose_action", lambda *args: calls.append(args) or (True, "up"))
+    calls: list[tuple[object, ...]] = []
+
+    def compose_action(*args: object) -> tuple[bool, str]:
+        calls.append(args)
+        return True, "up"
+
+    monkeypatch.setattr(stt_client, "docker_compose_action", compose_action)
     monkeypatch.setattr("aifred.lib.gpu_utils.get_all_gpus_memory_info", lambda: gpus)
     assert stt_client.STTClient("http://stt.test", str(compose)).start_container() == (True, "up")
     assert calls == [(str(compose), "up", "Whisper", overrides)]

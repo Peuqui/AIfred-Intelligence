@@ -84,14 +84,15 @@ class TestRegistry:
         camera["host"] = "10.0.0.6"
         second = get_controller(SOURCE)
         assert second is not first
-        assert second.host == "10.0.0.6"
+        assert second is not None and second.host == "10.0.0.6"
 
     def test_default_onvif_port(self, monkeypatch):
         monkeypatch.setattr(
             ptz_control, "find_camera_config",
             lambda source_id: {"name": "X", "host": "h", "ptz": True},
         )
-        assert get_controller(SOURCE).onvif_port == 8000
+        controller = get_controller(SOURCE)
+        assert controller is not None and controller.onvif_port == 8000
 
 
 class TestDirections:

@@ -1,17 +1,10 @@
 """Autoscan: KV-Typ der Describer und ihre Platzierungs-Varianten je Karte."""
 
-import importlib.util
-from pathlib import Path
-
 import pytest
 import yaml
+from script_module import load_script
 
-_SPEC = importlib.util.spec_from_file_location(
-    "llama_swap_autoscan",
-    Path(__file__).resolve().parent.parent / "scripts" / "llama-swap-autoscan.py",
-)
-autoscan = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(autoscan)
+autoscan = load_script("llama-swap-autoscan.py", "llama_swap_autoscan")
 
 HOME = "VL-4B-visiond"
 CMD = "llama-server --model /m/VL-4B.gguf --mmproj /m/mmproj.gguf -ngl 99 -c 24576 --flash-attn on"

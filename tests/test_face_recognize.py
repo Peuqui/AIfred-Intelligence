@@ -37,7 +37,7 @@ def _vector_with_similarity(
     ``cos(v, ref) == target_sim`` (up to float precision).
     """
     rng = np.random.default_rng(seed)
-    dim = reference.shape[0]
+    dim: int = reference.shape[0]
     perp = rng.standard_normal(dim).astype(np.float32)
     perp -= float(np.dot(perp, reference)) * reference
     perp /= np.linalg.norm(perp)

@@ -5,24 +5,15 @@ The answer footer names the profile since 2026-09-16
 model name and merged side-channel variants no longer (16.09.2026).
 """
 
-import importlib.util
 import json
-import sys
 from pathlib import Path
 
 import pytest
-
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "session_speed_stats.py"
-
+from script_module import load_script
 
 @pytest.fixture(scope="module")
 def stats():
-    spec = importlib.util.spec_from_file_location("session_speed_stats", SCRIPT)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["session_speed_stats"] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_script("session_speed_stats.py", "session_speed_stats")
 
 
 def _answer(source: str, decode: float, stamp: str = "2026-09-16T18:00:00") -> dict:

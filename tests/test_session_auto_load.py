@@ -79,13 +79,16 @@ def test_rewrite_without_new_message_keeps_order(session_dir):
     update_chat_data(SESSION_A, [_message("a1"), _message("a2")], owner=OWNER)
     update_chat_data(SESSION_B, [_message("b1")], owner=OWNER)
     assert _ids() == [SESSION_B, SESSION_A]
-    stamped = load_session(SESSION_A)["last_message_at"]
+    session = load_session(SESSION_A)
+    assert session is not None
+    stamped = session["last_message_at"]
 
     update_chat_data(SESSION_A, [_message("a1"), _message("a2")], debug_messages=["x"])
     update_chat_data(SESSION_A, [_message("a1"), _message("a2 regenerated")])
     update_chat_data(SESSION_A, [_message("a1")])
     assert _ids() == [SESSION_B, SESSION_A]
-    assert load_session(SESSION_A)["last_message_at"] == stamped
+    session = load_session(SESSION_A)
+    assert session is not None and session["last_message_at"] == stamped
 
 
 def test_new_session_is_stamped_on_every_creation_path(session_dir):

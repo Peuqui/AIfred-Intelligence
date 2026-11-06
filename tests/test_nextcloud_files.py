@@ -10,6 +10,7 @@ import time
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -30,8 +31,19 @@ live = pytest.mark.skipif(not CREDENTIALS.exists(), reason=f"no Nextcloud test c
 
 # ── the boundary, without a server ─────────────────────────────────
 
-class NoServer:
+if TYPE_CHECKING:
+    # For mypy the stand-in is the real client, so AgentFiles takes it as such. At runtime it stays
+    # a plain class: a real subclass would have the methods this one must refuse.
+    _ClientBase = DavClient
+else:
+    _ClientBase = object
+
+
+class NoServer(_ClientBase):
     """Fails the test when a refused path would have reached the server."""
+
+    def __init__(self) -> None:
+        """No connection."""
 
     def __getattr__(self, name: str):
         raise AssertionError(f"{name} must not be called")

@@ -162,7 +162,7 @@ class TestRecordMotion:
     def test_event_and_trigger_noted(self, store, statuses, recorder):
         frame = SimpleNamespace(source_id=SOURCE, timestamp=TS)
         event_id = recorder.record_motion(
-            frame, frame_path="/m.jpg", area_ratio=0.25, bbox=(1, 2, 3, 4),  # type: ignore[arg-type]
+            frame, frame_path="/m.jpg", area_ratio=0.25, bbox=(1, 2, 3, 4),
             watch_fps=5.0, cluster_id="c1",
         )
         (event,) = _events(store, "motion")
@@ -175,7 +175,7 @@ class TestRecordMotion:
     def test_bbox_none(self, store, recorder):
         frame = SimpleNamespace(source_id=SOURCE, timestamp=TS)
         recorder.record_motion(
-            frame, frame_path="", area_ratio=0.1, bbox=None,  # type: ignore[arg-type]
+            frame, frame_path="", area_ratio=0.1, bbox=None,
             watch_fps=1.0, cluster_id="",
         )
         (event,) = _events(store, "motion")

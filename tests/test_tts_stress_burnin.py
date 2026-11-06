@@ -11,7 +11,7 @@ import pytest
 
 from aifred.lib import config, tts_stress_burnin
 from aifred.lib.tts_stress_burnin import stress_burnin_tts
-from tests.fake_tts_service import (
+from fake_tts_service import (
     FakeTTSService,
     audio_frame,
     catalog_row,

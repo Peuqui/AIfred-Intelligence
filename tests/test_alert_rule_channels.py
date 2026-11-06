@@ -4,18 +4,27 @@ Since a43e9478 (13.09.2026) channels have no display_name attribute; the list re
 except caught the AttributeError and the rules showed no channel at all.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING
 
 import pytest
 
 import aifred.state._vision_settings_mixin as vision_settings_mixin
 from aifred.lib.plugin_base import plugin_display_name
 from aifred.lib.plugin_registry import all_channels
-from aifred.state import AIState
+from aifred.state._vision_settings_mixin import VisionSettingsMixin
+
+if TYPE_CHECKING:
+    # For mypy the stand-in is the mixin, so its fields and borrowed method are checked against the
+    # real ones. At runtime it stays a plain class: a Reflex state refuses undeclared attributes.
+    _StateBase = VisionSettingsMixin
+else:
+    _StateBase = object
 
 
-class _RulesFake:
-    _reload_alert_rules = AIState._reload_alert_rules
+class _RulesFake(_StateBase):
+    """Only the fields the method touches."""
+
+    _reload_alert_rules = VisionSettingsMixin._reload_alert_rules
 
     def __init__(self, language: str) -> None:
         self.ui_language = language
@@ -28,8 +37,7 @@ def test_every_channel_with_its_plugin_name(monkeypatch: pytest.MonkeyPatch, lan
     monkeypatch.setattr(vision_settings_mixin, "_load_alert_rules", list)
     channels = all_channels()
     assert channels, "no channel plugin found — the test would check nothing"
-    # A stand-in with only the fields the method touches, not a VisionSettingsMixin.
-    rules: Any = _RulesFake(language)
+    rules = _RulesFake(language)
     rules._reload_alert_rules()
     assert rules.alert_channels == [
         {"name": name, "display_name": plugin_display_name(channel, language)}

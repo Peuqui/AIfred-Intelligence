@@ -39,7 +39,7 @@ import json
 import re
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Self
+from typing import TYPE_CHECKING, Any, Self
 from unittest.mock import AsyncMock
 
 import pytest
@@ -212,9 +212,6 @@ class FakeImap:
         self.selected = name
         return "OK", [str(len(self._mails)).encode()]
 
-    def list(self) -> tuple[str, list[bytes]]:
-        return "OK", self.server.list_lines
-
     def response(self, code: str) -> tuple[str, list[bytes]]:
         assert code == "UIDVALIDITY"
         return code, [b"7" if self.selected == "INBOX" else b"8"]
@@ -253,6 +250,10 @@ class FakeImap:
             return [with_flags, b")"]
         raise AssertionError(f"FETCH form the read path must not use: {items}")
 
+    # Last on purpose: from here on the name hides the builtin list in this class's annotations.
+    def list(self) -> tuple[str, list[bytes]]:
+        return "OK", self.server.list_lines
+
 
 @pytest.fixture(autouse=True)
 def _uploads_in_a_temp_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -286,12 +287,15 @@ def _tools() -> dict:
     return {tool.name: tool for tool in EmailChannel().get_tools(context)}
 
 
-def _run(tool, **args: str) -> str:
+ToolArgs = dict[str, str | int | bool]
+
+
+def _run(tool, **args: str | int | bool) -> str:
     answer: str = asyncio.run(tool.executor(**args))
     return answer
 
 
-READ_CALLS = [
+READ_CALLS: list[ToolArgs] = [
     {"action": "check"},
     {"action": "check", "unread": True},
     {"action": "read", "msg_id": "7"},
@@ -305,13 +309,13 @@ READ_CALLS = [
 
 class TestStrictlyReadOnly:
     @pytest.mark.parametrize("call", READ_CALLS)
-    def test_opens_read_only(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch, call: dict) -> None:
+    def test_opens_read_only(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch, call: ToolArgs) -> None:
         _configure(monkeypatch, OWN_ACCOUNT, READONLY_ACCOUNT)
         _run(_tools()["email_readonly"], **call)
         assert server.selects and all(readonly for _, readonly in server.selects)
 
     @pytest.mark.parametrize("call", READ_CALLS)
-    def test_fetches_only_with_peek(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch, call: dict) -> None:
+    def test_fetches_only_with_peek(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch, call: ToolArgs) -> None:
         _configure(monkeypatch, OWN_ACCOUNT, READONLY_ACCOUNT)
         _run(_tools()["email_readonly"], **call)
         assert server.fetches
@@ -415,7 +419,7 @@ class TestToolOffer:
 class TestNeverTheOwnMailbox:
     @pytest.mark.parametrize("call", READ_CALLS)
     def test_logs_in_with_its_own_credentials(
-        self, server: FakeServer, monkeypatch: pytest.MonkeyPatch, call: dict
+        self, server: FakeServer, monkeypatch: pytest.MonkeyPatch, call: ToolArgs
     ) -> None:
         _configure(monkeypatch, OWN_ACCOUNT, READONLY_ACCOUNT)
         _run(_tools()["email_readonly"], **call)
@@ -824,6 +828,7 @@ class TestOutput:
         monkeypatch.setattr(file_manager, "index_received_file", index)
         answer = _run(get_readonly_mailbox_tools()[0], action="index_attachment", msg_id="8", attachment="notiz.txt")
         assert "3 chunks" in answer
+        assert index.await_args is not None
         data, name, source, file_id = index.await_args.args
         assert b"Erste Zeile" in data
         assert (name, source, file_id) == ("notiz.txt", "email_readonly", "8/notiz.txt")
@@ -848,7 +853,7 @@ class TestOutput:
 
     @pytest.mark.parametrize("call", READ_CALLS)
     def test_content_is_fenced_as_external(
-        self, server: FakeServer, monkeypatch: pytest.MonkeyPatch, call: dict
+        self, server: FakeServer, monkeypatch: pytest.MonkeyPatch, call: ToolArgs
     ) -> None:
         _configure(monkeypatch, READONLY_ACCOUNT)
         answer = _run(get_readonly_mailbox_tools()[0], **call)
@@ -870,7 +875,7 @@ class TestOwnMailboxPath:
 
     @pytest.mark.parametrize("call", READ_CALLS)
     def test_email_tool_reads_the_own_mailbox(
-        self, server: FakeServer, monkeypatch: pytest.MonkeyPatch, call: dict
+        self, server: FakeServer, monkeypatch: pytest.MonkeyPatch, call: ToolArgs
     ) -> None:
         _configure(monkeypatch, OWN_ACCOUNT, READONLY_ACCOUNT)
         _run(_tools()["email"], **call)
@@ -919,12 +924,20 @@ class TestCredentialFields:
         assert client.agent_mailbox_account().user == OWN_USER
 
 
-class _InboundImap:
+if TYPE_CHECKING:
+    # For mypy the stand-in is the real connection, so its methods are checked against imaplib's.
+    # At runtime it stays a plain class and has nothing else: any other call fails.
+    from imaplib import IMAP4_SSL as _ImapBase
+else:
+    _ImapBase = object
+
+
+class _InboundImap(_ImapBase):
     def __init__(self, raw: bytes) -> None:
         self.raw = raw
 
-    def uid(self, command: str, uid: bytes, items: str) -> tuple[str, list]:
-        assert (command, items) == ("FETCH", "(RFC822)")
+    def uid(self, command: str, *args: str | bytes) -> tuple[str, list[Any]]:
+        assert (command, args[-1]) == ("FETCH", "(RFC822)")
         return "OK", [(b"1 (RFC822 {1}", self.raw), b")"]
 
 

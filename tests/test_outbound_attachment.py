@@ -12,7 +12,6 @@ Security invariants:
 
 import asyncio
 from datetime import datetime
-from types import SimpleNamespace
 
 import pytest
 
@@ -175,6 +174,7 @@ class TestScheduledMail:
 
     def test_the_scheduler_says_who_it_is(self, monkeypatch):
         from aifred.lib import message_processor, scheduler
+        from aifred.lib.scheduler import Job
 
         calls: list[dict] = []
 
@@ -183,6 +183,7 @@ class TestScheduledMail:
             return True
 
         monkeypatch.setattr(message_processor, "announce_to_channel", announce)
-        job = SimpleNamespace(name="Heizöl", payload={"delivery": "announce", "channel": "email", "recipient": "Lord Helmchen"})
+        job = Job(job_id=1, name="Heizöl", schedule_type="once", schedule_expr="2026-11-06T10:00:00",
+                  payload={"delivery": "announce", "channel": "email", "recipient": "Lord Helmchen"})
         asyncio.run(scheduler._deliver_announce(job, "Text", SID))
         assert calls == [{"subject": "Heizöl", "source": "scheduler"}]
