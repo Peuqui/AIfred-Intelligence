@@ -3,7 +3,7 @@
 Servers are configured in ``servers.json`` next to this file (machine-local,
 see ``servers.example.json``). Every tool of a server becomes the AIfred tool
 ``<server>_<tool>``; name, description and parameter schema come from the
-server, tier and outbound flag from the server's config entry.
+server, the tier from the server's config entry.
 
 ``get_tools`` is called synchronously from many places (UI, prompt loader), MCP
 discovery is async: the tool list of each server is fetched once in a helper
@@ -33,7 +33,7 @@ from ....lib.logging_utils import log_message
 from ....lib.plugin_base import PluginContext
 
 SERVERS_FILE = Path(__file__).parent / "servers.json"
-REQUIRED_SERVER_KEYS = ("transport", "tier", "outbound", "timeout_seconds")
+REQUIRED_SERVER_KEYS = ("transport", "tier", "timeout_seconds")
 TRANSPORT_REQUIRED_KEYS = {
     "stdio": ("command",),
     "sse": ("url",),
@@ -71,10 +71,9 @@ async def _open_session(cfg: dict[str, Any]) -> AsyncIterator[ClientSession]:
         connection = sse_client(cfg["url"], headers=cfg.get("headers"))
     else:
         connection = streamablehttp_client(cfg["url"], headers=cfg.get("headers"))
-    async with connection as streams:
-        async with ClientSession(streams[0], streams[1]) as session:
-            await session.initialize()
-            yield session
+    async with connection as streams, ClientSession(streams[0], streams[1]) as session:
+        await session.initialize()
+        yield session
 
 
 async def _list_server_tools(cfg: dict[str, Any]) -> list[mcp_types.Tool]:
@@ -162,7 +161,6 @@ class McpClientPlugin:
             parameters=mcp_tool.inputSchema,
             executor=_execute,
             tier=cfg["tier"],
-            outbound=cfg["outbound"],
         )
 
     def get_prompt_instructions(self, lang: str, granted_tools: set[str] | None = None) -> str:
