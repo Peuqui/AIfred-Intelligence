@@ -981,7 +981,7 @@ class SettingsMixin(rx.State, mixin=True):
         new_enabled = not current
         if new_enabled:
             if not is_plugin_enabled(plugin_name):
-                enable_plugin(plugin_name, "tool")
+                enable_plugin(plugin_name)
             # Re-fetch after enabling so the log shows the real display name
             # (e.g. "Vigilantia"), as it appears in the plugin menu.
             plugin = get_tool_plugin(plugin_name)
@@ -994,7 +994,7 @@ class SettingsMixin(rx.State, mixin=True):
             if plugin_name == "vision":
                 await self.force_disarm_vigilantia()
             if is_plugin_enabled(plugin_name):
-                disable_plugin(plugin_name, "tool")
+                disable_plugin(plugin_name)
             self.add_debug(f"🔌 {display} disabled")
 
         toggles[plugin_name] = "1" if new_enabled else ""

@@ -184,39 +184,23 @@ def tool_groups_on_offer(ctx: PluginContext) -> list[dict[str, Any]]:
 
 
 # ============================================================
-# RELOAD (after enable/disable)
+# RELOAD (after a tool plugin is switched on or off)
 # ============================================================
 
-def reload_all() -> None:
-    """Clear all caches and re-discover. Called after a plugin is switched on or off.
+def _reload_tools() -> None:
+    """Forget the loaded tool plugins and discover them again.
 
-    Stops any currently registered channel listeners BEFORE swapping out
-    the module objects from ``sys.modules`` — otherwise the old listener
-    task keeps running against stale credentials/state while a fresh one
-    gets registered on the next call to register_channel_workers, leading
-    to duplicate IMAP polls / Discord reconnects.
+    Tool plugins only: the channels stay as they are, their listeners keep running. Until
+    06.11.2026 this reloaded the channels too and cancelled their hub workers, which nothing
+    started again — every switch in the Plugin Manager took mail, Telegram, Discord, the Echo
+    and AI-Connect off the air until the next restart. Channels go on and off through their own
+    toggles (``channel_toggles``), which start and stop their workers.
     """
-    global _tools, _channels_discovered
-
-    # 1. Stop channel listeners. Iterate over the channels we currently
-    #    know about (not every hub worker — the scheduler must keep going).
-    from .message_hub import message_hub
-    for channel_name in list(_channels.keys()):
-        if message_hub.is_running(channel_name):
-            message_hub.unregister(channel_name)
-
-    # 2. Clear tool cache + stale modules
-    stale = [k for k in sys.modules if k.startswith(("aifred.plugins.tools.", "aifred.plugins.channels."))]
-    for k in stale:
-        del sys.modules[k]
-
+    global _tools
+    for name in [k for k in sys.modules if k.startswith("aifred.plugins.tools.")]:
+        del sys.modules[name]
     _tools = None
-    _channels.clear()
-    _channels_discovered = False
-
-    # 3. Re-discover
     discover_tools()
-    _discover_channels()
 
 
 # ============================================================
@@ -276,25 +260,25 @@ def is_plugin_enabled(name: str, plugin_type: str = "tool") -> bool:
     return path is not None and not _is_switched_off(path)
 
 
-def disable_plugin(name: str, plugin_type: str) -> bool:
-    """Switch a plugin off (set its marker) and re-discover. False if there is no such plugin."""
-    path = _plugin_dir(name, plugin_type)
+def disable_plugin(name: str) -> bool:
+    """Switch a tool plugin off (set its marker) and reload the tools. False if there is no such plugin."""
+    path = _plugin_dir(name, "tool")
     if path is None:
         return False
     (path / DISABLED_MARKER).touch()
-    reload_all()
+    _reload_tools()
     return True
 
 
-def enable_plugin(name: str, plugin_type: str) -> bool:
-    """Switch a plugin on (remove its marker) and re-discover. False if there is no such plugin
-    or it is not switched off."""
-    path = _plugin_dir(name, plugin_type)
+def enable_plugin(name: str) -> bool:
+    """Switch a tool plugin on (remove its marker) and reload the tools. False if there is no
+    such plugin or it is not switched off."""
+    path = _plugin_dir(name, "tool")
     if path is None:
         return False
     marker = path / DISABLED_MARKER
     if not marker.exists():
         return False
     marker.unlink()
-    reload_all()
+    _reload_tools()
     return True

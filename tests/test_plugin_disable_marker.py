@@ -40,9 +40,9 @@ def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture
 def reloads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Switching re-discovers; here only counted (the real reload swaps the loaded plugin modules)."""
+    """Switching reloads the tools; here only counted (the real reload swaps the loaded tool modules)."""
     calls: list[str] = []
-    monkeypatch.setattr(plugin_registry, "reload_all", lambda: calls.append("reload"))
+    monkeypatch.setattr(plugin_registry, "_reload_tools", lambda: calls.append("reload"))
     return calls
 
 
@@ -64,18 +64,18 @@ def test_switching_off_and_on_sets_and_removes_the_marker_only(tree: Path, reloa
     alpha = tree / "tools" / "alpha"
     files = sorted(path.name for path in alpha.iterdir())
 
-    assert plugin_registry.disable_plugin("alpha", "tool")
+    assert plugin_registry.disable_plugin("alpha")
     assert (alpha / ".disabled").exists() and not plugin_registry.is_plugin_enabled("alpha")
-    assert plugin_registry.enable_plugin("alpha", "tool")
+    assert plugin_registry.enable_plugin("alpha")
     assert plugin_registry.is_plugin_enabled("alpha")
     assert sorted(path.name for path in alpha.iterdir()) == files   # the code never moved
     assert reloads == ["reload", "reload"]
 
 
 def test_switching_what_is_not_there_changes_nothing(tree: Path, reloads: list[str]) -> None:
-    assert not plugin_registry.disable_plugin("missing", "tool")
-    assert not plugin_registry.disable_plugin("gamma", "tool")
-    assert not plugin_registry.enable_plugin("alpha", "tool")      # already on
+    assert not plugin_registry.disable_plugin("missing")
+    assert not plugin_registry.disable_plugin("gamma")
+    assert not plugin_registry.enable_plugin("alpha")      # already on
     assert reloads == []
     assert not (tree / "tools" / "gamma.disabled").exists()
 
@@ -96,3 +96,29 @@ def test_discovery_imports_only_plugins_switched_on(tree: Path, monkeypatch: pyt
     plugin_registry._discover_channels()
 
     assert imported == [".tools.alpha", ".channels.delta"]   # beta is off, gamma.py is no plugin
+
+
+def test_switching_a_tool_leaves_the_channels_running(tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Until 06.11.2026 the reload cancelled every channel's hub worker and nothing started them
+    again: one switch in the Plugin Manager silenced mail, Telegram, Discord, Echo and AI-Connect."""
+    import sys
+
+    from aifred.lib import message_hub
+
+    def refuse(name: str) -> None:
+        raise AssertionError(f"channel worker {name!r} stopped by a tool switch")
+
+    monkeypatch.setattr(message_hub.message_hub, "unregister", refuse)
+    monkeypatch.setattr(message_hub.message_hub, "is_running", lambda name: True)
+    monkeypatch.setattr(plugin_registry, "_tools", None)
+    channels = {"probe": object()}
+    monkeypatch.setattr(plugin_registry, "_channels", channels)
+    monkeypatch.setattr(plugin_registry.importlib, "import_module", lambda name, package=None: object())
+    loaded = {k: v for k, v in sys.modules.items() if k.startswith("aifred.plugins.")}
+    try:
+        assert plugin_registry.disable_plugin("alpha")
+        assert plugin_registry.enable_plugin("alpha")
+        assert [k for k in loaded if k.startswith("aifred.plugins.channels.") and k not in sys.modules] == []
+    finally:
+        sys.modules.update(loaded)   # the reload dropped this process's tool modules
+    assert plugin_registry._channels is channels and list(channels) == ["probe"]
