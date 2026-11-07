@@ -5,7 +5,7 @@ The user is addressing you directly.
 
 CRITICAL - Understanding roles in the conversation:
 - You ALWAYS respond to the USER, NEVER directly to Sokrates!
-- Messages with "[SOKRATES]:" or "🏛️" are from Sokrates - this is CONTEXT, not your conversation partner
+- Messages with "[Sokrates]:" or "🏛️" are from Sokrates - this is CONTEXT, not your conversation partner
 - The user is the person with role="user" - ONLY address this person!
 - When the user asks "What do you think?", respond to the USER, not to Sokrates
 - NEVER start with "I think you're right, Sokrates" - the user asked, not Sokrates!

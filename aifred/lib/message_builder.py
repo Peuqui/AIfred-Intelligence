@@ -5,121 +5,75 @@ Converts llm_history (List[Dict]) to Ollama Messages format.
 All LLM calls use llm_history exclusively (not chat_history).
 """
 
+import re
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
 from .prompt_loader import get_user_name
 
+_SPEAKER_RE = re.compile(r"\[([^\]\n]{1,40})\]: ?")
+
+
+def history_speaker(content: str) -> tuple[str | None, str]:
+    """The agent an llm_history entry comes from (its id) and the text after its label; ``None``
+    when the label names no agent (the user, a channel's message, an automatic notice).
+
+    Every path writes the agent's id (``formatting.assistant_history_entry``, ``[AIFRED]:``); the
+    label read in lower case is the id, which also reads the display-name labels channels wrote
+    until 07.11.2026 (``[AIfred]:``)."""
+    from .agent_config import load_agents
+
+    match = _SPEAKER_RE.match(content)
+    if match is None:
+        return None, content
+    agent = match.group(1).lower()
+    if agent not in load_agents():
+        return None, content
+    return agent, content[match.end():]
+
 
 def build_messages_from_llm_history(
     llm_history: list[dict[str, str]],
     current_user_text: str = "",
-    perspective: str = "aifred",  # REQUIRED: "sokrates", "aifred", "salomo", "observer"
-    detected_language: str | None = None  # Language from Intent Detection ("de" or "en")
+    perspective: str = "aifred",
+    detected_language: str | None = None,
+    *,
+    observer: bool = False,
 ) -> list[dict[str, str]]:
+    """The model's messages from llm_history, as the agent ``perspective`` sees the conversation.
+
+    Its own replies are ``assistant`` without their label (it would imitate it); everything else is
+    ``user``: the user's messages under the user's name, other agents' replies under their current
+    display name, channels' messages and notices as they are. ``observer`` (the judge of a debate):
+    every reply, its own too, is a labelled ``user`` message. A summary of compressed history is a
+    user message with a context prefix (many models allow one system message only, at the start).
+
+    ``current_user_text`` is the question that ends the messages, with the agent's style reminder in
+    front and the output language behind it.
     """
-    Build LLM messages directly from llm_history (v2.13.0+).
+    from .agent_config import load_agents
 
-    This is the ONLY function for building LLM messages.
-    llm_history is already in the correct format - no parsing or cleaning needed!
-
-    Advantages:
-    - No regex parsing needed (llm_history is pre-cleaned)
-    - No marker detection (speaker labels already applied)
-    - Fast and reliable
-    - Summaries as user messages with [CONVERSATION CONTEXT] prefix
-    - All labels preserved for agent identification
-
-    Args:
-        llm_history: List of {"role": "user/assistant/system", "content": "..."}
-        current_user_text: Current user message to append
-        perspective: REQUIRED - Agent perspective for role transformation
-            - "aifred": AIfred speaking - his messages as 'assistant', others as 'user'
-            - "sokrates": Sokrates speaking - his messages as 'assistant', others as 'user'
-            - "salomo": Salomo speaking - his messages as 'assistant', others as 'user'
-            - "observer": Neutral observer - all as 'user' with labels
-
-    Returns:
-        list: Messages in Ollama format [{"role": "...", "content": "..."}, ...]
-
-    Note:
-        Agent labels are handled per perspective:
-        - Own labels are STRIPPED from assistant messages (prevents LLM from imitating them)
-        - Other agents' labels are PRESERVED in user messages (allows referencing their statements)
-    """
-    if not llm_history:
-        messages: list[dict[str, str]] = []
-    else:
-        # Multi-Agent perspective transformation
-        messages = []
-        perspective_lower = perspective.lower()
-        user_label = get_user_name() or "USER"
-
-        for msg in llm_history:
-            role = msg.get("role", "user")
-            content = msg.get("content", "")
-
-            if role == "system":
-                # Summaries as user message with context prefix
-                # (many models only allow one system message at the beginning)
-                messages.append({"role": "user", "content": f"[CONVERSATION CONTEXT]:\n{content}"})
-                continue
-
-            # Detect speaker from content labels
-            # ALL agent responses have labels: [AIFRED]:, [SOKRATES]:, [SALOMO]:
-            is_sokrates = content.startswith("[SOKRATES]:")
-            is_aifred = content.startswith("[AIFRED]:")
-            is_salomo = content.startswith("[SALOMO]:")
-            is_user = role == "user" and not (is_sokrates or is_aifred or is_salomo)
-
-            if perspective_lower == "observer":
-                # Observer sees everything as 'user' with labels
-                if is_user:
-                    messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
-                else:
-                    # All agent messages as 'user' (keep their labels)
-                    messages.append({"role": "user", "content": content})
-
-            elif perspective_lower == "sokrates":
-                if is_sokrates:
-                    # Sokrates sees his own messages as 'assistant' (label STRIPPED!)
-                    # Important: Remove [SOKRATES]: prefix to prevent LLM from imitating it
-                    clean_content = content[12:].strip() if content.startswith("[SOKRATES]: ") else content
-                    messages.append({"role": "assistant", "content": clean_content})
-                elif is_user:
-                    messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
-                else:
-                    # Others (AIfred, Salomo) as 'user' (keep their labels)
-                    messages.append({"role": "user", "content": content})
-
-            elif perspective_lower == "aifred":
-                if is_aifred:
-                    # AIfred sees his own messages as 'assistant' (label STRIPPED!)
-                    # Important: Remove [AIFRED]: prefix to prevent LLM from imitating it
-                    clean_content = content[10:].strip() if content.startswith("[AIFRED]: ") else content
-                    messages.append({"role": "assistant", "content": clean_content})
-                elif is_user:
-                    messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
-                else:
-                    # Others (Sokrates, Salomo) as 'user' (keep their labels)
-                    messages.append({"role": "user", "content": content})
-
-            elif perspective_lower == "salomo":
-                if is_salomo:
-                    # Salomo sees his own messages as 'assistant' (label STRIPPED!)
-                    # Important: Remove [SALOMO]: prefix to prevent LLM from imitating it
-                    clean_content = content[10:].strip() if content.startswith("[SALOMO]: ") else content
-                    messages.append({"role": "assistant", "content": clean_content})
-                elif is_user:
-                    messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
-                else:
-                    # Others (Sokrates, AIfred) as 'user' (keep their labels)
-                    messages.append({"role": "user", "content": content})
-
-            else:
-                # Unknown perspective - use as-is
-                messages.append(msg.copy())
+    agents = load_agents()
+    user_label = get_user_name() or "USER"
+    messages: list[dict[str, str]] = []
+    for msg in llm_history:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if role == "system":
+            messages.append({"role": "user", "content": f"[CONVERSATION CONTEXT]:\n{content}"})
+            continue
+        speaker, text = history_speaker(content)
+        if speaker == perspective and not observer:
+            messages.append({"role": "assistant", "content": text.strip()})
+        elif speaker is not None:
+            messages.append({"role": "user", "content": f"[{agents[speaker].display_name}]: {text}"})
+        elif role == "user":
+            messages.append({"role": "user", "content": f"[{user_label}]: {content}"})
+        else:
+            # An assistant entry without an agent label (a channel's message, an automatic notice):
+            # from someone else, never the agent's own words or the user's.
+            messages.append({"role": "user", "content": content})
 
     # Add current user message if provided
     if current_user_text:
@@ -127,14 +81,9 @@ def build_messages_from_llm_history(
         # Reinforces agent's speech style in long conversations
         from .prompt_loader import get_language, load_personality_reminder
 
-        # Determine agent name: perspective if set, otherwise "aifred" (default)
-        agent_name = perspective.lower() if perspective else "aifred"
-        if agent_name == "observer":
-            agent_name = "salomo"  # Observer is Salomo's perspective
-
         # Use detected_language if provided, otherwise fall back to UI language
         reminder_lang = detected_language if detected_language else get_language()
-        reminder = load_personality_reminder(agent_name, lang=reminder_lang)
+        reminder = load_personality_reminder(perspective, lang=reminder_lang)
         if reminder:
             current_user_text = f"{reminder}\n\n{current_user_text}"
 
@@ -320,21 +269,3 @@ def build_autonomous_history_entry(
     if speaker:
         return {"role": "assistant", "content": load_prompt("shared/agent_message", channel=channel, speaker=speaker, text=body)}
     return {"role": "assistant", "content": load_prompt("shared/autonomous_event", channel=channel, text=body)}
-
-
-def build_llm_history_entry(
-    agent: str, response_clean: str, history_notes: Sequence[str] = (),
-) -> dict[str, str]:
-    """Build an llm_history entry with agent speaker tag.
-
-    Single Source of Truth for the [Agent]: prefix format. Uses the
-    agent's display_name (e.g. "Codine") rather than its raw ID
-    uppercased ("CODI") — the model parrots back whatever it sees in
-    its history, so showing "Codine" gives it the correct self-name
-    instead of teaching it to sign as the lookup key. Falls back to
-    a capitalized ID when no agent config is available.
-    """
-    from .agent_config import get_agent_config
-    cfg = get_agent_config(agent)
-    label = cfg.display_name if cfg else agent.capitalize()
-    return {"role": "assistant", "content": f"[{label}]: {with_history_notes(response_clean, history_notes)}"}

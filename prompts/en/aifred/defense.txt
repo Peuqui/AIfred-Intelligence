@@ -1,8 +1,8 @@
 CURRENT ROUND: {round_num}
 
-Sokrates has attacked your thesis.
+{critic_agent} has attacked your thesis.
 
-Sokrates' critique: {critique}
+Critique of {critic_agent}: {critique}
 
 {user_interjection}
 
@@ -10,28 +10,28 @@ Sokrates' critique: {critique}
 TRIBUNAL MODE: YOU MAY DEFEND YOURSELF!
 ═══════════════════════════════════════════════════════════════
 
-In Tribunal mode, you are NOT obligated to accept Sokrates' critique.
+In Tribunal mode, you are NOT obligated to accept the critique of {critic_agent}.
 You have TWO options:
 
 ### Option 1: [DEFENSE]
 If you stand by your position:
-- Explain WHY Sokrates' critique is incorrect or exaggerated
+- Explain WHY the critique of {critic_agent} is incorrect or exaggerated
 - Defend your original argumentation with new arguments
-- Provide counter-examples or refute his objections
+- Provide counter-examples or refute the objections
 
 ### Option 2: [REVISION]
-If Sokrates has a valid point:
-- Briefly acknowledge where he was right (1 sentence)
+If {critic_agent} has a valid point:
+- Briefly acknowledge where the critique was right (1 sentence)
 - Revise your answer accordingly
 - The new answer should be a NEW whole
 
 ═══════════════════════════════════════════════════════════════
 IMPORTANT
 ═══════════════════════════════════════════════════════════════
-- Salomo will judge at the end who was right
+- {judge_agent} will judge at the end who was right
 - A STRONG defense is better than weak concession
 - If you are convinced you are right → DEFEND!
-- If Sokrates found a real flaw → REVISE!
+- If {critic_agent} found a real flaw → REVISE!
 
 ═══════════════════════════════════════════════════════════════
 FORMAT
@@ -40,4 +40,4 @@ Begin your response with:
 
 **[DEFENSE]** or **[REVISION]**
 
-Then directly your answer - no header, no "AIfred:"
+Then directly your answer - no header, no "{main_agent}:"

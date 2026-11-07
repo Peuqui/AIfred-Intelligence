@@ -241,7 +241,7 @@ def test_tribunal_alternates_attack_and_defense_and_the_judge_speaks_last(world:
     # The judge reads the whole debate as an observer: every contribution as a labelled user turn.
     verdict = next(messages for label, messages in world["calls"] if label == "Salomo")
     assert all(message["role"] in ("system", "user") for message in verdict)
-    assert any(message["content"].startswith("[SOKRATES]: ") for message in verdict)
+    assert any(message["content"].startswith("[Sokrates]: ") for message in verdict)   # under his display name
 
 
 def test_a_role_agent_without_its_role_prompt_rejects_the_turn(world: dict[str, Any]) -> None:

@@ -1,8 +1,8 @@
 AKTUELLE RUNDE: {round_num}
 
-Sokrates hat deine These angegriffen.
+{critic_agent} hat deine These angegriffen.
 
-Sokrates' Kritik: {critique}
+Kritik von {critic_agent}: {critique}
 
 {user_interjection}
 
@@ -10,28 +10,28 @@ Sokrates' Kritik: {critique}
 TRIBUNAL-MODUS: DU DARFST DICH VERTEIDIGEN!
 ═══════════════════════════════════════════════════════════════
 
-Im Tribunal-Modus bist du NICHT verpflichtet, Sokrates' Kritik zu akzeptieren.
+Im Tribunal-Modus bist du NICHT verpflichtet, die Kritik von {critic_agent} zu akzeptieren.
 Du hast ZWEI Optionen:
 
 ### Option 1: [VERTEIDIGUNG]
 Wenn du bei deiner Position bleibst:
-- Erkläre WARUM Sokrates' Kritik nicht zutrifft oder überzogen ist
+- Erkläre, WARUM die Kritik von {critic_agent} nicht zutrifft oder überzogen ist
 - Verteidige deine ursprüngliche Argumentation mit neuen Argumenten
-- Bringe Gegenbeispiele oder entkräfte seine Einwände
+- Bringe Gegenbeispiele oder entkräfte die Einwände
 
 ### Option 2: [ÜBERARBEITUNG]
-Wenn Sokrates einen berechtigten Punkt hat:
-- Erkenne kurz an, wo er recht hatte (1 Satz)
+Wenn {critic_agent} einen berechtigten Punkt hat:
+- Erkenne kurz an, wo die Kritik recht hatte (1 Satz)
 - Überarbeite deine Antwort entsprechend
 - Die neue Antwort soll ein NEUES Ganzes sein
 
 ═══════════════════════════════════════════════════════════════
 WICHTIG
 ═══════════════════════════════════════════════════════════════
-- Salomo wird am Ende als Richter urteilen, wer recht hatte
+- {judge_agent} wird am Ende als Richter urteilen, wer recht hatte
 - Eine STARKE Verteidigung ist besser als schwaches Nachgeben
 - Wenn du überzeugt bist, dass du recht hast → VERTEIDIGE!
-- Wenn Sokrates einen echten Fehler gefunden hat → ÜBERARBEITE!
+- Wenn {critic_agent} einen echten Fehler gefunden hat → ÜBERARBEITE!
 
 ═══════════════════════════════════════════════════════════════
 FORMAT
@@ -40,4 +40,4 @@ Beginne deine Antwort mit:
 
 **[VERTEIDIGUNG]** oder **[ÜBERARBEITUNG]**
 
-Dann direkt deine Antwort - kein Header, kein "AIfred:"
+Dann direkt deine Antwort - kein Header, kein "{main_agent}:"

@@ -141,11 +141,15 @@ entfernen; gesehen oder einmal beschrieben), Diktat und Audio-Dateien, Inkognito
 - **Sprachausgabe, Rest:** Musik oder Hörbuch vor einer Lesung anhalten (kommt mit der Audio-Seite);
   eine Blase neu vorlesen lassen (Knopf „neu erzeugen“, heute `resynthesize_bubble_tts` im State).
 
-- **Rollentausch vollständig:** `message_builder.build_messages_from_llm_history` kennt nur die
-  Perspektiven aifred, sokrates, salomo; ein eigener Agent in einer Rolle sähe fremde Antworten als
-  eigene. Die Perspektive wird allgemein (eigene Sprecher-Marke = assistant, alle anderen = user mit
-  Namen). Die Prompts der Modi (`shared/multi_agent_roles.txt`, `sokrates/critic.txt`,
-  `aifred/refinement.txt`, …) nennen die Namen fest und bekommen Platzhalter.
+- **Rollentausch vollständig (erledigt 07.11.2026):** Die Perspektive in
+  `message_builder.build_messages_from_llm_history` gilt für jeden Agenten: eigene Antworten sind
+  `assistant` ohne Marke, alle anderen `user` unter dem aktuellen Anzeigenamen; der Richter
+  (`observer=True`) sieht alles als fremd und behält seine eigene Stil-Erinnerung. Alle Wege
+  schreiben die Kennung als Marke (`[AIFRED]:`, `formatting.assistant_history_entry`, auch die
+  Kanäle), gelesen klein als Kennung (liest auch die Anzeigenamen-Marken alter Kanal-Einträge).
+  Die Rollen-Prompts (`shared/multi_agent_roles`, `critic`, `tribunal`, `refinement`, `defense`,
+  `mediator`, `judge`) nennen keinen Agenten mehr: `{main_agent}`, `{critic_agent}`,
+  `{judge_agent}` aus `agent_config.role_names`, für Server- und Reflex-Zug.
 - **Agenten-Editor:** `create_agent` legt für critic nur „critic“ an, für main keine Rollen-Prompts;
   `_get_role_templates` hält Prompts im Code. Die Vorlagen gehören nach `prompts/`, je Rolle alle
   nötigen Schlüssel.

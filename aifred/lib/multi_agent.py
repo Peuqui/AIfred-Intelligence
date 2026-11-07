@@ -563,6 +563,8 @@ def _build_debate_messages(
     perspective: str,
     detected_lang: str | None,
     current_user_text: str | None = None,
+    *,
+    observer: bool = False,
 ) -> list[dict[str, str]]:
     """Build message list for an agent in a debate.
 
@@ -573,6 +575,7 @@ def _build_debate_messages(
         current_user_text=current_user_text or "",
         perspective=perspective,
         detected_language=detected_lang,
+        observer=observer,
     )
 
     messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
@@ -1013,7 +1016,7 @@ async def run_sokrates_analysis(
                     salomo_system = f"{salomo_system}\n\n{salomo_memory_ctx}"
 
                 # Build messages + compression check
-                salomo_messages = _build_debate_messages(state, salomo_system, "observer", detected_lang)
+                salomo_messages = _build_debate_messages(state, salomo_system, "salomo", detected_lang, observer=True)
 
                 salomo_prompt_tokens = _estimate_prompt_tokens(salomo_system)
                 async for _ in _check_compression_if_needed(state, llm_client, salomo_num_ctx, salomo_prompt_tokens):
@@ -1280,7 +1283,7 @@ async def run_tribunal(
         async for _ in _check_compression_if_needed(state, llm_client, salomo_num_ctx, salomo_prompt_tokens):
             yield
 
-        salomo_messages = _build_debate_messages(state, salomo_system, "observer", detected_lang)
+        salomo_messages = _build_debate_messages(state, salomo_system, "salomo", detected_lang, observer=True)
 
         salomo_msg_tokens = estimate_tokens(salomo_messages, model_name=salomo_model)
         state.add_debug(f"📊 Salomo Verdict: {format_number(salomo_msg_tokens)} / {format_number(salomo_num_ctx)} tokens")

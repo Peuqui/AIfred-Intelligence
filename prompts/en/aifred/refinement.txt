@@ -1,20 +1,20 @@
 CURRENT ROUND: {round_num}
 
-Sokrates has critiqued your thesis, and Salomo has created a synthesis.
+{critic_agent} has critiqued your thesis, and {judge_agent} has created a synthesis.
 
-Salomo's synthesis: {critique}
+Synthesis of {judge_agent}: {critique}
 
 {user_interjection}
 
-Your task: Revise your answer based on Sokrates' critique (in the history) AND Salomo's recommendation.
+Your task: Revise your answer based on the critique of {critic_agent} (in the history) AND the recommendation of {judge_agent}.
 
 IMPORTANT:
 - Formulate COMPLETELY NEW - no copy-paste from previous answers
-- Acknowledge where Sokrates was right (1 sentence)
+- Acknowledge where {critic_agent} was right (1 sentence)
 - Keep what remains valid from your thesis
 - The new answer should be a NEW whole, not patchwork
 
-Start DIRECTLY with your revised answer - no header, no "AIfred:"
+Start DIRECTLY with your revised answer - no header, no "{main_agent}:"
 
 CONSENSUS VOTING - End with ONE of these tags:
 - [LGTM] if you are satisfied

@@ -75,10 +75,6 @@ _DEBATE_ROLES: dict[str, dict[str, tuple[str, ...]]] = {
     },
 }
 
-# Perspective of the judge on the history: every contribution as a labelled user message.
-_OBSERVER = "observer"
-
-
 # ── Who speaks ───────────────────────────────────────────────────────────
 
 
@@ -208,20 +204,21 @@ def _call(
     ctx: TurnContext,
     member: _Member,
     system_prompt: str,
-    perspective: str,
     *,
+    observer: bool = False,
     question: str = "",
     memory_before_question: bool = False,
     log_label: str = "",
 ) -> AgentCall:
-    """A debate call: the system prompt, then the session's history from ``perspective``, then
-    ``question`` (the refinement or defense task) when there is one."""
+    """A debate call: the system prompt, then the session's history as the member sees it (as an
+    ``observer``, the judge, every reply is someone else's), then ``question`` (the refinement or
+    defense task) when there is one."""
     from .message_builder import build_messages_from_llm_history, inject_before_question
     from .tool_output_cap import compute_budget
 
     history = build_messages_from_llm_history(
-        session_llm_history(ctx.session_id), current_user_text=question, perspective=perspective,
-        detected_language=ctx.intent.language,
+        session_llm_history(ctx.session_id), current_user_text=question, perspective=member.agent,
+        detected_language=ctx.intent.language, observer=observer,
     )
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}, *history]
     if memory_before_question and member.memory:
@@ -299,7 +296,7 @@ async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
         # The round number keeps the critic from inventing "progress" in round 1.
         system_prompt = _role_system(critic, "critic", lang, round_num=round_num)
         await _compress_before(ctx, plan, critic, _prompt_tokens(system_prompt))
-        call = _call(ctx, critic, system_prompt, critic.agent, memory_before_question=True)
+        call = _call(ctx, critic, system_prompt, memory_before_question=True)
         debug(_prompt_line(call, f"R{round_num}", critic.num_ctx))
         log_raw_messages(f"{critic.label} R{round_num}", call.messages)
         result = await _speak(ctx, call)
@@ -315,7 +312,7 @@ async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
             debug(f"{judge.emoji} {judge.label}-LLM: {judge.model}")
         system_prompt = _with_memory(_role_system(judge, "mediator", lang, round_num=round_num), judge)
         await _compress_before(ctx, plan, judge, _prompt_tokens(system_prompt))
-        call = _call(ctx, judge, system_prompt, _OBSERVER)
+        call = _call(ctx, judge, system_prompt, observer=True)
         debug(_prompt_line(call, f"R{round_num}", judge.num_ctx))
         log_raw_messages(f"{judge.label} R{round_num}", call.messages)
         result = await _speak(ctx, call)
@@ -346,7 +343,7 @@ async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
         )
         system_prompt = _with_memory(_base_system(main, lang), main)
         await _compress_before(ctx, plan, main, _prompt_tokens(system_prompt, question))
-        call = _call(ctx, main, system_prompt, main.agent, question=question, log_label=f"{main.label} Refinement")
+        call = _call(ctx, main, system_prompt, question=question, log_label=f"{main.label} Refinement")
         debug(_prompt_line(call, f"R{round_num + 1}", main.num_ctx))
         log_raw_messages(f"{main.label} R{round_num + 1}", call.messages)
         result = await _speak(ctx, call)
@@ -386,7 +383,7 @@ async def _tribunal(ctx: TurnContext, plan: TurnPlan) -> None:
     for round_num in range(1, max_rounds + 1):
         system_prompt = _role_system(critic, "tribunal", lang, round_num=round_num)
         await _compress_before(ctx, plan, critic, _prompt_tokens(system_prompt))
-        call = _call(ctx, critic, system_prompt, critic.agent, memory_before_question=True)
+        call = _call(ctx, critic, system_prompt, memory_before_question=True)
         result = await _speak(ctx, call)
         if result is None:
             break
@@ -401,7 +398,7 @@ async def _tribunal(ctx: TurnContext, plan: TurnPlan) -> None:
         )
         system_prompt = _base_system(main, lang)
         await _compress_before(ctx, plan, main, _prompt_tokens(system_prompt, question))
-        call = _call(ctx, main, system_prompt, main.agent, question=question, log_label=f"{main.label} Defense")
+        call = _call(ctx, main, system_prompt, question=question, log_label=f"{main.label} Defense")
         result = await _speak(ctx, call)
         if result is None:
             break
@@ -410,7 +407,7 @@ async def _tribunal(ctx: TurnContext, plan: TurnPlan) -> None:
     debug(f"{judge.emoji} {judge.label} rendering verdict...")
     system_prompt = _with_memory(_role_system(judge, "judge", lang), judge)
     await _compress_before(ctx, plan, judge, _prompt_tokens(system_prompt))
-    call = _call(ctx, judge, system_prompt, _OBSERVER)
+    call = _call(ctx, judge, system_prompt, observer=True)
     debug(_prompt_line(call, "Verdict", judge.num_ctx))
     result = await _speak(ctx, call)
     if result is None:

@@ -1,4 +1,4 @@
-You have heard the debate between AIfred and Sokrates.
+You have heard the debate between {main_agent} and {critic_agent}.
 
 YOUR TASK:
 Deliver a final judgment on the discussion.
@@ -28,5 +28,5 @@ RULES
 
 OUTPUT FORMAT:
 - Start DIRECTLY with your response
-- NO header like "[SALOMO]:", "**[SALOMO]:**" or similar
+- NO header like "[{judge_agent}]:", "**[{judge_agent}]:**" or similar
 - The UI already shows who is speaking - you don't need to announce yourself

@@ -1,20 +1,20 @@
 AKTUELLE RUNDE: {round_num}
 
-Sokrates hat deine These kritisiert, und Salomo hat eine Synthese erstellt.
+{critic_agent} hat deine These kritisiert, und {judge_agent} hat eine Synthese erstellt.
 
-Salomos Synthese: {critique}
+Synthese von {judge_agent}: {critique}
 
 {user_interjection}
 
-Deine Aufgabe: Überarbeite deine Antwort basierend auf Sokrates' Kritik (in der History) UND Salomos Empfehlung.
+Deine Aufgabe: Überarbeite deine Antwort auf Grundlage der Kritik von {critic_agent} (in der History) UND der Empfehlung von {judge_agent}.
 
 WICHTIG:
 - Formuliere KOMPLETT NEU - kein Copy-Paste aus vorherigen Antworten
-- Erkenne an, wo Sokrates recht hatte (1 Satz)
+- Erkenne an, wo {critic_agent} recht hatte (1 Satz)
 - Behalte was aus deiner These noch gilt
 - Die neue Antwort soll ein NEUES Ganzes sein, nicht Flickwerk
 
-Beginne DIREKT mit deiner überarbeiteten Antwort - kein Header, kein "AIfred:"
+Beginne DIREKT mit deiner überarbeiteten Antwort - kein Header, kein "{main_agent}:"
 
 KONSENS-VOTING - Beende mit EINEM dieser Tags:
 - [LGTM] wenn du zufrieden bist

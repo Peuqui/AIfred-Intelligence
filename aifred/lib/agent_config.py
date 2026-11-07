@@ -263,6 +263,14 @@ def agent_for_role(role: str) -> str:
     raise AgentRoleError(f"No agent has the role '{role}' (data/agents.json)")
 
 
+def role_names() -> dict[str, str]:
+    """The display names of the agents in the debate roles, as the role prompts name them:
+    ``{main_agent}``, ``{critic_agent}``, ``{judge_agent}``. Any agent can hold a role, so no prompt
+    names one itself."""
+    agents = load_agents()
+    return {f"{role}_agent": agents[agent_for_role(role)].display_name for role in (ROLE_MAIN, ROLE_CRITIC, ROLE_JUDGE)}
+
+
 def role_prompt_name(agent_id: str, key: str) -> str:
     """The agent's prompt ``key`` as load_prompt names it: its path in the agent's prompt mapping
     without ``.txt``."""
@@ -278,11 +286,11 @@ def role_prompt_name(agent_id: str, key: str) -> str:
 
 
 def role_prompt(agent_id: str, key: str, lang: str, **variables: Any) -> str:
-    """The agent's prompt ``key`` (e.g. "critic", "refinement") in ``lang``, its placeholders filled
-    (``load_prompt`` takes any value its template formats)."""
+    """The agent's prompt ``key`` (e.g. "critic", "refinement") in ``lang``, its placeholders filled:
+    the names of the roles (``role_names``) and ``variables``."""
     from .prompt_loader import load_prompt
 
-    return load_prompt(role_prompt_name(agent_id, key), lang=lang, **variables)
+    return load_prompt(role_prompt_name(agent_id, key), lang=lang, **role_names(), **variables)
 
 
 # Generic fallback used when an agent has no per-engine voice default.

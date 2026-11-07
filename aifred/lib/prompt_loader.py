@@ -444,7 +444,8 @@ def load_multi_agent_roles(lang: str | None = None) -> str:
     Returns:
         Multi-agent roles prompt text
     """
-    return load_prompt('shared/multi_agent_roles', lang=lang)
+    from .agent_config import role_names
+    return load_prompt('shared/multi_agent_roles', lang=lang, **role_names())
 
 
 def load_memory_instructions(lang: str | None = None) -> str:
@@ -665,7 +666,8 @@ def get_sokrates_critic_prompt(round_num: int = 1, lang: str | None = None) -> s
     Returns:
         Sokrates critic system prompt with timestamp prefix and round number
     """
-    return load_prompt('sokrates/critic', lang=lang, round_num=round_num)
+    from .agent_config import role_names
+    return load_prompt('sokrates/critic', lang=lang, round_num=round_num, **role_names())
 
 
 def get_sokrates_devils_advocate_prompt(lang: str | None = None) -> str:
@@ -699,12 +701,14 @@ def get_aifred_refinement_prompt(
     Returns:
         Formatted refinement prompt with critique and timestamp prefix
     """
+    from .agent_config import role_names
     return load_prompt(
         'aifred/refinement',
         lang=lang,
         critique=critique,
         user_interjection=user_interjection,
-        round_num=round_num
+        round_num=round_num,
+        **role_names(),
     )
 
 
@@ -727,7 +731,8 @@ def get_sokrates_tribunal_prompt(round_num: int = 1, lang: str | None = None) ->
     Returns:
         Sokrates tribunal system prompt with round number
     """
-    return load_prompt('sokrates/tribunal', lang=lang, round_num=round_num)
+    from .agent_config import role_names
+    return load_prompt('sokrates/tribunal', lang=lang, round_num=round_num, **role_names())
 
 
 def get_aifred_defense_prompt(
@@ -752,12 +757,14 @@ def get_aifred_defense_prompt(
     Returns:
         Formatted defense prompt with critique and round number
     """
+    from .agent_config import role_names
     return load_prompt(
         'aifred/defense',
         lang=lang,
         critique=critique,
         user_interjection=user_interjection,
-        round_num=round_num
+        round_num=round_num,
+        **role_names(),
     )
 
 
@@ -793,7 +800,8 @@ def get_salomo_mediator_prompt(round_num: int = 1, lang: str | None = None) -> s
     Returns:
         Salomo mediator system prompt with round number
     """
-    return load_prompt('salomo/mediator', lang=lang, round_num=round_num)
+    from .agent_config import role_names
+    return load_prompt('salomo/mediator', lang=lang, round_num=round_num, **role_names())
 
 
 def get_salomo_judge_prompt(lang: str | None = None) -> str:
@@ -808,7 +816,8 @@ def get_salomo_judge_prompt(lang: str | None = None) -> str:
     Returns:
         Salomo judge system prompt
     """
-    return load_prompt('salomo/judge', lang=lang)
+    from .agent_config import role_names
+    return load_prompt('salomo/judge', lang=lang, **role_names())
 
 
 # ============================================================

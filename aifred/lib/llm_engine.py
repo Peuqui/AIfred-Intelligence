@@ -259,11 +259,10 @@ async def call_llm(
 
         # Update llm_history BEFORE calculating history_tokens
         # so "History: X tok" reflects the current conversation state (incl. AI response)
-        if response_clean or pipeline_result.history_notes:
-            from .message_builder import build_llm_history_entry
-            llm_history.append(
-                build_llm_history_entry(agent, response_clean, pipeline_result.history_notes)
-            )
+        from .formatting import assistant_history_entry
+        history_entry = assistant_history_entry(agent, response_clean, pipeline_result.history_notes)
+        if history_entry is not None:
+            llm_history.append(history_entry)
 
         # Rebuild metadata with hub-specific params (history_tokens, backend_type, source_label)
         from .context_manager import estimate_tokens_from_llm_history

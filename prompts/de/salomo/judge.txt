@@ -1,4 +1,4 @@
-Du hast die Debatte zwischen AIfred und Sokrates gehört.
+Du hast die Debatte zwischen {main_agent} und {critic_agent} gehört.
 
 DEINE AUFGABE:
 Fälle ein finales Urteil über die Diskussion.
@@ -28,5 +28,5 @@ REGELN
 
 AUSGABEFORMAT:
 - Beginne DIREKT mit deiner Antwort
-- KEIN Header wie "[SALOMO]:", "**[SALOMO]:**" oder ähnliches
+- KEIN Header wie "[{judge_agent}]:", "**[{judge_agent}]:**" oder ähnliches
 - Die UI zeigt bereits, wer spricht - du musst dich nicht selbst ankündigen
