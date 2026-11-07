@@ -63,10 +63,7 @@ def test_announce_leaves_the_tones_to_the_plugin_setting(client: TestClient) -> 
     # the room's session: the puck's audio is kept on the bubble recorded there
     assert (channel, room, text, session_id) == ("freeecho2", "wohnzimmer", "Hallo", "session-wohnzimmer")
     # no tone flags from the caller: the Echo plugin's setting decides
-    assert metadata == {
-        "audio_type": "notification", "proactive": True,
-        "paragraphs": ["Hallo"], "paragraph_pause_ms": announce.ANNOUNCE_PAUSE_MS,
-    }
+    assert metadata == {"audio_type": "notification", "proactive": True, "paragraph_pause_ms": announce.ANNOUNCE_PAUSE_MS}
 
 
 def test_several_paragraphs_are_one_announcement(client: TestClient) -> None:
@@ -74,9 +71,9 @@ def test_several_paragraphs_are_one_announcement(client: TestClient) -> None:
     assert response.status_code == 200
     assert len(client.delivered) == 1  # type: ignore[attr-defined]
     _, _, text, _, metadata = client.delivered[0]  # type: ignore[attr-defined]
-    assert text == "Erster Absatz. Zweiter Absatz."
-    # one stream: the paragraphs travel together, tones are not the caller's business
-    assert metadata["paragraphs"] == ["Erster Absatz.", "Zweiter Absatz."]
+    # one stream: the paragraphs travel together as one text, divided where the service cuts and pauses;
+    # tones are not the caller's business
+    assert text == "Erster Absatz.\n\nZweiter Absatz."
     assert metadata["paragraph_pause_ms"] == 700  # reaches the speech request as paragraph_pause_ms
     assert "start_tone" not in metadata and "end_tone" not in metadata
 
@@ -85,7 +82,7 @@ def test_the_announcement_is_documented_in_the_rooms_session(client: TestClient)
     _post(client, texts=["Erster Absatz.", "Zweiter."], speaker="Whisper")
     assert client.recorded == [  # type: ignore[attr-defined]
         # Bubble: Sprecher nur in der Kopfzeile; das Modell sieht „Nachricht von <Sprecher>“
-        ("freeecho2", "wohnzimmer", "Whisper", "Erster Absatz. Zweiter.", "Whisper"),
+        ("freeecho2", "wohnzimmer", "Whisper", "Erster Absatz.\n\nZweiter.", "Whisper"),
     ]
     # the bubble first, so a short announcement cannot be spoken before it exists
     assert client.order == ["record", "announce"]  # type: ignore[attr-defined]

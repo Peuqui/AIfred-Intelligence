@@ -56,18 +56,16 @@ class TtsReplyMixin(BaseChannel):
             or bool(outbound.metadata.get("proactive"))
         )
 
-        # Wer spricht und wie der Text zerlegt wird, entscheidet der TTS-Dienst nach AIfreds Liste;
-        # das Hauptmodell wird dafür nie neu geladen. channel_language() = Haushaltssprache —
-        # ohne sie synthetisieren sprachsensitive Engines (xtts, dashscope_audio3) mit dem Default.
-        # Der erste Abschnitt wird erzeugt und läuft los, während die übrigen noch erzeugt werden.
-        # session_id: Die Blase dieser Antwort bekommt, was der Puck gesprochen hat, damit es im
-        # Browser wie eine Browser-Antwort nachgehört werden kann.
-        agent = original.target_agent if original else "aifred"
+        # Welche Engine spricht und wie der Text zerlegt wird, entscheidet der TTS-Dienst nach AIfreds
+        # Liste; das Hauptmodell wird dafür nie neu geladen. Jeder Beitrag spricht mit der Stimme
+        # seines Agenten (eine Debatte: jeder Sprecher mit seiner). channel_language() =
+        # Haushaltssprache — ohne sie synthetisieren sprachsensitive Engines (xtts, dashscope_audio3)
+        # mit dem Default. Der erste Abschnitt wird erzeugt und läuft los, während die übrigen noch
+        # erzeugt werden. session_id: Jede Blase bekommt, was der Puck von ihr gesprochen hat, damit
+        # es im Browser wie eine Browser-Antwort nachgehört werden kann.
         buffer = await start_speech_stream(
-            outbound.metadata.get("paragraphs") or [outbound.text],
-            int(outbound.metadata.get("paragraph_pause_ms", 0)),
-            agent, channel_language(), f"FreeEcho.2 {room}",
-            session_id=outbound.metadata.get("session_id"),
+            outbound.parts, int(outbound.metadata.get("paragraph_pause_ms", 0)),
+            channel_language(), f"FreeEcho.2 {room}", session_id=outbound.metadata.get("session_id"),
         )
         if buffer is None:
             self.channel_log(f"[FreeEcho.2 {room}] nothing spoken — reply stays silent", "error")

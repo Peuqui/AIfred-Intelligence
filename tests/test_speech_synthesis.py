@@ -19,6 +19,8 @@ from fake_tts_service import (
 
 from aifred.lib import speech_synthesis, tts_client
 from aifred.lib.audio_channels._audio_orchestrator import KEEPALIVE_SILENCE, silence_pcm
+from aifred.lib.config import SPEAKER_CHANGE_PAUSE_MS
+from aifred.lib.envelope import ReplyPart
 
 
 def run(coro):
@@ -39,10 +41,13 @@ def service(monkeypatch, tmp_path):
 
 
 def start(paragraphs, pause_ms=0, agent="aifred", session_id=None):
+    """One speaker: the paragraphs as one part, divided by blank lines (as the announcement sends them)."""
+    return start_parts([ReplyPart(agent, "\n\n".join(paragraphs))], pause_ms, session_id)
+
+
+def start_parts(parts, pause_ms=0, session_id=None):
     async def go():
-        buffer = await speech_synthesis.start_speech_stream(
-            paragraphs, pause_ms, agent, "de", "test", session_id=session_id,
-        )
+        buffer = await speech_synthesis.start_speech_stream(parts, pause_ms, "de", "test", session_id=session_id)
         if buffer is not None and buffer.producer is not None:
             await buffer.producer
         return buffer
@@ -266,6 +271,35 @@ class TestSpokenAudioOnTheBubble:
         service.script = [audio_frame(b"\x01") + summary_frame()]
         start(["Text hier."], session_id=None)
         assert saved == [] and attached == []
+
+
+class TestSeveralSpeakers:
+    """A debate on the Echo: each part in its agent's voice, the speaker change as silence, each bubble keeps its own audio."""
+
+    def test_each_part_speaks_in_its_agents_voice_and_lands_on_its_bubble(self, monkeypatch, tmp_path):
+        fake = FakeTTSService([catalog_row("xtts")])
+        voice = {"speed": "1.0", "pitch": "1.0"}
+        install_fake_service(monkeypatch, tmp_path, fake, listed=["xtts"], agent_voices={
+            "xtts": {"aifred": {"voice": "Alice", **voice}, "sokrates": {"voice": "Bob", **voice}},
+        })
+        monkeypatch.setattr(speech_synthesis, "_convert_to_pcm", fake_convert)
+        kept: list[tuple[str, str, int]] = []
+
+        async def put_on_bubble(session_id: str, bubble: str, urls: list[str], _browser: list, _note: str) -> bool:
+            kept.append((session_id, bubble, len(urls)))
+            return True
+
+        monkeypatch.setattr("aifred.lib.reply_speech.put_on_bubble", put_on_bubble)
+        fake.script = [audio_frame(b"\x01" * 4) + summary_frame(), audio_frame(b"\x02" * 4) + audio_frame(b"\x03" * 4) + summary_frame()]
+        buffer = start_parts([ReplyPart("aifred", "Ja, gesund.", "t1"), ReplyPart("sokrates", "Woher weißt du das?", "t2")], session_id="abc")
+        assert [(sent["text"], sent["voices"]["xtts"]["voice"]) for sent in fake.speaks] == [("Ja, gesund.", "Alice"), ("Woher weißt du das?", "Bob")]
+        assert drain(buffer) == b"\x01" * 4 + silence_pcm(SPEAKER_CHANGE_PAUSE_MS) + b"\x02" * 4 + b"\x03" * 4
+        assert kept == [("abc", "t1", 1), ("abc", "t2", 2)]
+
+    def test_a_part_with_nothing_to_speak_is_left_out_without_a_pause(self, service):
+        service.script = [audio_frame(b"\x01" * 4) + summary_frame()]
+        buffer = start_parts([ReplyPart("aifred", "<think>nur Gedanken</think>", "t1"), ReplyPart("aifred", "Gesagt.", "t2")])
+        assert [sent["text"] for sent in service.speaks] == ["Gesagt."] and drain(buffer) == b"\x01" * 4
 
 
 def test_attach_reply_audio_takes_the_newest_reply_without_audio(tmp_path, monkeypatch):

@@ -7,7 +7,8 @@ announcement of a voice change and the keep-alive markers are the service's busi
 (``tts_client``); the language is the caller's. What stays here: AIfred's own text filter
 (``tts_text_filter``), the voices of the agent (``tts_voices``), the conversion of the
 delivered audio to PCM for the device, the silence of the pause markers and keeping what was
-spoken on the reply's bubble. Channels only hand the PCM to their device.
+spoken on the reply's bubble. A reply of several speakers (a debate) is read part by part, each in its
+agent's voice, into the same stream. Channels only hand the PCM to their device.
 """
 
 from __future__ import annotations
@@ -15,13 +16,14 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from .audio_channels._audio_orchestrator import (
     KEEPALIVE_SILENCE,
     TTSBuffer,
     silence_pcm,
 )
-from .config import REPLAY_PARAGRAPH_PAUSE_MS
+from .config import REPLAY_PARAGRAPH_PAUSE_MS, SPEAKER_CHANGE_PAUSE_MS
 from .debug_bus import debug
 from .logging_utils import log_message
 from .tts_client import (
@@ -34,6 +36,9 @@ from .tts_client import (
 from .tts_service import escalation_report, request_engines, spoken_note
 from .tts_text_filter import strip_ui_only_content
 from .tts_voices import voices_for
+
+if TYPE_CHECKING:
+    from .envelope import ReplyPart
 
 PCM_SAMPLE_RATE = 48000
 
@@ -151,43 +156,70 @@ async def speak_to_files(text: str, *, language: str, agent: str) -> SpokenReadi
     return reading
 
 
-async def keep_spoken_audio(reading: SpokenReading, language: str, label: str, session_id: str | None) -> None:
-    """What the device spoke goes onto the reply's bubble like a browser reply: the segments joined
-    into the session's audio, with who spoke. Without a session (a tool's announcement has no
-    bubble of its own) nothing to keep."""
+async def keep_spoken_audio(
+    reading: SpokenReading, bubble: str | None, language: str, label: str, session_id: str | None,
+) -> None:
+    """What the device spoke of a part goes onto its bubble like a browser reply: the segments joined
+    into the session's audio, with who spoke. ``bubble`` is its timestamp; None = the newest bubble
+    without audio (an announcement, recorded right before). Without a session (a tool's announcement
+    has no bubble of its own) nothing to keep."""
     if not session_id or not reading.audio_urls:
         return
     from .audio_processing import save_audio_to_session
+    from .reply_speech import put_on_bubble
     from .session_storage import attach_reply_audio
 
+    note = await asyncio.to_thread(spoken_note, reading.summary.trace, language) if reading.summary else ""
+    if bubble is not None:
+        if not await put_on_bubble(session_id, bubble, list(reading.audio_urls), [], note):
+            log_message(f"[{label}] spoken audio not kept on bubble {bubble} of session {session_id[:8]}", "warning")
+        return
     session_audio = await asyncio.to_thread(save_audio_to_session, list(reading.audio_urls), session_id)
     if session_audio is None:
         log_message(f"[{label}] spoken audio not saved to session {session_id[:8]}", "warning")
         return
-    note = await asyncio.to_thread(spoken_note, reading.summary.trace, language) if reading.summary else ""
     if await asyncio.to_thread(attach_reply_audio, session_id, session_audio, note):
         log_message(f"[{label}] spoken audio kept on the bubble ({len(reading.audio_urls)} segment(s))")
     else:
         log_message(f"[{label}] no reply bubble without audio in session {session_id[:8]}", "warning")
 
 
+@dataclass
+class _SpokenPart:
+    part: ReplyPart
+    text: str
+    reading: SpokenReading = field(default_factory=SpokenReading)
+
+
+async def _parts_pcm(
+    parts: Sequence[_SpokenPart], *, language: str, paragraph_pause_ms: int, label: str,
+) -> AsyncIterator[bytes]:
+    """The PCM of every part in order, each a reading in its agent's voice, the speaker change as silence."""
+    for index, spoken in enumerate(parts):
+        if index:
+            yield silence_pcm(SPEAKER_CHANGE_PAUSE_MS)
+        async for pcm in _speech_pcm(
+            spoken.text, language=language, agent=spoken.part.agent, paragraph_pause_ms=paragraph_pause_ms,
+            label=label, reading=spoken.reading,
+        ):
+            yield pcm
+
+
 async def start_speech_stream(
-    paragraphs: Sequence[str], paragraph_pause_ms: int, agent: str, language: str, label: str,
+    parts: Sequence[ReplyPart], paragraph_pause_ms: int, language: str, label: str,
     session_id: str | None = None,
 ) -> TTSBuffer | None:
-    """Start a reading and return the buffer once the first segment is converted; the rest is
-    appended by a task while the receiver already sends. ``None`` (loudly logged) if there is
-    nothing to speak or the service cannot speak: the device stays silent. When the reading is
-    over, what was spoken goes onto the bubble of the reply in ``session_id``."""
-    text = speakable_text(paragraphs)
-    if not text:
+    """Start the reading of ``parts`` (each in its agent's voice, paragraphs divided by blank lines) and
+    return the buffer once the first segment is converted; the rest is appended by a task while the
+    receiver already sends. ``None`` (loudly logged) if there is nothing to speak or the service cannot
+    speak: the device stays silent. When the reading is over, what was spoken of each part goes onto its
+    bubble in ``session_id``."""
+    spoken = [_SpokenPart(part, text) for part in parts if (text := speakable_text([part.text]))]
+    if not spoken:
         log_message(f"[{label}] nothing to speak", "warning")
         return None
-    reading = SpokenReading()
     try:
-        pieces = _speech_pcm(
-            text, language=language, agent=agent, paragraph_pause_ms=paragraph_pause_ms, label=label, reading=reading,
-        )
+        pieces = _parts_pcm(spoken, language=language, paragraph_pause_ms=paragraph_pause_ms, label=label)
         first = await anext(pieces, None)
     except TTSSuiteError as error:
         log_message(f"[{label}] {type(error).__name__}: {error} — device stays silent", "error")
@@ -201,13 +233,13 @@ async def start_speech_stream(
     buffer = TTSBuffer(growing=True)
     buffer.append(first)
     buffer.producer = asyncio.create_task(
-        _produce_speech(buffer, pieces, reading, language, label, session_id), name=f"speech-producer-{label}",
+        _produce_speech(buffer, pieces, spoken, language, label, session_id), name=f"speech-producer-{label}",
     )
     return buffer
 
 
 async def _produce_speech(
-    buffer: TTSBuffer, pieces: AsyncIterator[bytes], reading: SpokenReading, language: str, label: str,
+    buffer: TTSBuffer, pieces: AsyncIterator[bytes], spoken: Sequence[_SpokenPart], language: str, label: str,
     session_id: str | None,
 ) -> None:
     """Producer of the growing buffer: appends the rest of the reading. A failure (service error,
@@ -224,4 +256,5 @@ async def _produce_speech(
         failed = True
     buffer.close(failed=failed)
     # Also a stream that broke off: what was spoken until then stays listenable.
-    await keep_spoken_audio(reading, language, label, session_id)
+    for part in spoken:
+        await keep_spoken_audio(part.reading, part.part.bubble, language, label, session_id)

@@ -26,6 +26,16 @@ class InboundMessage:
     task: bool = False
 
 
+@dataclass(frozen=True)
+class ReplyPart:
+    """One speaker's part of what goes out, for a channel that speaks (FreeEcho.2): each part in its
+    speaker's voice, what was spoken onto its bubble."""
+
+    agent: str                 # whose voice
+    text: str
+    bubble: str | None = None  # timestamp of its bubble in the session; None = the newest one without audio
+
+
 @dataclass
 class OutboundMessage:
     """Normalised outgoing reply to any channel."""
@@ -36,3 +46,4 @@ class OutboundMessage:
     text: str           # Reply text
     media: str | None = None   # optional image (local path or URL) to attach
     metadata: dict = field(default_factory=dict)   # Channel-specific extras
+    parts: list[ReplyPart] = field(default_factory=list)   # who says what, in order (a speaking channel)

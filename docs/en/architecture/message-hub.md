@@ -124,8 +124,7 @@ When a message is addressed to a specific agent, that agent answers.
 There is no function per agent: the message runs as a turn of the turn service
 (`turn_service.run_turn`, since 07.11.2026 the same as in the Vue chat); this
 works for AIfred, Sokrates, Salomo and every custom agent from the agent
-configuration. Afterwards `process_inbound()` sets `message.target_agent`
-(FreeEcho.2 speaks with that agent's voice).
+configuration. Afterwards `process_inbound()` sets `message.target_agent`.
 
 Detection runs in the turn (`detect_query_intent_and_addressee()`, the same as
 in the browser): addressee, language, mode switch. Routing priority (highest wins):
@@ -140,7 +139,12 @@ in the browser): addressee, language, mode switch. Routing priority (highest win
 
 When the session is in a multi-agent mode, several agents speak; the channel
 gets every contribution of the turn in order, each with "— Name —"
-(`outbound_text`). An agent switched off does not answer, nor does another in
+(`outbound_text`; Peuqui 07.11.2026: whoever wants a debate wants to hear it).
+A speaking channel also gets each contribution with its speaker and bubble
+(`OutboundMessage.parts`, `outbound_parts`): FreeEcho.2 reads each in its agent's
+voice, with a pause at each change of speaker (`SPEAKER_CHANGE_PAUSE_MS`), and
+every bubble keeps what was spoken of it. A mode switch's confirmation is spoken
+by the agent addressed, an announcement by AIfred. An agent switched off does not answer, nor does another in
 its place. A text AIfred builds itself as a task (a scheduled job, an alert:
 `InboundMessage.task`) skips the detection: it holds no person's words, its
 agent is pinned, it speaks the interface's language (07.11.2026: a job's

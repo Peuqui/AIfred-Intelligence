@@ -458,6 +458,8 @@ def test_a_channel_message_is_the_chats_turn_within_its_senders_rights(world: di
     assert (rights["max_tier"], rights["trust"], rights["source"], rights["metadata"]) == (1, "owner", "telegram", {"note": "vom Handy"})
     assert channel.sent == [outbound]
     assert outbound.text == "Hallo Peuqui." and outbound.metadata == {"chat_id": 42, "session_id": SESSION}
+    reply = _data()["chat_history"][1]
+    assert [(part.agent, part.text, part.bubble) for part in outbound.parts] == [("aifred", "Hallo Peuqui.", reply["timestamp"])]
     assert "token" in _kinds() and world["hub"][-1] == "done"     # a tab on the session follows live
 
 
@@ -523,9 +525,23 @@ def test_every_speaker_of_a_turn_goes_out_named_when_several_spoke() -> None:
     from aifred.lib.message_processor import outbound_text
     from aifred.lib.turn_service import TurnReply
 
-    alone = [TurnReply("aifred", "Gern.", silent=False)]
-    debate = [TurnReply("aifred", "Ja.", silent=False), TurnReply("sokrates", "Warum?", silent=False)]
-    switched = [TurnReply("system", "✅ **Tribunal**", silent=False), TurnReply("salomo", "So sei es.", silent=False)]
+    alone = [TurnReply("aifred", "Gern.", silent=False, bubble="t0")]
+    debate = [TurnReply("aifred", "Ja.", silent=False, bubble="t1"), TurnReply("sokrates", "Warum?", silent=False, bubble="t2")]
+    switched = [TurnReply("system", "✅ **Tribunal**", silent=False, bubble="t3"), TurnReply("salomo", "So sei es.", silent=False, bubble="t4")]
     assert outbound_text(alone) == "Gern."
     assert outbound_text(debate) == "— AIfred —\n\nJa.\n\n— Sokrates —\n\nWarum?"
     assert outbound_text(switched) == "✅ **Tribunal**\n\n— Salomo —\n\nSo sei es."   # a confirmation speaks for nobody
+
+
+def test_a_speaking_channel_gets_each_reply_with_its_speaker_and_bubble() -> None:
+    from aifred.lib.envelope import ReplyPart
+    from aifred.lib.message_processor import outbound_parts
+    from aifred.lib.turn_service import TurnReply
+
+    replies = [
+        TurnReply("system", "✅ **Tribunal**", silent=False, bubble="t1"), TurnReply("aifred", "Ja.", silent=False, bubble="t2"),
+        TurnReply("sokrates", "Warum?", silent=False, bubble="t3"), TurnReply("salomo", "", silent=False, bubble="t4"),
+    ]
+    assert outbound_parts(replies, "aifred") == [   # the confirmation in the voice of the one addressed; nothing to say, no part
+        ReplyPart("aifred", "✅ **Tribunal**", "t1"), ReplyPart("aifred", "Ja.", "t2"), ReplyPart("sokrates", "Warum?", "t3"),
+    ]

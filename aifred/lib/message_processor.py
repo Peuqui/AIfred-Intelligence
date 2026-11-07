@@ -13,8 +13,9 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
+from .agent_config import BASE_AGENT
 from .config import MESSAGE_HUB_OWNER
-from .envelope import InboundMessage, OutboundMessage
+from .envelope import InboundMessage, OutboundMessage, ReplyPart
 from .formatting import build_channel_chat_entry
 from .logging_utils import log_exception, log_message
 from .plugin_base import BaseChannel
@@ -349,6 +350,7 @@ async def process_inbound(message: InboundMessage) -> OutboundMessage | None:
             recipient=message.sender,
             text=outbound_text(outcome.replies),
             metadata=reply_metadata,
+            parts=outbound_parts(outcome.replies, message.target_agent),
         )
         if plugin and _is_auto_reply_enabled(message.channel):
             await plugin.send_reply(outbound, message)
@@ -396,7 +398,7 @@ def _turn_origin(
 def outbound_text(replies: Sequence[TurnReply]) -> str:
     """What goes back to the channel: every reply of the turn in order, cleaned for outside. A reply
     names its speaker when another agent than AIfred answered, or when several spoke (a debate)."""
-    from .agent_config import BASE_AGENT, agent_display_name
+    from .agent_config import agent_display_name
     from .security import sanitize_outbound
 
     named = len(replies) > 1 or replies[0].agent != BASE_AGENT
@@ -407,6 +409,18 @@ def outbound_text(replies: Sequence[TurnReply]) -> str:
             text = f"— {agent_display_name(reply.agent)} —\n\n{text}"
         parts.append(text)
     return "\n\n".join(parts)
+
+
+def outbound_parts(replies: Sequence[TurnReply], voice: str) -> list[ReplyPart]:
+    """Who says what, for a channel that speaks: every reply with text in its speaker's voice and its bubble,
+    cleaned for outside. A mode switch's confirmation speaks for nobody: ``voice`` reads it (the agent the
+    message went to)."""
+    from .security import sanitize_outbound
+
+    return [
+        ReplyPart(reply.agent if reply.agent != "system" else voice, sanitize_outbound(reply.text), reply.bubble)
+        for reply in replies if reply.text.strip()
+    ]
 
 
 def channel_display_label(channel: str) -> str:
@@ -664,9 +678,12 @@ async def announce_to_channel(
     if not target:
         log_message(f"announce: no recipient/allowlist for '{channel}'", "warning")
         return False
+    # An announcement speaks in AIfred's voice; its bubble is the newest one without audio (announce_into_rooms
+    # records it right before).
     outbound = OutboundMessage(
         channel=channel, channel_id=target, recipient=target,
         text=text, media=media, metadata={**(metadata or {}), "session_id": session_id},
+        parts=[ReplyPart(BASE_AGENT, text)],
     )
     dummy = InboundMessage(
         channel=channel, channel_id=target, sender="system",

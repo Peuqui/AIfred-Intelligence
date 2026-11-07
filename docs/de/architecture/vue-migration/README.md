@@ -139,8 +139,10 @@ der neue Dienst entsteht daneben und ersetzt beim Wechsel beide alten Pfade.
   Kompression, Diskussionsmodi, Moduswechsel samt Bestätigung, Inkognito je Sitzung (vorher der globale
   `agent_memory_enabled`, in `settings.json` nicht gesetzt), dieselbe Blase wie der Browser und den
   Live-Strom für einen offenen Tab. In einem Diskussionsmodus gehen alle Beiträge hinaus, jeder mit
-  „— Name —“ (Peuqui gefragt, ob nur der letzte). Im Browser vorgelesen wird nur ein Browser-Zug; der
-  Kanal spricht selbst. Einen Text, den AIfred selbst als Aufgabe baut (Auftrag, Alarm:
+  „— Name —“ (Peuqui 07.11.2026: wer eine Diskussion will, will sie hören); der Echo liest jeden Beitrag mit
+  der Stimme seines Agenten und legt das Gesprochene an dessen Blase (`OutboundMessage.parts`; vorher sprach
+  er alles mit der Stimme des angesprochenen und hängte es an die neueste Blase). Im Browser vorgelesen wird
+  nur ein Browser-Zug; der Kanal spricht selbst. Einen Text, den AIfred selbst als Aufgabe baut (Auftrag, Alarm:
   `InboundMessage.task`), liest die Absichtserkennung nicht; der feste Agent antwortet in der Sprache der
   Oberfläche. Gefunden im Live-Test (07.11.2026, Qwen3VL-30B-A3B): die Vorlage eines Auftrags galt als
   reiner Wechsel in den Standard-Modus, der Auftrag lieferte nur die Bestätigung; danach rechnete derselbe

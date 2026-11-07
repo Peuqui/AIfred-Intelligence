@@ -1294,6 +1294,8 @@ TTS_BROWSER_DEFAULT_UNIT = "sentence"
 BROWSER_PARAGRAPH_PAUSE_MS = int(os.environ.get("BROWSER_PARAGRAPH_PAUSE_MS", "0"))
 # A bubble's replay is ONE audio file (the segments joined): no pause markers are asked for.
 REPLAY_PARAGRAPH_PAUSE_MS = 0
+# A device that speaks several agents in a row (a debate on the Echo): silence between two speakers in ms.
+SPEAKER_CHANGE_PAUSE_MS = int(os.environ.get("SPEAKER_CHANGE_PAUSE_MS", "700"))
 # AIfred's own text filter works on the stream: a bracket that is still open holds the text
 # behind it back (the closing part may turn it into a timing remark or footer). Only until
 # this many characters; a longer open bracket is prose, not an interface remark.

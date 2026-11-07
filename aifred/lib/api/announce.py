@@ -92,11 +92,10 @@ async def announce(request: AnnounceRequest, authorization: str | None = Header(
     # One stream: whether a start tone before the first and an end tone after the last paragraph
     # are requested is a setting of the Echo plugin (which sound plays, the puck decides) —
     # no flags from the caller.
-    metadata = {
-        "audio_type": ANNOUNCE_AUDIO_TYPE, "proactive": True,
-        "paragraphs": paragraphs, "paragraph_pause_ms": pause_ms,
-    }
-    spoken = " ".join(paragraphs)
+    metadata = {"audio_type": ANNOUNCE_AUDIO_TYPE, "proactive": True, "paragraph_pause_ms": pause_ms}
+    # ONE text, the paragraphs divided by blank lines: the TTS service cuts it there and puts the pause between
+    # them; the bubble shows them as paragraphs.
+    spoken = "\n\n".join(paragraphs)
     reached = await announce_into_rooms("freeecho2", rooms, spoken, request.speaker, metadata)
     if not reached:
         raise HTTPException(status_code=502, detail="the announcement could not be delivered")

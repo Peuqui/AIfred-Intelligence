@@ -102,14 +102,14 @@ class ReplySpeech:
             if reading.aborted or (reading.broke_off and not self.keep_partial):
                 return
             # The combined audio supersedes the segments: a client that reconnects must not get them again.
-            await _put_on_bubble(
+            await put_on_bubble(
                 self.session_id, timestamp, reading.audio_urls, reading.browser_speech, reading.note, replaces=TTS_CHUNK_KINDS,
             )
         except Exception as error:  # noqa: BLE001 — background task: an error here would vanish, it is logged with traceback
             log_exception("Keeping the spoken reply failed", error)
 
 
-async def _put_on_bubble(
+async def put_on_bubble(
     session_id: str, timestamp: str, segments: list[str], browser_speech: list[dict[str, Any]], note: str,
     *, replaces: frozenset[str] = frozenset(),
 ) -> bool:
@@ -311,4 +311,4 @@ async def _read_into_audio(session_id: str, entry: dict[str, Any], settings: Spe
     reading = await speak_to_files(text, language=speech_language(settings.tts_agents, agent, "", ui_language), agent=agent)
     note = await asyncio.to_thread(spoken_note, reading.summary.trace, ui_language) if reading.summary else ""
     # The new audio replaces what the browser spoke of the bubble before.
-    return await _put_on_bubble(session_id, str(entry["timestamp"]), reading.audio_urls, [], note)
+    return await put_on_bubble(session_id, str(entry["timestamp"]), reading.audio_urls, [], note)

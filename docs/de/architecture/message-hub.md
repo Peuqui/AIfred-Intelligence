@@ -124,8 +124,7 @@ Wenn eine Nachricht an einen bestimmten Agenten gerichtet ist, antwortet dieser.
 Es gibt keine Funktion pro Agent: Die Nachricht läuft als Zug des Zug-Dienstes
 (`turn_service.run_turn`, seit 07.11.2026 derselbe wie im Vue-Chat); das gilt für
 AIfred, Sokrates, Salomo und jeden Custom Agent aus der Agenten-Konfiguration.
-Danach setzt `process_inbound()` `message.target_agent` (FreeEcho.2 spricht mit
-dessen Stimme).
+Danach setzt `process_inbound()` `message.target_agent`.
 
 Die Erkennung läuft im Zug (`detect_query_intent_and_addressee()`, dieselbe wie
 im Browser): Adressat, Sprache, Moduswechsel. Routing-Priorität (höchste gewinnt):
@@ -140,7 +139,12 @@ im Browser): Adressat, Sprache, Moduswechsel. Routing-Priorität (höchste gewin
 
 Steht die Session in einem Diskussionsmodus, sprechen mehrere Agenten; an den
 Kanal gehen alle Beiträge des Zugs nacheinander, jeder mit „— Name —“
-(`outbound_text`). Ein abgeschalteter Agent antwortet nicht, auch kein anderer
+(`outbound_text`; Peuqui 07.11.2026: wer eine Diskussion will, will sie hören).
+Ein sprechender Kanal bekommt dazu jeden Beitrag mit Sprecher und Blase
+(`OutboundMessage.parts`, `outbound_parts`): FreeEcho.2 liest jeden mit der Stimme
+seines Agenten, beim Sprecherwechsel eine Pause (`SPEAKER_CHANGE_PAUSE_MS`), und
+jede Blase behält ihr Gesprochenes. Die Bestätigung eines Moduswechsels spricht
+der angesprochene Agent, eine Ansage AIfred. Ein abgeschalteter Agent antwortet nicht, auch kein anderer
 an seiner Stelle. Einen Text, den AIfred selbst als Aufgabe baut (geplanter
 Auftrag, Alarm: `InboundMessage.task`), liest die Erkennung nicht: Er enthält
 keine Worte eines Menschen, sein Agent steht fest, er spricht die Sprache der

@@ -96,6 +96,7 @@ class TurnReply:
     agent: str
     text: str        # without thinking (PipelineResult.text_clean)
     silent: bool     # a tool already answered out loud (audio_player): the channel says nothing
+    bubble: str      # the timestamp of its bubble: a speaking channel keeps what it spoke there
 
 
 @dataclass(frozen=True)
@@ -366,7 +367,7 @@ def _confirm_mode_switch(session_id: str, config: dict[str, Any], intent: _Inten
     entry["mode"] = "mode_switch"
     _append(session_id, chat=[entry], llm=[{"role": "assistant", "content": text}])
     session_events.publish(session_id, "message_added", {"entry": entry})
-    return TurnReply("system", text, silent=False)
+    return TurnReply("system", text, silent=False, bubble=str(entry["timestamp"]))
 
 
 def _route(session_id: str, config: dict[str, Any], addressed_to: str | None, pinned: str | None) -> str:
@@ -738,7 +739,7 @@ def finish_call(
     _append(ctx.session_id, chat=[entry], llm=[history_entry] if history_entry else [])
     session_events.publish(ctx.session_id, "message_added", {"entry": entry})
     reply_speech.keep_on(ctx.session_id, call, entry)
-    ctx.replies.append(TurnReply(call.agent, result.text_clean, result.silent_reply))
+    ctx.replies.append(TurnReply(call.agent, result.text_clean, result.silent_reply, str(entry["timestamp"])))
     return entry
 
 

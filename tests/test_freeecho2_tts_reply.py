@@ -1,4 +1,5 @@
-"""Echo-Plugin: send_reply spricht über den TTS-Dienst (Fake-Dienst) — Text, Pause, Sprache, stumm bei Fehler."""
+"""Echo-Plugin: send_reply spricht über den TTS-Dienst (Fake-Dienst) — jeder Beitrag mit der Stimme seines Agenten,
+Pause, Sprache, stumm bei Fehler."""
 
 import asyncio
 from datetime import datetime
@@ -17,7 +18,7 @@ from fake_tts_service import (
 
 from aifred.lib import speech_synthesis
 from aifred.lib.audio_channels._audio_orchestrator import silence_pcm
-from aifred.lib.envelope import InboundMessage, OutboundMessage
+from aifred.lib.envelope import InboundMessage, OutboundMessage, ReplyPart
 from aifred.plugins.channels.freeecho2_channel import FreeEchoChannel, _devices, tts_reply
 
 
@@ -60,9 +61,11 @@ def echo(monkeypatch, tmp_path):
     _devices.clear()
 
 
-def reply(text="", **metadata) -> OutboundMessage:
+def reply(text="", agent="aifred", **metadata) -> OutboundMessage:
+    """What process_inbound and announce_to_channel hand the channel: the text and who says it."""
     return OutboundMessage(
         channel="freeecho2", channel_id="buero", recipient="buero", text=text, media=None, metadata=metadata,
+        parts=[ReplyPart(agent, text)],
     )
 
 
@@ -83,9 +86,7 @@ class TestEchoReply:
     def test_paragraphs_of_an_announcement_are_one_text_and_the_pause_marker_becomes_silence(self, echo):
         fake, _, orc = echo
         fake.script = [audio_frame(b"\x01" * 4) + pause_frame(800) + audio_frame(b"\x02" * 4) + summary_frame()]
-        run(FreeEchoChannel().send_reply(
-            reply("", paragraphs=["Absatz eins.", "Absatz zwei."], paragraph_pause_ms=800), user_turn(),
-        ))
+        run(FreeEchoChannel().send_reply(reply("Absatz eins.\n\nAbsatz zwei.", paragraph_pause_ms=800), user_turn()))
         assert len(fake.speaks) == 1                         # ONE reading, not one per paragraph
         assert fake.speaks[0]["text"] == "Absatz eins.\n\nAbsatz zwei."
         assert fake.speaks[0]["paragraph_pause_ms"] == 800   # the wish goes to the service, which marks the border
@@ -97,13 +98,11 @@ class TestEchoReply:
         run(FreeEchoChannel().send_reply(reply("Text hier."), user_turn()))
         assert fake.speaks[0]["paragraph_pause_ms"] == 0
 
-    def test_the_agent_of_the_inbound_message_speaks(self, echo):
+    def test_the_agent_of_the_part_speaks(self, echo):
         fake, settings, _ = echo
         settings["tts_agent_voices_per_engine"] = {"xtts": {"sokrates": {"voice": "Sokrates-Stimme", "speed": "1.2"}}}
         fake.script = [audio_frame(b"\x01") + summary_frame()]
-        inbound = user_turn()
-        inbound.target_agent = "sokrates"
-        run(FreeEchoChannel().send_reply(reply("Text hier."), inbound))
+        run(FreeEchoChannel().send_reply(reply("Text hier.", agent="sokrates"), user_turn()))   # the inbound's agent is aifred
         assert fake.speaks[0]["voices"] == {"xtts": {"voice": "Sokrates-Stimme", "speed": 1.2, "pitch": 1.0}}
 
     def test_a_service_that_cannot_speak_leaves_the_device_silent_and_says_so(self, echo):
