@@ -52,7 +52,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     )
     view.agent_tuning["aifred"].model_id = "qwen3:8b"
     world: dict[str, Any] = {"chunks": [{"type": "content", "text": "Hallo "}, {"type": "content", "text": "Peuqui."}],
-                             "titles": [], "block": None, "view": view, "requests": [], "options": []}
+                             "titles": [], "block": None, "view": view, "requests": [], "options": [], "title_calls": []}
 
     async def intent(_view: Any, _client: Any, _text: str) -> turn_service._Intent:
         return world.get("intent") or turn_service._Intent("FAKTISCH", None, "de", {}, False, 0.0)
@@ -75,8 +75,9 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
                 await world["block"].wait()
         yield {"type": "pipeline_result", "result": PipelineResult(text=text, answer_text=text, text_clean=text)}
 
-    async def title(user_text: str, reply: str, *_args: Any, **_kwargs: Any) -> str:
+    async def title(user_text: str, reply: str, *_args: Any, **kwargs: Any) -> str:
         world["titles"].append((user_text, reply))
+        world["title_calls"].append((kwargs["model_override"], kwargs["num_ctx_override"]))
         return "Begrüßung"
 
     class _Client:
@@ -135,6 +136,24 @@ def test_the_first_exchange_gets_a_title(world: dict[str, Any]) -> None:
     asyncio.run(_turn("Hallo AIfred"))
     assert world["titles"] == [(_data()["llm_history"][0]["content"], "Hallo Peuqui.")]
     assert "session_title" in _kinds()
+
+
+def test_the_title_comes_from_the_model_that_just_answered(world: dict[str, Any]) -> None:
+    world["view"].agent_tuning["sokrates"].model_id = "qwen3:4b"
+    world["intent"] = turn_service._Intent("FAKTISCH", "sokrates", "de", {}, False, 0.0)
+    asyncio.run(_turn("Sokrates, hallo"))
+    assert world["title_calls"] == [("qwen3:4b", 32768)]        # loaded already, nothing reloads
+
+
+def test_each_agent_thinks_as_its_own_row_says(world: dict[str, Any]) -> None:
+    # Peuqui 07.11.2026: AIfred's thinking choice does not apply to the other agents.
+    world["view"].agent_tuning["aifred"].thinking_by_model = {"qwen3:8b": "on"}
+    world["view"].agent_tuning["sokrates"].thinking_by_model = {"qwen3:8b": "off"}
+    world["intent"] = turn_service._Intent("FAKTISCH", "sokrates", "de", {}, False, 0.0)
+    asyncio.run(_turn("Sokrates, was meinst du?"))
+    world["intent"] = turn_service._Intent("FAKTISCH", "aifred", "de", {}, False, 0.0)
+    asyncio.run(_turn("AIfred, und du?"))
+    assert [options.enable_thinking for options in world["options"]] == [False, True]
 
 
 def test_a_turn_during_calibration_is_rejected_and_saves_nothing(world: dict[str, Any]) -> None:

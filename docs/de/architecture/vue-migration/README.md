@@ -52,10 +52,13 @@ ein Tab offen ist. Mehrere Tabs oder Geräte sehen dieselbe Sitzung live.
   Einstellungen, oben rechts ein Schalter wie bei den Plugins. Jeder Agent ist zur Laufzeit
   ein- und ausschaltbar und löschbar, auch Sokrates und Salomo.
 - **AIfred bleibt der Grundagent** (Peuqui 07.11.2026, vormittags): Er ist Namensgeber und der
-  eine Agent, den man nicht löscht; umbenennen geht (Anzeigename), die ID bleibt `aifred`. Jeder
-  Agent kann ein eigenes Modell haben oder AIfreds nehmen (wie heute). An AIfreds Eintrag hängen
-  deshalb weiter: die Modell-Vererbung, die Prüfung „kein Modell gewählt“, das Titelmodell und die
-  Denkwahl im Direktchat. Offen: ob AIfred abschaltbar sein soll.
+  eine Agent, den man weder löscht noch abschaltet; umbenennen geht (Anzeigename), die ID bleibt
+  `aifred`. Jeder Agent hat ein eigenes Modell oder nimmt AIfreds; AIfred hat immer eins (die
+  Standardmodelle aus `config.py`), die Prüfung „kein Modell“ bleibt wie im Reflex-Zug.
+- **Denkwahl je Agent** (Peuqui 07.11.2026): 🧠-Wahl und 💭-Reasoning gelten für jeden Agenten
+  einzeln, auch im Direktchat (bis dahin dachte dort jeder Agent nach AIfreds Zeile).
+- **Titel** vom Modell des letzten Aufrufs im Zug, mit dessen Kontext: Das ist das gerade geladene,
+  für den Titel wird nichts nachgeladen (vorher immer AIfreds Modell).
 
 ## Schritt 2 im Einzelnen: Zug-Dienst ohne State
 

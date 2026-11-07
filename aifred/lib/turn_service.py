@@ -31,7 +31,7 @@ import asyncio
 import re
 import time
 import uuid
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from . import session_events
@@ -150,6 +150,7 @@ class TurnContext:
     # The images the answering agent sees itself in its request; empty when the turn has none or a
     # description of them joined the user turn (_look_at_images).
     seen_images: tuple[TurnImage, ...] = ()
+    calls: list[AgentCall] = field(default_factory=list)   # the turn's model calls so far (stream_call)
 
 
 async def _run(request: TurnRequest, turn_id: str) -> None:
@@ -210,9 +211,11 @@ async def _run(request: TurnRequest, turn_id: str) -> None:
             # The debate starts from the answer; without one there is nothing to critique.
             if answer is not None and plan.debate:
                 await turn_debate.run_debate(ctx, plan, answer.text)
+        last_call = ctx.calls[-1] if ctx.calls else None
     finally:
         await llm_client.close()
-    _start_title(session_id, view)
+    if last_call is not None:
+        _start_title(session_id, view, last_call)
 
 
 # ── Intent, language, mode switch ────────────────────────────────────────
@@ -530,8 +533,9 @@ async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
         agent, ctx.user_text, lang=lang, memory_enabled=True, research_tools_enabled=True,
         session_id=ctx.session_id, source=ctx.source,
     )
-    # The direct chat thinks as AIfred's row says for the model the answering agent runs on.
-    thinking = thinking_mode(view, "aifred", model)
+    # The agent thinks as its own row says for the model it runs on (Peuqui 07.11.2026: AIfred's
+    # choice does not apply to the other agents).
+    thinking = thinking_mode(view, agent, model)
     system_prompt = get_agent_direct_prompt(agent, lang=lang, memory=True)
     seen = list(ctx.seen_images)
     question = seeing_question(seen, ctx.user_text, ctx.stamp, lang) if seen else ctx.llm_user_text
@@ -582,6 +586,7 @@ async def stream_call(ctx: TurnContext, call: AgentCall) -> PipelineResult | Non
     from .llm_pipeline import run_llm_stream
     from .tool_output_cap import budget_var
 
+    ctx.calls.append(call)
     if call.toolkit:
         debug(f"🔧 Toolkit: {[tool.name for tool in call.toolkit.tools]} for {call.log_label}")
     budget_var.set(call.tool_budget)
@@ -826,8 +831,9 @@ def _append(session_id: str, *, chat: list[dict[str, Any]], llm: list[dict[str, 
         )
 
 
-def _start_title(session_id: str, view: RuntimeSettings) -> None:
-    """After the first exchange the session gets a title, in the background."""
+def _start_title(session_id: str, view: RuntimeSettings, last_call: AgentCall) -> None:
+    """After the first exchange the session gets a title, in the background, from the model of the
+    turn's last call with its context: that model is the loaded one, nothing reloads for the title."""
     from .llm_engine import first_exchange
     from .session_storage import get_session_title, load_session
 
@@ -835,20 +841,18 @@ def _start_title(session_id: str, view: RuntimeSettings) -> None:
         return
     exchange = first_exchange((load_session(session_id) or {}).get("data", {}).get("llm_history", []))
     if exchange is not None:
-        asyncio.create_task(_title(session_id, view, *exchange), name=f"title-{session_id[:8]}")
+        asyncio.create_task(_title(session_id, view, last_call, *exchange), name=f"title-{session_id[:8]}")
 
 
-async def _title(session_id: str, view: RuntimeSettings, user_text: str, reply: str) -> None:
+async def _title(session_id: str, view: RuntimeSettings, call: AgentCall, user_text: str, reply: str) -> None:
     from .llm_engine import generate_session_title
 
     with session_scope(session_id):
         debug("Generating session title...")
         try:
-            # AIfred's model with its context: a title call must not make the backend reload it.
             title = await generate_session_title(
                 user_text, reply, session_id, lang=view.ui_language,
-                model_override=effective_model_id(view, "aifred"),
-                num_ctx_override=view.agent_tuning["aifred"].max_context,
+                model_override=call.model, num_ctx_override=call.options.num_ctx or 0,
             )
         except Exception as error:  # noqa: BLE001 — background task: a missing title is logged, the turn is done
             log_exception("Session title failed", error)

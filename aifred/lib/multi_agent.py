@@ -752,10 +752,11 @@ async def _run_agent_direct_response(
         from .tool_output_cap import budget_var, compute_budget
         budget_var.set(compute_budget(agent_num_ctx, sys_tok, hist_tok, mem_tok, tools_tok))
 
-        # Build LLM options — the direct-chat path thinks as AIfred's row
-        # says for the model the responding agent runs on.
+        # Build LLM options — the responding agent thinks as its own row says
+        # for the model it runs on (Peuqui 07.11.2026: AIfred's choice does
+        # not apply to the other agents).
         from dataclasses import replace
-        enable_thinking, reasoning_effort = thinking_fields(thinking_mode(state, "aifred", agent_model_id))
+        enable_thinking, reasoning_effort = thinking_fields(thinking_mode(state, agent, agent_model_id))
         agent_options = replace(
             build_llm_options(state, agent, agent_model_id, agent_temp, agent_num_ctx),
             enable_thinking=enable_thinking, reasoning_effort=reasoning_effort,
