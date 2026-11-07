@@ -80,7 +80,6 @@ class CasusMixin(rx.State, mixin=True):
     casus_bulk_total: rx.Field[int] = rx.field(0)
     casus_bulk_progress: rx.Field[int] = rx.field(0)
     casus_bulk_message: rx.Field[str] = rx.field("")
-    casus_bulk_cancel: rx.Field[bool] = rx.field(False)
     # Cluster-Anzeige: bei True wird pro cluster_id nur der Repräsentant
     # (jüngster Eintrag) gezeigt + Badge „+N ähnliche". Idle off, weil
     # die meisten User „alle Events sehen" erwarten beim Modal-Open.
@@ -182,113 +181,75 @@ class CasusMixin(rx.State, mixin=True):
         self.casus_confirm_delete_all = False
         self._refresh_events()
 
-    # ── Single-Event-Analyse ─────────────────────────────────────
+    # ── Bildmodell: ein Ereignis, alle ohne Beschreibung (Läufe des Servers, lib.casus) ──
 
     @rx.event
     async def casus_analyze_event(self, event_id: int) -> None:
-        """VLM-Analyse für ein einzelnes Event. Klick im Casus.
-        Schreibt Beschreibung in classification.description und
-        lädt die Event-Liste neu, damit die Zeile aktualisiert wird."""
-        if self.casus_analyzing_event_id:
-            return  # einer reicht parallel
+        """Ein Ereignis vom Bildmodell beschreiben lassen (``lib.casus.start_analysis``, eins zur Zeit für alle
+        Oberflächen); danach steht die Beschreibung in der Zeile."""
+        from ..lib.casus import RunInProgress, analysis, start_analysis
+        from ..lib.vision_store import VisionStore
+
         eid = int(event_id)
+        try:
+            run = start_analysis(eid)
+        except RunInProgress:  # started here or on the Vue page: one at a time
+            return
+        except (KeyError, ValueError) as e:  # no such event, or it kept no picture
+            self.casus_status = f"⚠️ {e}"
+            return
         self.casus_analyzing_event_id = eid
         self.casus_status = ""
-        try:
-            from ..lib.vision_event_analysis import analyze_event_with_vlm
-            text = await analyze_event_with_vlm(eid)
-            self.casus_status = f"✓ Analysiert: {text[:60]}…" if len(text) > 60 else f"✓ {text}"
-        except FileNotFoundError as e:
-            self.casus_status = f"⚠️ Frame nicht mehr auf Disk: {e}"
-        except Exception as e:  # the Casus shows why the analysis failed
-            logger.warning("casus_analyze_event %d failed: %s", eid, e, exc_info=True)
-            self.casus_status = f"⚠️ {e}"
-        finally:
-            self.casus_analyzing_event_id = 0
-            self._refresh_events()
+        await run
+        self.casus_analyzing_event_id = 0
+        error = analysis().error
+        if error:
+            self.casus_status = f"⚠️ {error}"
+        else:
+            event = VisionStore().get_event(eid) or {}
+            text = str((event.get("classification") or {}).get("description") or "")
+            self.casus_status = f"✓ {text[:60]}…" if len(text) > 60 else f"✓ {text}"
+        self._refresh_events()
 
-    # ── Bulk-VLM-Analyse ─────────────────────────────────────────
+    def _casus_show_bulk(self) -> None:
+        from ..lib.casus import describe_all
+
+        state = describe_all()
+        self.casus_bulk_running = state.running
+        self.casus_bulk_total = state.clusters
+        self.casus_bulk_progress = state.processed
+        self.casus_bulk_message = state.message(self.ui_language)
 
     @rx.event(background=True)
     async def casus_bulk_start(self):
-        """Bulk-Worker: alle Events ohne description durch pHash-Dedup
-        clustern, pro Cluster einen VLM-Call, Beschreibung auf alle
-        Mitglieder anwenden.
+        """Alle Ereignisse ohne Beschreibung beschreiben lassen (``lib.casus.start_describe_all``, ein Lauf zur Zeit
+        für alle Oberflächen); der Fortschritt wird jede Sekunde übernommen."""
+        import asyncio
 
-        Die Orchestrierung lebt headless in ``vision_bulk.run_bulk_describe``
-        (SSOT, geteilt mit Nacht-Lauf + Chat-Hook). Hier bleibt nur die
-        Reflex-Verdrahtung: Fortschrittsbalken + Abbrechen-Flag werden
-        über zwei Callbacks an den Worker gebrückt. ``async with self``
-        ist Reflex 0.8 standard für background-events.
-        """
-        from ..lib.vision_bulk import run_bulk_describe
+        from ..lib.casus import RunInProgress, start_describe_all
 
         async with self:
-            if self.casus_bulk_running:
-                return
-            self.casus_bulk_running = True
-            self.casus_bulk_cancel = False
-            self.casus_bulk_progress = 0
-            self.casus_bulk_total = 0
-            self.casus_bulk_message = "Prüfe VRAM …"
-
-        async def _progress(processed: int, total: int, message: str | None) -> None:
+            try:
+                run = start_describe_all()
+            except RunInProgress:  # started here or on the Vue page: its state shows
+                run = None
+            self._casus_show_bulk()
+        if run is None:
+            return
+        while not run.done():
+            await asyncio.wait({run}, timeout=1)
             async with self:
-                self.casus_bulk_total = total
-                self.casus_bulk_progress = processed
-                if message is not None:
-                    self.casus_bulk_message = message
-
-        async def _cancel() -> bool:
-            async with self:
-                return self.casus_bulk_cancel
-
-        try:
-            # check_vram=True: refuse to start when the VLM fits on no GPU.
-            # Without free VRAM next to a large resident LLM Ollama silently
-            # falls back to CPU offload — each call then runs for minutes and
-            # the whole bulk run grinds (observed with the 397B loaded). The
-            # pre-check turns that into an upfront message instead.
-            result = await run_bulk_describe(
-                progress_cb=_progress, cancel_cb=_cancel, check_vram=True,
-            )
-            async with self:
-                if result.skipped:
-                    self.casus_bulk_message = "Läuft bereits — bitte warten"
-                elif result.aborted_vram:
-                    self.casus_bulk_message = f"⚠️ {result.vram_message}"
-                elif result.total_events == 0:
-                    self.casus_bulk_message = "Keine Events zum Analysieren"
-                elif result.cancelled:
-                    self.casus_bulk_progress = result.processed
-                    self.casus_bulk_message = (
-                        f"Abgebrochen — {result.processed} / "
-                        f"{result.total_clusters} Cluster analysiert "
-                        f"({result.failed} Fehler)"
-                    )
-                else:
-                    self.casus_bulk_progress = result.total_clusters
-                    self.casus_bulk_message = (
-                        f"Fertig — {result.total_clusters} Cluster analysiert"
-                        + (f", {result.failed} Fehler" if result.failed else "")
-                    )
-                self._refresh_events()
-        except Exception as e:  # boundary of the bulk worker: logged, shown, reset below
-            logger.warning("bulk worker crashed: %s", e, exc_info=True)
-            async with self:
-                self.casus_bulk_message = f"⚠️ Fehler: {e}"
-        finally:
-            async with self:
-                self.casus_bulk_running = False
-                self.casus_bulk_cancel = False
+                self._casus_show_bulk()
+        async with self:
+            self._refresh_events()
 
     @rx.event
     def casus_bulk_cancel_run(self) -> None:
-        """Setzt das Cancel-Flag — der Background-Worker checkt es
-        zwischen den Cluster-VLM-Calls."""
-        if self.casus_bulk_running:
-            self.casus_bulk_cancel = True
-            self.casus_bulk_message = "Wird abgebrochen …"
+        """Den Lauf nach dem gerade beschriebenen Vorkommnis anhalten."""
+        from ..lib.casus import cancel_describe_all
+
+        cancel_describe_all()
+        self._casus_show_bulk()
 
     # ── Bulk-Delete ──────────────────────────────────────────────
 

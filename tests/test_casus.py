@@ -6,6 +6,7 @@ occurrence oldest first, a person assigned only to a face event, and the signal 
 
 import asyncio
 import threading
+import time
 from collections.abc import Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -171,3 +172,141 @@ def test_assigning_and_deleting_over_the_api(client: TestClient, store: VisionSt
     assert deleted == {"deleted": 3}
     assert client.post("/vision/casus/events/delete", json={"face": "x"}).status_code == 422
     assert store.count_events() == 6
+
+
+# ── The image model on events: runs of the server, one at a time each ─────────────────────────────────────────
+
+
+@pytest.fixture
+def runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No run before the test."""
+    monkeypatch.setattr(casus, "_analysis", casus.Analysis())
+    monkeypatch.setattr(casus, "_describe_all", casus.DescribeAll())
+
+
+def test_one_event_at_a_time_goes_to_the_image_model_and_a_failure_is_kept(
+    store: VisionStore, runs: None, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aifred.lib import vision_event_analysis
+
+    rows = {row["event_type"]: row["id"] for row in store.list_events_with_summary()}
+    asked: list[int] = []
+
+    async def analyse(event_id: int) -> str:
+        asked.append(event_id)
+        await asyncio.sleep(0)
+        if event_id == rows["animal"]:
+            raise RuntimeError("the model did not answer")
+        return "ein Fuchs"
+
+    monkeypatch.setattr(vision_event_analysis, "analyze_event_with_vlm", analyse)
+
+    async def scenario() -> list[casus.Analysis]:
+        seen = []
+        run = casus.start_analysis(rows["vehicle"])
+        seen.append(casus.analysis())
+        with pytest.raises(casus.RunInProgress):
+            casus.start_analysis(rows["animal"])
+        await run
+        seen.append(casus.analysis())
+        await casus.start_analysis(rows["animal"])
+        seen.append(casus.analysis())
+        return seen
+
+    assert asyncio.run(scenario()) == [
+        casus.Analysis(running=rows["vehicle"]),
+        casus.Analysis(last=rows["vehicle"]),
+        casus.Analysis(last=rows["animal"], error="the model did not answer"),
+    ]
+    assert asked == [rows["vehicle"], rows["animal"]]
+    with pytest.raises(KeyError):
+        casus.start_analysis(9999)
+
+
+def test_an_event_without_a_picture_is_not_sent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runs: None) -> None:
+    monkeypatch.setattr(vision_store, "DEFAULT_DB_PATH", tmp_path / "vision.db")
+    event = VisionStore().add_event("cam/a", "vehicle")
+    with pytest.raises(ValueError):
+        casus.start_analysis(event)
+
+
+def test_describing_every_event_reports_its_progress_and_stops_when_asked(runs: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    from aifred.lib import vision_bulk
+    from aifred.lib.vision_bulk import BulkDescribeResult
+
+    seen: list[str] = []
+
+    async def bulk(*, progress_cb: vision_bulk.ProgressCb, cancel_cb: vision_bulk.CancelCb, check_vram: bool) -> BulkDescribeResult:
+        assert check_vram
+        seen.append(casus.describe_all().message("de"))
+        await progress_cb(12, 0, 0)
+        seen.append(casus.describe_all().message("de"))
+        await progress_cb(12, 4, 1)
+        seen.append(casus.describe_all().message("de"))
+        casus.cancel_describe_all()
+        seen.append(casus.describe_all().message("de"))
+        assert await cancel_cb()
+        return BulkDescribeResult(total_events=12, total_clusters=4, processed=1, cancelled=True)
+
+    monkeypatch.setattr(vision_bulk, "run_bulk_describe", bulk)
+
+    async def scenario() -> None:
+        run = casus.start_describe_all()
+        with pytest.raises(casus.RunInProgress):
+            casus.start_describe_all()
+        await run
+
+    asyncio.run(scenario())
+    assert seen == [
+        "Prüfe, ob das Bildmodell auf eine Karte passt …",
+        "Gruppiere 12 Ereignisse ohne Beschreibung …",
+        "Analysiere 1 / 4 Cluster (aus 12 Ereignissen)",
+        "Wird abgebrochen …",
+    ]
+    state = casus.describe_all()
+    assert not state.running and state.outcome == "cancelled"
+    assert state.message("de") == "Abgebrochen — 1 / 4 Cluster analysiert (0 Fehler)"
+    assert state.message("en") == "Cancelled — 1 / 4 clusters analysed (0 failed)"
+
+
+@pytest.mark.parametrize(("result", "outcome", "message"), [
+    ({"total_events": 30, "total_clusters": 5, "processed": 5}, "done", "Fertig — 5 Cluster analysiert"),
+    ({"total_events": 30, "total_clusters": 5, "processed": 5, "failed": 2}, "done", "Fertig — 5 Cluster analysiert, 2 Fehler"),
+    ({}, "nothing", "Keine Ereignisse ohne Beschreibung"),
+    ({"skipped": True}, "busy", "Läuft bereits (Nachtlauf oder Chat) — bitte warten"),
+    ({"aborted_vram": True, "vram_message": "VLM braucht 7.735 MiB"}, "no_room", "⚠️ VLM braucht 7.735 MiB"),
+])
+def test_how_a_run_of_every_event_ended(runs: None, monkeypatch: pytest.MonkeyPatch, result: dict, outcome: str, message: str) -> None:
+    from aifred.lib import vision_bulk
+    from aifred.lib.vision_bulk import BulkDescribeResult
+
+    async def bulk(**_kwargs: object) -> BulkDescribeResult:
+        return BulkDescribeResult(**result)
+
+    monkeypatch.setattr(vision_bulk, "run_bulk_describe", bulk)
+
+    async def scenario() -> None:
+        await casus.start_describe_all()
+
+    asyncio.run(scenario())
+    assert (casus.describe_all().outcome, casus.describe_all().message("de")) == (outcome, message)
+
+
+def test_the_runs_over_the_api(client: TestClient, store: VisionStore, runs: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    from aifred.lib import vision_event_analysis
+
+    rows = {row["event_type"]: row["id"] for row in store.list_events_with_summary()}
+
+    async def analyse(event_id: int) -> str:
+        return "ein Auto"
+
+    monkeypatch.setattr(vision_event_analysis, "analyze_event_with_vlm", analyse)
+    assert client.get("/vision/casus/runs").json()["describe_all"]["message"] == ""
+    started = client.post(f"/vision/casus/events/{rows['vehicle']}/analyze")
+    assert started.status_code == 202 and started.json()["analysis"]["running"] == rows["vehicle"]
+    assert client.post("/vision/casus/events/9999/analyze").status_code in (404, 409)
+    deadline = time.monotonic() + 5
+    while client.get("/vision/casus/runs").json()["analysis"]["running"] and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert client.get("/vision/casus/runs").json()["analysis"] == {"running": 0, "last": rows["vehicle"], "error": ""}
+    assert client.post("/vision/casus/events/9999/analyze").status_code == 404

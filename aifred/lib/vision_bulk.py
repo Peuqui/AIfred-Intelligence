@@ -32,9 +32,9 @@ from .logging_utils import log_message
 
 logger = logging.getLogger(__name__)
 
-# progress_cb(processed, total, message) — message is None when only the
-# counter advances, a string when the human-readable status changes.
-ProgressCb = Callable[[int, int, "str | None"], Awaitable[None]]
+# progress_cb(events, clusters, processed): how many undescribed events the run found, into how many clusters they
+# fall (0 while it groups them) and how many clusters it has described. The interfaces word it (lib/casus).
+ProgressCb = Callable[[int, int, int], Awaitable[None]]
 # cancel_cb() -> True to stop after the current cluster.
 CancelCb = Callable[[], Awaitable[bool]]
 
@@ -179,7 +179,7 @@ async def _bulk_describe_impl(
         return BulkDescribeResult()
 
     if progress_cb is not None:
-        await progress_cb(0, 0, f"Clustere {len(events)} Events …")
+        await progress_cb(len(events), 0, 0)
 
     mapping = cluster_events(events)
     write_clusters(store, mapping)  # type: ignore[arg-type]
@@ -197,10 +197,7 @@ async def _bulk_describe_impl(
         f"(source={source_id or 'all'})"
     )
     if progress_cb is not None:
-        await progress_cb(
-            0, total,
-            f"Analysiere {total} Cluster (Reduktion von {len(events)} Events)",
-        )
+        await progress_cb(len(events), total, 0)
 
     processed = 0
     failed = 0
@@ -210,7 +207,7 @@ async def _bulk_describe_impl(
             cancelled = True
             break
         if progress_cb is not None:
-            await progress_cb(processed, total, None)
+            await progress_cb(len(events), total, processed)
         try:
             # Analyse the whole happening as a time-ordered keyframe
             # sequence (door opens, people arrive) instead of a single

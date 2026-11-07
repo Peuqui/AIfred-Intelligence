@@ -394,7 +394,17 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   2.325 echten Ereignisse und 4 Prüf-Ereignissen: Filter (Person 1.339), gruppiert 99 Vorkommnisse, Film 107 Bilder
   wie „+106“ angibt, Diaschau über alle Seiten mit Tele, Zuordnen und Lösen, eine Zeile und „Alle löschen“ nach Filter
   (nur die Prüf-Ereignisse; Bilder außerhalb des Test-Datenordners rührt das Löschen nicht an), danach 2.325 wie vorher.
-  Offen: Einzel- und Massenanalyse mit dem Bildmodell, der Weg ins Personarium (kommt mit dem Reiter Personen).
+  **Mit Bildmodell (08.11.2026):** ✨ je Zeile (ein Ereignis) und „Alle analysieren“ (jedes Ereignis ohne Beschreibung,
+  einmal je Vorkommnis, nach der Platzprüfung) mit Fortschritt und Abbrechen. Beide sind Läufe des Servers in
+  `lib/casus.py`, je einer zur Zeit für alle Oberflächen (vorher je Browser-Sitzung), die Seite folgt ihnen über
+  `GET /vision/casus/runs`; auch der Reflex-Casus nutzt sie. `vision_bulk` meldet seinen Fortschritt als Zahlen
+  (Ereignisse, Cluster, erledigt), den Text baut `DescribeAll.message` über i18n (vorher fest deutsche Sätze im Code).
+  Live geprüft mit Qwen3VL-4B (Karte nach Absprache mit vllm-research): Einzelanalyse in 22 s mit Laden (16 s beim
+  zweiten Mal), neue Beschreibung in der Zeile, die anderen ✨ währenddessen gesperrt; „Alle analysieren“ über eine
+  Gruppe von 11 Ereignissen ohne Beschreibung: Platzprüfung, „Analysiere 0 / 1 Cluster (aus 11 Ereignissen)“,
+  „Fertig — 1 Cluster analysiert“, alle 11 wieder beschrieben. Die Platzprüfung lehnt ein nicht vermessenes Modell ab;
+  die Testinstanz brauchte dafür eine Kopie von `data/vlm_vram_cache.json`. Offen: der Weg ins Personarium (kommt mit
+  dem Reiter Personen).
 - **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
 
 ## Schritte

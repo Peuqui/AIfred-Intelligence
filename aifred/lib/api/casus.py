@@ -175,3 +175,89 @@ async def casus_delete_matching(chosen: CasusFilter) -> Deleted:
         raise HTTPException(status_code=422, detail=str(error)) from error
     log_message(f"🗂️ Casus: {deleted} events deleted ({chosen.model_dump()})")
     return Deleted(deleted=deleted)
+
+
+# ── The image model on events: one event analysed, every event without a description described ──
+
+
+class AnalysisState(BaseModel):
+    running: int = Field(description="The event being analysed (0 = none)")
+    last: int = Field(description="The event analysed last")
+    error: str = Field(description="Why that one failed ('' = it did not)")
+
+
+class DescribeAllState(BaseModel):
+    running: bool
+    cancelling: bool
+    events: int
+    clusters: int
+    processed: int
+    failed: int
+    outcome: str = Field(description="After a run: done, cancelled, nothing, busy, no_room, error ('' before the first)")
+    message: str = Field(description="The state in words")
+
+
+class CasusRuns(BaseModel):
+    analysis: AnalysisState
+    describe_all: DescribeAllState
+
+
+def _runs() -> CasusRuns:
+    from ..casus import analysis, describe_all
+    from ..prompt_loader import get_language
+
+    state = describe_all()
+    return CasusRuns(
+        analysis=AnalysisState(**vars(analysis())),
+        describe_all=DescribeAllState(
+            running=state.running, cancelling=state.cancelling, events=state.events, clusters=state.clusters,
+            processed=state.processed, failed=state.failed, outcome=state.outcome, message=state.message(get_language()),
+        ),
+    )
+
+
+@api_app.get("/vision/casus/runs", response_model=CasusRuns, tags=["Vision"])
+async def casus_runs() -> CasusRuns:
+    """The analysis of one event and the description of every event: what runs, how far, how the last one ended."""
+    return _runs()
+
+
+@api_app.post("/vision/casus/events/{event_id}/analyze", response_model=CasusRuns, status_code=202, tags=["Vision"])
+async def casus_analyze(event_id: int) -> CasusRuns:
+    """Let the image model describe one event (it loads the model if it must); answers at once, ``runs`` follows it.
+    409 while another event is analysed, 404 for no event, 422 for an event without a picture."""
+    from ..casus import RunInProgress, start_analysis
+
+    try:
+        start_analysis(event_id)
+    except RunInProgress as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=f"no event {event_id}") from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    log_message(f"🗂️ Casus: event {event_id} goes to the image model")
+    return _runs()
+
+
+@api_app.post("/vision/casus/describe-all", response_model=CasusRuns, status_code=202, tags=["Vision"])
+async def casus_describe_all() -> CasusRuns:
+    """Describe every event without a description, once per occurrence, after checking that the image model fits on
+    a card; answers at once, ``runs`` follows it. 409 while it runs."""
+    from ..casus import RunInProgress, start_describe_all
+
+    try:
+        start_describe_all()
+    except RunInProgress as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    log_message("🗂️ Casus: every event without a description goes to the image model")
+    return _runs()
+
+
+@api_app.delete("/vision/casus/describe-all", response_model=CasusRuns, tags=["Vision"])
+async def casus_describe_all_cancel() -> CasusRuns:
+    """Stop the run after the occurrence it describes now (its request to the model is cut off)."""
+    from ..casus import cancel_describe_all
+
+    cancel_describe_all()
+    return _runs()

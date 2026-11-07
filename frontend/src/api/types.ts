@@ -59,6 +59,7 @@ export type CasusPage = Schemas["CasusPage"];
 export type CasusEvent = Schemas["CasusEvent"];
 export type CasusChoices = Schemas["CasusChoices"];
 export type FilmPicture = Schemas["FilmPicture"];
+export type CasusRuns = Schemas["CasusRuns"];
 export type QuickChoices = Schemas["QuickChoices"];
 export type AgentChoices = Schemas["AgentChoices"];
 export type ModelOption = Schemas["ModelOption"];

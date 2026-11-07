@@ -2,12 +2,13 @@
 // The vision's events (the Casus), newest first: filtered by source, type and person, every event or one row per
 // occurrence (grouped), page by page. Per row the pictures (face crop or wide picture, the tele picture beside it),
 // the type, the source, the person assigned or guessed, what the image model said; a person assigned or taken
-// back, the occurrence's film, the event deleted. Every event the filter lists can be deleted at once (asked
-// first). A click on a picture opens the slideshow over every page (grouped: the occurrence's film). New events
+// back, the occurrence's film, the event analysed by the image model, the event deleted. Every event the filter
+// lists can be deleted at once (asked first); every event without a description can be described (by occurrence,
+// with progress, cancelled at will). Both analyses are runs of the server, one at a time; this page follows them. A click on a picture opens the slideshow over every page (grouped: the occurrence's film). New events
 // arrive over a stream; the list loads again then, unless a picture or an assignment is open (it waits for that).
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { ApiError, api, apiUrl } from "../api/client";
-import type { CasusChoices, CasusEvent, CasusPage, FilmPicture } from "../api/types";
+import { ApiError, PROGRESS_POLL_MS, api, apiUrl } from "../api/client";
+import type { CasusChoices, CasusEvent, CasusPage, CasusRuns, FilmPicture } from "../api/types";
 import { formatNumber, t, tCount } from "../i18n";
 import ImageLightbox from "./ImageLightbox.vue";
 
@@ -21,7 +22,9 @@ const expanded = ref(0);
 const tagging = reactive({ event: 0, face: "" });
 const confirming = ref(false);
 const slideshow = ref<{ count: number; start: number; pictures: (position: number) => Promise<string[]> | string[] } | null>(null);
+const runs = ref<CasusRuns | null>(null);
 let stream: EventSource | null = null;
+let polling: number | null = null;
 let latest: number | null = null;
 let missed = false;          // new events while a picture or an assignment was open
 
@@ -152,12 +155,42 @@ function follow(): void {
   });
 }
 
+// While an analysis runs its state is asked again; at its end the list loads again (the new description).
+function followRuns(state: CasusRuns): void {
+  const before = runs.value;
+  runs.value = state;
+  const ended = (before?.analysis.running && !state.analysis.running) || (before?.describe_all.running && !state.describe_all.running);
+  if (ended) {
+    // load() clears the line of notices first: the analysis' error comes after it.
+    const error = before?.analysis.running && state.analysis.error ? state.analysis.error : "";
+    void load().then(() => {
+      if (error) notice.value = `⚠️ ${error}`;
+    });
+  }
+  if ((state.analysis.running || state.describe_all.running) && polling === null) {
+    polling = window.setTimeout(async () => {
+      polling = null;
+      const fresh = await call(() => api<CasusRuns>("vision/casus/runs"));
+      if (fresh) followRuns(fresh);
+    }, PROGRESS_POLL_MS);
+  }
+}
+async function startRun(path: string, method = "POST"): Promise<void> {
+  const state = await call(() => api<CasusRuns>(path, { method }));
+  if (state) followRuns(state);
+}
+
 onMounted(async () => {
   choices.value = await call(() => api<CasusChoices>("vision/casus/choices"));
   await load();
   follow();
+  const state = await call(() => api<CasusRuns>("vision/casus/runs"));
+  if (state) followRuns(state);     // a run another page started shows here too
 });
-onBeforeUnmount(() => stream?.close());
+onBeforeUnmount(() => {
+  stream?.close();
+  if (polling !== null) window.clearTimeout(polling);
+});
 
 const taggable = (event: CasusEvent): boolean => choices.value?.taggable_types.includes(event.event_type) ?? false;
 const value = (event: Event): string => (event.target as HTMLSelectElement).value;
@@ -189,6 +222,18 @@ const value = (event: Event): string => (event.target as HTMLSelectElement).valu
           <button @click="confirming = false">{{ t("delete_all_cancel") }}</button>
         </template>
       </template>
+    </div>
+    <div v-if="runs" class="bulk">
+      <button
+        v-if="!runs.describe_all.running"
+        :title="`${t('casus_bulk_start_tooltip')} — ${t('casus_help_bulk_body')}`"
+        @click="startRun('vision/casus/describe-all')"
+      >✨ {{ t("casus_bulk_start") }}</button>
+      <template v-else>
+        <progress :max="runs.describe_all.clusters || 1" :value="runs.describe_all.processed"></progress>
+        <button :disabled="runs.describe_all.cancelling" @click="startRun('vision/casus/describe-all', 'DELETE')">{{ t("casus_bulk_cancel") }}</button>
+      </template>
+      <span class="hint">{{ runs.describe_all.message }}</span>
     </div>
     <p v-if="notice" class="notice">{{ notice }}</p>
 
@@ -232,6 +277,13 @@ const value = (event: Event): string => (event.target as HTMLSelectElement).valu
         </template>
         <button v-else-if="taggable(event)" :title="t('casus_tag_button')" @click="startTag(event)">👤</button>
         <button v-if="event.cluster_id" :title="t('casus_film_tooltip')" @click="openFilm(event)">🎞️</button>
+        <button
+          v-if="event.has_frame && runs"
+          :class="{ done: event.description }"
+          :disabled="runs.analysis.running !== 0"
+          :title="`${t(event.description ? 'casus_analyze_again' : 'casus_analyze')} — ${t('casus_help_sparkles_body')}`"
+          @click="startRun(`vision/casus/events/${event.id}/analyze`)"
+        >{{ runs.analysis.running === event.id ? "⏳" : "✨" }}</button>
         <button class="danger" :title="t('casus_delete')" @click="remove(event)">🗑️</button>
       </span>
     </div>
@@ -270,6 +322,9 @@ input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .description { font-size: 0.8rem; font-style: italic; color: var(--aifred-text-muted); cursor: pointer; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .description.open { display: block; white-space: pre-wrap; }
 .actions { display: inline-flex; gap: 4px; align-items: center; }
+.actions button.done { border-color: var(--aifred-accent-purple); }
+.bulk { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bulk progress { width: 220px; accent-color: var(--aifred-primary); }
 .hint { margin: 0; font-size: 0.85rem; color: var(--aifred-text-muted); }
 .notice { margin: 0; color: var(--aifred-accent-amber); }
 </style>

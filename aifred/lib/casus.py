@@ -1,15 +1,21 @@
 """The vision's events (the Casus) for every interface (the vision page of Vue, the Reflex copy until it goes): the
 filters a page offers, a page of the list (every event, or one row per occurrence), the choices of the filters, the
 pictures of one occurrence in order (its film), a person assigned to an event, events deleted one by one or as
-filtered. The events live in vision.db (``VisionStore``), their pictures on disk.
+filtered; and the image model on events: one event analysed, every event without a description described. Both are
+runs of the server, one at a time each for every interface; a page follows their state. The events live in vision.db
+(``VisionStore``), their pictures on disk.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import asyncio
+import logging
+from dataclasses import dataclass, replace
 from typing import Any
 
 from .vision_store import VisionStore
+
+logger = logging.getLogger(__name__)
 
 # The type filter: its key → the event types it lists (none = every type). The order is the order offered.
 TYPE_FILTERS: dict[str, tuple[str, ...]] = {
@@ -118,3 +124,145 @@ def delete_event(event_id: int) -> None:
 def delete_matching(events_filter: EventFilter) -> int:
     """Delete every event the filter lists (all of them without a filter), with their pictures; returns how many."""
     return VisionStore().delete_events_filtered(**events_filter.query())
+
+
+# ── The image model on events: one event, or every event without a description ─────────────────────────────────
+
+
+class RunInProgress(RuntimeError):
+    """The run of this kind already goes on (one at a time)."""
+
+
+@dataclass(frozen=True)
+class Analysis:
+    running: int = 0       # the event being analysed (0 = none)
+    last: int = 0          # the event analysed last
+    error: str = ""        # why that one failed ("" = it did not)
+
+
+@dataclass(frozen=True)
+class DescribeAll:
+    running: bool = False
+    phase: str = ""        # checking (does the model fit), grouping, describing; "" before the first run
+    events: int = 0        # the events without a description it found
+    clusters: int = 0      # the occurrences they fall into (described once each)
+    processed: int = 0
+    failed: int = 0
+    outcome: str = ""      # after a run: done, cancelled, nothing, busy (another caller's run), no_room, error
+    detail: str = ""       # no_room: what the model needs; error: the error
+    cancelling: bool = False
+
+    def message(self, lang: str) -> str:
+        """The state in words ("" before the first run)."""
+        from .formatting import format_number
+        from .i18n import t
+
+        if self.running:
+            key = "casus_bulk_cancelling" if self.cancelling else f"casus_bulk_{self.phase}"
+        elif self.outcome == "done" and self.failed:
+            key = "casus_bulk_done_failed"
+        elif self.outcome:
+            key = f"casus_bulk_{self.outcome}"
+        else:
+            return ""
+        return t(key, lang=lang, detail=self.detail, events=format_number(self.events, 0),
+                 clusters=format_number(self.clusters, 0), processed=format_number(self.processed, 0),
+                 failed=format_number(self.failed, 0))
+
+
+_analysis = Analysis()
+_describe_all = DescribeAll()
+_runs: set[asyncio.Task[None]] = set()     # kept until they end (a task nobody holds may be collected)
+
+
+def analysis() -> Analysis:
+    return _analysis
+
+
+def describe_all() -> DescribeAll:
+    return _describe_all
+
+
+def _keep(run: asyncio.Task[None]) -> asyncio.Task[None]:
+    _runs.add(run)
+    run.add_done_callback(_runs.discard)
+    return run
+
+
+def start_analysis(event_id: int) -> asyncio.Task[None]:
+    """Let the image model describe one event (its tele picture first, the wide one as the scene); the description
+    goes into the event. :class:`RunInProgress` while another event is analysed, KeyError for no event, ValueError
+    for an event without a picture."""
+    global _analysis
+    if _analysis.running:
+        raise RunInProgress(f"event {_analysis.running} is being analysed")
+    event = VisionStore().get_event(event_id)
+    if event is None:
+        raise KeyError(event_id)
+    if not event.get("frame_path"):
+        raise ValueError(f"event {event_id} kept no picture")
+    _analysis = Analysis(running=event_id, last=_analysis.last, error=_analysis.error)
+    return _keep(asyncio.create_task(_analyse(event_id)))
+
+
+async def _analyse(event_id: int) -> None:
+    global _analysis
+    from .vision_event_analysis import analyze_event_with_vlm
+
+    error = ""
+    try:
+        await analyze_event_with_vlm(event_id)
+    except Exception as failure:  # the page shows why the analysis failed (backend, picture gone, model)
+        logger.warning("Casus analysis of event %d failed: %s", event_id, failure, exc_info=True)
+        error = str(failure) or type(failure).__name__
+    finally:
+        _analysis = Analysis(running=0, last=event_id, error=error)
+
+
+def start_describe_all() -> asyncio.Task[None]:
+    """Describe every event without a description, once per occurrence (``vision_bulk.run_bulk_describe``, after
+    checking that the image model fits on a card). :class:`RunInProgress` while one runs."""
+    global _describe_all
+    if _describe_all.running:
+        raise RunInProgress("every event is being described already")
+    _describe_all = DescribeAll(running=True, phase="checking")
+    return _keep(asyncio.create_task(_describe_every_event()))
+
+
+def cancel_describe_all() -> None:
+    """Stop the run after the occurrence it describes now (its request to the model is cut off)."""
+    global _describe_all
+    if _describe_all.running:
+        _describe_all = replace(_describe_all, cancelling=True)
+
+
+async def _describe_every_event() -> None:
+    global _describe_all
+    from .vision_bulk import run_bulk_describe
+
+    async def progress(events: int, clusters: int, processed: int) -> None:
+        global _describe_all
+        _describe_all = replace(_describe_all, phase="describing" if clusters else "grouping",
+                                events=events, clusters=clusters, processed=processed)
+
+    async def cancel() -> bool:
+        return _describe_all.cancelling
+
+    try:
+        result = await run_bulk_describe(progress_cb=progress, cancel_cb=cancel, check_vram=True)
+    except Exception as failure:  # the page shows why the run stopped
+        logger.warning("Casus: describing every event failed: %s", failure, exc_info=True)
+        _describe_all = replace(_describe_all, running=False, cancelling=False, outcome="error",
+                                detail=str(failure) or type(failure).__name__)
+        return
+    if result.skipped:
+        outcome = "busy"
+    elif result.aborted_vram:
+        outcome = "no_room"
+    elif result.total_events == 0:
+        outcome = "nothing"
+    else:
+        outcome = "cancelled" if result.cancelled else "done"
+    _describe_all = replace(_describe_all, running=False, cancelling=False, outcome=outcome, detail=result.vram_message,
+                            events=result.total_events, clusters=result.total_clusters, processed=result.processed,
+                            failed=result.failed)
