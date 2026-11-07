@@ -705,6 +705,8 @@ DEFAULT_SESSION_CONFIG: dict[str, Any] = {
     "active_agent": "aifred",
     "multi_agent_mode": "standard",
     "symposion_agents": [],
+    # The agents work without their long-term memory in this session: no recall, no memory tools.
+    "incognito": False,
 }
 
 
@@ -744,8 +746,7 @@ def update_session_config(session_id: str, **config_updates: Any) -> bool:
 
     Args:
         session_id: Session identifier
-        **config_updates: Fields to update (active_agent, multi_agent_mode,
-            symposion_agents)
+        **config_updates: Fields to update (the keys of DEFAULT_SESSION_CONFIG)
 
     Returns:
         True on success, False if session not found or write failed

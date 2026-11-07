@@ -145,6 +145,7 @@ class _Member:
     options: LLMOptions
     memory: str        # recalled once before the debate
     toolkit: Any
+    memory_enabled: bool   # the session is not incognito: the memory layer of the prompt is there
 
 
 async def _cast(ctx: TurnContext, roles: dict[str, str]) -> dict[str, _Member]:
@@ -170,14 +171,14 @@ async def _cast(ctx: TurnContext, roles: dict[str, str]) -> dict[str, _Member]:
     for role, agent in roles.items():
         config, num_ctx, model = configs[role], contexts[role][0], agent_model(view, agent)
         memory, toolkit = await prepare_agent_toolkit(
-            agent, ctx.user_text, lang=lang, memory_enabled=True, research_tools_enabled=True,
+            agent, ctx.user_text, lang=lang, memory_enabled=ctx.memory_enabled, research_tools_enabled=True,
             session_id=ctx.session_id, source=ctx.source,
         )
         if memory:
             debug(f"🧠 Memory context recalled for {config.display_name}")
         members[role] = _Member(
             agent, config.display_name, config.emoji, model, num_ctx,
-            build_llm_options(view, agent, model, temperatures[role], num_ctx), memory, toolkit,
+            build_llm_options(view, agent, model, temperatures[role], num_ctx), memory, toolkit, ctx.memory_enabled,
         )
     return members
 
@@ -185,7 +186,7 @@ async def _cast(ctx: TurnContext, roles: dict[str, str]) -> dict[str, _Member]:
 def _base_system(member: _Member, lang: str) -> str:
     from .prompt_loader import get_agent_system_prompt
 
-    return get_agent_system_prompt(member.agent, _BASE_PROMPT, lang=lang, multi_agent=True, memory=True)
+    return get_agent_system_prompt(member.agent, _BASE_PROMPT, lang=lang, multi_agent=True, memory=member.memory_enabled)
 
 
 def _role_system(member: _Member, key: str, lang: str, **variables: Any) -> str:
@@ -518,11 +519,11 @@ async def _symposion_call(
     view, lang = ctx.view, ctx.intent.language
     model = agent_model(view, agent)
     num_ctx, _ = agent_context(view, agent)
-    system_prompt = f"{get_agent_system_prompt(agent, prompt_key='direct', lang=lang, memory=True)}\n\n{rules}"
+    system_prompt = f"{get_agent_system_prompt(agent, prompt_key='direct', lang=lang, memory=ctx.memory_enabled)}\n\n{rules}"
     if reflection:
         system_prompt = f"{system_prompt}\n\n{reflection}"
     memory, toolkit = await prepare_agent_toolkit(
-        agent, ctx.user_text, lang=lang, memory_enabled=True, research_tools_enabled=True,
+        agent, ctx.user_text, lang=lang, memory_enabled=ctx.memory_enabled, research_tools_enabled=True,
         session_id=ctx.session_id, source=ctx.source,
     )
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]

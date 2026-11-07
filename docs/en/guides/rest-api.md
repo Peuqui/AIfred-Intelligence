@@ -75,7 +75,7 @@ expose AIfred to the internet (see [Deployment → Access the web UI](deployment
 | `/api/sessions/{id}/images` · `/images/{name}` | POST / DELETE | Upload images for the next message (multipart `files`, checked and made smaller, → `[{name, url, size_kb}]`) / take an uploaded one off again |
 | `/api/sessions/{id}/dictation` · `/dictation/{job}/answer` | POST / POST | A recording (`source=mic`) or an audio file (`source=file`) as multipart `file` with `job_id` (a UUID from the client) → 202; the server transcribes it itself, questions and the result come over the event stream (`dictation_question`, `dictation_text`, `dictation_finished`) / `{yes}` answers a question |
 | `/api/sessions/{id}/stop` | POST | Cancel the running turn (the streamed partial answer stays) and end the reading aloud, in every tab |
-| `/api/sessions/{id}/config` | PATCH | `active_agent`, `multi_agent_mode`, `symposion_agents` (known agents and modes only) |
+| `/api/sessions/{id}/config` | PATCH | `active_agent`, `multi_agent_mode`, `symposion_agents` (known agents and modes only), `incognito` (no memory) |
 | `/api/sessions/{id}/events` | GET | Event stream (SSE) of the session: `turn_started`, `agent_started`, `token`, `tool_status`, `message_added`, `message_updated` (bubble with what was spoken), `turn_finished`, `debug`, `notice`, playlist `tts` / `tts_pause` / `tts_speak` / `stop`, … — `?after=<id>` or `Last-Event-ID` |
 | `/api/agents/summary` | GET | The agents a chat can address (`id`, `display_name`, `emoji`, `role`) |
 | `/api/auth/login` · `/me` · `/logout` | POST / GET / POST | Login of the Vue UI (sets the same login cookie as the Reflex login) |

@@ -75,7 +75,17 @@ onMounted(async () => {
     <main class="chat">
       <div class="toolbar">
         <h2>{{ chat.title || t("untitled_chat") }}</h2>
-        <AgentSelect :agents="agents" :active="chat.config.active_agent" @choose="(agent) => chat.configure({ active_agent: agent })" />
+        <div class="choices">
+          <button
+            class="incognito"
+            :class="{ on: chat.config.incognito }"
+            :title="chat.config.incognito ? t('incognito_mode') : t('memory_active')"
+            @click="chat.configure({ incognito: !chat.config.incognito })"
+          >
+            {{ chat.config.incognito ? "🔒" : "🔓" }}
+          </button>
+          <AgentSelect :agents="agents" :active="chat.config.active_agent" @choose="(agent) => chat.configure({ active_agent: agent })" />
+        </div>
       </div>
       <div ref="messages" class="messages">
         <MessageBubble v-for="entry in chat.history" :key="entry.timestamp + entry.role" :entry="entry" />
@@ -122,6 +132,9 @@ onMounted(async () => {
 .chat { display: flex; flex-direction: column; gap: 10px; min-height: 0; padding: 12px 0; }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 1rem; }
+.choices { display: flex; align-items: center; gap: 10px; }
+.incognito { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; }
+.incognito.on { border-color: var(--aifred-accent-amber); }
 .messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
 .streaming { align-self: flex-start; max-width: min(860px, 92%); padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light); }
 .streaming header { font-size: 0.8rem; font-weight: 600; color: var(--aifred-primary); }

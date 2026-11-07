@@ -52,7 +52,8 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     )
     view.agent_tuning["aifred"].model_id = "qwen3:8b"
     world: dict[str, Any] = {"chunks": [{"type": "content", "text": "Hallo "}, {"type": "content", "text": "Peuqui."}],
-                             "titles": [], "block": None, "view": view, "requests": [], "options": [], "title_calls": []}
+                             "titles": [], "block": None, "view": view, "requests": [], "options": [], "title_calls": [],
+                             "memory": []}
 
     async def intent(_view: Any, _client: Any, _text: str) -> turn_service._Intent:
         return world.get("intent") or turn_service._Intent("FAKTISCH", None, "de", {}, False, 0.0)
@@ -60,7 +61,8 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     async def no_compression(*_args: Any) -> None:
         return None
 
-    async def toolkit(*_args: Any, **_kwargs: Any) -> tuple[str, None]:
+    async def toolkit(*_args: Any, **kwargs: Any) -> tuple[str, None]:
+        world["memory"].append(kwargs["memory_enabled"])
         return "", None
 
     async def stream(*args: Any, **_kwargs: Any) -> AsyncIterator[dict[str, Any]]:
@@ -154,6 +156,16 @@ def test_each_agent_thinks_as_its_own_row_says(world: dict[str, Any]) -> None:
     world["intent"] = turn_service._Intent("FAKTISCH", "aifred", "de", {}, False, 0.0)
     asyncio.run(_turn("AIfred, und du?"))
     assert [options.enable_thinking for options in world["options"]] == [False, True]
+
+
+def test_an_incognito_session_answers_without_the_agents_memory(world: dict[str, Any]) -> None:
+    asyncio.run(_turn("Hallo"))
+    session_storage.update_session_config(SESSION, incognito=True)
+    asyncio.run(_turn("Und jetzt?"))
+    assert world["memory"] == [True, False]
+    system_prompts = [request[0]["content"] for request in world["requests"]]
+    assert len(system_prompts[1]) < len(system_prompts[0])        # no memory layer in the prompt
+    assert any("Incognito" in line for line in _data()["debug_messages"])
 
 
 def test_a_turn_during_calibration_is_rejected_and_saves_nothing(world: dict[str, Any]) -> None:

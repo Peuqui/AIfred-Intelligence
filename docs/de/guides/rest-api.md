@@ -75,7 +75,7 @@ AIfred ins Internet stellst (siehe [Einrichtungsanleitung → Auf die Web-UI zug
 | `/api/sessions/{id}/images` · `/images/{name}` | POST / DELETE | Bilder für die nächste Nachricht hochladen (multipart `files`, geprüft und verkleinert, → `[{name, url, size_kb}]`) / ein hochgeladenes wieder entfernen |
 | `/api/sessions/{id}/dictation` · `/dictation/{job}/answer` | POST / POST | Aufnahme (`source=mic`) oder Audio-Datei (`source=file`) als multipart `file` mit `job_id` (UUID vom Client) → 202; der Server transkribiert selbst, Rückfragen und Ergebnis kommen über den Ereignisstrom (`dictation_question`, `dictation_text`, `dictation_finished`) / `{yes}` beantwortet eine Rückfrage |
 | `/api/sessions/{id}/stop` | POST | Laufenden Zug abbrechen (die gestreamte Teilantwort bleibt) und das Vorlesen beenden, in allen Tabs |
-| `/api/sessions/{id}/config` | PATCH | `active_agent`, `multi_agent_mode`, `symposion_agents` (nur bekannte Agenten und Modi) |
+| `/api/sessions/{id}/config` | PATCH | `active_agent`, `multi_agent_mode`, `symposion_agents` (nur bekannte Agenten und Modi), `incognito` (ohne Gedächtnis) |
 | `/api/sessions/{id}/events` | GET | Ereignisstrom (SSE) der Session: `turn_started`, `agent_started`, `token`, `tool_status`, `message_added`, `message_updated` (Blase mit dem Gesprochenen), `turn_finished`, `debug`, `notice`, Wiedergabeliste `tts` / `tts_pause` / `tts_speak` / `stop`, … — `?after=<id>` bzw. `Last-Event-ID` |
 | `/api/agents/summary` | GET | Die Agenten, die ein Chat ansprechen kann (`id`, `display_name`, `emoji`, `role`) |
 | `/api/auth/login` · `/me` · `/logout` | POST / GET / POST | Anmeldung der Vue-Oberfläche (setzt dasselbe Login-Cookie wie der Reflex-Login) |

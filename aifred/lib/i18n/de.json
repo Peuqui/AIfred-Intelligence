@@ -982,6 +982,8 @@
   "audio_file_upload": "Audio-Datei transkribieren",
   "mic_access_denied": "Mikrofon-Zugriff verweigert! Bitte erlaube den Mikrofon-Zugriff in den Browser-Einstellungen.",
   "mic_needs_secure_origin": "Das Mikrofon gibt der Browser nur über HTTPS oder localhost frei.",
+  "memory_active": "Gedächtnis aktiv — die Agenten erinnern sich",
+  "incognito_mode": "Inkognito-Modus: kein Gedächtnis in dieser Sitzung",
   "stt_cancelled": "Transkription abgebrochen.",
   "stt_gpu_busy_unload_confirm": "GPU ist belegt (LLM geladen). LLM entladen und „{filename}“ ({size}) auf der GPU transkribieren?\n\nDas LLM lädt beim nächsten Chat automatisch neu. (CPU wäre bei dieser Dateigröße extrem langsam.)",
   "stt_gpu_busy_aborted": "⚠️ GPU belegt — Transkription abgebrochen (CPU wäre bei dieser Dateigröße zu langsam).",

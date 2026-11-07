@@ -146,6 +146,7 @@ class TurnContext:
     intent: _Intent
     source: str
     mode: str             # the session's multi-agent mode (after a switch): labels the bubbles
+    memory_enabled: bool  # the agents use their long-term memory (the session is not incognito)
     stamp: str            # the turn's time stamp (message_builder.user_turn_stamp)
     # The images the answering agent sees itself in its request; empty when the turn has none or a
     # description of them joined the user turn (_look_at_images).
@@ -200,8 +201,11 @@ async def _run(request: TurnRequest, turn_id: str) -> None:
         seen: tuple[TurnImage, ...] = ()
         if images:
             seen, llm_user_text = await _look_at_images(session_id, view, plan, images, user_text, llm_user_text, intent.language)
+        memory_enabled = not config["incognito"]
+        if not memory_enabled:
+            debug("🔒 Incognito mode (no memory)")
         ctx = TurnContext(
-            session_id, view, llm_client, user_text, llm_user_text, intent, request.source, mode, stamp, seen,
+            session_id, view, llm_client, user_text, llm_user_text, intent, request.source, mode, memory_enabled, stamp, seen,
         )
         await _compress(ctx, plan.agents)
         if plan.responder is None:
@@ -322,7 +326,9 @@ def _route(session_id: str, config: dict[str, Any], addressed_to: str | None) ->
 
 
 def _public_config(config: dict[str, Any]) -> dict[str, Any]:
-    return {key: config[key] for key in ("active_agent", "multi_agent_mode", "symposion_agents")}
+    from .session_storage import DEFAULT_SESSION_CONFIG
+
+    return {key: config[key] for key in DEFAULT_SESSION_CONFIG}
 
 
 # ── Images ───────────────────────────────────────────────────────────────
@@ -392,7 +398,7 @@ async def _compress(ctx: TurnContext, agents: list[str]) -> None:
     from .prompt_loader import get_direct_prompt_tokens
 
     context_limit = min(agent_context(ctx.view, agent)[0] for agent in agents)
-    prompt_tokens = max(get_direct_prompt_tokens(agent, ctx.intent.language, memory=True) for agent in agents)
+    prompt_tokens = max(get_direct_prompt_tokens(agent, ctx.intent.language, memory=ctx.memory_enabled) for agent in agents)
     await compress_history(ctx, agents, context_limit, prompt_tokens, 0, "Pre-Message Compression")
 
 
@@ -530,13 +536,13 @@ async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
     debug(f"   🎯 Context: {format_number(num_ctx)} ({ctx_source})")
 
     memory_ctx, toolkit = await prepare_agent_toolkit(
-        agent, ctx.user_text, lang=lang, memory_enabled=True, research_tools_enabled=True,
+        agent, ctx.user_text, lang=lang, memory_enabled=ctx.memory_enabled, research_tools_enabled=True,
         session_id=ctx.session_id, source=ctx.source,
     )
     # The agent thinks as its own row says for the model it runs on (Peuqui 07.11.2026: AIfred's
     # choice does not apply to the other agents).
     thinking = thinking_mode(view, agent, model)
-    system_prompt = get_agent_direct_prompt(agent, lang=lang, memory=True)
+    system_prompt = get_agent_direct_prompt(agent, lang=lang, memory=ctx.memory_enabled)
     seen = list(ctx.seen_images)
     question = seeing_question(seen, ctx.user_text, ctx.stamp, lang) if seen else ctx.llm_user_text
     messages: list[dict[str, Any]] = [*build_messages_from_llm_history(

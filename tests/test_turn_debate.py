@@ -52,7 +52,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     view.agent_tuning["aifred"].model_id = "qwen3:8b"
     world: dict[str, Any] = {
         "view": view, "replies": {}, "calls": [], "compressed_for": [], "block_label": None,
-        "agents_file": agents_file,
+        "agents_file": agents_file, "memory": [],
     }
 
     async def intent(_view: Any, _client: Any, _text: str) -> turn_service._Intent:
@@ -61,7 +61,8 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     async def compression(_ctx: Any, agents: list[str]) -> None:
         world["compressed_for"].append(agents)
 
-    async def toolkit(*_args: Any, **_kwargs: Any) -> tuple[str, None]:
+    async def toolkit(*_args: Any, **kwargs: Any) -> tuple[str, None]:
+        world["memory"].append(kwargs["memory_enabled"])
         return "", None
 
     async def stream(_client: Any, _model: str, messages: list[dict[str, Any]], _options: Any, label: str,
@@ -153,6 +154,13 @@ def test_critical_review_answers_then_the_critic_critiques_once(world: dict[str,
     assert "[Kritische Prüfung R1]" in critique          # the mode is the step: no prefix
     assert [e["agent"] for e in _events("agent_started")] == ["aifred", "sokrates"]
     assert _events("turn_finished")[0]["status"] == "done"
+
+
+def test_an_incognito_debate_recalls_no_memory_for_any_speaker(world: dict[str, Any]) -> None:
+    _mode("critical_review")
+    session_storage.update_session_config(SESSION, incognito=True)
+    _turn()
+    assert world["memory"] and not any(world["memory"])          # the answer and every debate member
 
 
 def test_addressing_the_main_agent_asks_for_its_answer_alone(world: dict[str, Any]) -> None:

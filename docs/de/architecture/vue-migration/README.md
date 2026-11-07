@@ -115,7 +115,11 @@ der neue Dienst entsteht daneben und ersetzt beim Wechsel beide alten Pfade.
   Das Ergebnis verteilt sich wie im Browser: langes Transkript → Datei in den Dokumenten mit Link,
   Audio-Datei → Blase mit Transkript, Diktat → direkt als Zug (ohne Warteschlange und Abholer) oder
   ins Eingabefeld (`show_transcription`, Mail/URL im Text).
-- Danach: Inkognito als Sitzungsschalter; dann übernehmen Kanäle und Scheduler denselben Dienst.
+- **Inkognito je Sitzung** (`incognito` in der Sitzungs-Konfiguration, `PATCH …/config`): Die
+  Agenten arbeiten in dieser Sitzung ohne ihr Langzeitgedächtnis (kein Abruf, keine
+  Gedächtnis-Werkzeuge, keine Gedächtnis-Schicht im Prompt), in jedem Modus. Im Reflex-Zug war es
+  ein Schalter je Tab, der beim Neuladen verloren ging.
+- Danach übernehmen Kanäle und Scheduler denselben Dienst.
 
 ### Stand und offene Punkte (07.11.2026, vormittags)
 
@@ -123,7 +127,7 @@ Erledigt: Ereignis-Hub, App-Hülle, Einstellungssicht, Zug-Dienst mit allen Modi
 Besitzerprüfung, Anmeldung, Agentenliste, Vue-Oberfläche mit Chat (Live-Strom, Warteschlange,
 Stopp, Agentenwahl, Debug-Konsole), gesprochene Antwort im Browser (Wiedergabeliste, Knopf zum
 erneuten Abspielen an der Blase, Sprecher-Vermerk), Bilder (hochladen, einfügen, ziehen,
-entfernen; gesehen oder einmal beschrieben), Diktat und Audio-Dateien. Offen:
+entfernen; gesehen oder einmal beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
 
 - **Dateien unter `/_upload/`** (Ton, Bilder, Dokumente): die Tabelle der Ordner und wer sie ohne
   Anmeldung sehen darf, steht in `lib/upload_files.py` (`mount_upload_folders`); die Reflex-App ruft

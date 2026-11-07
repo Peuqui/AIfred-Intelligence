@@ -4,7 +4,14 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import { ApiError, api } from "../api/client";
 import { followSession } from "../api/events";
-import type { ChatEntry, DictationAccepted, MessageAccepted, SessionDetail, UploadedImage } from "../api/types";
+import type {
+  ChatEntry,
+  DictationAccepted,
+  MessageAccepted,
+  SessionConfig,
+  SessionDetail,
+  UploadedImage,
+} from "../api/types";
 import * as speech from "../lib/speech";
 import { useSessions } from "./sessions";
 
@@ -15,18 +22,13 @@ interface Streaming {
   text: string;
 }
 
-export interface SessionConfig {
-  active_agent: string;
-  multi_agent_mode: string;
-  symposion_agents: string[];
-}
 
 export const useChat = defineStore("chat", () => {
   const sessionId = ref<string | null>(null);
   const title = ref<string | null>(null);
   const history = ref<ChatEntry[]>([]);
   const debugLines = ref<string[]>([]);
-  const config = ref<SessionConfig>({ active_agent: "aifred", multi_agent_mode: "standard", symposion_agents: [] });
+  const config = ref<SessionConfig>({ active_agent: "aifred", multi_agent_mode: "standard", symposion_agents: [], incognito: false });
   const running = ref(false);
   const streaming = ref<Streaming | null>(null);
   const toolStatus = ref("");
@@ -50,7 +52,7 @@ export const useChat = defineStore("chat", () => {
     title.value = detail.title ?? null;
     history.value = detail.chat_history;
     debugLines.value = detail.debug_messages;
-    config.value = detail.config as unknown as SessionConfig;
+    config.value = detail.config;
     running.value = detail.running;
     streaming.value = null;
     toolStatus.value = "";

@@ -69,6 +69,20 @@ def test_the_config_accepts_known_agents_and_modes_only(client: TestClient) -> N
     assert [event.kind for event in session_events.replay_after(MINE, 0)] == ["session_config"]
 
 
+def test_the_config_model_names_every_field_of_a_session_config() -> None:
+    from aifred.lib.api.sessions import SessionConfig
+
+    assert set(SessionConfig.model_fields) == set(session_storage.DEFAULT_SESSION_CONFIG)
+
+
+def test_a_session_turns_incognito_and_back(client: TestClient) -> None:
+    assert client.get(f"/sessions/{MINE}").json()["config"]["incognito"] is False
+    response = client.patch(f"/sessions/{MINE}/config", json={"incognito": True})
+    assert response.status_code == 200 and response.json()["incognito"] is True
+    assert session_storage.get_session_config(MINE)["incognito"] is True
+    assert client.patch(f"/sessions/{MINE}/config", json={"incognito": "vielleicht"}).status_code == 422
+
+
 def test_a_message_goes_to_the_turn_service(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[Any] = []
 

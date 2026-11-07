@@ -98,10 +98,26 @@ class ChatEntry(BaseModel):
     tts_note: str = Field("", description="Who spoke the reply (the engines of the escalation list)")
 
 
+class SessionConfig(BaseModel):
+    """The per-session choices (session_storage.DEFAULT_SESSION_CONFIG)."""
+
+    active_agent: str
+    multi_agent_mode: str
+    symposion_agents: list[str]
+    incognito: bool = Field(description="The agents work without their long-term memory in this session")
+
+
+def _config_of(session_id: str) -> SessionConfig:
+    from ..session_storage import get_session_config
+
+    config = get_session_config(session_id)
+    return SessionConfig(**{key: config[key] for key in DEFAULT_SESSION_CONFIG})
+
+
 class SessionDetail(BaseModel):
     session_id: str
     title: str | None
-    config: dict[str, Any]
+    config: SessionConfig
     chat_history: list[ChatEntry]
     debug_messages: list[str]
     running: bool
@@ -131,7 +147,7 @@ async def sessions_create(request: Request) -> SessionCreated:
 @api_app.get("/sessions/{session_id}", response_model=SessionDetail, tags=["Sessions"])
 async def sessions_open(session_id: str, request: Request) -> SessionDetail:
     from ..pipeline_registry import is_pipeline_running
-    from ..session_storage import get_session_config, touch_session
+    from ..session_storage import touch_session
 
     session = owned_session(request, session_id)
     touch_session(session_id)
@@ -139,7 +155,7 @@ async def sessions_open(session_id: str, request: Request) -> SessionDetail:
     return SessionDetail(
         session_id=session_id,
         title=data.get("title"),
-        config=get_session_config(session_id),
+        config=_config_of(session_id),
         chat_history=data.get("chat_history", []),
         debug_messages=data.get("debug_messages", []),
         running=is_pipeline_running(session_id),
@@ -167,12 +183,13 @@ class SessionConfigUpdate(BaseModel):
     active_agent: str | None = None
     multi_agent_mode: str | None = None
     symposion_agents: list[str] | None = None
+    incognito: bool | None = Field(None, description="The agents work without their long-term memory in this session")
 
 
-@api_app.patch("/sessions/{session_id}/config", tags=["Sessions"])
-async def sessions_configure(session_id: str, update: SessionConfigUpdate, request: Request) -> dict[str, Any]:
+@api_app.patch("/sessions/{session_id}/config", response_model=SessionConfig, tags=["Sessions"])
+async def sessions_configure(session_id: str, update: SessionConfigUpdate, request: Request) -> SessionConfig:
     from ..agent_config import get_agent_config
-    from ..session_storage import get_session_config, update_session_config
+    from ..session_storage import update_session_config
 
     owned_session(request, session_id)
     changes = update.model_dump(exclude_none=True)
@@ -184,9 +201,8 @@ async def sessions_configure(session_id: str, update: SessionConfigUpdate, reque
         raise HTTPException(status_code=422, detail=f"Unknown multi-agent mode: {changes['multi_agent_mode']}")
     if changes:
         update_session_config(session_id, **changes)
-    config = get_session_config(session_id)
-    public = {key: config[key] for key in DEFAULT_SESSION_CONFIG}
-    session_events.publish(session_id, "session_config", public)
+    public = _config_of(session_id)
+    session_events.publish(session_id, "session_config", public.model_dump())
     return public
 
 

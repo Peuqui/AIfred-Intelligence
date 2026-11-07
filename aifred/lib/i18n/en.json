@@ -982,6 +982,8 @@
   "audio_file_upload": "Transcribe an audio file",
   "mic_access_denied": "Microphone access denied! Please allow microphone access in the browser settings.",
   "mic_needs_secure_origin": "The browser grants the microphone only over HTTPS or on localhost.",
+  "memory_active": "Memory on — the agents remember",
+  "incognito_mode": "Incognito mode: no memory in this session",
   "stt_cancelled": "Transcription cancelled.",
   "stt_gpu_busy_unload_confirm": "GPU is occupied (LLM loaded). Unload the LLM and transcribe “{filename}” ({size}) on the GPU?\n\nThe LLM reloads automatically on the next chat. (CPU would be extremely slow at this file size.)",
   "stt_gpu_busy_aborted": "⚠️ GPU occupied — transcription aborted (CPU would be too slow at this file size).",
