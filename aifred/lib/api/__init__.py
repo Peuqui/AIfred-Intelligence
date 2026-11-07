@@ -45,6 +45,7 @@ from . import vision
 from . import tts
 from . import documents
 from . import service_status
+from . import app_shell  # last: its /app mount must follow every /app route
 
 from .browser_bus import browser_push, browser_queue_clear
 

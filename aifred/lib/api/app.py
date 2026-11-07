@@ -38,8 +38,9 @@ api_app = FastAPI(
 # twin) — browser calls are same-origin and carry it automatically.
 #
 # Exempt: inject + webhook + announce + tts (enforce their own service token
-# via require_service_token) and the OAuth callback (arrives as a redirect
-# from the provider, cookie not guaranteed).
+# via require_service_token), the OAuth callback (arrives as a redirect
+# from the provider, cookie not guaranteed) and the Vue app shell under /app/
+# (code, colours, UI texts; no user data, the login form is part of it).
 
 _COOKIE_EXEMPT_PATHS = (
     "/chat/inject", "/agent/trigger", "/audio/announce", "/audio/announce/rooms",
@@ -61,6 +62,7 @@ async def _require_login_cookie(request: Request, call_next):
     exempt = (
         path in _COOKIE_EXEMPT_PATHS
         or (path.startswith("/oauth/") and path.endswith("/callback"))
+        or path.startswith("/app/")  # Vue app shell, loads before the login (app_shell.py)
     )
     if not exempt:
         cookie = request.cookies.get(USERNAME_COOKIE_NAME, "")
