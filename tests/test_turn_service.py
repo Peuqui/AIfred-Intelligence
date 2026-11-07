@@ -167,3 +167,24 @@ def test_a_cancelled_turn_keeps_the_streamed_text(world: dict[str, Any]) -> None
     assert reply["role"] == "assistant" and reply["content"].startswith("Hallo ")
     finished = [e for e in session_events.replay_after(SESSION, 0) if e.kind == "turn_finished"]
     assert finished[0].data["status"] == "cancelled"
+
+
+def test_a_message_waits_behind_a_running_turn_and_starts_after_it(world: dict[str, Any]) -> None:
+    seen: list[str] = []
+
+    async def scenario() -> None:
+        world["block"] = asyncio.Event()
+        world["streamed"] = asyncio.Event()
+        async with session_events.subscribe(SESSION) as (_, queue):   # a client that stays connected
+            assert turn_service.submit_turn(turn_service.TurnRequest(SESSION, "Erste Frage")) is False
+            await world["streamed"].wait()
+            assert turn_service.submit_turn(turn_service.TurnRequest(SESSION, "Zweite Frage")) is True
+            world["block"].set()
+            world["block"] = None
+            while len([kind for kind in seen if kind == "turn_finished"]) < 2:
+                seen.append((await asyncio.wait_for(queue.get(), timeout=5)).kind)
+
+    asyncio.run(scenario())
+    assert [e["content"] for e in _data()["chat_history"] if e["role"] == "user"] == ["Erste Frage", "Zweite Frage"]
+    assert [e["role"] for e in _data()["chat_history"]] == ["user", "assistant", "user", "assistant"]
+    assert seen.index("message_queued") < seen.index("turn_finished")   # queued while the first one ran

@@ -8,7 +8,7 @@ tools write meanwhile (``debug_bus``) are never overwritten.
 Events of a turn, in order: ``turn_started`` (the user's entry), ``session_config`` (after a
 mode switch or a sticky address), ``agent_started``, ``token`` (text pieces, bundled),
 ``tool_status``, ``message_added`` (the finished reply), ``turn_finished``; ``turn_rejected``
-instead when the turn cannot start. ``debug`` lines arrive throughout, ``session_title`` after
+instead when the turn cannot start, ``message_queued`` for a message that waits behind it. ``debug`` lines arrive throughout, ``session_title`` after
 the first exchange.
 
 Covered so far: the direct answer of one agent with tools and memory, intent and language,
@@ -52,6 +52,23 @@ class TurnRequest:
     source: str = "browser"
 
 
+def submit_turn(request: TurnRequest) -> bool:
+    """Start the turn now, or queue it behind the session's running turn; True when it waits.
+
+    The queue is the session's pending messages (session_storage), the same one dictation and
+    injection use: a turn that ends starts the next waiting message, with or without a tab.
+    """
+    from .pipeline_registry import is_pipeline_running
+    from .session_storage import queue_pending_message
+
+    if is_pipeline_running(request.session_id):
+        queue_pending_message(request.session_id, request.text)
+        session_events.publish(request.session_id, "message_queued", {"text": request.text})
+        return True
+    start_turn(request)
+    return False
+
+
 def start_turn(request: TurnRequest) -> asyncio.Task[None]:
     """Run the turn as a task of the current loop; an earlier turn of the session is cancelled."""
     return asyncio.create_task(run_turn(request), name=f"turn-{request.session_id[:8]}")
@@ -84,6 +101,16 @@ async def run_turn(request: TurnRequest) -> None:
         finally:
             unregister_pipeline(session_id, task)
             session_events.publish(session_id, "turn_finished", {"turn_id": turn_id, "status": status})
+            _start_next(session_id, request.source)
+
+
+def _start_next(session_id: str, source: str) -> None:
+    """The next message waiting in the session's queue becomes the next turn."""
+    from .session_storage import pop_pending_message
+
+    text = pop_pending_message(session_id)
+    if text:
+        start_turn(TurnRequest(session_id, text, source))
 
 
 # ── The turn ─────────────────────────────────────────────────────────────

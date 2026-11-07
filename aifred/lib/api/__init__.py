@@ -11,7 +11,9 @@ Endpoints (all prefixed with /api):
 - GET  /settings            - Get all settings
 - PATCH /settings           - Update settings
 - GET  /models              - List available models
-- GET  /sessions            - List all sessions
+- GET  /sessions            - The logged-in user's sessions (sessions.py: open, create, delete,
+                               configure, send, stop, events)
+- POST /auth/login          - Login for the Vue app (sets the login cookie)
 - POST /chat/inject         - Inject message into browser session
 - GET  /chat/status         - Get chat/generation status
 - POST /chat/clear          - Clear chat history
@@ -45,6 +47,8 @@ from . import vision
 from . import tts
 from . import documents
 from . import service_status
+from . import sessions
+from . import login
 from . import app_shell  # last: its /app mount must follow every /app route
 
 from .browser_bus import browser_push, browser_queue_clear

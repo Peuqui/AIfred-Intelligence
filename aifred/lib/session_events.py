@@ -93,6 +93,11 @@ def clear_replay(session_id: str, *, keep: frozenset[str] = frozenset()) -> None
     channel.replay = [event for event in channel.replay if event.kind in keep]
 
 
+def last_event_id(session_id: str) -> int:
+    """The id of the session's newest event (0 before the first)."""
+    return _channel(session_id).last_id
+
+
 def replay_after(session_id: str, after_id: int) -> list[SessionEvent]:
     """The buffered events with an id above ``after_id``."""
     return [event for event in _channel(session_id).replay if event.id > after_id]

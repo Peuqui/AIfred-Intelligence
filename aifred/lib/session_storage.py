@@ -910,12 +910,12 @@ def get_latest_session_file() -> Path | None:
 _session_meta_cache: dict[str, tuple] = {}
 
 
-def list_sessions(owner: str | None = None) -> list[dict[str, Any]]:
+def list_sessions(owner: str) -> list[dict[str, Any]]:
     """
-    List sessions with basic info, optionally filtered by owner.
+    List the owner's sessions with basic info.
 
     Args:
-        owner: Username to filter by (case-insensitive). If None, returns empty list.
+        owner: Username whose sessions are listed (case-insensitive).
 
     Returns list of dicts with:
     - session_id: Session identifier
@@ -934,7 +934,7 @@ def list_sessions(owner: str | None = None) -> list[dict[str, Any]]:
     """
     _ensure_session_dir()
 
-    owner_lower = owner.lower() if owner else None
+    owner_lower = owner.lower()
     sessions = []
     seen_files = set()
 
@@ -969,7 +969,7 @@ def list_sessions(owner: str | None = None) -> list[dict[str, Any]]:
 
             # Filter AFTER the cache lookup — the cache is owner-agnostic
             # so one entry serves every logged-in user.
-            if owner_lower and meta["owner"] != owner_lower:
+            if meta["owner"] != owner_lower:
                 continue
 
             sessions.append(dict(meta))

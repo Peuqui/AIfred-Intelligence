@@ -408,6 +408,9 @@ HISTORY_CHARS_PER_TOKEN = 3.5
 # Note: num_ctx only affects max context size, NOT processing speed!
 AUTOMATIK_LLM_NUM_CTX = 12288  # 12K context for all Automatik tasks
 
+# The multi-agent modes a session can be in (UI choice, mode switch by voice or text, API).
+MULTI_AGENT_MODES = ("standard", "critical_review", "auto_consensus", "tribunal", "symposion")
+
 # Text pieces of a streaming answer go to the clients as one ``token`` event at most this often
 # (lib/turn_service.py): fewer events, still live.
 TURN_TOKEN_EVENT_INTERVAL_S = 0.05

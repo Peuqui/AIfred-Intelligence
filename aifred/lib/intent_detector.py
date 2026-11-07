@@ -15,15 +15,10 @@ Also detects dialog addressing (who is being spoken to):
 
 from typing import Any
 
+from .config import MULTI_AGENT_MODES
 from .context_manager import strip_thinking_blocks
 from .logging_utils import log_message
 from .prompt_loader import get_intent_detection_prompt
-
-# Valid values for mode-switch field validation (defensive parsing).
-_VALID_MULTI_AGENT_MODES = {
-    "standard", "sokrates", "tribunal", "symposion",
-    "critical_review", "auto_consensus",
-}
 
 
 def _parse_mode_switch(mode_field: str) -> dict[str, Any]:
@@ -73,7 +68,7 @@ def _parse_mode_switch(mode_field: str) -> dict[str, Any]:
             continue
 
         if key == "multi":
-            if value in _VALID_MULTI_AGENT_MODES:
+            if value in MULTI_AGENT_MODES:
                 updates["multi_agent_mode"] = value
         elif key == "agent":
             # Resolve through ID, display_name and aliases (single source of

@@ -79,6 +79,13 @@ def unregister_pipeline(session_id: str, task: asyncio.Task | None = None) -> No
             _active_pipelines.pop(session_id, None)
 
 
+def is_pipeline_running(session_id: str) -> bool:
+    """Whether a turn of the session runs right now."""
+    with _lock:
+        task = _active_pipelines.get(session_id)
+    return task is not None and not task.done()
+
+
 def cancel_pipeline(session_id: str) -> bool:
     """Cancel the registered pipeline for ``session_id``.
 

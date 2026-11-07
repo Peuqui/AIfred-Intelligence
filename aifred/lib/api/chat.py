@@ -172,34 +172,6 @@ async def clear_chat(request: ChatClearRequest = ChatClearRequest(session_id=Non
         )
 
 
-class SessionInfo(BaseModel):
-    """Session info for listing"""
-    session_id: str
-    last_seen: str
-    message_count: int
-
-
-class SessionsListResponse(BaseModel):
-    """List of all sessions"""
-    sessions: list[SessionInfo]
-
-
-@api_app.get("/sessions", response_model=SessionsListResponse, tags=["Chat"])
-async def list_all_sessions():
-    """
-    List all available sessions.
-
-    Returns session_id, last_seen, and message_count for each session.
-    Use session_id with /api/chat/send to write to a specific browser session.
-    """
-    from ..session_storage import list_sessions
-
-    sessions = list_sessions()
-    return SessionsListResponse(
-        sessions=[SessionInfo(**s) for s in sessions]
-    )
-
-
 @api_app.get("/chat/history", response_model=ChatHistoryResponse, tags=["Chat"])
 async def get_chat_history(session_id: str | None = None):
     """
