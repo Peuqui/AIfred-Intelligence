@@ -9,7 +9,7 @@ import type { DocumentPreview, DocumentRow } from "../api/types";
 import IndexCare from "../components/IndexCare.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import SourceBrowser from "../components/SourceBrowser.vue";
-import { t } from "../i18n";
+import { t, tCount } from "../i18n";
 import { LOCAL, useDocuments } from "../stores/documents";
 
 const docs = useDocuments();
@@ -118,7 +118,9 @@ const run = computed(() => docs.indexing);
 const runOutcome = computed(() => {
   const progress = run.value;
   if (!progress || progress.running || !progress.total) return "";
-  let outcome = t("doc_index_folder_done", { indexed: progress.indexed, total: progress.total, chunks: progress.chunks });
+  let outcome = t("doc_index_folder_done", {
+    indexed: progress.indexed, files: tCount("doc_file_count", progress.total), chunks: tCount("doc_chunk_count", progress.chunks),
+  });
   if (progress.failed.length) outcome += t("doc_index_folder_failed_suffix", { failed: progress.failed.length });
   return outcome;
 });
@@ -207,10 +209,10 @@ const runOutcome = computed(() => {
             <td class="name">
               <button v-if="row.type === 'folder'" class="link" @click="go(pathOf(row))">📁 {{ row.name }}</button>
               <button v-else class="link" :title="t('doc_preview')" @click="show(row)">📄 {{ row.name }}</button>
-              <span class="size">{{ row.type === "folder" ? `${row.file_count}${t("doc_files_suffix")}` : row.size }}</span>
+              <span class="size">{{ row.type === "folder" ? tCount("doc_file_count", row.file_count) : row.size }}</span>
             </td>
             <td class="dates">{{ row.created }}<br />{{ row.modified }}</td>
-            <td><span v-if="row.indexed" class="indexed">{{ t("doc_manager_chunks", { chunks: row.chunks }) }}</span></td>
+            <td><span v-if="row.indexed" class="indexed">{{ tCount("doc_chunk_count", row.chunks) }}</span></td>
             <td class="row-actions">
               <a v-if="row.type === 'file'" :href="docs.listing.download_prefix + encodeURIComponent(row.name)" :title="t('doc_download')" download>⬇</a>
               <button v-if="row.type === 'file'" :title="t('doc_copy_path')" @click="copyPath(row)">📋</button>

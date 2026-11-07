@@ -4,7 +4,7 @@
 import { onMounted, ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { IndexOverview } from "../api/types";
-import { t } from "../i18n";
+import { t, tCount } from "../i18n";
 import ModalDialog from "./ModalDialog.vue";
 
 const emit = defineEmits<{ close: []; changed: [] }>();
@@ -48,7 +48,7 @@ async function clearAll(): Promise<void> {
       </header>
       <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
       <template v-if="overview">
-        <p class="counts">{{ overview.documents }} {{ t("db_documents") }} · {{ t("doc_manager_chunks", { chunks: overview.chunks }) }}</p>
+        <p class="counts">{{ tCount("db_document_count", overview.documents) }} · {{ tCount("doc_chunk_count", overview.chunks) }}</p>
         <section>
           <div class="head">
             <strong>{{ t("db_orphans_title") }}</strong>
@@ -57,8 +57,8 @@ async function clearAll(): Promise<void> {
           <p v-if="!overview.orphans.length" class="empty">{{ t("db_orphans_none") }}</p>
           <div v-for="orphan in overview.orphans" :key="orphan.filename" class="orphan">
             <span class="name">📄 {{ orphan.filename }}</span>
-            <span class="meta">{{ t("doc_manager_chunks", { chunks: orphan.chunks }) }} · {{ orphan.indexed }}</span>
-            <button :title="t('db_remove_from_index')" @click="remove([orphan.filename])">🗑️</button>
+            <span class="meta">{{ tCount("doc_chunk_count", orphan.chunks) }} · {{ orphan.indexed }}</span>
+            <button :title="t('db_remove_from_index')" @click="remove([orphan.filename])">📤</button>
           </div>
         </section>
         <div class="actions">

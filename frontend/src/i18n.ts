@@ -17,3 +17,9 @@ export function t(key: string, values: Record<string, string | number> = {}): st
     name in values ? String(values[name]) : match,
   );
 }
+
+// A number of things: the key's text for one, `<key>_plural` for any other number, with {count} filled in;
+// the same rule as the server's t(key, count=…).
+export function tCount(key: string, count: number, values: Record<string, string | number> = {}): string {
+  return t(count === 1 ? key : `${key}_plural`, { ...values, count });
+}

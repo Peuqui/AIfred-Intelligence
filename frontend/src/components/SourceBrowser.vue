@@ -4,7 +4,7 @@
 // indexing files, a selection or the open folder into the search, or taking a file out of it again.
 import { computed, ref } from "vue";
 import type { SourceRow } from "../api/types";
-import { t } from "../i18n";
+import { t, tCount } from "../i18n";
 import { useDocuments } from "../stores/documents";
 
 const docs = useDocuments();
@@ -106,7 +106,7 @@ async function picked(): Promise<void> {
             <span v-if="docs.query" class="where">{{ row.id }}</span>
           </td>
           <td class="dates">{{ row.modified }}</td>
-          <td><span v-if="row.indexed" class="indexed">{{ t("doc_manager_chunks", { chunks: row.chunks }) }}</span></td>
+          <td><span v-if="row.indexed" class="indexed">{{ tCount("doc_chunk_count", row.chunks) }}</span></td>
           <td class="row-actions">
             <a v-if="row.type === 'file'" :href="row.download_url" :title="t('doc_download')" download>⬇</a>
             <button v-if="row.indexed" :title="t('doc_deindex')" @click="docs.deindexRemote([row.id])">📤</button>

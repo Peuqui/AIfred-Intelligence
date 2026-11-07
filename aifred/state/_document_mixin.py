@@ -560,8 +560,9 @@ class DocumentMixin(rx.State, mixin=True):
                 self.add_debug(f"⚠️ index: {name}: {result.detail}")
 
         final_msg = t(
-            "doc_index_folder_done", lang=self.ui_language,
-            indexed=indexed, total=total, chunks=chunks_total,
+            "doc_index_folder_done", lang=self.ui_language, indexed=indexed,
+            files=t("doc_file_count", lang=self.ui_language, count=total),
+            chunks=t("doc_chunk_count", lang=self.ui_language, count=chunks_total),
         )
         if failed:
             final_msg += t("doc_index_folder_failed_suffix", lang=self.ui_language, failed=failed)

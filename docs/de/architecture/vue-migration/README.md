@@ -199,6 +199,12 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   die gerade verwaist sind; eine Datei, die noch da ist, verlässt den Index über das Löschen in der
   Ordnerliste. Dünn über `file_manager.list_indexed/list_orphaned/deindex_file` und
   `document_store.clear`, wie der Reflex-Tab.
+- **Mehrzahl in Texten (erledigt 07.11.2026):** `tCount(key, count)` in `frontend/src/i18n.ts` nimmt für
+  eins den Schlüssel, sonst `<key>_plural`, wie `t(key, count=…)` des Servers („1 Abschnitt“, „2 Dateien“).
+  Die Fertig-Meldung des Indexierens setzt sich in beiden Oberflächen aus gezählten Teilen zusammen.
+  `tests/test_frontend_i18n_keys.py` verlangt jeden Schlüssel, den das Frontend wörtlich nennt, in
+  beiden Sprachdateien, bei `tCount` auch den Plural. Die Reflex-Schlüssel `doc_files_suffix` und
+  `doc_file_suffix_one` gehen mit Reflex.
 - **Einstellungen, Teil 2 (offen):** Backend-Wechsel, Kalibrierung, Neustarts von Backend und AIfred,
   Grundeinstellungen laden. Neustarts treffen die gemeinsamen Dienste (llama-swap,
   Produktionsdienst): nur mit Peuqui abgestimmt testen.
