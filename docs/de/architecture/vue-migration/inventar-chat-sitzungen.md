@@ -396,7 +396,7 @@ prüft die Middleware nur „angemeldet“, `lib/api/app.py:50-71`). Der Ereigni
 | `POST /api/sessions/{id}/audio` (multipart, `source=mic|file`) | → `{upload_id, estimate_s, needs_confirm, question}` | `_handle_audio` |
 | `POST /api/sessions/{id}/audio/{upload_id}/transcribe` `{confirmed, unload_llm?}` | → `{target: bubble|workspace|queue|input, text?}` | `_run_transcription`, Bestätigungs-Rückrufe |
 | `POST /api/sessions/{id}/memory/pin` | → `{stored, updated}` | `save_session_memory` |
-| `POST /api/sessions/{id}/messages/{timestamp}/speech` | → 202 | `resynthesize_bubble_tts` |
+| `POST /api/sessions/{id}/messages/speech` `{timestamp}` | → 204 (gebaut 07.11.2026, Lesung über den Ereignisstrom) | `resynthesize_bubble_tts` |
 | `POST /api/sessions/{id}/speech/regenerate` | → 202 | `resynthesize_all_tts` |
 | `GET /api/storage`, `DELETE /api/storage/{id}`, `POST /api/storage/delete` `{ids}`, `POST /api/storage/{id}/showcase` | | StorageMixin |
 | `GET /api/sessions/{id}/events` (SSE) | `Last-Event-ID` | `GET /browser/stream/{session_id}` |

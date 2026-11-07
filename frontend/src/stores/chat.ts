@@ -12,6 +12,7 @@ import type {
   MessageAccepted,
   SessionConfig,
   SessionDetail,
+  SpeechSettings,
   UploadedImage,
 } from "../api/types";
 import * as speech from "../lib/speech";
@@ -46,6 +47,8 @@ export const useChat = defineStore("chat", () => {
   const dictations = ref<string[]>([]);
   // Who recognizes a dictation and whether it goes into the input field first (settings.json).
   const dictationSettings = ref<DictationSettings>({ engine: "stt_suite", show_transcription: false });
+  // Whether speech output is on (settings.json): a reply's button to read it aloud again shows then.
+  const speechSettings = ref<SpeechSettings>({ enable_tts: false, tts_autoplay: false });
   let source: EventSource | null = null;
 
   async function open(id: string): Promise<void> {
@@ -216,6 +219,20 @@ export const useChat = defineStore("chat", () => {
     dictationSettings.value = await api<DictationSettings>("dictation/settings");
   }
 
+  async function loadSpeechSettings(): Promise<void> {
+    speechSettings.value = await api<SpeechSettings>("speech/settings");
+  }
+
+  // A finished reply read aloud again; the reading arrives over the event stream like a new one.
+  async function readAgain(timestamp: string): Promise<void> {
+    if (!sessionId.value) return;
+    try {
+      await api<void>(`sessions/${sessionId.value}/messages/speech`, { method: "POST", body: JSON.stringify({ timestamp }) });
+    } catch (error) {
+      notice.value = error instanceof ApiError ? error.detail : String(error);
+    }
+  }
+
   async function changeDictationSettings(changes: Partial<DictationSettings>): Promise<void> {
     dictationSettings.value = await api<DictationSettings>("dictation/settings", {
       method: "PATCH",
@@ -256,5 +273,6 @@ export const useChat = defineStore("chat", () => {
     sessionId, title, history, debugLines, config, running, streaming, toolStatus, notice, queued,
     pendingImages, uploading, draft, dictations, dictationSettings, open, close, send, stop, configure,
     uploadImages, removeImage, dictate, dictated, loadDictationSettings, changeDictationSettings,
+    speechSettings, loadSpeechSettings, readAgain,
   };
 });

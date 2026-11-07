@@ -24,6 +24,7 @@ const streamingHtml = computed(() => (chat.streaming ? renderMarkdown(chat.strea
 async function start(): Promise<void> {
   agents.value = await api<AgentSummary[]>("agents/summary");
   await chat.loadDictationSettings();
+  await chat.loadSpeechSettings();
   await sessions.refresh();
   const latest = sessions.list[0];
   await chat.open(latest ? latest.session_id : await sessions.create());
@@ -89,7 +90,13 @@ onMounted(async () => {
         </div>
       </div>
       <div ref="messages" class="messages">
-        <MessageBubble v-for="entry in chat.history" :key="entry.timestamp + entry.role" :entry="entry" />
+        <MessageBubble
+          v-for="entry in chat.history"
+          :key="entry.timestamp + entry.role"
+          :entry="entry"
+          :speech-on="chat.speechSettings.enable_tts && entry.role === 'assistant'"
+          @read-again="chat.readAgain"
+        />
         <article v-if="chat.streaming" class="streaming">
           <header>{{ chat.streaming.emoji }} {{ chat.streaming.displayName }}</header>
           <!-- eslint-disable-next-line vue/no-v-html -- sanitized by renderMarkdown (DOMPurify) -->

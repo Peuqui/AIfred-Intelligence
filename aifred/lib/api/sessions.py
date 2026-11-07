@@ -236,6 +236,51 @@ async def sessions_send(session_id: str, message: MessageIn, request: Request) -
     return MessageAccepted(queued=submit_turn(TurnRequest(session_id, message.text, images=tuple(message.images))))
 
 
+# ── Speech ───────────────────────────────────────────────────────────────
+
+
+class BubbleRef(BaseModel):
+    timestamp: str = Field(description="The bubble's timestamp (ChatEntry.timestamp)")
+
+
+@api_app.post("/sessions/{session_id}/messages/speech", status_code=204, tags=["Sessions"])
+async def sessions_read_bubble(session_id: str, bubble: BubbleRef, request: Request) -> Response:
+    """Read a finished bubble aloud again: what plays now stops, the reading comes over the event stream
+    (``tts``, …), and what was spoken replaces the bubble's audio (``message_updated``)."""
+    from ..debug_bus import session_scope
+    from ..reply_speech import read_bubble
+    from ..runtime_settings import load_runtime_settings
+    from ..tts_text_filter import strip_ui_only_content
+
+    session = owned_session(request, session_id)
+    entry = next((m for m in session.get("data", {}).get("chat_history", []) if m.get("timestamp") == bubble.timestamp), None)
+    if entry is None or entry.get("role") != "assistant":
+        raise HTTPException(status_code=404, detail="No reply with this timestamp")
+    view = load_runtime_settings()
+    if not view.enable_tts:
+        raise HTTPException(status_code=409, detail="Speech output is off")
+    text = strip_ui_only_content(entry.get("content", ""))
+    if len(text) < 5:
+        raise HTTPException(status_code=422, detail="Nothing to read in this reply")
+    with session_scope(session_id):
+        await read_bubble(session_id, entry, text, view, view.ui_language)
+    return Response(status_code=204)
+
+
+class SpeechSettingsOut(BaseModel):
+    enable_tts: bool = Field(description="Speech output is on")
+    tts_autoplay: bool = Field(description="A reply is read aloud while it is written")
+
+
+@api_app.get("/speech/settings", response_model=SpeechSettingsOut, tags=["Sessions"])
+async def speech_settings(request: Request) -> SpeechSettingsOut:
+    from ..runtime_settings import load_runtime_settings
+
+    current_user(request)
+    view = load_runtime_settings()
+    return SpeechSettingsOut(enable_tts=view.enable_tts, tts_autoplay=view.tts_autoplay)
+
+
 # ── Images for the next message ──────────────────────────────────────────
 
 

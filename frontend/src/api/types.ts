@@ -11,6 +11,7 @@ export type UploadedImage = Schemas["UploadedImage"];
 export type DictationAccepted = Schemas["DictationAccepted"];
 export type DictationSettings = Schemas["DictationSettings"];
 export type DictatedTextResult = Schemas["DictatedTextResult"];
+export type SpeechSettings = Schemas["SpeechSettingsOut"];
 export type AgentSummary = Schemas["AgentSummary"];
 export type LoggedIn = Schemas["LoggedIn"];
 export type Me = Schemas["Me"];

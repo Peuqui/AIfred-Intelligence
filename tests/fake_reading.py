@@ -38,6 +38,7 @@ class FakeReading(_ReadingBase):
         self.browser_speech: list[dict[str, Any]] = []
         self.note = ""
         self.aborted = False
+        self.broke_off = False   # set by a test: the service stopped after the first sound
         self.finished = False
         self.over = asyncio.Event()
         FakeReading.made.append(self)

@@ -5,7 +5,8 @@ import { t } from "../i18n";
 import { renderMarkdown } from "../lib/markdown";
 import { replay } from "../lib/speech";
 
-const props = defineProps<{ entry: ChatEntry }>();
+const props = defineProps<{ entry: ChatEntry; speechOn: boolean }>();
+const emit = defineEmits<{ readAgain: [timestamp: string] }>();
 const html = computed(() => renderMarkdown(props.entry.content));
 const isUser = computed(() => props.entry.role === "user");
 const metadata = computed(() => props.entry.metadata ?? { audio_urls: [], browser_speech: [] });
@@ -22,6 +23,14 @@ function play(): void {
       {{ entry.agent_emoji }} {{ entry.agent_display_name }}
       <span class="time">{{ entry.time_display }}</span>
       <button v-if="canReplay" class="replay" :title="t('audio_play_tooltip')" @click="play">🔊</button>
+      <button
+        v-if="speechOn && entry.timestamp"
+        class="replay"
+        :title="canReplay ? t('audio_regenerate_tooltip') : t('audio_generate_tooltip')"
+        @click="emit('readAgain', entry.timestamp)"
+      >
+        🔄
+      </button>
       <span v-if="entry.tts_note" class="note">{{ entry.tts_note }}</span>
     </header>
     <!-- eslint-disable-next-line vue/no-v-html -- sanitized by renderMarkdown (DOMPurify) -->

@@ -121,12 +121,12 @@ der neue Dienst entsteht daneben und ersetzt beim Wechsel beide alten Pfade.
   ein Schalter je Tab, der beim Neuladen verloren ging.
 - Danach übernehmen Kanäle und Scheduler denselben Dienst.
 
-### Stand und offene Punkte (07.11.2026, vormittags)
+### Stand und offene Punkte (07.11.2026, nachmittags)
 
 Erledigt: Ereignis-Hub, App-Hülle, Einstellungssicht, Zug-Dienst mit allen Modi, Sitzungs-API mit
 Besitzerprüfung, Anmeldung, Agentenliste, Vue-Oberfläche mit Chat (Live-Strom, Warteschlange,
 Stopp, Agentenwahl, Debug-Konsole), gesprochene Antwort im Browser (Wiedergabeliste, Knopf zum
-erneuten Abspielen an der Blase, Sprecher-Vermerk), Bilder (hochladen, einfügen, ziehen,
+erneuten Abspielen an der Blase, Sprecher-Vermerk, Blase neu vorlesen), Bilder (hochladen, einfügen, ziehen,
 entfernen; gesehen oder einmal beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
 
 - **Dateien unter `/_upload/`** (Ton, Bilder, Dokumente): die Tabelle der Ordner und wer sie ohne
@@ -144,7 +144,13 @@ entfernen; gesehen oder einmal beschrieben), Diktat und Audio-Dateien, Inkognito
   geht (Bestandsaufnahme). Die Gerätewahl in AIfred und die Rückfrage „LLM entladen?“ sind entfallen
   (Peuqui 07.11.2026, Archiv-Tag `archive-vue-frontend-2026-11-07`): AIfred fragt immer mit `auto`.
 - **Sprachausgabe, Rest:** Musik oder Hörbuch vor einer Lesung anhalten (kommt mit der Audio-Seite);
-  eine Blase neu vorlesen lassen (Knopf „neu erzeugen“, heute `resynthesize_bubble_tts` im State).
+  alle Blasen einer Sitzung neu vorlesen (heute `resynthesize_all_tts` im State).
+- **Blase neu vorlesen (erledigt 07.11.2026):** 🔄 an jeder Antwort, solange die Sprachausgabe an ist
+  (`GET /api/speech/settings`). `reply_speech.read_bubble` beendet, was gerade spielt, liest den Text
+  der Blase durch den Filter der Lesung (`tts_text_filter.strip_ui_only_content`, ohne Metrikzeile)
+  über die Wiedergabeliste der Sitzung und ersetzt danach den Ton der Blase (`message_updated`). Bricht
+  der Dienst nach dem ersten Ton ab, behält die Blase ihren alten Ton (`keep_partial`); eine neue
+  Antwort behält auch eine abgebrochene Lesung, weil sie sonst keinen hätte.
 
 - **Rollentausch vollständig (erledigt 07.11.2026):** Die Perspektive in
   `message_builder.build_messages_from_llm_history` gilt für jeden Agenten: eigene Antworten sind

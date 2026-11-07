@@ -217,3 +217,78 @@ def test_stop_ends_the_reading_and_tells_the_clients(session: list[list[str]]) -
     asyncio.run(scenario())
     assert FakeReading.made[0].aborted
     assert _kinds()[-1] == "stop" and "tts" not in _kinds()
+
+
+# ── A finished bubble read aloud again ───────────────────────────────────
+
+
+def _bubble_with_audio(old_url: str) -> dict[str, Any]:
+    entry = _bubble()
+    session_storage.keep_reply_audio(SESSION, entry["timestamp"], [old_url], [], "Alt")
+    return entry
+
+
+def test_a_bubble_read_again_gets_the_new_audio_and_what_played_stops(
+    session: list[list[str]], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry = _bubble_with_audio("/_upload/audio/alt.wav")
+    monkeypatch.setattr(FakeReading, "ends_on_finish", True)
+
+    async def scenario() -> None:
+        await reply_speech.read_bubble(SESSION, entry, "Hallo Peuqui.", Settings(), "de")
+        await reply_speech._readings[SESSION].settled()
+
+    asyncio.run(scenario())
+    assert FakeReading.made[0].fed == ["Hallo Peuqui."] and _kinds()[0] == "stop"
+    saved = session_storage.load_session(SESSION)
+    assert saved is not None
+    assert saved["data"]["chat_history"][-1]["metadata"]["audio_urls"] == [f"/_upload/audio/{SESSION}/reply.wav"]
+
+
+def test_a_bubble_read_again_keeps_its_audio_when_the_service_breaks_off(session: list[list[str]]) -> None:
+    entry = _bubble_with_audio("/_upload/audio/alt.wav")
+
+    async def scenario() -> None:
+        await reply_speech.read_bubble(SESSION, entry, "Hallo Peuqui.", Settings(), "de")
+        reading = _reading(reply_speech._readings[SESSION])
+        reading.broke_off = True
+        reading.over.set()
+        await reply_speech._readings[SESSION].settled()
+
+    asyncio.run(scenario())
+    saved = session_storage.load_session(SESSION)
+    assert saved is not None
+    assert saved["data"]["chat_history"][-1]["metadata"]["audio_urls"] == ["/_upload/audio/alt.wav"]
+    assert "message_updated" not in _kinds()
+
+
+def test_reading_a_bubble_again_needs_speech_on_and_a_reply_with_text(session: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from starlette.testclient import TestClient
+
+    from aifred.lib import runtime_settings
+    from aifred.lib.api.app import api_app
+    from aifred.lib.auth import sign_username
+    from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+
+    entry = _bubble()
+    view = SimpleNamespace(enable_tts=False, tts_autoplay=True, tts_agents={}, ui_language="de")
+    monkeypatch.setattr(runtime_settings, "load_runtime_settings", lambda: view)
+    client = TestClient(api_app)
+    client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))
+    url = f"/sessions/{SESSION}/messages/speech"
+    assert client.post(url, json={"timestamp": entry["timestamp"]}).status_code == 409
+    view.enable_tts = True
+    assert client.post(url, json={"timestamp": "gibt-es-nicht"}).status_code == 404
+    read: list[tuple[str, str]] = []
+
+    async def read_bubble(session_id: str, _entry: dict[str, Any], text: str, _settings: Any, _ui_language: str) -> None:
+        read.append((session_id, text))
+
+    monkeypatch.setattr(reply_speech, "read_bubble", read_bubble)
+    # No body: the reading comes over the event stream (the client reads a body only from other codes).
+    answer = client.post(url, json={"timestamp": entry["timestamp"]})
+    assert answer.status_code == 204 and answer.content == b""
+    assert read == [(SESSION, "Hallo Peuqui.")]
+    assert client.get("/speech/settings").json() == {"enable_tts": True, "tts_autoplay": True}

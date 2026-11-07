@@ -59,12 +59,15 @@ def speech_language(tts_agents: dict[str, dict[str, Any]], agent: str, detected:
 
 
 class ReplySpeech:
-    """The reading of one model call's reply."""
+    """The reading of one reply: of a model call while it streams (``call``), or of a finished bubble
+    read aloud again (``call`` None). ``keep_partial``: a reading the service broke off after the first
+    sound still goes onto the bubble (a new reply has no audio yet; a bubble read again keeps its old one)."""
 
-    def __init__(self, session_id: str, call: AgentCall, reading: BrowserReading) -> None:
+    def __init__(self, session_id: str, call: AgentCall | None, reading: BrowserReading, *, keep_partial: bool) -> None:
         self.session_id = session_id
         self.call = call
         self.reading = reading
+        self.keep_partial = keep_partial
         self._kept: asyncio.Task[None] | None = None
 
     def feed(self, text: str) -> None:
@@ -95,7 +98,7 @@ class ReplySpeech:
         reading = self.reading
         try:
             await reading.wait()
-            if reading.aborted:
+            if reading.aborted or (reading.broke_off and not self.keep_partial):
                 return
             audio_urls: list[str] = []
             if reading.audio_urls:
@@ -130,8 +133,6 @@ async def begin(
 
     Waits until the session's previous reading is kept: both would put audio on the same playlist.
     """
-    from .api.browser_bus import browser_push
-
     agent = call.agent
     if not speech_wanted(settings, agent):
         return None
@@ -139,10 +140,40 @@ async def begin(
     if previous is not None:
         log_message("🔊 TTS: waiting for the previous reply's reading")
         await previous.settled()
-    reading = BrowserReading(
+    language = speech_language(settings.tts_agents, agent, detected_language, ui_language)
+    speech = ReplySpeech(session_id, call, _reading(session_id, agent, language, ui_language), keep_partial=True)
+    _readings[session_id] = speech
+    speech.reading.start()
+    return speech
+
+
+async def read_bubble(session_id: str, entry: dict[str, Any], text: str, settings: SpeechSettings, ui_language: str) -> None:
+    """Read a finished bubble aloud again (its speaker button): what plays now stops, ``text`` (the
+    bubble as the chat shows it, through the reading's filter: ``tts_text_filter.strip_ui_only_content``)
+    is read at once, and what was spoken replaces the bubble's audio when the reading is over."""
+    stop(session_id)
+    previous = _readings.get(session_id)
+    if previous is not None:
+        await previous.settled()
+    agent = str(entry["agent"])
+    language = speech_language(settings.tts_agents, agent, "", ui_language)
+    speech = ReplySpeech(session_id, None, _reading(session_id, agent, language, ui_language), keep_partial=False)
+    _readings[session_id] = speech
+    speech.reading.start()
+    speech.feed(text)
+    speech.end(complete=True)
+    speech.keep_on(entry)
+
+
+def _reading(session_id: str, agent: str, language: str, ui_language: str) -> BrowserReading:
+    """The reading of one reply onto the session's playlist (the push bus of its event stream)."""
+    from .api.browser_bus import browser_push
+
+    log_message(f"🔊 TTS: reading for agent={agent}, language={language}")
+    return BrowserReading(
         session_id=session_id,
         agent=agent,
-        language=speech_language(settings.tts_agents, agent, detected_language, ui_language),
+        language=language,
         ui_language=ui_language,
         push=browser_push,
         report=debug,
@@ -150,11 +181,6 @@ async def begin(
         # Pausing the media player for the reading belongs to the audio page, which is not served yet.
         on_first_output=lambda: None,
     )
-    speech = ReplySpeech(session_id, call, reading)
-    _readings[session_id] = speech
-    log_message(f"🔊 TTS: reading for agent={agent}, language={reading.language}")
-    reading.start()
-    return speech
 
 
 def keep_on(session_id: str, call: AgentCall, entry: dict[str, Any]) -> None:
