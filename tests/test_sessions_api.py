@@ -92,6 +92,7 @@ def test_login_sets_the_cookie_of_the_reflex_login(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(session_storage, "verify_account", lambda user, password: password == "richtig")
     anonymous = TestClient(api_app)
     assert anonymous.get("/sessions").status_code == 403
+    assert anonymous.get("/auth/me").json() == {"user": None}
     assert anonymous.post("/auth/login", json={"username": "ki", "password": "falsch"}).status_code == 401
     assert anonymous.post("/auth/login", json={"username": "niemand", "password": "richtig"}).status_code == 401
     response = anonymous.post("/auth/login", json={"username": " KI ", "password": "richtig"})

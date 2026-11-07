@@ -39,12 +39,13 @@ api_app = FastAPI(
 #
 # Exempt: inject + webhook + announce + tts (enforce their own service token
 # via require_service_token), the OAuth callback (arrives as a redirect
-# from the provider, cookie not guaranteed), the Vue login (it sets the cookie) and the
+# from the provider, cookie not guaranteed), the Vue login (it sets the cookie; /auth/me
+# answers null without one) and the
 # Vue app shell under /app/ (code, colours, UI texts; no user data, the login form is part of it).
 
 _COOKIE_EXEMPT_PATHS = (
     "/chat/inject", "/agent/trigger", "/audio/announce", "/audio/announce/rooms",
-    "/tts/entries", "/auth/login",
+    "/tts/entries", "/auth/login", "/auth/me",
 )
 
 

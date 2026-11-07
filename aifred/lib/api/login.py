@@ -9,7 +9,6 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from .app import api_app
-from .sessions import current_user
 
 
 class Credentials(BaseModel):
@@ -44,9 +43,17 @@ async def auth_login(credentials: Credentials) -> JSONResponse:
     return _with_cookie(JSONResponse({"user": user}), user)
 
 
-@api_app.get("/auth/me", response_model=LoggedIn, tags=["Auth"])
-async def auth_me(request: Request) -> LoggedIn:
-    return LoggedIn(user=current_user(request))
+class Me(BaseModel):
+    user: str | None
+
+
+@api_app.get("/auth/me", response_model=Me, tags=["Auth"])
+async def auth_me(request: Request) -> Me:
+    """Who is logged in: the user of a valid login cookie, otherwise null (asked before the login)."""
+    from ..auth import verify_signed_username
+    from ..browser_storage import USERNAME_COOKIE_NAME
+
+    return Me(user=verify_signed_username(request.cookies.get(USERNAME_COOKIE_NAME, "")))
 
 
 @api_app.post("/auth/logout", status_code=204, tags=["Auth"])
