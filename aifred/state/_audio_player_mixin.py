@@ -355,22 +355,16 @@ class AudioPlayerMixin(rx.State, mixin=True):
         """Delete a source = remove its symlink/folder under data/media/audio/.
         Plus clear the index entries.
         """
-        import shutil as _shutil
-        from pathlib import Path as _Path
-
         from ..lib.audio_index import audio_index
+        from ..lib.audio_sources import remove_local_source
         from ..lib.config import MEDIA_AUDIO_DIR
 
-        target = _Path(MEDIA_AUDIO_DIR) / source
-        if not target.exists() and not target.is_symlink():
+        try:
+            remove_local_source(MEDIA_AUDIO_DIR, source)
+        except FileNotFoundError:
             self.audio_settings_status = f"⚠️ '{source}' nicht gefunden"
             return
-        try:
-            if target.is_symlink() or target.is_file():
-                target.unlink()
-            elif target.is_dir():
-                _shutil.rmtree(target)
-        except OSError as exc:
+        except (ValueError, OSError) as exc:
             self.audio_settings_status = f"⚠️ Konnte '{source}' nicht entfernen: {exc}"
             return
         removed = audio_index.remove_source(source)
