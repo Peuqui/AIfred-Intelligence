@@ -73,8 +73,31 @@ der neue Dienst entsteht daneben und ersetzt beim Wechsel beide alten Pfade.
   `_stream_agent_to_history`), Speichern unter `session_rmw_lock`, Titel, Abbruch über
   `pipeline_registry`. Ereignisse über `session_events`: `turn_started`, `agent_started`, `token`,
   `tool_status`, `debug`, `message_added`, `turn_finished` (Liste in `inventar-chat-sitzungen.md` 5.2).
-- Danach in dieser Reihenfolge: Multi-Agent-Modi mit Rollen statt fester Namen, Bilder, TTS im
-  Browser, Diktat; dann übernehmen Kanäle und Scheduler denselben Dienst.
+- **`lib/turn_debate.py`**: Kritische Prüfung, Auto-Konsens, Tribunal, Symposion über die Rollen
+  main, critic, judge aus `agents.json` (`agent_config.agent_for_role`, `role_prompt`); fehlt eine
+  Rolle oder ihr Prompt, lehnt der Zug mit Grund ab.
+- Danach in dieser Reihenfolge: Bilder, TTS im Browser, Diktat, Inkognito als Sitzungsschalter; dann
+  übernehmen Kanäle und Scheduler denselben Dienst.
+
+### Stand und offene Punkte (07.11.2026, vormittags)
+
+Erledigt: Ereignis-Hub, App-Hülle, Einstellungssicht, Zug-Dienst mit allen Modi, Sitzungs-API mit
+Besitzerprüfung, Anmeldung, Agentenliste, Vue-Oberfläche mit Chat (Live-Strom, Warteschlange,
+Stopp, Agentenwahl, Debug-Konsole). Offen:
+
+- **Rollentausch vollständig:** `message_builder.build_messages_from_llm_history` kennt nur die
+  Perspektiven aifred, sokrates, salomo; ein eigener Agent in einer Rolle sähe fremde Antworten als
+  eigene. Die Perspektive wird allgemein (eigene Sprecher-Marke = assistant, alle anderen = user mit
+  Namen). Die Prompts der Modi (`shared/multi_agent_roles.txt`, `sokrates/critic.txt`,
+  `aifred/refinement.txt`, …) nennen die Namen fest und bekommen Platzhalter.
+- **Agenten-Editor:** `create_agent` legt für critic nur „critic“ an, für main keine Rollen-Prompts;
+  `_get_role_templates` hält Prompts im Code. Die Vorlagen gehören nach `prompts/`, je Rolle alle
+  nötigen Schlüssel.
+- **Bleibt so:** Wer den Hauptagenten direkt anspricht, bekommt nur dessen Antwort (wie bisher).
+- **Grundmodell vs. Hauptrolle:** Modell-Vererbung (Agent ohne eigenes Modell nimmt AIfreds), die
+  Denkzeile des Direktchats, „kein Modell gewählt“ und das Titelmodell hängen am Eintrag „aifred“
+  der Einstellungen, nicht an der Rolle main. Vorschlag: so lassen (Einstellung „Grundmodell“),
+  Peuqui entscheidet.
 
 ## Schritte
 
