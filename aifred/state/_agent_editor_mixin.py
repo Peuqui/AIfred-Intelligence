@@ -7,6 +7,7 @@ and the scheduler job editor.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import reflex as rx
@@ -1185,38 +1186,43 @@ class AgentEditorMixin(rx.State, mixin=True):
             "}, 50)",
         )
 
-    def _load_editor_prompt(self, prompt_key: str) -> None:
-        """Load a prompt file's content into state (for JS population)."""
+    def _editor_prompt_file(self, prompt_key: str, lang: str) -> Path | None:
+        """The prompt file the editor reads and writes for ``prompt_key``, or None.
+
+        Tab and language arrive as event arguments from the client, the agents' prompt paths from
+        agents.json, which a bundle import fills: a language that is not a folder under prompts/,
+        or a path that leaves prompts/<lang>/, gets no file.
+        """
+        from ..lib.audio_sources import safe_subpath
         from ..lib.prompt_loader import PROMPTS_DIR
 
+        languages = {entry.name for entry in PROMPTS_DIR.iterdir() if entry.is_dir() and not entry.name.startswith(".")}
+        if lang not in languages:
+            return None
         if self.editor_agent_id == "automatik":
-            full_path = PROMPTS_DIR / self.editor_prompt_lang / "automatik" / f"{prompt_key}.txt"
+            relative = f"automatik/{prompt_key}.txt"
         else:
             from ..lib.agent_config import get_agent_config
             config = get_agent_config(self.editor_agent_id)
-            if config is None:
-                return
-            prompt_path = config.prompts.get(prompt_key, "")
-            if not prompt_path:
-                self._editor_prompt_content = ""
-                return
-            full_path = PROMPTS_DIR / self.editor_prompt_lang / prompt_path
+            relative = config.prompts.get(prompt_key, "") if config else ""
+        if not relative:
+            return None
+        return safe_subpath(PROMPTS_DIR / lang, relative)
 
-        if full_path.exists():
+    def _load_editor_prompt(self, prompt_key: str) -> None:
+        """Load a prompt file's content into state (for JS population)."""
+        full_path = self._editor_prompt_file(prompt_key, self.editor_prompt_lang)
+        if full_path is not None and full_path.exists():
             self._editor_prompt_content = full_path.read_text(encoding="utf-8")
+            return
+        # EN-only prompts like intent_detection: show the other language's file with a hint.
+        fallback_lang = "en" if self.editor_prompt_lang == "de" else "de"
+        fallback_path = self._editor_prompt_file(prompt_key, fallback_lang)
+        if fallback_path is not None and fallback_path.exists():
+            hint = f"[{fallback_lang.upper()} only]\n\n"
+            self._editor_prompt_content = hint + fallback_path.read_text(encoding="utf-8")
         else:
-            # Fallback: try the other language (EN-only prompts like intent_detection)
-            fallback_lang = "en" if self.editor_prompt_lang == "de" else "de"
-            if self.editor_agent_id == "automatik":
-                fallback_path = PROMPTS_DIR / fallback_lang / "automatik" / f"{prompt_key}.txt"
-            else:
-                fallback_path = PROMPTS_DIR / fallback_lang / prompt_path if prompt_path else None  # type: ignore[assignment]
-            if fallback_path and fallback_path.exists():
-                content = fallback_path.read_text(encoding="utf-8")
-                hint = f"[{fallback_lang.upper()} only]\n\n"
-                self._editor_prompt_content = hint + content
-            else:
-                self._editor_prompt_content = ""
+            self._editor_prompt_content = ""
 
     @rx.event
     def set_editor_prompt_tab(self, tab: str) -> None:
@@ -1281,22 +1287,11 @@ class AgentEditorMixin(rx.State, mixin=True):
 
     def _save_editor_prompt_to_disk(self) -> None:
         """Save current prompt content to disk (editor_prompt_lang)."""
-        from ..lib.prompt_loader import PROMPTS_DIR
-
         if not self.editor_agent_id:
             return
-
-        if self.editor_agent_id == "automatik":
-            full_path = PROMPTS_DIR / self.editor_prompt_lang / "automatik" / f"{self.editor_prompt_tab}.txt"
-        else:
-            from ..lib.agent_config import get_agent_config
-            config = get_agent_config(self.editor_agent_id)
-            if not config:
-                return
-            prompt_path = config.prompts.get(self.editor_prompt_tab, "")
-            if not prompt_path:
-                return
-            full_path = PROMPTS_DIR / self.editor_prompt_lang / prompt_path
+        full_path = self._editor_prompt_file(self.editor_prompt_tab, self.editor_prompt_lang)
+        if full_path is None:
+            return
 
         # Strip fallback language hint if present (e.g. "[EN only]\n\n")
         content = self._editor_prompt_content
