@@ -299,8 +299,9 @@ beobachtet; der Respawn-Code steht in `_serve_loop`, der nur OHNE Reload
 läuft. Zusätzlich meldet der Worker-Wächter bei
 `reload_ignore_worker_failure=True` den Absturz gar nicht weiter.
 
-- **Datei:** `venv/lib/python3.12/site-packages/reflex/utils/exec.py`, im
-  `Granian(...)`-Konstruktor in `run_granian_backend()` (~Zeile 545)
+- **Datei:** `venv/lib/python3.12/site-packages/reflex/utils/exec.py`, in
+  `run_granian_backend()`; seit Reflex 0.10 im Aufruf `ParentBoundGranian(...)` (~Zeile 930),
+  einer Unterklasse, die den Port im Master hält. `scripts/patch-reflex.py` (Patch 1) setzt ihn.
 - **Fix:** `reload=False` (die `reload_*`-Argumente entfallen) +
   `respawn_failed_workers=True` + `respawn_interval=3.5`. Kein Backend-Hot-Reload
   mehr — nach Code-Änderungen ohnehin Service-Restart.
@@ -308,7 +309,9 @@ läuft. Zusätzlich meldet der Worker-Wächter bei
   Absturz innerhalb 5,5 s nach einem Respawn (Crash-Schleife, z.B. Startfehler
   im Code) → Master beendet sich → systemd startet den Dienst neu.
 - **Abgenommen 2026-09-22:** `kill -SEGV <worker-pid>` → Backend nach 4 s
-  wieder da, Master + bun unverändert.
+  wieder da, Master + bun unverändert. **Erneut 2026-11-07 unter Reflex 0.10.1 und Granian 2.8.4:**
+  Backend nach 5,0 s wieder da, Master unverändert; der neue Worker durchläuft die
+  Lifespan-Tasks erneut (Message Hub startet alle Kanäle neu).
 
 **Bei Reflex-Update:** Patch erneut anwenden:
 ```python
