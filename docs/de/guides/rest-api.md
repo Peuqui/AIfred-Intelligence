@@ -38,6 +38,7 @@ Interaktive OpenAPI-Doku: `/api/docs` (Login erforderlich, siehe unten).
 | `/api/agent/trigger` | Feld `token` = `WEBHOOK_API_TOKEN` aus `.env` |
 | `/api/audio/announce` · `/api/audio/announce/rooms` | Header `Authorization: Bearer <ANNOUNCE_API_TOKEN>` aus `.env` |
 | `/api/oauth/{provider}/callback` | keine (kommt als Redirect des Providers) |
+| `/api/auth/login` · `/api/app/*` | keine: Login der Vue-Oberfläche und ihre Hülle (Code, Farben, Texte, Sprache) |
 | **alles andere** (inkl. `/api/docs`) | Login-Cookie `aifred_username`, wie ihn der Web-Login setzt |
 
 - Token-Endpoints antworten mit **503**, wenn das Token nicht konfiguriert ist, und mit **403**,
@@ -68,7 +69,14 @@ AIfred ins Internet stellst (siehe [Einrichtungsanleitung → Auf die Web-UI zug
 | `/api/chat/status` | GET | `?session_id=` — `is_generating`, `message_count` |
 | `/api/chat/history` | GET | `?session_id=` — `chat_history` + `llm_history` (ohne Angabe die neueste Session) |
 | `/api/chat/clear` | POST | History einer Session leeren (`session_id`) |
-| `/api/sessions` | GET | Sessions auflisten (`session_id`, `last_seen`, `message_count`) |
+| `/api/sessions` | GET / POST | Die eigenen Sessions (`session_id`, `title`, `last_message_at`, `message_count`, `channel`) / neue anlegen |
+| `/api/sessions/{id}` | GET / DELETE | Eine eigene Session öffnen (`chat_history`, `config`, `debug_messages`, `running`, `last_event_id`) / löschen. Fremde oder ungültige IDs antworten 404 |
+| `/api/sessions/{id}/messages` | POST | `{text}` — der Server führt den Zug selbst, auch ohne offenen Tab; läuft schon einer, wartet die Nachricht (`queued: true`) |
+| `/api/sessions/{id}/stop` | POST | Laufenden Zug abbrechen (die gestreamte Teilantwort bleibt) |
+| `/api/sessions/{id}/config` | PATCH | `active_agent`, `multi_agent_mode`, `symposion_agents` (nur bekannte Agenten und Modi) |
+| `/api/sessions/{id}/events` | GET | Ereignisstrom (SSE) der Session: `turn_started`, `agent_started`, `token`, `tool_status`, `message_added`, `turn_finished`, `debug`, … — `?after=<id>` bzw. `Last-Event-ID` |
+| `/api/agents/summary` | GET | Die Agenten, die ein Chat ansprechen kann (`id`, `display_name`, `emoji`, `role`) |
+| `/api/auth/login` · `/me` · `/logout` | POST / GET / POST | Anmeldung der Vue-Oberfläche (setzt dasselbe Login-Cookie wie der Reflex-Login) |
 | `/api/session/config` | POST | Konfiguration pro Session: `active_agent`, `multi_agent_mode`, `symposion_agents` |
 
 ### Einstellungen, Modelle, System
