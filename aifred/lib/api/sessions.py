@@ -1,4 +1,4 @@
-"""Sessions for the Vue app: list, open, create, delete, configure, send (with images), stop, follow.
+"""Sessions for the Vue app: list, open, create, delete, configure, send (with images), dictate, stop, follow.
 
 Every endpoint works on the logged-in user's own sessions: a session of another account answers
 404 as if it did not exist. A message to a session with a running turn waits in the session's
@@ -9,7 +9,7 @@ import asyncio
 import json
 from typing import Any
 
-from fastapi import HTTPException, Request, UploadFile
+from fastapi import Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -260,6 +260,48 @@ async def sessions_delete_image(session_id: str, name: str, request: Request) ->
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     image.path.unlink()
+    return Response(status_code=204)
+
+
+# ── Dictation and audio files ────────────────────────────────────────────
+
+
+class DictationAccepted(BaseModel):
+    job_id: str = Field(description="Its question (dictation_question) and its end (dictation_finished) carry this id")
+
+
+class DictationAnswer(BaseModel):
+    yes: bool
+
+
+@api_app.post("/sessions/{session_id}/dictation", response_model=DictationAccepted, status_code=202, tags=["Sessions"])
+async def sessions_dictation(
+    session_id: str, file: UploadFile, request: Request, job_id: str = Form(), source: str = Form("mic"),
+) -> DictationAccepted:
+    """A recording (``source=mic``: dictation) or an audio file (``source=file``) becomes text on the
+    server (lib/dictation.py); the rest arrives on the session's event stream. ``job_id`` (a UUID)
+    comes from the client, which knows it before the first event of the job."""
+    from ..dictation import DictationRejected, accept
+    from ..prompt_loader import get_language
+
+    owned_session(request, session_id)
+    if source not in ("mic", "file"):
+        raise HTTPException(status_code=422, detail=f"Unknown source: {source}")
+    try:
+        job = accept(job_id, session_id, file.filename or "audio", await file.read(), source, get_language())
+    except DictationRejected as rejection:
+        raise HTTPException(status_code=422, detail=rejection.message) from rejection
+    return DictationAccepted(job_id=job.id)
+
+
+@api_app.post("/sessions/{session_id}/dictation/{job_id}/answer", status_code=204, tags=["Sessions"])
+async def sessions_dictation_answer(session_id: str, job_id: str, reply: DictationAnswer, request: Request) -> Response:
+    """The user's answer to a dictation's question (long transcription, unload the LLM)."""
+    from ..dictation import answer
+
+    owned_session(request, session_id)
+    if not answer(session_id, job_id, reply.yes):
+        raise HTTPException(status_code=404, detail="No question of this dictation is open")
     return Response(status_code=204)
 
 

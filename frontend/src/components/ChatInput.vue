@@ -2,12 +2,28 @@
 import { computed, ref } from "vue";
 import type { UploadedImage } from "../api/types";
 import { t } from "../i18n";
+import * as recorder from "../lib/recorder";
 import { speaking } from "../lib/speech";
 
-const props = defineProps<{ running: boolean; queued: number; images: UploadedImage[]; uploading: boolean }>();
-const emit = defineEmits<{ send: [text: string]; stop: []; upload: [files: File[]]; removeImage: [name: string] }>();
-const text = ref("");
+const props = defineProps<{
+  running: boolean;
+  queued: number;
+  images: UploadedImage[];
+  uploading: boolean;
+  transcribing: boolean;
+}>();
+const emit = defineEmits<{
+  send: [text: string];
+  stop: [];
+  upload: [files: File[]];
+  removeImage: [name: string];
+  dictate: [file: File, source: "mic" | "file"];
+}>();
+// The input field's text lives in the chat store: a dictation in edit mode lands there.
+const text = defineModel<string>({ required: true });
 const picker = ref<HTMLInputElement | null>(null);
+const audioPicker = ref<HTMLInputElement | null>(null);
+const recording = recorder.recording;
 const canSend = computed(() => text.value.trim() !== "" || props.images.length > 0);
 
 function send(): void {
@@ -35,6 +51,25 @@ function picked(event: Event): void {
   upload(input.files);
   input.value = "";
 }
+
+async function toggleRecording(): Promise<void> {
+  if (recording.value) {
+    recorder.stop();
+    return;
+  }
+  try {
+    await recorder.start((file) => emit("dictate", file, "mic"));
+  } catch (error) {
+    window.alert(error instanceof Error && error.message === "insecure" ? t("mic_needs_secure_origin") : t("mic_access_denied"));
+  }
+}
+
+function audioPicked(event: Event): void {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (file) emit("dictate", file, "file");
+  input.value = "";
+}
 </script>
 
 <template>
@@ -55,7 +90,13 @@ function picked(event: Event): void {
     />
     <div class="actions">
       <input ref="picker" type="file" accept="image/*" multiple hidden @change="picked" />
-      <button class="image" :title="t('upload_image')" @click="picker?.click()">🖼️</button>
+      <input ref="audioPicker" type="file" accept="audio/*,.webm" hidden @change="audioPicked" />
+      <button class="tool" :title="t('upload_image')" @click="picker?.click()">🖼️</button>
+      <button class="tool" :class="{ recording }" :title="recording ? t('dictation_stop') : t('dictation_record')" @click="toggleRecording">
+        {{ recording ? "⏺" : "🎤" }}
+      </button>
+      <button class="tool" :title="t('audio_file_upload')" @click="audioPicker?.click()">🎵</button>
+      <span v-if="transcribing" class="transcribing">{{ t("dictation_running") }}</span>
       <span v-if="queued" class="queued">{{ t("messages_waiting", { count: queued }) }}</span>
       <span class="hint">{{ t("enter_sends_hint") }}</span>
       <button v-if="running || speaking" class="stop" @click="emit('stop')">⏹ {{ t("stop_turn") }}</button>
@@ -97,7 +138,9 @@ figure img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; b
 .hint, .queued { font-size: 0.75rem; color: var(--aifred-text-muted); margin-right: auto; }
 .queued { color: var(--aifred-accent-amber); margin-right: 0; }
 button { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font: inherit; }
-.image { background: none; border: 1px solid var(--aifred-border); padding: 4px 10px; }
+.tool { background: none; border: 1px solid var(--aifred-border); padding: 4px 10px; }
+.tool.recording { border-color: var(--aifred-danger); color: var(--aifred-danger); }
+.transcribing { font-size: 0.75rem; color: var(--aifred-accent-cyan); }
 .send { background: var(--aifred-primary); color: var(--aifred-text-on-accent); }
 .send:disabled { opacity: 0.5; cursor: default; }
 .stop { background: var(--aifred-danger); color: var(--aifred-text-on-accent); }

@@ -784,17 +784,24 @@ def _json(arguments: str) -> dict[str, Any]:
 
 def _save_partial(session_id: str, agent: str, text: str, lang: str) -> None:
     """A cancelled answer keeps what had streamed, marked as interrupted (as in the browser)."""
-    from .formatting import assistant_history_entry, build_agent_panel_entry
     from .i18n import t
 
     if not text.strip():
         return
-    content = f"{text}\n\n{t('generation_interrupted', lang=lang)}"
+    post_bubble(session_id, agent, f"{text}\n\n{t('generation_interrupted', lang=lang)}", lang, in_history=True)
+    debug(f"⚠️ Partial response rescued ({len(text)} chars) after aborted generation")
+
+
+def post_bubble(session_id: str, agent: str, content: str, lang: str, *, in_history: bool) -> dict[str, Any]:
+    """An agent's bubble that no model call wrote (a rescued partial answer, a transcript, a note):
+    saved, told to the clients, and in the llm history when the model should know it."""
+    from .formatting import assistant_history_entry, build_agent_panel_entry
+
     entry = build_agent_panel_entry(agent, content, lang=lang)
-    history_entry = assistant_history_entry(agent, content)
+    history_entry = assistant_history_entry(agent, content) if in_history else None
     _append(session_id, chat=[entry], llm=[history_entry] if history_entry else [])
     session_events.publish(session_id, "message_added", {"entry": entry})
-    debug(f"⚠️ Partial response rescued ({len(text)} chars) after aborted generation")
+    return entry
 
 
 # ── Session file and title ───────────────────────────────────────────────

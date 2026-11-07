@@ -7,6 +7,7 @@ export type SessionDetail = Schemas["SessionDetail"];
 export type ChatEntry = Schemas["ChatEntry"];
 export type Utterance = Schemas["Utterance"];
 export type UploadedImage = Schemas["UploadedImage"];
+export type DictationAccepted = Schemas["DictationAccepted"];
 export type AgentSummary = Schemas["AgentSummary"];
 export type LoggedIn = Schemas["LoggedIn"];
 export type Me = Schemas["Me"];

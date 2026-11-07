@@ -13,25 +13,7 @@ from typing import Any, TypedDict
 
 import reflex as rx
 
-from ..lib.config import LLAMASWAP_BACKENDS
 from ..lib.logging_utils import CONSOLE_SEPARATOR, console_separator, log_message
-
-# Pattern for structured data that STT likely transcribes incorrectly.
-# Whisper often transcribes "@" as "at" and "." as "punkt"/"dot".
-_STRUCTURED_DATA_RE = re.compile(
-    r"@"                                    # email: literal @
-    r"|\bat\b.*\b(?:punkt|dot)\b"           # email: "at ... punkt/dot" (STT transcription)
-    r"|www\s*\.\s*"                         # URL: www. (with possible spaces)
-    r"|www\s+punkt\s+"                      # URL: "www punkt" (STT)
-    r"|\.\s*(?:com|de|org|net|io|edu)\b"    # URL: .com, .de etc.
-    r"|\bpunkt\s*(?:com|de|org|net|io|edu)\b"  # URL: "punkt de" (STT)
-    r"|https?\s*:\s*/\s*/"                  # URL: http(s)://
-)
-
-
-def _transcription_needs_review(text: str) -> bool:
-    """Check if STT transcription contains structured data that needs manual review."""
-    return bool(_STRUCTURED_DATA_RE.search(text.lower()))
 
 # ============================================================
 # TTS Audio Broker - Bridge between create_task and Frontend
@@ -623,33 +605,11 @@ class AIState(
             yield event
 
     async def _unload_llm_for_stt(self) -> None:
-        """Unload the active chat backend's models so the Whisper GPU worker
-        fits. The LLM reloads automatically on the next chat request."""
-        from ..backends.ollama import wait_for_vram_stable
-
-        if self.backend_type in LLAMASWAP_BACKENDS:
-            # llama-swap: POST /unload stops all running instances (incl. vLLM)
-            import requests
-
-            from ..lib.config import BACKEND_URLS
-            base = BACKEND_URLS["llamacpp"].removesuffix("/v1")
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None, lambda: requests.post(f"{base}/unload", timeout=30),
-            )
-            stabilized, wait_s, free_mb = await wait_for_vram_stable()
-            self.add_debug(
-                f"🎤 llama-swap unloaded — {free_mb} MiB VRAM free "
-                f"after {wait_s:.1f}s{'' if stabilized else ' (still settling)'}"
-            )
-        elif self.backend_type == "ollama":
-            from ..backends import BackendFactory
-            backend = BackendFactory.create("ollama")
-            try:
-                _success, unloaded = await backend.unload_all_models(wait_for_stability=True)
-                self.add_debug(f"🎤 Ollama unloaded: {', '.join(unloaded) if unloaded else 'nothing loaded'}")
-            finally:
-                await backend.client.aclose()
+        """Unload the chat backend's models so the Whisper GPU worker fits (``dictation.unload_chat_models``)."""
+        from ..lib.debug_bus import session_scope
+        from ..lib.dictation import unload_chat_models
+        with session_scope(self.session_id):
+            await unload_chat_models(self.backend_type)
 
     async def _run_transcription(
         self, tmp_path: str, filename: str, source: str, size_display: str,
@@ -831,7 +791,8 @@ class AIState(
                 # Mic dictation (user request) from here on.
                 # Auto-enable edit mode if transcription contains structured data
                 # (email addresses, URLs) that STT likely got wrong
-                force_edit = _transcription_needs_review(user_text)
+                from ..lib.dictation import needs_review
+                force_edit = needs_review(user_text)
                 if force_edit and not self.show_transcription:
                     self.add_debug("✏️ Email/URL detected → edit mode enabled")
 

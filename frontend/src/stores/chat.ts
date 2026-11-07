@@ -4,7 +4,7 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import { ApiError, api } from "../api/client";
 import { followSession } from "../api/events";
-import type { ChatEntry, MessageAccepted, SessionDetail, UploadedImage } from "../api/types";
+import type { ChatEntry, DictationAccepted, MessageAccepted, SessionDetail, UploadedImage } from "../api/types";
 import * as speech from "../lib/speech";
 import { useSessions } from "./sessions";
 
@@ -35,6 +35,11 @@ export const useChat = defineStore("chat", () => {
   // Images uploaded for the next message (they sit in the session's upload folder until it is sent).
   const pendingImages = ref<UploadedImage[]>([]);
   const uploading = ref(false);
+  // The text in the input field; a dictation in edit mode lands here.
+  const draft = ref("");
+  // Dictations this tab sent that are not finished yet: only this tab asks their questions and
+  // takes their text into its input field.
+  const dictations = ref<string[]>([]);
   let source: EventSource | null = null;
 
   async function open(id: string): Promise<void> {
@@ -52,6 +57,8 @@ export const useChat = defineStore("chat", () => {
     notice.value = "";
     queued.value = [];
     pendingImages.value = [];
+    draft.value = "";
+    dictations.value = [];
     source = followSession(id, detail.last_event_id, handle);
   }
 
@@ -122,6 +129,17 @@ export const useChat = defineStore("chat", () => {
       case "stop":
         speech.stop();
         break;
+      case "dictation_question":
+        if (dictations.value.includes(String(data.job_id))) void answerDictation(String(data.job_id), String(data.text));
+        break;
+      case "dictation_text":
+        if (dictations.value.includes(String(data.job_id))) {
+          draft.value = draft.value.trim() ? `${draft.value.trim()} ${String(data.text)}` : String(data.text);
+        }
+        break;
+      case "dictation_finished":
+        dictations.value = dictations.value.filter((job) => job !== String(data.job_id));
+        break;
       case "turn_finished":
         running.value = false;
         streaming.value = null;
@@ -159,6 +177,32 @@ export const useChat = defineStore("chat", () => {
     }
   }
 
+  // A recording (source "mic") or an audio file (source "file") goes to the server, which transcribes it.
+  async function dictate(file: File, source: "mic" | "file"): Promise<void> {
+    if (!sessionId.value) return;
+    // The job's id is known here before the upload: its question or text may arrive before the answer.
+    const jobId = crypto.randomUUID().replaceAll("-", "");
+    const form = new FormData();
+    form.append("file", file, file.name);
+    form.append("source", source);
+    form.append("job_id", jobId);
+    dictations.value = [...dictations.value, jobId];
+    try {
+      await api<DictationAccepted>(`sessions/${sessionId.value}/dictation`, { method: "POST", body: form });
+    } catch (error) {
+      dictations.value = dictations.value.filter((job) => job !== jobId);
+      notice.value = error instanceof ApiError ? error.detail : String(error);
+    }
+  }
+
+  async function answerDictation(jobId: string, question: string): Promise<void> {
+    if (!sessionId.value) return;
+    await api<void>(`sessions/${sessionId.value}/dictation/${jobId}/answer`, {
+      method: "POST",
+      body: JSON.stringify({ yes: window.confirm(question) }),
+    });
+  }
+
   async function removeImage(name: string): Promise<void> {
     if (!sessionId.value) return;
     await api<void>(`sessions/${sessionId.value}/images/${encodeURIComponent(name)}`, { method: "DELETE" });
@@ -182,6 +226,7 @@ export const useChat = defineStore("chat", () => {
 
   return {
     sessionId, title, history, debugLines, config, running, streaming, toolStatus, notice, queued,
-    pendingImages, uploading, open, close, send, stop, configure, uploadImages, removeImage,
+    pendingImages, uploading, draft, dictations, open, close, send, stop, configure, uploadImages, removeImage,
+    dictate,
   };
 });
