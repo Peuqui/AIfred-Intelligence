@@ -1,0 +1,201 @@
+<script setup lang="ts">
+// An agent's editor on the agents page: 🎭 persona (name, emoji, description, further names for the speech
+// recognition), the prompt layers per language, and 🔐 rights (the tools it may use, grouped by plugin as
+// they are on offer now; "every tool" includes plugins switched on later). Each tab saves on its own.
+import { computed, onMounted, ref, watch } from "vue";
+import { ApiError } from "../api/client";
+import type { AgentPersona, AgentRights } from "../api/types";
+import { language, t } from "../i18n";
+import { useAgents } from "../stores/agents";
+import ModalDialog from "./ModalDialog.vue";
+
+const props = defineProps<{ agentId: string }>();
+const emit = defineEmits<{ close: [] }>();
+const agents = useAgents();
+
+type Tab = "persona" | "prompts" | "rights";
+const tab = ref<Tab>("persona");
+const notice = ref("");
+const saved = ref("");
+
+async function attempt(work: () => Promise<void>, done = t("agents_saved")): Promise<void> {
+  notice.value = "";
+  saved.value = "";
+  try {
+    await work();
+    saved.value = done;
+  } catch (error) {
+    notice.value = error instanceof ApiError ? error.detail : String(error);
+  }
+}
+
+// ── persona ──
+const persona = ref<AgentPersona | null>(null);
+const form = ref({ display_name: "", emoji: "", description: "", aliases: "" });
+function fill(from: AgentPersona): void {
+  persona.value = from;
+  form.value = { display_name: from.display_name, emoji: from.emoji, description: from.description, aliases: from.aliases.join(", ") };
+}
+const savePersona = (): Promise<void> =>
+  attempt(async () => {
+    fill(await agents.changePersona(props.agentId, {
+      display_name: form.value.display_name.trim(),
+      emoji: form.value.emoji.trim(),
+      description: form.value.description.trim(),
+      aliases: form.value.aliases.split(","),
+    }));
+  });
+
+// ── prompts ──
+const lang = ref("de");
+const key = ref("");
+const text = ref("");
+const original = ref("");
+const exists = ref(true);
+const dirty = computed(() => text.value !== original.value);
+async function loadPrompt(): Promise<void> {
+  if (!key.value) return;
+  await attempt(async () => {
+    const loaded = await agents.prompt(props.agentId, lang.value, key.value);
+    text.value = original.value = loaded.text;
+    exists.value = loaded.exists;
+  }, "");
+}
+watch([lang, key], loadPrompt);
+const savePrompt = (): Promise<void> =>
+  attempt(async () => {
+    const written = await agents.writePrompt(props.agentId, lang.value, key.value, text.value);
+    original.value = written.text;
+    exists.value = written.exists;
+  });
+
+// ── rights ──
+const rights = ref<AgentRights | null>(null);
+const all = ref(true);
+const allowed = ref(new Set<string>());
+function takeRights(from: AgentRights): void {
+  rights.value = from;
+  all.value = from.all;
+  allowed.value = new Set(from.groups.flatMap((group) => group.tools.filter((tool) => tool.allowed).map((tool) => tool.name)));
+}
+function toggleTool(name: string): void {
+  const next = new Set(allowed.value);
+  if (next.has(name)) next.delete(name);
+  else next.add(name);
+  allowed.value = next;
+}
+function setGroup(names: string[], on: boolean): void {
+  const next = new Set(allowed.value);
+  for (const name of names) {
+    if (on) next.add(name);
+    else next.delete(name);
+  }
+  allowed.value = next;
+}
+const saveRights = (): Promise<void> =>
+  attempt(async () => takeRights(await agents.changeRights(props.agentId, all.value ? null : [...allowed.value])));
+
+onMounted(() =>
+  attempt(async () => {
+    const [loadedPersona, loadedRights] = await Promise.all([agents.persona(props.agentId), agents.rights(props.agentId)]);
+    fill(loadedPersona);
+    takeRights(loadedRights);
+    // The interface's language when there are prompts in it; an empty list leaves none (the load says why).
+    lang.value = loadedPersona.languages.includes(language.value) ? language.value : (loadedPersona.languages[0] ?? "");
+    key.value = loadedPersona.prompt_keys[0] ?? "";
+  }, ""),
+);
+</script>
+
+<template>
+  <ModalDialog @close="emit('close')">
+    <div class="editor">
+      <header class="head">
+        <strong>{{ persona?.emoji }} {{ persona?.display_name }}</strong>
+        <nav class="tabs">
+          <button :class="{ active: tab === 'persona' }" @click="tab = 'persona'">{{ t("agents_tab_persona") }}</button>
+          <button :class="{ active: tab === 'prompts' }" @click="tab = 'prompts'">📝 {{ t("agent_editor_prompts") }}</button>
+          <button :class="{ active: tab === 'rights' }" @click="tab = 'rights'">{{ t("agents_tab_rights") }}</button>
+        </nav>
+        <button class="close" :title="t('dialog_close')" @click="emit('close')">×</button>
+      </header>
+      <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
+      <p v-else-if="saved" class="saved">✅ {{ saved }}</p>
+
+      <form v-if="tab === 'persona' && persona" class="persona" @submit.prevent="savePersona">
+        <label>{{ t("agent_editor_name") }}<input v-model="form.display_name" required /></label>
+        <label>{{ t("agent_editor_emoji") }}<input v-model="form.emoji" class="emoji" required /></label>
+        <label class="wide">{{ t("agent_editor_description") }}<input v-model="form.description" /></label>
+        <label class="wide">{{ t("agents_aliases") }}<input v-model="form.aliases" /></label>
+        <div class="actions wide"><button type="submit">{{ t("agent_editor_save") }}</button></div>
+      </form>
+
+      <section v-if="tab === 'prompts' && persona" class="prompts">
+        <div class="pick">
+          <select v-model="key">
+            <option v-for="layer in persona.prompt_keys" :key="layer" :value="layer">{{ layer }}</option>
+          </select>
+          <select v-model="lang">
+            <option v-for="language in persona.languages" :key="language" :value="language">{{ language.toUpperCase() }}</option>
+          </select>
+          <span v-if="dirty" class="dirty">{{ t("agent_editor_unsaved_warning") }}</span>
+        </div>
+        <p v-if="!exists" class="hint">{{ t("agents_prompt_missing") }}</p>
+        <textarea v-model="text" spellcheck="false"></textarea>
+        <div class="actions">
+          <button :disabled="!dirty" @click="text = original">{{ t("agent_editor_discard") }}</button>
+          <button :disabled="!dirty && exists" @click="savePrompt">{{ t("agent_editor_save") }}</button>
+        </div>
+      </section>
+
+      <section v-if="tab === 'rights' && rights" class="rights">
+        <label class="all"><input v-model="all" type="checkbox" /> {{ t("agents_all_tools") }}</label>
+        <fieldset v-for="group in rights.groups" :key="group.name" :disabled="all">
+          <legend>
+            {{ group.name }}
+            <button type="button" @click="setGroup(group.tools.map((tool) => tool.name), true)">{{ t("tools_all_on") }}</button>
+            <button type="button" @click="setGroup(group.tools.map((tool) => tool.name), false)">{{ t("tools_all_off") }}</button>
+          </legend>
+          <label v-for="tool in group.tools" :key="tool.name" class="tool">
+            <input type="checkbox" :checked="all || allowed.has(tool.name)" @change="toggleTool(tool.name)" />
+            <code>{{ tool.name }}</code><span class="tier">T{{ tool.tier }}</span>
+          </label>
+        </fieldset>
+        <div class="actions"><button @click="saveRights">{{ t("agent_editor_save") }}</button></div>
+      </section>
+    </div>
+  </ModalDialog>
+</template>
+
+<style scoped>
+.editor { width: min(860px, 88vw); display: flex; flex-direction: column; gap: 10px; }
+.head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.tabs { display: flex; gap: 6px; flex: 1; flex-wrap: wrap; }
+.tabs button.active { border-color: var(--aifred-primary); color: var(--aifred-primary); }
+.close { background: none; border: none; font-size: 1.2rem; }
+button, input:not([type="checkbox"]), select, textarea { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+button { cursor: pointer; }
+button:disabled { opacity: 0.5; cursor: default; }
+input[type="checkbox"] { accent-color: var(--aifred-primary); }
+.notice { margin: 0; color: var(--aifred-accent-amber); }
+.saved { margin: 0; color: var(--aifred-accent-cyan); }
+.persona { display: grid; grid-template-columns: 1fr 120px; gap: 10px; }
+.persona label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--aifred-text-secondary); }
+.persona .wide { grid-column: 1 / -1; }
+.emoji { width: 100%; }
+.actions { display: flex; gap: 8px; justify-content: flex-end; }
+.pick { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.dirty { color: var(--aifred-accent-amber); font-size: 0.85rem; }
+.hint { margin: 0; font-size: 0.85rem; color: var(--aifred-text-muted); }
+textarea { width: 100%; min-height: 45dvh; resize: vertical; font-family: monospace; font-size: 0.85rem; box-sizing: border-box; }
+.rights { display: flex; flex-direction: column; gap: 10px; max-height: 60dvh; overflow-y: auto; }
+fieldset { border: 1px solid var(--aifred-border); border-radius: 8px; display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 10px; }
+fieldset:disabled { opacity: 0.55; }
+legend { display: flex; gap: 6px; align-items: center; font-weight: 500; padding: 0 4px; }
+legend button { font-size: 0.75rem; padding: 1px 6px; }
+.tool { display: flex; gap: 4px; align-items: center; font-size: 0.85rem; }
+.tier { font-size: 0.7rem; color: var(--aifred-text-muted); }
+@media (max-width: 760px) {
+  .persona { grid-template-columns: 1fr; }
+}
+</style>

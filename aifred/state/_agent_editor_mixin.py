@@ -1193,21 +1193,15 @@ class AgentEditorMixin(rx.State, mixin=True):
         agents.json, which a bundle import fills: a language that is not a folder under prompts/,
         or a path that leaves prompts/<lang>/, gets no file.
         """
-        from ..lib.audio_sources import safe_subpath
-        from ..lib.prompt_loader import PROMPTS_DIR
+        from ..lib.prompt_loader import prompt_path
 
-        languages = {entry.name for entry in PROMPTS_DIR.iterdir() if entry.is_dir() and not entry.name.startswith(".")}
-        if lang not in languages:
-            return None
         if self.editor_agent_id == "automatik":
             relative = f"automatik/{prompt_key}.txt"
         else:
             from ..lib.agent_config import get_agent_config
             config = get_agent_config(self.editor_agent_id)
             relative = config.prompts.get(prompt_key, "") if config else ""
-        if not relative:
-            return None
-        return safe_subpath(PROMPTS_DIR / lang, relative)
+        return prompt_path(lang, relative)
 
     def _load_editor_prompt(self, prompt_key: str) -> None:
         """Load a prompt file's content into state (for JS population)."""

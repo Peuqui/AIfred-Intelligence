@@ -2,6 +2,8 @@
 
 import html as _html
 import time
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import BackgroundTasks, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
@@ -10,6 +12,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..logging_utils import log_exception, log_message
 from .app import api_app
 from .schemas import CallerName
+
+if TYPE_CHECKING:
+    from ..agent_config import AgentConfig
 
 # ============================================================
 # AGENT TRIGGER (Webhook API)
@@ -278,6 +283,190 @@ async def agents_delete(agent_id: str) -> Response:
         raise HTTPException(status_code=422, detail=str(refused)) from refused
     log_message(f"🗑️ Agent '{agent_id}' deleted")
     return Response(status_code=204)
+
+
+# ── Persona, prompts, rights, a new agent ────────────────────────────────
+
+
+class AgentPersona(BaseModel):
+    id: str
+    display_name: str
+    emoji: str
+    description: str
+    aliases: list[str] = Field(description="Names it is also addressed by (STT spellings), lowercase")
+    prompt_keys: list[str] = Field(description="Its prompt layers (identity, personality, task, direct …)")
+    languages: list[str] = Field(description="The languages there are prompts in")
+
+
+class PersonaChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    display_name: str | None = Field(None, min_length=1)
+    emoji: str | None = Field(None, min_length=1)
+    description: str | None = None
+    aliases: list[str] | None = None
+
+
+class PromptText(BaseModel):
+    text: str
+    exists: bool = Field(description="The file is there in this language (an EN-only prompt has none in DE)")
+
+
+class PromptWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str
+
+
+class ToolRight(BaseModel):
+    name: str
+    tier: int
+    allowed: bool
+
+
+class ToolGroup(BaseModel):
+    name: str
+    tools: list[ToolRight]
+
+
+class AgentRights(BaseModel):
+    all: bool = Field(description="No whitelist: every tool, also of plugins switched on later")
+    groups: list[ToolGroup] = Field(description="What can be granted right now (plugins switched off offer nothing)")
+
+
+class RightsChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    allowed: list[str] | None = Field(description="The tools granted; null grants every tool")
+
+
+class NewAgent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(description="Lowercase letters, digits and _; names its prompt folder")
+    display_name: str = Field(min_length=1)
+    emoji: str = Field(min_length=1)
+    description: str = ""
+
+
+def _chat_agent(agent_id: str) -> "AgentConfig":
+    """An agent of the agents page; 404 for an unknown one and for a system agent."""
+    from ..agent_config import ROLE_SYSTEM, get_agent_config
+
+    config = get_agent_config(agent_id)
+    if config is None or config.role == ROLE_SYSTEM:
+        raise HTTPException(status_code=404, detail=f"No chat agent '{agent_id}'")
+    return config
+
+
+def _persona(agent_id: str) -> AgentPersona:
+    from ..prompt_loader import prompt_languages
+
+    config = _chat_agent(agent_id)
+    return AgentPersona(
+        id=agent_id, display_name=config.display_name, emoji=config.emoji, description=config.description,
+        aliases=config.aliases, prompt_keys=list(config.prompts), languages=prompt_languages(),
+    )
+
+
+def _prompt_file(agent_id: str, lang: str, key: str) -> Path:
+    from ..prompt_loader import prompt_path
+
+    config = _chat_agent(agent_id)
+    if key not in config.prompts:
+        raise HTTPException(status_code=404, detail=f"'{agent_id}' has no prompt '{key}'")
+    path = prompt_path(lang, config.prompts[key])
+    if path is None:
+        raise HTTPException(status_code=422, detail=f"No prompt file for '{key}' in '{lang}'")
+    return path
+
+
+@api_app.get("/agents/{agent_id}/persona", response_model=AgentPersona, tags=["Agents"])
+async def agents_persona(agent_id: str) -> AgentPersona:
+    """Name, emoji, description, aliases and the prompt layers of a chat agent."""
+    return _persona(agent_id)
+
+
+@api_app.patch("/agents/{agent_id}/persona", response_model=AgentPersona, tags=["Agents"])
+async def agents_persona_change(agent_id: str, change: PersonaChange) -> AgentPersona:
+    """Change the fields sent; aliases are stored lowercase without empty ones."""
+    from ..agent_config import update_agent
+
+    _chat_agent(agent_id)
+    updates = change.model_dump(exclude_none=True)
+    if "aliases" in updates:
+        updates["aliases"] = [alias.strip().lower() for alias in updates["aliases"] if alias.strip()]
+    update_agent(agent_id, updates)
+    log_message(f"🎭 Agent '{agent_id}' persona changed: {', '.join(updates)}")
+    return _persona(agent_id)
+
+
+@api_app.get("/agents/{agent_id}/prompts/{lang}/{key}", response_model=PromptText, tags=["Agents"])
+async def agents_prompt(agent_id: str, lang: str, key: str) -> PromptText:
+    """A prompt layer's text in one language (empty, ``exists`` false, when the file is not there)."""
+    path = _prompt_file(agent_id, lang, key)
+    return PromptText(text=path.read_text(encoding="utf-8") if path.is_file() else "", exists=path.is_file())
+
+
+@api_app.put("/agents/{agent_id}/prompts/{lang}/{key}", response_model=PromptText, tags=["Agents"])
+async def agents_prompt_write(agent_id: str, lang: str, key: str, prompt: PromptWrite) -> PromptText:
+    """Write a prompt layer's text in one language; it takes effect from the next call on."""
+    path = _prompt_file(agent_id, lang, key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(prompt.text, encoding="utf-8")
+    log_message(f"🎭 Agent '{agent_id}' prompt {lang}/{key} saved ({len(prompt.text)} chars)")
+    return PromptText(text=prompt.text, exists=True)
+
+
+def _rights(agent_id: str) -> AgentRights:
+    from ..plugin_base import PluginContext
+    from ..plugin_registry import tool_groups_on_offer
+    from ..prompt_loader import get_language
+
+    allowed = _chat_agent(agent_id).tools
+    lang = get_language()
+    groups = tool_groups_on_offer(PluginContext(agent_id=agent_id, lang=lang, session_id=""))
+    return AgentRights(all=allowed is None, groups=[
+        ToolGroup(name=group[f"name_{lang}"], tools=[
+            ToolRight(name=tool["name"], tier=tool["tier"], allowed=allowed is None or tool["name"] in allowed)
+            for tool in group["tools"]
+        ])
+        for group in groups
+    ])
+
+
+@api_app.get("/agents/{agent_id}/tools", response_model=AgentRights, tags=["Agents"])
+async def agents_rights(agent_id: str) -> AgentRights:
+    """The tools a chat agent may use, grouped by plugin as they are on offer right now."""
+    return _rights(agent_id)
+
+
+@api_app.put("/agents/{agent_id}/tools", response_model=AgentRights, tags=["Agents"])
+async def agents_rights_change(agent_id: str, change: RightsChange) -> AgentRights:
+    """Grant tools: null grants every tool. A list keeps what the whitelist held for tools not on offer now
+    (a plugin switched off): switching it on again brings them back as they were."""
+    from ..agent_config import update_agent
+
+    previous = _chat_agent(agent_id).tools
+    if change.allowed is None:
+        tools = None
+    else:
+        on_offer = {tool.name for group in _rights(agent_id).groups for tool in group.tools}
+        kept = [name for name in previous or [] if name not in on_offer]
+        tools = sorted(set(kept) | set(change.allowed))
+    update_agent(agent_id, {"tools": tools})
+    log_message(f"🔐 Agent '{agent_id}' tools: {'all' if tools is None else len(tools)}")
+    return _rights(agent_id)
+
+
+@api_app.post("/agents", response_model=AgentCard, status_code=201, tags=["Agents"])
+async def agents_create(new: NewAgent) -> AgentCard:
+    """A new agent with the base prompts of prompts/<lang>/agent-template/ (its name filled in);
+    422 for an id taken or no valid folder name."""
+    from ..agent_config import create_agent
+
+    try:
+        create_agent(agent_id=new.id, display_name=new.display_name, emoji=new.emoji, description=new.description)
+    except ValueError as refused:
+        raise HTTPException(status_code=422, detail=str(refused)) from refused
+    log_message(f"✨ Agent '{new.id}' created")
+    return _card(new.id)
 
 
 @api_app.get("/agents/export", tags=["Agents"])

@@ -265,7 +265,16 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Systemagenten bleiben an; gelöscht wird nach `deletion_refusal`: AIfred nie, Systemagenten nie,
   **Sokrates und Salomo erst mit Schritt 6**, weil die Reflex-Kopie an rund 100 Stellen fest auf ihre
   Tuning-Eimer greift. Vision stand in den eingebauten Standards (frische Installation) als Chat-Agent
-  statt als Systemagent; korrigiert. Offen (Teil 2): Persona-Texte, Rechte (Werkzeuge), Anlegen.
+  statt als Systemagent; korrigiert.
+- **Agenten-Seite, Teil 2 (erledigt 07.11.2026):** ✏️ an jeder Karte öffnet `AgentEditor.vue`: 🎭 Persona
+  (Name, Emoji, Beschreibung, weitere Namen für die Spracherkennung), 📝 Prompt-Ebenen je Sprache (mit
+  Hinweis auf ungespeicherte Änderungen und auf eine Sprache ohne Datei), 🔐 Rechte nach Plugin-Gruppen
+  (`plugin_registry.tool_groups_on_offer`). „Alle Werkzeuge“ speichert keine Liste (auch später
+  eingeschaltete Plugins); eine Liste behält, was sie für Werkzeuge abgeschalteter Plugins hielt (Reflex
+  verlor sie beim Speichern). ＋ legt einen Agenten aus der Vorlage an, der Editor öffnet sich. Der
+  Pfadschutz für Prompt-Dateien liegt jetzt an einer Stelle (`prompt_loader.prompt_path`, auch für die
+  Reflex-Kopie). Bleibt für andere Seiten: Sprachausgabe je Agent (Audio), geplante Aufträge je Agent
+  (Aufträge), Gedächtnis ansehen und löschen, Automatik-Prompt, Cloud-Modell der Systemagenten.
 - **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
 
 ## Schritte

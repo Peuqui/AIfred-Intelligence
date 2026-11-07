@@ -1,10 +1,11 @@
-// The agents page: every agent a chat can address, switched on or off, and what may be deleted. Switching
-// and deleting answer with the cards again; the quick choices (models, persona, reasoning …) of the agents
-// switched on come from the agentChoices store, the same rows the quick-choice modal shows.
+// The agents page: every agent a chat can address, switched on or off, and what may be deleted. Switching,
+// deleting and creating answer with the cards again; the quick choices (models, persona, reasoning …) of the
+// agents switched on come from the agentChoices store, the same rows the quick-choice modal shows. The editor
+// reads and writes an agent's persona, prompt texts and rights directly (no copy kept here).
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import { ApiError, api } from "../api/client";
-import type { AgentCard } from "../api/types";
+import type { AgentCard, AgentPersona, AgentRights, NewAgent, PersonaChange, PromptText } from "../api/types";
 import { useAgentChoices } from "./agentChoices";
 
 export const useAgents = defineStore("agents", () => {
@@ -41,5 +42,35 @@ export const useAgents = defineStore("agents", () => {
     await choices.load();
   }
 
-  return { cards, notice, busy, load, switchAgent, remove };
+  async function create(agent: NewAgent): Promise<boolean> {
+    let created = false;
+    await call(async () => {
+      await api<AgentCard>("agents", { method: "POST", body: JSON.stringify(agent) });
+      created = true;
+    });
+    await choices.load();
+    return created;
+  }
+
+  // The editor's calls: their errors go to the editor, which shows them.
+  const path = (id: string): string => `agents/${encodeURIComponent(id)}`;
+  const persona = (id: string): Promise<AgentPersona> => api<AgentPersona>(`${path(id)}/persona`);
+  const prompt = (id: string, lang: string, key: string): Promise<PromptText> => api<PromptText>(`${path(id)}/prompts/${lang}/${key}`);
+  const rights = (id: string): Promise<AgentRights> => api<AgentRights>(`${path(id)}/tools`);
+
+  async function changePersona(id: string, change: PersonaChange): Promise<AgentPersona> {
+    const changed = await api<AgentPersona>(`${path(id)}/persona`, { method: "PATCH", body: JSON.stringify(change) });
+    cards.value = await api<AgentCard[]>("agents");
+    await choices.load();
+    return changed;
+  }
+
+  const writePrompt = (id: string, lang: string, key: string, text: string): Promise<PromptText> =>
+    api<PromptText>(`${path(id)}/prompts/${lang}/${key}`, { method: "PUT", body: JSON.stringify({ text }) });
+  const changeRights = (id: string, allowed: string[] | null): Promise<AgentRights> =>
+    api<AgentRights>(`${path(id)}/tools`, { method: "PUT", body: JSON.stringify({ allowed }) });
+
+  return {
+    cards, notice, busy, load, switchAgent, remove, create, persona, prompt, rights, changePersona, writePrompt, changeRights,
+  };
 });

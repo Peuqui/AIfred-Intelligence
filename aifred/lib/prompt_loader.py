@@ -190,6 +190,22 @@ def load_personality_reminder(agent: str, lang: str | None = None) -> str:
     return reminder_file.read_text(encoding="utf-8").strip()
 
 
+def prompt_languages() -> list[str]:
+    """The languages there are prompts in: the folders under prompts/ (de, en)."""
+    return sorted(entry.name for entry in PROMPTS_DIR.iterdir() if entry.is_dir() and not entry.name.startswith("."))
+
+
+def prompt_path(lang: str, relative: str) -> Path | None:
+    """The file ``prompts/<lang>/<relative>``, or None: a language that is no folder under prompts/,
+    an empty path, or one that leaves prompts/<lang>/. The language arrives from a client, the path
+    from agents.json, which a bundle import fills; the one place both are checked."""
+    from .audio_sources import safe_subpath
+
+    if lang not in prompt_languages() or not relative:
+        return None
+    return safe_subpath(PROMPTS_DIR / lang, relative)
+
+
 def get_language() -> str:
     """UI/prompt language ("de"/"en") from the persisted settings."""
     return str(persisted_settings()["ui_language"])

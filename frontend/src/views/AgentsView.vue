@@ -2,11 +2,12 @@
 // The agents page (Peuqui 07.11.2026): a card per agent a chat can address, the switch top right as with
 // the plugins. Switched off, an agent vanishes from every choice; a job or channel that names it reports
 // an error. AIfred, the base agent, stays on and is never deleted. A card of an agent switched on carries
-// its quick choices (model, persona, reasoning, thinking, speed: the row of the quick-choice modal).
-// Persona texts and rights (the agent's tools) follow.
+// its quick choices (model, persona, reasoning, thinking, speed: the row of the quick-choice modal). ✏️ opens
+// the editor (persona, prompt texts, rights); ＋ makes a new agent from the template.
 import { computed, onMounted, ref } from "vue";
 import type { AgentCard } from "../api/types";
 import AgentChoicesRow from "../components/AgentChoicesRow.vue";
+import AgentEditor from "../components/AgentEditor.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import { t } from "../i18n";
 import { useAgentChoices } from "../stores/agentChoices";
@@ -19,6 +20,18 @@ onMounted(() => void agents.load());
 // The quick choices by agent: only agents switched on have a row.
 const rows = computed(() => new Map((choices.choices?.agents ?? []).map((row) => [row.id, row])));
 
+const editing = ref<string | null>(null);
+
+const creating = ref<{ id: string; display_name: string; emoji: string; description: string } | null>(null);
+async function create(): Promise<void> {
+  if (!creating.value) return;
+  const agent = { ...creating.value, id: creating.value.id.trim(), display_name: creating.value.display_name.trim() };
+  if (await agents.create(agent)) {
+    creating.value = null;
+    editing.value = agent.id;
+  }
+}
+
 const deleting = ref<AgentCard | null>(null);
 async function confirmDelete(): Promise<void> {
   if (!deleting.value) return;
@@ -30,7 +43,18 @@ async function confirmDelete(): Promise<void> {
 
 <template>
   <main class="agents">
-    <h2>{{ t("nav_agents") }}</h2>
+    <header class="bar">
+      <h2>{{ t("nav_agents") }}</h2>
+      <button @click="creating = { id: '', display_name: '', emoji: '🤖', description: '' }">＋ {{ t("agent_editor_new") }}</button>
+    </header>
+    <form v-if="creating" class="creating" @submit.prevent="create">
+      <input v-model="creating.id" :placeholder="t('agent_editor_agent_id_placeholder')" :title="t('agent_editor_id_hint')" pattern="[a-z0-9_]+" required />
+      <input v-model="creating.display_name" :placeholder="t('agent_editor_name')" required />
+      <input v-model="creating.emoji" class="emoji" :placeholder="t('agent_editor_emoji')" required />
+      <input v-model="creating.description" class="description-input" :placeholder="t('agent_editor_description')" />
+      <button type="submit">{{ t("doc_create") }}</button>
+      <button type="button" @click="creating = null">{{ t("agent_editor_cancel") }}</button>
+    </form>
     <p v-if="agents.notice" class="notice">⚠️ {{ agents.notice }}</p>
     <p v-if="choices.notice" class="notice">⚠️ {{ choices.notice }}</p>
     <section class="cards">
@@ -63,6 +87,7 @@ async function confirmDelete(): Promise<void> {
         />
         <p v-else-if="!card.enabled" class="off-hint">{{ t("agents_switched_off") }}</p>
         <footer>
+          <button :title="t('agent_editor_edit')" @click="editing = card.id">✏️ {{ t("agent_editor_edit") }}</button>
           <button
             class="danger"
             :disabled="card.delete_refusal !== null || agents.busy"
@@ -72,6 +97,8 @@ async function confirmDelete(): Promise<void> {
         </footer>
       </article>
     </section>
+
+    <AgentEditor v-if="editing" :agent-id="editing" @close="editing = null" />
 
     <ModalDialog v-if="deleting" @close="deleting = null">
       <strong>{{ deleting.emoji }} {{ deleting.display_name }}: {{ t("agent_editor_delete_confirm") }}</strong>
@@ -86,6 +113,12 @@ async function confirmDelete(): Promise<void> {
 <style scoped>
 .agents { overflow-y: auto; padding: 12px 0; display: flex; flex-direction: column; gap: 12px; }
 h2 { margin: 0; font-size: 1rem; }
+.bar { display: flex; align-items: center; gap: 14px; }
+.bar button { margin-left: auto; }
+.creating { display: flex; gap: 8px; flex-wrap: wrap; }
+.creating input { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+.creating .emoji { width: 4em; }
+.creating .description-input { flex: 1; min-width: 12em; }
 .notice { margin: 0; color: var(--aifred-accent-amber); }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 12px; }
 .card { border: 1px solid var(--aifred-border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--aifred-input-bg); }
@@ -95,7 +128,7 @@ h2 { margin: 0; font-size: 1rem; }
 .who { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .description { font-size: 0.8rem; color: var(--aifred-text-secondary); overflow-wrap: anywhere; }
 .off-hint { margin: 0; font-size: 0.85rem; color: var(--aifred-text-muted); }
-.card footer { display: flex; justify-content: flex-end; }
+.card footer { display: flex; justify-content: flex-end; gap: 8px; }
 button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; }
 button:disabled { opacity: 0.5; cursor: default; }
 .danger { border-color: var(--aifred-danger); color: var(--aifred-danger); }
