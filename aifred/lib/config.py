@@ -1626,7 +1626,11 @@ DOCUMENT_SEARCH_DISTANCE_MAX = 1.20    # Hits beyond this are dropped as off-top
 DOCUMENT_SEARCH_DISTANCE_STRONG = 0.85 # Below = "high" relevance. The next-page hint
                                         # is only emitted while a page is still mostly
                                         # high-relevance hits.
-DOCUMENT_COLLECTION = "aifred_documents"  # ChromaDB collection name
+# The ChromaDB collections of the documents and of the agents' memories. Another instance on the same
+# ChromaDB (the Vue branch's test instance) sets its own names in its environment, else it reads and
+# writes the production's documents and memories.
+DOCUMENT_COLLECTION = os.environ.get("AIFRED_DOCUMENT_COLLECTION", "aifred_documents")
+AGENT_MEMORY_COLLECTION_PREFIX = os.environ.get("AIFRED_AGENT_MEMORY_PREFIX", "agent_memory_")  # + agent id
 
 # Tool-output budget — caps how many tokens a single tool result may occupy
 # in the LLM conversation. A tool result that exceeds the budget is

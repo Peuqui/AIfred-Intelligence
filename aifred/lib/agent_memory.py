@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 from .config import (
+    AGENT_MEMORY_COLLECTION_PREFIX,
     AGENT_MEMORY_DISTANCE_THRESHOLD,
     AGENT_MEMORY_QUERY_MAX_CHARS,
     AGENT_MEMORY_RECENT_COUNT,
@@ -75,7 +76,7 @@ class AgentMemory:
         """Get or create a collection for an agent (cached)."""
         if agent_id not in self._collections:
             self._collections[agent_id] = self._client.get_or_create_collection(
-                name=f"agent_memory_{agent_id}",
+                name=f"{AGENT_MEMORY_COLLECTION_PREFIX}{agent_id}",
                 metadata={"agent": agent_id, "embedding_model": OLLAMA_EMBEDDING_MODEL},
                 embedding_function=self._embed_fn,
             )

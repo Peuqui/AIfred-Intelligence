@@ -229,12 +229,13 @@ class MemoryBrowserMixin(rx.State, mixin=True):
             return
 
         from ..lib.agent_config import get_agent_ids, get_agent_label
+        from ..lib.config import AGENT_MEMORY_COLLECTION_PREFIX
 
         counts: dict[str, int] = {}
         try:
             for col in memory._client.list_collections():
-                if col.name.startswith("agent_memory_"):
-                    counts[col.name.removeprefix("agent_memory_")] = col.count()
+                if col.name.startswith(AGENT_MEMORY_COLLECTION_PREFIX):
+                    counts[col.name.removeprefix(AGENT_MEMORY_COLLECTION_PREFIX)] = col.count()
         except Exception as e:  # noqa: BLE001 — ChromaDB's client has no common error class; shown, logged with traceback
             log_exception("Memory browser: listing the collections", e)
             self.add_debug(f"❌ Memory browser error: {e}")
@@ -242,7 +243,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         # Agents sorted alphabetically
         self.memory_browser_collections = [
             {
-                "name": f"agent_memory_{agent_id}",
+                "name": f"{AGENT_MEMORY_COLLECTION_PREFIX}{agent_id}",
                 "agent_id": agent_id,
                 "display_name": get_agent_label(agent_id),
                 "count": str(counts.get(agent_id, 0)),
