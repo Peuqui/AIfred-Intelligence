@@ -137,6 +137,11 @@ def _load_rtsp_configs() -> list[dict[str, str | int]]:
     return result
 
 
+def source_id_for(name: str) -> str:
+    """The source id of the RTSP camera named ``name`` in ``rtsp_cameras``: ``cam/rtsp_<slug>``."""
+    return f"cam/rtsp_{_slugify(name)}"
+
+
 def find_camera_config(source_id: str) -> dict[str, Any] | None:
     """Roh-Eintrag aus ``rtsp_cameras`` zu einer ``source_id`` finden.
 
@@ -153,7 +158,7 @@ def find_camera_config(source_id: str) -> dict[str, Any] | None:
         if not isinstance(c, dict):
             continue
         name = str(c.get("name", "")).strip()
-        if name and f"cam/rtsp_{_slugify(name)}" == source_id:
+        if name and source_id_for(name) == source_id:
             return c
     return None
 
@@ -314,7 +319,7 @@ class RTSPSource:
 
     def __init__(self, name: str, host: str, port: int, path: str, cred: str) -> None:
         self.display_name = name
-        self.source_id = f"cam/rtsp_{_slugify(name)}"
+        self.source_id = source_id_for(name)
         self._host = host
         self._port = port
         self._path = path

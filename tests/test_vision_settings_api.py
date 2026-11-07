@@ -171,3 +171,104 @@ def test_the_schedule_supervisor_decides_through_the_same_place(world: tuple[Tes
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(vision_autostart.schedule_supervisor())
     assert decided == ["cam/rtsp_reolink"]
+
+
+def test_an_alert_rule_switches_a_channel_and_the_description_and_the_dispatcher_reads_it_at_once(
+    world: tuple[TestClient, dict[str, Any], Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aifred.lib import alert_bus, plugin_base, plugin_registry
+
+    client, _state, _file = world
+    rules_file = tmp_path / "alert_rules.json"
+    rules_file.write_text(json.dumps([{"rule_id": "other", "producer": "calendar", "sinks": ["email"]}]))
+    monkeypatch.setattr(alert_bus, "_rules_path", lambda: rules_file)
+    monkeypatch.setattr(plugin_registry, "all_channels", lambda: {"telegram": object(), "freeecho2": object()})
+    monkeypatch.setattr(plugin_base, "plugin_display_name", lambda plugin, lang: "Kanal")
+    reloads: list[int] = []
+
+    def reload_rules() -> int:
+        reloads.append(1)
+        return 0
+
+    monkeypatch.setattr(alert_bus, "reload_rules", reload_rules)
+
+    shown = client.get("/vision/alert-rules").json()
+    assert [rule["category"] for rule in shown["rules"]] == ["person", "vehicle", "animal", "face_known", "face_unsure", "face_unknown"]
+    assert shown["rules"][0] == {"category": "person", "label": "Person", "sinks": [], "vlm": False}
+    after = client.patch("/vision/alert-rules/person", json={"sink": "telegram", "sink_on": True, "vlm": True}).json()
+    assert after["rules"][0]["sinks"] == ["telegram"] and after["rules"][0]["vlm"] is True and reloads == [1]
+    client.patch("/vision/alert-rules/person", json={"sink": "telegram", "sink_on": False})
+    stored = json.loads(rules_file.read_text())
+    assert stored[0] == {"rule_id": "other", "producer": "calendar", "sinks": ["email"]}        # another producer's rule stays
+    assert stored[1] == {"rule_id": "vision-person", "producer": "vision", "category": "person", "source_id": None, "sinks": [], "compose": "vlm"}
+    assert client.patch("/vision/alert-rules/ufo", json={"vlm": True}).status_code == 422
+    assert client.patch("/vision/alert-rules/person", json={"sink": "fax", "sink_on": True}).status_code == 422
+    assert client.patch("/vision/alert-rules/person", json={"sink": "telegram"}).status_code == 422
+
+
+@pytest.fixture
+def rtsp(world: tuple[TestClient, dict[str, Any], Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, Path, Path]:
+    """The vision settings with the PTZ camera as it stands in the production (fields the old form did not know),
+    a .env of the test, the environment restored after it."""
+    from aifred.lib import config
+
+    client, _state, settings_file = world
+    settings = json.loads(settings_file.read_text())
+    settings["rtsp_cameras"] = [{"name": "Reolink", "host": "192.0.2.10", "port": 554, "path": "h264Preview_01_main", "cred": "reolink",
+                                 "profile": "ai_camera", "api_port": 443, "onvif_port": 8000, "face_channel": 1, "snap_channel": 1, "ptz": True}]
+    settings_file.write_text(json.dumps(settings))
+    env_file = tmp_path / ".env"
+    env_file.write_text("RTSP_REOLINK_USER=admin\nRTSP_REOLINK_PASSWORD=geheim\n")
+    monkeypatch.setattr(config, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(frame_sources, "rescan", lambda: None)
+    for key in ("RTSP_REOLINK_USER", "RTSP_REOLINK_PASSWORD", "RTSP_GARTEN_USER", "RTSP_GARTEN_PASSWORD"):
+        monkeypatch.setenv(key, "")
+    monkeypatch.setenv("RTSP_REOLINK_USER", "admin")
+    monkeypatch.setenv("RTSP_REOLINK_PASSWORD", "geheim")
+    return client, settings_file, env_file
+
+
+def test_rtsp_cameras_are_listed_without_their_secrets(rtsp: tuple[TestClient, Path, Path]) -> None:
+    client, _settings, _env = rtsp
+    listed = client.get("/vision/rtsp-cameras")
+    camera = listed.json()["cameras"][0]
+    assert (camera["source_id"], camera["ptz"], camera["user_set"], camera["password_set"]) == ("cam/rtsp_reolink", True, True, True)
+    assert "geheim" not in listed.text and "admin" not in listed.text
+
+
+def test_changing_the_connection_keeps_what_the_form_does_not_know(rtsp: tuple[TestClient, Path, Path]) -> None:
+    # 07.11.2026: the old form rebuilt the entry and lost ptz, onvif_port and snap_channel of the real camera.
+    client, settings_file, env_file = rtsp
+    assert client.put("/vision/rtsp-cameras/Reolink", json={"host": "192.0.2.11", "path": ""}).status_code == 200
+    entry = json.loads(settings_file.read_text())["rtsp_cameras"][0]
+    assert entry["host"] == "192.0.2.11" and "path" not in entry
+    assert (entry["ptz"], entry["onvif_port"], entry["snap_channel"], entry["face_channel"]) == (True, 8000, 1, 1)
+    assert "RTSP_REOLINK_PASSWORD=geheim" in env_file.read_text().replace("'", "")       # an empty field leaves the secret
+    assert client.put("/vision/rtsp-cameras/Keine", json={"host": "x"}).status_code == 404
+    for wrong in ({"port": 70000}, {"cred": "Böse-Name"}, {"profile": "ufo"}, {"host": ""}, {"zoom": 2}):
+        assert client.put("/vision/rtsp-cameras/Reolink", json=wrong).status_code == 422, wrong
+
+
+def test_a_new_camera_needs_a_new_name_and_its_secrets_go_to_the_env(rtsp: tuple[TestClient, Path, Path]) -> None:
+    import os
+
+    client, settings_file, env_file = rtsp
+    added = client.post("/vision/rtsp-cameras", json={"name": "Garten", "host": "192.0.2.20", "cred": "garten", "user": "gast", "password": "pw"})
+    assert added.status_code == 201
+    assert [camera["name"] for camera in added.json()["cameras"]] == ["Reolink", "Garten"]
+    assert "RTSP_GARTEN_PASSWORD" in env_file.read_text() and os.environ["RTSP_GARTEN_PASSWORD"] == "pw"
+    assert json.loads(settings_file.read_text())["rtsp_cameras"][1] == {"name": "Garten", "host": "192.0.2.20", "cred": "garten",
+                                                                         "profile": "webcam", "port": 554}
+    assert client.post("/vision/rtsp-cameras", json={"name": "Garten", "host": "192.0.2.21"}).status_code == 422
+
+
+def test_taking_a_camera_out_forgets_secrets_no_other_camera_uses(rtsp: tuple[TestClient, Path, Path]) -> None:
+    import os
+
+    client, _settings, env_file = rtsp
+    client.post("/vision/rtsp-cameras", json={"name": "Zoom", "host": "192.0.2.10", "cred": "reolink"})   # shares the secrets
+    client.delete("/vision/rtsp-cameras/Reolink")
+    assert "RTSP_REOLINK_PASSWORD" in env_file.read_text()             # Zoom still uses them
+    assert [camera["name"] for camera in client.delete("/vision/rtsp-cameras/Zoom").json()["cameras"]] == []
+    assert "RTSP_REOLINK" not in env_file.read_text() and "RTSP_REOLINK_PASSWORD" not in os.environ
+    assert client.delete("/vision/rtsp-cameras/Zoom").status_code == 404

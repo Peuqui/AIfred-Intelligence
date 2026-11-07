@@ -126,3 +126,162 @@ async def vision_model_load(state: ModelState) -> ModelState:
         raise HTTPException(status_code=409, detail=str(error)) from error
     log_message(f"👁️ Image model {'loaded' if loaded else 'not loaded'} (asked: {'load' if state.loaded else 'unload'})")
     return ModelState(loaded=loaded)
+
+
+# ── Alert rules: which channels a category goes to, whether the image model describes it ──
+
+
+class AlertRuleRow(BaseModel):
+    category: str
+    label: str
+    sinks: list[str] = Field(description="The channels the category goes to")
+    vlm: bool = Field(description="The image model describes the event before it goes out")
+
+
+class AlertRules(BaseModel):
+    channels: list[ChoiceOption] = Field(description="Every channel plugin an alert can go through")
+    rules: list[AlertRuleRow]
+
+
+class AlertRuleChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sink: str | None = None
+    sink_on: bool | None = None
+    vlm: bool | None = None
+
+
+def _rules() -> AlertRules:
+    from ..alert_bus import vision_rules
+    from ..i18n import t
+    from ..plugin_base import plugin_display_name
+    from ..plugin_registry import all_channels
+    from ..prompt_loader import get_language
+
+    lang = get_language()
+    return AlertRules(
+        channels=[ChoiceOption(id=name, label=plugin_display_name(channel, lang)) for name, channel in sorted(all_channels().items())],
+        rules=[AlertRuleRow(category=category, label=t(f"alert_cat_{category}", lang=lang), **rule)
+               for category, rule in vision_rules().items()],
+    )
+
+
+@api_app.get("/vision/alert-rules", response_model=AlertRules, tags=["Vision"])
+async def vision_alert_rules() -> AlertRules:
+    return await asyncio.to_thread(_rules)
+
+
+@api_app.patch("/vision/alert-rules/{category}", response_model=AlertRules, tags=["Vision"])
+async def vision_alert_rule_change(category: str, change: AlertRuleChange) -> AlertRules:
+    """A channel of a category on or off (``sink`` with ``sink_on``), or its description by the image model; the
+    alert dispatcher reads the rules again at once. 422 for an unknown category or channel."""
+    from ..alert_bus import change_vision_rule
+
+    if (change.sink is None) != (change.sink_on is None):
+        raise HTTPException(status_code=422, detail="sink and sink_on come together")
+    try:
+        await asyncio.to_thread(change_vision_rule, category, sink=change.sink, sink_on=change.sink_on, vlm=change.vlm)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    log_message(f"🔔 Alert rule {category}: {change.model_dump(exclude_none=True)}")
+    return await asyncio.to_thread(_rules)
+
+
+# ── RTSP cameras: added, their connection changed, taken out (user and password never leave the server) ──
+
+
+class RtspCamera(BaseModel):
+    name: str = Field(description="The base of the source id; stays when the connection changes")
+    source_id: str
+    host: str
+    port: int = 554
+    path: str | None = None
+    cred: str | None = Field(None, description="Names the credentials: RTSP_<CRED>_USER / _PASSWORD in .env")
+    profile: str = "webcam"
+    api_port: int | None = None
+    onvif_port: int | None = None
+    face_channel: int | None = None
+    snap_channel: int | None = None
+    channel: int | None = None
+    ptz: bool | None = None
+    user_set: bool
+    password_set: bool
+
+
+class RtspCameras(BaseModel):
+    cameras: list[RtspCamera]
+    profiles: list[str]
+
+
+class RtspConnection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    host: str | None = None
+    port: int | None = None
+    path: str | None = None
+    cred: str | None = None
+    profile: str | None = None
+    api_port: int | None = None
+    onvif_port: int | None = None
+    face_channel: int | None = None
+    snap_channel: int | None = None
+    channel: int | None = None
+    ptz: bool | None = None
+    user: str = Field("", description="Empty: the stored user stays")
+    password: str = Field("", description="Empty: the stored password stays")
+
+
+class NewRtspCamera(RtspConnection):
+    name: str
+
+
+def _rtsp() -> RtspCameras:
+    from ..rtsp_cameras import PROFILES, rtsp_cameras
+
+    return RtspCameras(cameras=[RtspCamera(**camera) for camera in rtsp_cameras()], profiles=list(PROFILES))
+
+
+@api_app.get("/vision/rtsp-cameras", response_model=RtspCameras, tags=["Vision"])
+async def vision_rtsp_cameras() -> RtspCameras:
+    return await asyncio.to_thread(_rtsp)
+
+
+@api_app.post("/vision/rtsp-cameras", response_model=RtspCameras, status_code=201, tags=["Vision"])
+async def vision_rtsp_camera_add(camera: NewRtspCamera) -> RtspCameras:
+    """A new camera (its name must be new); 422 for a field it cannot take."""
+    from ..rtsp_cameras import add_rtsp_camera
+
+    fields = camera.model_dump(exclude_none=True, exclude={"name", "user", "password"})
+    try:
+        await asyncio.to_thread(add_rtsp_camera, camera.name, fields, camera.user, camera.password)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    log_message(f"📷 RTSP camera {camera.name!r} added ({sorted(fields)})")
+    return await asyncio.to_thread(_rtsp)
+
+
+@api_app.put("/vision/rtsp-cameras/{name}", response_model=RtspCameras, tags=["Vision"])
+async def vision_rtsp_camera_change(name: str, connection: RtspConnection) -> RtspCameras:
+    """Change the connection: the fields sent go into the entry, every other stays (a field sent as "" leaves it)."""
+    from ..rtsp_cameras import change_rtsp_camera
+
+    fields = connection.model_dump(exclude_unset=True, exclude={"user", "password"})
+    try:
+        await asyncio.to_thread(change_rtsp_camera, name, fields, connection.user, connection.password)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=f"no RTSP camera {name!r}") from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    log_message(f"📷 RTSP camera {name!r} changed ({sorted(fields)})")
+    return await asyncio.to_thread(_rtsp)
+
+
+@api_app.delete("/vision/rtsp-cameras/{name}", response_model=RtspCameras, tags=["Vision"])
+async def vision_rtsp_camera_delete(name: str) -> RtspCameras:
+    """Take the camera out; its credentials leave the .env when no other camera uses them, its events stay."""
+    from ..rtsp_cameras import delete_rtsp_camera
+
+    try:
+        await asyncio.to_thread(delete_rtsp_camera, name)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=f"no RTSP camera {name!r}") from error
+    log_message(f"📷 RTSP camera {name!r} taken out")
+    return await asyncio.to_thread(_rtsp)

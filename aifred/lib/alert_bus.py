@@ -555,6 +555,59 @@ def load_rules() -> list[AlertRule]:
     return rules
 
 
+# The vision's rule per category, as the settings show and change them: which channels a category goes to and
+# whether the image model describes it (compose "vlm"). The order is the order shown.
+VISION_RULE_CATEGORIES = ("person", "vehicle", "animal", "face_known", "face_unsure", "face_unknown")
+
+
+def vision_rules() -> dict[str, dict[str, Any]]:
+    """Per category ``{"sinks": [...], "vlm": bool}`` (a category without a rule: no channel, no description)."""
+    import json
+
+    path = _rules_path()
+    raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    by_category = {str(rule.get("category")): rule for rule in raw if isinstance(rule, dict) and rule.get("producer") == "vision"}
+    return {
+        category: {"sinks": [str(sink) for sink in (by_category.get(category) or {}).get("sinks") or []],
+                   "vlm": (by_category.get(category) or {}).get("compose") == "vlm"}
+        for category in VISION_RULE_CATEGORIES
+    }
+
+
+def change_vision_rule(category: str, *, sink: str | None = None, sink_on: bool | None = None, vlm: bool | None = None) -> None:
+    """Switch a channel of a category on or off, or its description by the image model; the rule is made when the
+    category has none. The dispatcher reads the rules again at once. Refuses a category the vision does not have
+    and a channel no plugin offers (ValueError)."""
+    import json
+
+    from .plugin_registry import all_channels
+
+    if category not in VISION_RULE_CATEGORIES:
+        raise ValueError(f"unknown alert category {category!r}")
+    if sink is not None and sink not in all_channels():
+        raise ValueError(f"no channel {sink!r}")
+    path = _rules_path()
+    rules = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    rule = next((entry for entry in rules if isinstance(entry, dict) and entry.get("producer") == "vision"
+                 and entry.get("category") == category), None)
+    if rule is None:
+        rule = {"rule_id": f"vision-{category}", "producer": "vision", "category": category, "source_id": None, "sinks": []}
+        rules.append(rule)
+    if sink is not None and sink_on is not None:
+        sinks = set(rule.get("sinks") or [])
+        (sinks.add if sink_on else sinks.discard)(sink)
+        rule["sinks"] = sorted(sinks)
+    if vlm is not None:
+        if vlm:
+            rule["compose"] = "vlm"
+        else:
+            rule.pop("compose", None)
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(rules, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    temporary.replace(path)
+    reload_rules()
+
+
 _default_dispatcher: AlertDispatcher | None = None
 
 

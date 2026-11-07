@@ -5,12 +5,16 @@
 // window, event interval, zones. A change of the background or the window takes effect at once.
 import { onMounted, ref } from "vue";
 import { ApiError, api, apiUrl } from "../api/client";
-import type { CameraRow, LiveView, VigilantiaRow } from "../api/types";
+import type { AlertRules, CameraRow, LiveView, RtspCameras, VigilantiaRow } from "../api/types";
 import { t } from "../i18n";
+import RtspForm from "./RtspForm.vue";
 
 const settings = ref<VigilantiaRow | null>(null);
 const cameras = ref<CameraRow[]>([]);
 const loaded = ref<boolean | null>(null);
+const rtsp = ref<RtspCameras | null>(null);
+const rules = ref<AlertRules | null>(null);
+const connecting = ref("");     // the camera whose connection form is open; "+" = a new one
 const notice = ref("");
 const busy = ref(false);
 
@@ -29,7 +33,20 @@ onMounted(async () => {
   settings.value = await call(() => api<VigilantiaRow>("vision/settings"));
   cameras.value = (await call(() => api<LiveView>("vision/live")))?.cameras ?? [];
   loaded.value = (await call(() => api<{ loaded: boolean }>("vision/model")))?.loaded ?? null;
+  rtsp.value = await call(() => api<RtspCameras>("vision/rtsp-cameras"));
+  rules.value = await call(() => api<AlertRules>("vision/alert-rules"));
 });
+
+async function rule(category: string, body: object): Promise<void> {
+  rules.value = (await call(() => send<AlertRules>(`vision/alert-rules/${category}`, "PATCH", body))) ?? rules.value;
+}
+
+const rtspOf = (camera: CameraRow) => rtsp.value?.cameras.find((entry) => entry.source_id === camera.id) ?? null;
+async function connected(list: RtspCameras): Promise<void> {
+  rtsp.value = list;
+  connecting.value = "";
+  cameras.value = (await call(() => api<LiveView>("vision/cameras/rescan", { method: "POST" })))?.cameras ?? cameras.value;
+}
 
 async function arm(armed: boolean): Promise<void> {
   busy.value = true;
@@ -114,15 +131,43 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
       </label>
     </article>
 
-    <h3>{{ t("vision_settings_sources_label") }}</h3>
+    <article v-if="rules" class="rules">
+      <strong :title="t('alert_rules_help')">{{ t("alert_rules_title") }}</strong>
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th>{{ t("alert_rules_col_vlm") }}</th>
+            <th v-for="channel in rules.channels" :key="channel.id">{{ channel.label }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in rules.rules" :key="row.category">
+            <td class="who">{{ row.label }}</td>
+            <td><input type="checkbox" :checked="row.vlm" @change="rule(row.category, { vlm: checked($event) })" /></td>
+            <td v-for="channel in rules.channels" :key="channel.id">
+              <input type="checkbox" :checked="row.sinks.includes(channel.id)" @change="rule(row.category, { sink: channel.id, sink_on: checked($event) })" />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </article>
+
+    <div class="sources-head">
+      <h3>{{ t("vision_settings_sources_label") }}</h3>
+      <button v-if="rtsp && connecting !== '+'" @click="connecting = '+'">＋ {{ t("vision_rtsp_add") }}</button>
+    </div>
     <p class="hint">{{ t("vision_settings_sources_help") }}</p>
+    <RtspForm v-if="rtsp && connecting === '+'" :camera="null" :profiles="rtsp.profiles" @saved="connected" @cancel="connecting = ''" />
     <p v-if="!cameras.length" class="hint">{{ t("vision_settings_sources_empty") }}</p>
     <article v-for="camera in cameras" :key="camera.id" class="camera" :class="{ away: !camera.available }">
       <header>
         <input class="alias" :value="camera.alias" :placeholder="camera.hardware_name" @change="keep(camera, { alias: value($event) })" />
         <span class="hardware">{{ camera.hardware_name }} · {{ camera.id }}</span>
+        <button v-if="rtspOf(camera)" :title="t('vision_rtsp_edit_connection')" @click="connecting = connecting === camera.id ? '' : camera.id">🔌</button>
         <button :title="t('vision_settings_zone_mask_button')" @click="zones(camera)">🗺️</button>
       </header>
+      <RtspForm v-if="rtsp && connecting === camera.id" :camera="rtspOf(camera)" :profiles="rtsp.profiles" @saved="connected" @cancel="connecting = ''" />
       <label class="line" :title="t('vision_settings_source_background_help')">
         <span class="name">{{ t("vision_preview_auto_start_label") }}</span>
         <input type="checkbox" :checked="camera.auto_start" @change="keep(camera, { auto_start: checked($event) })" />
@@ -179,6 +224,11 @@ button.on { border-color: var(--aifred-primary); color: var(--aifred-primary); }
 .alias { font-weight: 600; min-width: 200px; }
 .hardware { font-size: 0.75rem; color: var(--aifred-text-muted); flex: 1; }
 h3 { margin: 6px 0 0; font-size: 1rem; }
+.sources-head { display: flex; align-items: center; gap: 12px; }
+.rules table { border-collapse: collapse; }
+.rules th { font-size: 0.75rem; font-weight: 600; color: var(--aifred-text-secondary); padding: 3px 8px; text-align: center; }
+.rules td { padding: 3px 8px; text-align: center; border-top: 1px solid var(--aifred-border); }
+.rules td.who { text-align: left; white-space: nowrap; }
 .hint { margin: 0; font-size: 0.8rem; color: var(--aifred-text-muted); }
 .notice { margin: 0; color: var(--aifred-accent-amber); }
 </style>

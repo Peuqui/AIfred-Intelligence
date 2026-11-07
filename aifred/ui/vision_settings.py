@@ -13,6 +13,7 @@ import reflex as rx
 from reflex.vars import ObjectVar
 from reflex_components_lucide.icon import Icon
 
+from ..lib.alert_bus import VISION_RULE_CATEGORIES
 from ..state import AIState
 from ..theme import COLORS
 from .helpers import overlay_modal, t
@@ -583,16 +584,9 @@ def _rtsp_cameras_section() -> rx.Component:
     )
 
 
-# Kategorie → i18n-Label, in Anzeigereihenfolge. Muss zur Reihenfolge in
-# _vision_settings_mixin._ALERT_RULE_CATEGORIES passen (gleicher Index).
-_ALERT_RULE_CATS = [
-    ("person", "alert_cat_person"),
-    ("vehicle", "alert_cat_vehicle"),
-    ("animal", "alert_cat_animal"),
-    ("face_known", "alert_cat_face_known"),
-    ("face_unsure", "alert_cat_face_unsure"),
-    ("face_unknown", "alert_cat_face_unknown"),
-]
+# Kategorie → i18n-Label, in Anzeigereihenfolge: dieselbe Liste wie die Zeilen von AIState.alert_rules_ui
+# (alert_bus.VISION_RULE_CATEGORIES, gleicher Index).
+_ALERT_RULE_CATS = [(category, f"alert_cat_{category}") for category in VISION_RULE_CATEGORIES]
 
 
 def _orange_sep() -> rx.Component:

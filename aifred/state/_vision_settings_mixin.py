@@ -16,14 +16,13 @@ edits propagate without a restart.
 
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 
+from ..lib.config import VISION_ALERT_TYPES
 from ..lib.vision_settings import load_vision_settings, save_vision_settings
 
 logger = logging.getLogger(__name__)
@@ -48,44 +47,10 @@ def _fmt_interval(value: Any) -> str:
     return str(int(v)) if v == int(v) else f"{v:g}"
 
 
-# Alarmierbare Event-Typen pro Kamera (Default: alle aktiv). SSoT auch für die
-# Reihenfolge der Checkboxen in der UI.
-_DEFAULT_ALERT_TYPES = ["person", "vehicle", "animal", "face"]
 
-# Alert-Routing-Kategorien für die Regeln-UI (Kategorie → i18n-Label). SSoT für
-# Reihenfolge + welche Kategorien überhaupt konfigurierbar sind. Diese matchen
-# die ``category`` der AlertEvents (siehe vision_alerts).
-_ALERT_RULE_CATEGORIES = [
-    ("person", "alert_cat_person"),
-    ("vehicle", "alert_cat_vehicle"),
-    ("animal", "alert_cat_animal"),
-    ("face_known", "alert_cat_face_known"),
-    ("face_unsure", "alert_cat_face_unsure"),
-    ("face_unknown", "alert_cat_face_unknown"),
-]
-
-
-def _alert_rules_path() -> Path:
-    from ..lib.config import DATA_DIR
-    return DATA_DIR / "alert_rules.json"
-
-
-def _load_alert_rules() -> list[dict[str, Any]]:
-    path = _alert_rules_path()
-    if not path.exists():
-        return []
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        return [r for r in raw if isinstance(r, dict)] if isinstance(raw, list) else []
-    except (OSError, json.JSONDecodeError) as e:
-        logger.warning("alert_rules.json unreadable: %s", e)
-        return []
-
-
-def _save_alert_rules(rules: list[dict[str, Any]]) -> None:
-    _alert_rules_path().write_text(
-        json.dumps(rules, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+# The categories' labels for the rules table (the categories themselves: alert_bus.VISION_RULE_CATEGORIES).
+def _rule_label_key(category: str) -> str:
+    return f"alert_cat_{category}"
 
 
 class VisionSettingsMixin(rx.State, mixin=True):
@@ -478,7 +443,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
                     "auto_start": bool(stored.get("auto_start", False)),
                     "alerts_enabled": bool(s.get("alerts_enabled", True)),
                     "alert_types": [
-                        str(x) for x in s.get("alert_types", _DEFAULT_ALERT_TYPES)
+                        str(x) for x in s.get("alert_types", list(VISION_ALERT_TYPES))
                     ],
                     "quiet_enabled": bool(s.get("quiet_enabled", False)),
                     "quiet_start": str(s.get("quiet_start", 22)),
@@ -650,10 +615,10 @@ class VisionSettingsMixin(rx.State, mixin=True):
     ) -> None:
         """Pro-Kamera einen Alarm-Event-Typ (person/vehicle/animal/face) an/aus.
         Persistiert als ``sources.settings.alert_types`` (Liste)."""
-        if not source_id or alert_type not in _DEFAULT_ALERT_TYPES:
+        if not source_id or alert_type not in VISION_ALERT_TYPES:
             return
         cam = next((c for c in self.vigilantia_sources if c["id"] == source_id), None)
-        current = list(cam.get("alert_types", _DEFAULT_ALERT_TYPES)) if cam else list(_DEFAULT_ALERT_TYPES)
+        current = list(cam.get("alert_types", VISION_ALERT_TYPES)) if cam else list(VISION_ALERT_TYPES)
         if enabled and alert_type not in current:
             current.append(alert_type)
         elif not enabled and alert_type in current:
@@ -788,82 +753,28 @@ class VisionSettingsMixin(rx.State, mixin=True):
             {"name": str(n), "display_name": plugin_display_name(c, self.ui_language)}
             for n, c in sorted(all_channels().items())
         ]
-        by_cat = {
-            str(r.get("category")): r for r in _load_alert_rules()
-            if isinstance(r, dict)
-        }
-        out: list[dict[str, Any]] = []
-        for cat, label_key in _ALERT_RULE_CATEGORIES:
-            r = by_cat.get(cat) or {}
-            out.append({
-                "category": cat,
-                "label_key": label_key,
-                "sinks": [str(s) for s in (r.get("sinks") or [])],
-                "vlm": r.get("compose") == "vlm",
-            })
-        self.alert_rules_ui = out
-
-    def _apply_alert_rule_change(self, category: str, mutator: Any) -> None:
-        """Regel der Kategorie laden/anlegen, ``mutator(rule)`` anwenden,
-        speichern, Dispatcher live neu laden, UI-Liste auffrischen."""
-        if category not in {c for c, _ in _ALERT_RULE_CATEGORIES}:
-            return
-        rules = _load_alert_rules()
-        rule = next(
-            (r for r in rules if isinstance(r, dict) and r.get("category") == category),
-            None,
-        )
-        if rule is None:
-            rule = {
-                "rule_id": f"vision-{category}",
-                "producer": "vision",
-                "category": category,
-                "source_id": None,
-                "sinks": [],
-            }
-            rules.append(rule)
-        mutator(rule)
-        _save_alert_rules(rules)
-        from ..lib.alert_bus import reload_rules
-        reload_rules()
-        self._reload_alert_rules()
+        from ..lib.alert_bus import vision_rules
+        self.alert_rules_ui = [
+            {"category": category, "label_key": _rule_label_key(category), **rule}
+            for category, rule in vision_rules().items()
+        ]
 
     @rx.event
     def set_alert_rule(self, category: str, field: str, value: Any) -> None:
-        """VLM-Bildbeschreibung einer Kategorie an/aus."""
-        if field != "vlm":
-            return
-
-        def _mut(rule: dict[str, Any]) -> None:
-            if bool(value):
-                rule["compose"] = "vlm"
-            else:
-                rule.pop("compose", None)
-
-        self._apply_alert_rule_change(category, _mut)
+        """VLM-Bildbeschreibung einer Kategorie an/aus (``alert_bus.change_vision_rule``)."""
+        from ..lib.alert_bus import change_vision_rule
+        if field == "vlm":
+            change_vision_rule(category, vlm=bool(value))
+            self._reload_alert_rules()
 
     @rx.event
     def toggle_alert_sink(self, category: str, channel: str, enabled: bool) -> None:
-        """Einen Kanal (channel-agnostisch, beliebiges Channel-Plugin) für eine
-        Kategorie an/aus — landet in der ``sinks``-Liste der Regel."""
-        if not channel:
-            return
-
-        def _mut(rule: dict[str, Any]) -> None:
-            sinks = set(rule.get("sinks") or [])
-            if bool(enabled):
-                sinks.add(channel)
-            else:
-                sinks.discard(channel)
-            rule["sinks"] = sorted(sinks)
-
-        self._apply_alert_rule_change(category, _mut)
+        """Einen Kanal (channel-agnostisch, beliebiges Channel-Plugin) für eine Kategorie an/aus."""
+        from ..lib.alert_bus import change_vision_rule
+        change_vision_rule(category, sink=channel, sink_on=bool(enabled))
+        self._reload_alert_rules()
 
     # ── RTSP-Kamera-Verwaltung (Phase 2) ─────────────────────────────
-
-    @staticmethod
-    def _env_path() -> str:
-        return str(Path(__file__).resolve().parents[2] / ".env")
 
     @staticmethod
     def _empty_rtsp_form() -> dict[str, Any]:
@@ -916,105 +827,39 @@ class VisionSettingsMixin(rx.State, mixin=True):
     def set_rtsp_form_field(self, field: str, value: Any) -> None:
         self.rtsp_form = {**self.rtsp_form, field: value}
 
-    def _persist_rtsp_credentials(self, cred: str, user: str, password: str) -> None:
-        """User/Passwort in die .env schreiben (RTSP_<CRED>_USER/PASSWORD) und
-        sofort im Broker verfügbar machen. Leere Werte werden übersprungen,
-        damit ein leeres Edit-Feld bestehende Secrets nicht löscht."""
-        from dotenv import set_key
-
-        from ..lib.credential_broker import broker
-        env_path = self._env_path()
-        if user:
-            set_key(env_path, broker.get_env_key(f"rtsp_{cred}", "user"), user)
-            broker.set_runtime(f"rtsp_{cred}", "user", user)
-        if password:
-            set_key(env_path, broker.get_env_key(f"rtsp_{cred}", "password"), password)
-            broker.set_runtime(f"rtsp_{cred}", "password", password)
-
     @rx.event
     def save_rtsp_camera(self) -> None:
-        """Formular validieren, in settings.json ``rtsp_cameras`` schreiben
-        (Update nach Name oder Append), Credentials in .env, Quellen neu
-        einlesen."""
+        """Formular prüfen und über ``lib.rtsp_cameras`` speichern (Anlegen oder Verbindung ändern; beim Ändern
+        bleiben alle Felder des Eintrags, die das Formular nicht kennt, z. B. ``ptz``), Quellen neu einlesen."""
+        from ..lib.rtsp_cameras import add_rtsp_camera, change_rtsp_camera
+
         f = self.rtsp_form
-        editing = self.rtsp_form_editing
-        host = str(f.get("host", "")).strip()
-        # Beim Bearbeiten bleibt der Config-Name stabil (source_id-Basis); der
-        # Anzeigename wird über das Karten-Alias-Feld verwaltet. Beim Anlegen
-        # ist der Formular-Name der neue Config-Name.
-        name = editing if editing else str(f.get("name", "")).strip()
-        if not name or not host:
-            self.rtsp_form_error = (
-                "Host ist Pflicht." if editing else "Name und Host sind Pflicht."
-            )
-            return
-
-        def _int(v: Any, default: int) -> int:
-            try:
-                return int(str(v).strip())
-            except (TypeError, ValueError):
-                return default
-
-        entry: dict[str, Any] = {
-            "name": name, "host": host, "port": _int(f.get("port"), 554),
-        }
-        path = str(f.get("path", "")).strip().lstrip("/")
-        if path:
-            entry["path"] = path
-        cred = str(f.get("cred", "")).strip()
-        if cred:
-            entry["cred"] = cred
-        profile = str(f.get("profile") or "webcam")
-        entry["profile"] = profile
-        if profile == "ai_camera":
-            entry["api_port"] = _int(f.get("api_port"), 443)
-            fc = str(f.get("face_channel", "")).strip()
-            if fc:
-                entry["face_channel"] = _int(fc, 1)
-
-        settings = load_vision_settings()
-        cams = settings.get("rtsp_cameras")
-        cams = cams if isinstance(cams, list) else []
-        target = self.rtsp_form_editing or name
-        new_list: list[Any] = []
-        replaced = False
-        for c in cams:
-            if isinstance(c, dict) and str(c.get("name")) == target:
-                new_list.append(entry)
-                replaced = True
+        try:
+            fields: dict[str, Any] = {
+                "host": str(f.get("host", "")), "port": int(str(f.get("port") or "554").strip()),
+                "path": str(f.get("path", "")), "cred": str(f.get("cred", "")),
+                "profile": str(f.get("profile") or "webcam"),
+            }
+            if fields["profile"] == "ai_camera":
+                fields["api_port"] = int(str(f.get("api_port") or "443").strip())
+                channel = str(f.get("face_channel", "")).strip()
+                fields["face_channel"] = int(channel) if channel else None
+            user, password = str(f.get("user", "")).strip(), str(f.get("password", ""))
+            if self.rtsp_form_editing:
+                change_rtsp_camera(self.rtsp_form_editing, fields, user, password)
             else:
-                new_list.append(c)
-        if not replaced:
-            new_list.append(entry)
-        settings["rtsp_cameras"] = new_list
-        save_vision_settings(settings)
-
-        if cred:
-            try:
-                self._persist_rtsp_credentials(
-                    cred, str(f.get("user", "")).strip(), str(f.get("password", "")),
-                )
-            except OSError as e:  # writing .env
-                logger.warning("rtsp credential persist failed: %s", e)
-
-        from ..lib.frame_sources import rescan
-        rescan()
-
+                add_rtsp_camera(str(f.get("name", "")), fields, user, password)
+        except (ValueError, KeyError) as error:
+            self.rtsp_form_error = str(error)
+            return
         self.rtsp_form_open = False
         self.rtsp_form_error = ""
         self._reload_vigilantia_sources()
 
     @rx.event
     def delete_rtsp_camera(self, name: str) -> None:
-        settings = load_vision_settings()
-        cams = settings.get("rtsp_cameras") or []
-        settings["rtsp_cameras"] = [
-            c for c in cams
-            if not (isinstance(c, dict) and str(c.get("name")) == name)
-        ]
-        save_vision_settings(settings)
-        from ..lib.frame_sources import rescan
-        rescan()
+        from ..lib.rtsp_cameras import delete_rtsp_camera
+        delete_rtsp_camera(name)
         self.rtsp_form_open = False
         self._reload_vigilantia_sources()
 

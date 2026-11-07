@@ -355,6 +355,22 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   6,5 zurück in der Wächterposition). Die Testinstanz bekommt die Kameras über eine Kopie der Vision-Einstellungen mit
   unscharfem Auge und die Zugangsdaten über `AIFRED_TEST_ENV_KEYS`. Offen in der Live-Ansicht: die Live-Analyse (VLM-Text,
   Gesichter), die die Hintergrundüberwachung nicht mehr abschaltet.
+- **Vision, Paket 3: Einstellungen (erledigt 07.11.2026):** `VisionSettings.vue` (Reiter ⚙️): das Auge (`lib/vigilantia.py`;
+  scharf/unscharf startet und stoppt die Hintergrund-Wächter), Modus und Bildmodell samt Laden/Entladen, Gesichts- und
+  Personenerkennung, Aufbewahrung; die Benachrichtigungs-Regeln als Tabelle Kategorie × Kanal mit Bild-Text
+  (`alert_bus.vision_rules`/`change_vision_rule`, auch für den Reflex-State); je Kamera eine Karte mit Name, Hintergrund,
+  Benachrichtigungen samt Typen, Ruhezeit, Aktiv-Zeitfenster, Ereignisabstand, Zonen-Editor und 🔌 Verbindung
+  (`RtspForm.vue`, ＋ Kamera legt an). Ob der Hintergrund-Wächter einer Kamera jetzt laufen soll, entscheidet EINE Stelle
+  (`vision_autostart.apply_background_watch`, auch für den Zeitfenster-Wächter). RTSP-Kameras über `lib/rtsp_cameras.py`
+  (auch Reflex): Eine Änderung führt die Felder in den bestehenden Eintrag, statt ihn neu zu bauen — das alte Formular verlor
+  dabei `ptz`, `onvif_port` und `snap_channel` der echten Reolink; Zugangsdaten über `credential_broker.persist/forget`, beim
+  Entfernen fallen sie mit weg, wenn keine andere Kamera sie nutzt. Damit erledigt aus `inventar-vision-medien.md`: 7.3
+  Kategorien und Regel-Datei doppelt; 7.4 Anlegen überschreibt eine Kamera gleichen Namens (jetzt 422), `cred` ungeprüft
+  im `.env`-Schlüssel (jetzt nur `[a-z0-9_]`), verwaiste Zugangsdaten; der Datensatz in vision.db bleibt bewusst (die
+  Ereignisse der Kamera). Reflex-Seiten vorher und nachher byteweise gleich. Geprüft gegen die Testinstanz mit Kopie der echten
+  Kameras: Regel an/aus, Verbindungsformular der Reolink (Profil, PTZ, Passwortfeld leer), Prüfkamera angelegt und
+  entfernt, Regeln und Kameras danach wie vorher. Offen: die Liste der Beschreiber (gleiches Muster wie die Engines der
+  Sprach-Seite).
 - **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
 
 ## Schritte

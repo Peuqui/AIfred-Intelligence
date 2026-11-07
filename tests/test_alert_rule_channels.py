@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-import aifred.state._vision_settings_mixin as vision_settings_mixin
 from aifred.lib.plugin_base import plugin_display_name
 from aifred.lib.plugin_registry import all_channels
 from aifred.state._vision_settings_mixin import VisionSettingsMixin
@@ -34,7 +33,7 @@ class _RulesFake(_StateBase):
 
 @pytest.mark.parametrize("language", ["de", "en"])
 def test_every_channel_with_its_plugin_name(monkeypatch: pytest.MonkeyPatch, language: str) -> None:
-    monkeypatch.setattr(vision_settings_mixin, "_load_alert_rules", list)
+    monkeypatch.setattr("aifred.lib.alert_bus.vision_rules", dict)   # no rule file needed: only the channels are looked at
     channels = all_channels()
     assert channels, "no channel plugin found — the test would check nothing"
     rules = _RulesFake(language)

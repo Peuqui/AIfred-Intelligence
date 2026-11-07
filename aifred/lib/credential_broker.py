@@ -52,6 +52,28 @@ class CredentialBroker:
         os.environ[env_key] = value
         logger.debug("Credential updated: %s/%s", service, key)
 
+    def persist(self, service: str, key: str, value: str) -> None:
+        """Keep a credential in AIfred's .env and make it available at once (``set_runtime``)."""
+        from dotenv import set_key
+
+        from .config import PROJECT_ROOT
+
+        set_key(str(PROJECT_ROOT / ".env"), self._resolve_env_key(service, key), value)
+        self.set_runtime(service, key, value)
+
+    def forget(self, service: str, key: str) -> None:
+        """Take a credential out of AIfred's .env and out of the running process."""
+        from dotenv import unset_key
+
+        from .config import PROJECT_ROOT
+
+        env_key = self._resolve_env_key(service, key)
+        env_file = PROJECT_ROOT / ".env"
+        if env_file.exists():
+            unset_key(str(env_file), env_key)
+        os.environ.pop(env_key, None)
+        logger.debug("Credential removed: %s/%s", service, key)
+
     def get_env_key(self, service: str, key: str) -> str:
         """Get the environment variable name for a credential. Public API."""
         return self._resolve_env_key(service, key)
