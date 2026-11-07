@@ -18,6 +18,7 @@ facing path always starts with the source label).
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -221,6 +222,25 @@ def _discover_local_sources(audio_root: Path) -> dict[str, dict[str, Any]]:
             "audio_type": _guess_audio_type(child.name),
         }
     return sources
+
+
+def remove_local_source(audio_root: Path, name: str) -> None:
+    """Remove a local source: its symlink or folder directly under ``audio_root``.
+
+    Only a name ``_discover_local_sources`` can find counts: a name with a path part, ``..``,
+    an absolute path or a leading dot is refused, so the caller (a client event) can never
+    point the removal anywhere else. A symlink is removed, never followed.
+    Raises ``ValueError`` for such a name, ``FileNotFoundError`` when nothing is there.
+    """
+    if Path(name).name != name or name in ("", "..") or name.startswith("."):
+        raise ValueError(f"not a source name: {name!r}")
+    entry = audio_root / name
+    if entry.is_symlink() or entry.is_file():
+        entry.unlink()
+    elif entry.is_dir():
+        shutil.rmtree(entry)
+    else:
+        raise FileNotFoundError(name)
 
 
 def build_source_map(
