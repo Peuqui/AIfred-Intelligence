@@ -8,6 +8,7 @@ Each agent has:
 - display_name, emoji, description, role
 - prompts: mapping of prompt layer names to file paths (relative to prompts/{lang}/)
 - toggles: default states for personality/reasoning/thinking
+- enabled: switched on (an agent switched off vanishes from every choice, see selectable_agents)
 
 Sampling parameters (top_k, top_p, etc.) are NOT stored here —
 they come from the llama-swap YAML config per model at runtime.
@@ -27,6 +28,10 @@ AGENTS_FILE = DATA_DIR / "agents.json"
 ROLE_AGENT = "agent"
 ROLE_SYSTEM = "system"
 VALID_ROLES = (ROLE_AGENT, ROLE_SYSTEM)
+
+# The base agent: it names AIfred, is never deleted or switched off, and always has a model of its own
+# (Peuqui 07.11.2026). Its display name can change, its id cannot.
+BASE_AGENT = "aifred"
 
 
 # An agent's id names its prompt folder (prompts/<lang>/<id>/); the template folder has a hyphen, so no id is it.
@@ -68,6 +73,10 @@ class AgentConfig:
     # detected by Whisper/Vosk/etc. Always lowercase, no leading/trailing
     # whitespace. Example for "AIfred": ["alfred", "ai fred", "eifred"].
     aliases: list[str] = field(default_factory=list)
+
+    # Switched on: an agent switched off vanishes from every choice (selectable_agents); a turn, job or
+    # channel that names it is refused out loud. Not written into agents.json until first switched.
+    enabled: bool = True
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -138,7 +147,7 @@ def _default_agents() -> dict[str, dict]:
             "display_name": "Vision",
             "emoji": "\U0001f4f7",
             "description": "Vision Language Model fuer Bildanalyse",
-            "role": "agent",
+            "role": ROLE_SYSTEM,   # backs the image workflow, no chat partner (as every agents.json has it)
             "prompts": {
                 "identity": "vision/identity.txt",
                 "personality": "aifred/personality.txt",
@@ -169,25 +178,13 @@ def _dict_to_config(data: dict) -> AgentConfig:
         cloud_provider=data.get("cloud_provider", "qwen"),
         model=data.get("model", ""),
         aliases=aliases,
+        enabled=data.get("enabled", True),
     )
 
 
 def load_agents() -> dict[str, AgentConfig]:
-    """Load agent configurations from data/agents.json.
-
-    If the file doesn't exist, creates it with default agents.
-    """
-    if not AGENTS_FILE.exists():
-        save_agents_raw(_default_agents())
-
-    with open(AGENTS_FILE, "r", encoding="utf-8") as f:
-        raw: dict = json.load(f)
-
-    agents_data = raw.get("agents", raw)
-    return {
-        agent_id: _dict_to_config(agent_data)
-        for agent_id, agent_data in agents_data.items()
-    }
+    """Load agent configurations from data/agents.json (load_agents_raw reads the file)."""
+    return {agent_id: _dict_to_config(agent_data) for agent_id, agent_data in load_agents_raw().items()}
 
 
 def load_agents_raw() -> dict[str, dict]:
@@ -237,6 +234,29 @@ def get_agent_config(agent_id: str) -> AgentConfig | None:
     """Get config for a specific agent, or None if not found."""
     agents = load_agents()
     return agents.get(agent_id)
+
+
+def selectable_agents() -> dict[str, AgentConfig]:
+    """The agents a user, a debate seat, a symposion, a job or an address can choose: no system agent
+    (vision, calibration) and none switched off. The one list for every choice."""
+    return {agent_id: config for agent_id, config in load_agents().items()
+            if config.role != ROLE_SYSTEM and config.enabled}
+
+
+def set_agent_enabled(agent_id: str, enabled: bool) -> AgentConfig:
+    """Switch an agent on or off. The base agent and the system agents are never switched off.
+
+    Raises:
+        ValueError: the agent does not exist, is the base agent or a system agent
+    """
+    config = get_agent_config(agent_id)
+    if config is None:
+        raise ValueError(f"Agent '{agent_id}' not found")
+    if not enabled and agent_id == BASE_AGENT:
+        raise ValueError(f"'{agent_id}' is the base agent: it is never switched off")
+    if config.role == ROLE_SYSTEM:
+        raise ValueError(f"'{agent_id}' is a system agent: it is not switched on or off")
+    return update_agent(agent_id, {"enabled": enabled})
 
 
 def agent_display_name(agent_id: str) -> str:
@@ -296,7 +316,8 @@ def resolve_agent_id(name_or_alias: str) -> str | None:
 
     Used by the intent-detection parser, the mode-switch parser, and any
     other code path that needs to resolve a noisy STT-transcribed name
-    (e.g. "Hey Alfred" → "aifred", "HAL 9000" → "hal").
+    (e.g. "Hey Alfred" → "aifred", "HAL 9000" → "hal"). Only selectable
+    agents: one switched off, or a system agent, cannot be addressed.
 
     Returns the canonical agent id, or None if nothing matched.
     """
@@ -305,15 +326,12 @@ def resolve_agent_id(name_or_alias: str) -> str | None:
     needle = name_or_alias.strip().lower()
     if not needle:
         return None
-    agents = load_agents_raw()
+    agents = selectable_agents()
     if needle in agents:
         return needle
-    for aid, adata in agents.items():
-        if needle == str(adata.get("display_name", "")).strip().lower():
+    for aid, config in agents.items():
+        if needle == config.display_name.strip().lower() or needle in config.aliases:
             return aid
-        for alias in adata.get("aliases") or []:
-            if isinstance(alias, str) and needle == alias.strip().lower():
-                return aid
     return None
 
 
@@ -374,22 +392,38 @@ def create_agent(
     return config
 
 
+def deletion_refusal(agent_id: str) -> str | None:
+    """Why the agent cannot be deleted, None when it can. The base agent never is, nor a system agent
+    (it backs an internal workflow). Sokrates and Salomo can be once Reflex is gone: its state still
+    reaches into their tuning by name (docs/de/architecture/vue-migration/README.md, step 6)."""
+    from .agent_tuning import CANONICAL_AGENTS
+
+    config = get_agent_config(agent_id)
+    if config is None:
+        return f"Agent '{agent_id}' not found"
+    if agent_id == BASE_AGENT:
+        return f"'{agent_id}' is the base agent: it is never deleted"
+    if config.role == ROLE_SYSTEM:
+        return f"'{agent_id}' is a system agent: it backs an internal workflow"
+    if agent_id in CANONICAL_AGENTS:
+        return f"'{agent_id}' can be deleted once the Reflex interface is gone (it still needs the agent by name)"
+    return None
+
+
 def delete_agent(agent_id: str) -> None:
     """Delete an agent from config and remove prompt files from disk.
 
     Raises:
-        ValueError: If agent is a default agent or doesn't exist
+        ValueError: the agent cannot be deleted (deletion_refusal says why)
     """
     import shutil
 
-    from .agent_settings import CANONICAL_AGENTS
     from .prompt_loader import PROMPTS_DIR
-    if agent_id in CANONICAL_AGENTS:
-        raise ValueError(f"Cannot delete default agent '{agent_id}'")
 
+    refusal = deletion_refusal(agent_id)
+    if refusal is not None:
+        raise ValueError(refusal)
     agents = load_agents_raw()
-    if agent_id not in agents:
-        raise ValueError(f"Agent '{agent_id}' not found")
 
     # Get prompt directory name from config before deleting
     config = agents[agent_id]

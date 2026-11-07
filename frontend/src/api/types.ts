@@ -27,6 +27,7 @@ export type SourceUploaded = Schemas["SourceUploaded"];
 export type SourceDeindexed = Schemas["SourceDeindexed"];
 export type SettingsUpdate = Schemas["SettingsUpdate"];
 export type AgentSummary = Schemas["AgentSummary"];
+export type AgentCard = Schemas["AgentCard"];
 export type QuickChoices = Schemas["QuickChoices"];
 export type AgentChoices = Schemas["AgentChoices"];
 export type ModelOption = Schemas["ModelOption"];

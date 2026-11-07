@@ -255,6 +255,36 @@ def test_a_seat_whose_agent_is_gone_rejects_the_turn(world: dict[str, Any]) -> N
     assert _events("agent_started") == []                  # rejected before anyone spoke
 
 
+def _switch_off(world: dict[str, Any], agent: str) -> None:
+    _edit_agents(world, lambda agents: agents[agent].update(enabled=False))
+
+
+def test_an_answering_agent_switched_off_rejects_the_turn_out_loud(world: dict[str, Any]) -> None:
+    _switch_off(world, "sokrates")
+    session_storage.update_session_config(SESSION, active_agent="sokrates")
+    _turn()
+    rejected = _events("turn_rejected")
+    assert rejected[0]["reason"] == "agent" and "Sokrates is switched off" in rejected[0]["message"]
+    assert _events("agent_started") == []                  # nobody answers in its place
+
+
+def test_an_agent_switched_off_takes_no_seat(world: dict[str, Any]) -> None:
+    _switch_off(world, "sokrates")
+    _mode("critical_review")                                # Sokrates is the default critic
+    _turn()
+    rejected = _events("turn_rejected")
+    assert rejected[0]["reason"] == "seat" and "switched off" in rejected[0]["message"]
+    assert _events("agent_started") == []
+
+
+def test_an_agent_switched_off_leaves_the_round_table(world: dict[str, Any]) -> None:
+    _switch_off(world, "salomo")
+    _mode("symposion", symposion_agents=["aifred", "sokrates", "salomo"])
+    world["view"].max_debate_rounds = 1
+    _turn()
+    assert _bubbles() == [("aifred", "symposion", 1), ("sokrates", "symposion", 1)]
+
+
 # ── seats instead of names ───────────────────────────────────────────────
 
 

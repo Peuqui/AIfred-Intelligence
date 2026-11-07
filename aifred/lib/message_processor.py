@@ -468,6 +468,15 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         if not user_saved:
             save_inbound_to_session(session_id, message, from_user)
 
+        # An agent switched off (a wake word, a job or the session's agent names it) answers nothing:
+        # out loud, never another agent in its place.
+        from .agent_config import selectable_agents
+        if message.target_agent not in selectable_agents():
+            log_message(f"⛔ {channel_label}: {get_agent_label(message.target_agent)} is switched off or no chat agent — no answer", "warning")
+            debug(f"⛔ {get_agent_label(message.target_agent)} is switched off or no chat agent — no answer")
+            hub.fail()  # scope writes "error" on exit
+            return None
+
         # ── Phase 2: Call AIfred engine ───────────────────────
         hub.update("processing")
 

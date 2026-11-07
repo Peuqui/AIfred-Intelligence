@@ -116,22 +116,12 @@ def _parse_settings(raw: dict[str, str]) -> SubAgentSettings:
 
 
 def delegation_candidates(ctx: PluginContext) -> list[str]:
-    """Agents a sub-agent could run as: every main agent except the caller.
-    Each brings its own identity and personality, so none is a useless
-    option even with the caller's model and tool list. Derived on every
-    toolkit build."""
-    from ....lib.agent_config import ROLE_SYSTEM, get_agent_config, get_agent_ids
-    candidates: list[str] = []
-    for agent_id in get_agent_ids():
-        if agent_id == ctx.agent_id:
-            continue
-        cfg = get_agent_config(agent_id)
-        if cfg is not None and cfg.role == ROLE_SYSTEM:
-            # System agents back internal workflows (calibration, vision);
-            # they are no chat partners and no delegation targets either.
-            continue
-        candidates.append(agent_id)
-    return candidates
+    """Agents a sub-agent could run as: every selectable agent except the caller
+    (no system agent, none switched off). Each brings its own identity and
+    personality, so none is a useless option even with the caller's model and
+    tool list. Derived on every toolkit build."""
+    from ....lib.agent_config import selectable_agents
+    return [agent_id for agent_id in selectable_agents() if agent_id != ctx.agent_id]
 
 
 def within_allowed_tiers(tools: list[Tool], settings: SubAgentSettings) -> list[Tool]:

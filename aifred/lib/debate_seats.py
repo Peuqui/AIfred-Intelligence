@@ -42,14 +42,13 @@ def session_seats(session_config: dict[str, Any]) -> dict[str, str]:
 
 
 def check_seat_agent(seat: str, agent: str) -> None:
-    """``agent`` can take ``seat``: it exists and is no system agent (vision, calibration)."""
-    from .agent_config import ROLE_SYSTEM, get_agent_config
+    """``agent`` can take ``seat``: it is selectable (exists, no system agent, not switched off)."""
+    from .agent_config import selectable_agents
 
     if seat not in CHOSEN_SEATS:
         raise SeatError(f"No seat '{seat}' to choose (one of {CHOSEN_SEATS})")
-    config = get_agent_config(agent)
-    if config is None or config.role == ROLE_SYSTEM:
-        raise SeatError(f"No agent '{agent}' can take the seat '{seat}'")
+    if agent not in selectable_agents():
+        raise SeatError(f"No agent '{agent}' can take the seat '{seat}' (unknown, a system agent or switched off)")
 
 
 def seat_names(seats: dict[str, str]) -> dict[str, str]:

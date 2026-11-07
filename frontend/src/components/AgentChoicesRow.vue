@@ -11,11 +11,16 @@ const props = defineProps<{
   modelId: string;
   models: ModelOption[];
   inherits: boolean; // the row offers "(as AIfred's LLM)"
-  personalityTitle?: string;
   row?: AgentChoices;
   busy: boolean;
 }>();
 const emit = defineEmits<{ change: [update: ChoicesChange] }>();
+
+// AIfred, Sokrates, Salomo and Vision have a persona text of their own, every other agent the general one.
+const OWN_PERSONA_TEXT = ["aifred", "sokrates", "salomo", "vision"];
+const personalityTitle = computed(() =>
+  props.row ? t(OWN_PERSONA_TEXT.includes(props.row.id) ? `personality_${props.row.id}_tooltip` : "personality_generic_tooltip") : "",
+);
 
 // A saved model the backend does not list (any more) stays visible instead of a blank choice.
 const unlisted = computed(() => props.modelId !== "" && !props.models.some((model) => model.id === props.modelId));

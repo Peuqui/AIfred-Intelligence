@@ -6,12 +6,12 @@ from aifred.lib.intent_detector import _parse_mode_switch
 
 # Fixed agent registry so tests are independent of data/agents.json
 _AGENTS = {
-    "aifred": {"display_name": "AIfred", "aliases": ["alfred"]},
-    "sokrates": {"display_name": "Sokrates", "aliases": []},
-    "salomo": {"display_name": "Salomo", "aliases": []},
-    "hal": {"display_name": "HAL 9000", "aliases": ["hal 9000"]},
-    "codi": {"display_name": "Codine", "aliases": ["kodi", "cody"]},
-    "rabbi": {"display_name": "Rabbi Shmuel", "aliases": []},
+    "aifred": {"display_name": "AIfred", "emoji": "🤖", "description": "", "role": "agent", "aliases": ["alfred"]},
+    "sokrates": {"display_name": "Sokrates", "emoji": "🤖", "description": "", "role": "agent", "aliases": []},
+    "salomo": {"display_name": "Salomo", "emoji": "🤖", "description": "", "role": "agent", "aliases": []},
+    "hal": {"display_name": "HAL 9000", "emoji": "🤖", "description": "", "role": "agent", "aliases": ["hal 9000"]},
+    "codi": {"display_name": "Codine", "emoji": "🤖", "description": "", "role": "agent", "aliases": ["kodi", "cody"]},
+    "rabbi": {"display_name": "Rabbi Shmuel", "emoji": "🤖", "description": "", "role": "agent", "aliases": []},
 }
 
 

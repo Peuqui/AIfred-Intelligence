@@ -5,7 +5,7 @@ import time
 
 from fastapi import BackgroundTasks, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_exception, log_message
 from .app import api_app
@@ -205,14 +205,79 @@ class AgentSummary(BaseModel):
 
 @api_app.get("/agents/summary", response_model=list[AgentSummary], tags=["Agents"])
 async def agents_summary() -> list[AgentSummary]:
-    """The agents a chat can address (every role except "system")."""
-    from ..agent_config import load_agents
+    """The agents a chat can address: no system agent, none switched off (agent_config.selectable_agents)."""
+    from ..agent_config import selectable_agents
 
     return [
         AgentSummary(id=agent_id, display_name=config.display_name, emoji=config.emoji, role=config.role)
-        for agent_id, config in load_agents().items()
-        if config.role != "system"
+        for agent_id, config in selectable_agents().items()
     ]
+
+
+class AgentCard(BaseModel):
+    """An agent of the agents page: every agent a chat can address, switched on or off."""
+
+    id: str
+    display_name: str
+    emoji: str
+    description: str
+    enabled: bool
+    base: bool = Field(description="The base agent: never switched off, never deleted")
+    delete_refusal: str | None = Field(description="Why it cannot be deleted; null when it can")
+
+
+class AgentSwitch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+
+
+def _card(agent_id: str) -> AgentCard:
+    from ..agent_config import BASE_AGENT, deletion_refusal, get_agent_config
+
+    config = get_agent_config(agent_id)
+    if config is None:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+    return AgentCard(
+        id=agent_id, display_name=config.display_name, emoji=config.emoji, description=config.description,
+        enabled=config.enabled, base=agent_id == BASE_AGENT, delete_refusal=deletion_refusal(agent_id),
+    )
+
+
+@api_app.get("/agents", response_model=list[AgentCard], tags=["Agents"])
+async def agents_cards() -> list[AgentCard]:
+    """Every agent a chat can address, the ones switched off too (no system agent), in agents.json's order."""
+    from ..agent_config import ROLE_SYSTEM, load_agents
+
+    return [_card(agent_id) for agent_id, config in load_agents().items() if config.role != ROLE_SYSTEM]
+
+
+@api_app.patch("/agents/{agent_id}", response_model=AgentCard, tags=["Agents"])
+async def agents_switch(agent_id: str, switch: AgentSwitch) -> AgentCard:
+    """Switch an agent on or off. One switched off vanishes from every choice; a turn, job or channel that
+    names it is refused out loud (422 for the base agent and system agents)."""
+    from ..agent_config import set_agent_enabled
+
+    _card(agent_id)
+    try:
+        set_agent_enabled(agent_id, switch.enabled)
+    except ValueError as refused:
+        raise HTTPException(status_code=422, detail=str(refused)) from refused
+    log_message(f"🎛️ Agent '{agent_id}' switched {'on' if switch.enabled else 'off'}")
+    return _card(agent_id)
+
+
+@api_app.delete("/agents/{agent_id}", status_code=204, tags=["Agents"])
+async def agents_delete(agent_id: str) -> Response:
+    """Delete an agent with its prompt files (422 with the reason when it cannot be, see delete_refusal)."""
+    from ..agent_config import delete_agent
+
+    _card(agent_id)
+    try:
+        delete_agent(agent_id)
+    except ValueError as refused:
+        raise HTTPException(status_code=422, detail=str(refused)) from refused
+    log_message(f"🗑️ Agent '{agent_id}' deleted")
+    return Response(status_code=204)
 
 
 @api_app.get("/agents/export", tags=["Agents"])

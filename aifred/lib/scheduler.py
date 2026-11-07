@@ -424,6 +424,9 @@ async def _execute_job(job: Job) -> None:
     if not message_text:
         log_message(f"Scheduler: job '{job.name}' has no message, skipping", "warning")
         return
+    from .agent_config import selectable_agents
+    if agent not in selectable_agents():   # also a fixed text: it speaks in the agent's name
+        raise RuntimeError(f"Job '{job.name}': agent '{agent}' is switched off or no chat agent")
 
     store = get_job_store()
 

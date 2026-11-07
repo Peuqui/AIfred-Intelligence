@@ -506,24 +506,13 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     @rx.var(deps=["_agent_dropdown_items"], auto_deps=False)
     def selectable_agents(self) -> list[dict[str, str]]:
-        """Agent list for the active-agent toggle row (id, display_name, emoji).
-
-        Excludes:
-        - any agent with role=system (calibration, vision, etc. — internal
-          workflows that never appear as a user-selectable chat agent)
-        """
-        from ..lib.agent_config import load_agents_raw
-        agents = load_agents_raw()
-        result: list[dict[str, str]] = []
-        for aid, adata in agents.items():
-            if adata.get("role") == "system":
-                continue
-            result.append({
-                "id": aid,
-                "display_name": adata.get("display_name", aid.capitalize()),
-                "emoji": adata.get("emoji", "\U0001f916"),
-            })
-        return result
+        """Agent list for the active-agent toggle row (id, display_name, emoji): the selectable
+        agents (lib.agent_config.selectable_agents — no system agent, none switched off)."""
+        from ..lib.agent_config import selectable_agents
+        return [
+            {"id": aid, "display_name": config.display_name, "emoji": config.emoji}
+            for aid, config in selectable_agents().items()
+        ]
 
     @rx.var(deps=["multi_agent_mode"], auto_deps=False)
     def is_fixed_agent_mode(self) -> bool:

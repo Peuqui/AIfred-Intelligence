@@ -35,6 +35,7 @@ onMounted(async () => {
       <strong>🎩 AIfred Intelligence</strong>
       <nav>
         <RouterLink to="/">💬 {{ t("nav_chat") }}</RouterLink>
+        <RouterLink to="/agents">{{ t("nav_agents") }}</RouterLink>
         <RouterLink to="/documents">{{ t("doc_manager_title") }}</RouterLink>
         <RouterLink to="/settings">{{ t("settings") }}</RouterLink>
       </nav>

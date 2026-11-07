@@ -20,10 +20,17 @@ compression between the calls.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from .agent_config import AgentConfig, agent_display_name, get_agent_config
+from .agent_config import (
+    BASE_AGENT,
+    AgentConfig,
+    agent_display_name,
+    get_agent_config,
+    selectable_agents,
+)
 from .debate_seats import (
     CHOSEN_SEATS,
     SEAT_CRITIC,
@@ -70,8 +77,6 @@ def chosen_seats(mode: str) -> tuple[str, ...]:
     return tuple(seat for seat in _DEBATE_SEATS.get(mode, ()) if seat != SEAT_MAIN)
 
 
-# AIfred, the base agent: addressing him by name in a debate mode asks for his answer alone.
-_BASE_AGENT = "aifred"
 
 
 # ── Who speaks ───────────────────────────────────────────────────────────
@@ -99,12 +104,13 @@ def plan_turn(
     """Who speaks in ``mode``. ``routed`` is the turn's addressee (lib/turn_service._route) and the
     author of the first answer; ``seats`` the session's critic and judge (debate_seats.session_seats)."""
     if mode == "standard":
-        return TurnPlan(routed)
+        return TurnPlan(_speaker(routed))
     if mode == "symposion":
         return _plan_symposion(routed, symposion_agents)
     if mode not in _DEBATE_SEATS:
         raise TurnRejected("mode", f"Unknown multi-agent mode '{mode}'")
-    if addressed_to == _BASE_AGENT:
+    _speaker(routed)
+    if addressed_to == BASE_AGENT:   # addressing AIfred by name in a debate mode asks for his answer alone
         return TurnPlan(routed)
     seated = {SEAT_MAIN: routed, **{seat: seats[seat] for seat in CHOSEN_SEATS}}
     try:
@@ -116,16 +122,32 @@ def plan_turn(
     return TurnPlan(routed, {seat: seated[seat] for seat in _DEBATE_SEATS[mode]}, seats=seated)
 
 
+def _speaker(agent: str) -> str:
+    """``agent`` may speak in a turn: it is selectable. One switched off (or gone) is refused out loud,
+    never replaced by another."""
+    if agent not in selectable_agents():
+        config = get_agent_config(agent)
+        why = "is switched off" if config is not None and not config.enabled else "is no agent a chat can address"
+        raise TurnRejected("agent", f"{agent_display_name(agent)} {why}: choose another agent")
+    return agent
+
+
 def _plan_symposion(routed: str, agents: list[str]) -> TurnPlan:
-    # Fewer than two agents is a plain direct answer, so the user can switch agents off mid-session
-    # and go on with one; the one selected answers, with none the turn's addressing decides.
+    # An agent switched off leaves the round table. Fewer than two agents is a plain direct answer, so the
+    # user can switch agents off mid-session and go on with one; the one selected answers, with none the
+    # turn's addressing decides.
+    selectable = selectable_agents()
+    gone = [agent for agent in agents if agent not in selectable]
+    if gone:
+        debug(f"🏛️ Symposion without {', '.join(gone)}: switched off or gone")
+        agents = [agent for agent in agents if agent in selectable]
     if len(agents) >= 2:
         return TurnPlan(None, symposion=tuple(agents))
     if len(agents) == 1:
         debug(f"🏛️ Symposion with a single agent → direct response by {agents[0]}")
         return TurnPlan(agents[0])
     debug("⚠️ Symposion: no agents selected → falling back to direct response")
-    return TurnPlan(routed)
+    return TurnPlan(_speaker(routed))
 
 
 # ── The debate's speakers ────────────────────────────────────────────────
@@ -421,6 +443,12 @@ async def _tribunal(ctx: TurnContext, plan: TurnPlan) -> None:
 # ── symposion ────────────────────────────────────────────────────────────
 
 
+def _round_table(agents: Sequence[str]) -> list[tuple[str, AgentConfig]]:
+    """The participants that can speak: selectable agents only, one switched off (or gone) leaves."""
+    selectable = selectable_agents()
+    return [(agent, selectable[agent]) for agent in agents if agent in selectable]
+
+
 async def run_symposion(ctx: TurnContext, plan: TurnPlan) -> None:
     """The round table: every agent speaks in turn, round by round, and sees all contributions so
     far. No winner, no vote: a discussion from several perspectives."""
@@ -430,7 +458,7 @@ async def run_symposion(ctx: TurnContext, plan: TurnPlan) -> None:
     from .session_storage import get_session_config
 
     lang, max_rounds = ctx.intent.language, ctx.view.max_debate_rounds
-    lineup: list[tuple[str, AgentConfig]] = [(agent, config) for agent in plan.symposion if (config := get_agent_config(agent))]
+    lineup = _round_table(plan.symposion)
     if len(lineup) < 2:
         debug("⚠️ Symposion requires at least 2 agents")
         return
@@ -441,12 +469,9 @@ async def run_symposion(ctx: TurnContext, plan: TurnPlan) -> None:
     conversation = _conversation(session_llm_history(ctx.session_id), lineup)
 
     for round_num in range(1, max_rounds + 1):
-        # The lineup is read again every round: the user can change the selection meanwhile, and
-        # every speaker is told the participants of the round it speaks in.
-        lineup = [
-            (agent, config) for agent in get_session_config(ctx.session_id)["symposion_agents"]
-            if (config := get_agent_config(agent))
-        ]
+        # The lineup is read again every round: the user can change the selection meanwhile (or switch
+        # an agent off), and every speaker is told the participants of the round it speaks in.
+        lineup = _round_table(get_session_config(ctx.session_id)["symposion_agents"])
         if len(lineup) < 2:
             debug("⚠️ Symposion requires at least 2 agents")
             break

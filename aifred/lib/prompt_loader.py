@@ -408,21 +408,16 @@ def get_agent_system_prompt(
 # ============================================================
 
 def get_intent_detection_prompt(user_query: str, lang: str | None = None) -> str:
-    """Load intent detection prompt with dynamic agent list + descriptions + aliases."""
-    from .agent_config import load_agents_raw
-    agents = load_agents_raw()
+    """Load intent detection prompt with dynamic agent list + descriptions + aliases: the selectable
+    agents only (no system agent, none switched off — they cannot be addressed)."""
+    from .agent_config import selectable_agents
     agent_lines: list[str] = []
-    for aid, adata in agents.items():
-        # Skip vision agent (not user-addressable)
-        if aid == "vision":
-            continue
-        name = adata.get("display_name", aid)
-        desc = adata.get("description", "")
-        aliases = [str(a).strip().lower() for a in adata.get("aliases") or [] if isinstance(a, str) and a.strip()]
+    for aid, config in selectable_agents().items():
+        name = config.display_name
         name_part = f"{aid}" if aid == name.lower() else f"{aid} (name: {name})"
-        alias_part = f" [also: {', '.join(aliases)}]" if aliases else ""
-        if desc:
-            agent_lines.append(f"- {name_part}{alias_part}: {desc}")
+        alias_part = f" [also: {', '.join(config.aliases)}]" if config.aliases else ""
+        if config.description:
+            agent_lines.append(f"- {name_part}{alias_part}: {config.description}")
         else:
             agent_lines.append(f"- {name_part}{alias_part}")
     agent_list = "\n".join(agent_lines)

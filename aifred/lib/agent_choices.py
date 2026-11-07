@@ -201,11 +201,11 @@ def reset_sampling(target: TuningTarget, agent: str, defaults: dict[str, float],
 
 
 def chat_agents() -> list[tuple[str, str, str]]:
-    """``(id, display name, emoji)`` of every agent a chat can address (role not "system"), in the
-    order of agents.json."""
-    from .agent_config import load_agents
+    """``(id, display name, emoji)`` of every agent a chat can address (agent_config.selectable_agents),
+    in the order of agents.json."""
+    from .agent_config import selectable_agents
 
-    return [(agent, config.display_name, config.emoji) for agent, config in load_agents().items() if config.role != "system"]
+    return [(agent, config.display_name, config.emoji) for agent, config in selectable_agents().items()]
 
 
 def choose_model(target: TuningTarget, agent: str, model_id: str, label: str) -> list[str]:

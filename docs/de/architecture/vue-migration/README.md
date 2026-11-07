@@ -253,6 +253,19 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Agent seine Erinnerungen nie). Die Aufgaben der Plätze braucht er nicht als Kopie, sie gehören dem
   Platz. Die Texte standen vorher im Code (`_get_role_templates`, mit Ersatz-Umlauten). Die Kennung
   ist der Name des Prompt-Ordners: nur `[a-z0-9_]` (vorher legte `../x` Dateien außerhalb an).
+- **Agenten-Seite, Teil 1 (erledigt 07.11.2026):** `AgentsView.vue`, je Agent eine Karte mit Schalter
+  oben rechts, der Zeile der Schnellwahl (`AgentChoicesRow.vue`, nur für eingeschaltete) und Löschen.
+  Eine Liste für jede Wahl: `agent_config.selectable_agents()` (keine Systemagenten, keine
+  abgeschalteten) für Schnellwahl, Agentenliste des Chats, Plätze, Symposion, Namensauflösung,
+  Absichtserkennung (die bisher auch den Kalibrierungsagenten als ansprechbar anbot) und Subagenten.
+  Abgeschaltet lehnt der Zug laut ab, wenn der Agent antworten oder einen Platz einnehmen soll
+  (`turn_debate._speaker`, nie ein anderer an seiner Stelle), aus dem Symposion fällt er heraus (auch
+  mitten im Gespräch); Message Hub (Weckwort, Auslöser, Sitzungsagent) und Scheduler (auch fester Text,
+  er spricht im Namen des Agenten) melden einen Fehler. AIfred (`agent_config.BASE_AGENT`) und die
+  Systemagenten bleiben an; gelöscht wird nach `deletion_refusal`: AIfred nie, Systemagenten nie,
+  **Sokrates und Salomo erst mit Schritt 6**, weil die Reflex-Kopie an rund 100 Stellen fest auf ihre
+  Tuning-Eimer greift. Vision stand in den eingebauten Standards (frische Installation) als Chat-Agent
+  statt als Systemagent; korrigiert. Offen (Teil 2): Persona-Texte, Rechte (Werkzeuge), Anlegen.
 - **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
 
 ## Schritte
@@ -265,3 +278,6 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
 5. Seite für Seite: Einstellungen, Dokumente, Agenten, Vision, Audio.
 6. Reflex entfernen: Mixins, `aifred/ui/`, `scripts/patch-reflex.py`, Reflex-Patches in `CLAUDE.md`;
    Server startet direkt (Granian/Uvicorn), nginx `/aifred/` auf den Server, Einzeilen-Installer.
+   Daten der Produktion dabei: `role` in `data/agents.json` von `main`/`critic`/`judge`/`custom` auf
+   `agent` (Stand 07.11.2026 noch die alten Etiketten; alles außer `system` gilt schon als Chat-Agent),
+   Sokrates und Salomo löschbar machen (`deletion_refusal`, `CANONICAL_AGENTS`).

@@ -148,13 +148,13 @@ class TestDelegationLegend:
         from aifred.lib import agent_config
 
         # "twin" shares the caller's model and whitelist: its persona alone
-        # makes it a candidate.
-        roles = {"aifred": "main", "codine": "custom", "twin": "custom",
-                 "calibration": agent_config.ROLE_SYSTEM}
-        monkeypatch.setattr(agent_config, "get_agent_ids", lambda: list(roles))
-        monkeypatch.setattr(
-            agent_config, "get_agent_config", lambda aid: SimpleNamespace(role=roles[aid]),
-        )
+        # makes it a candidate; "schlaefer" is switched off.
+        def agent(role: str, enabled: bool = True) -> dict[str, Any]:
+            return {"display_name": "x", "emoji": "x", "description": "", "role": role, "enabled": enabled}
+
+        agents = {"aifred": agent("agent"), "codine": agent("agent"), "twin": agent("agent"),
+                  "schlaefer": agent("agent", enabled=False), "calibration": agent(agent_config.ROLE_SYSTEM)}
+        monkeypatch.setattr(agent_config, "load_agents_raw", lambda: agents)
         assert sub.delegation_candidates(ctx) == ["codine", "twin"]
 
 

@@ -3,7 +3,6 @@
 // its model and switches, the Automatik's model, the Vision agent's. A change takes effect at once,
 // from the next turn on; it is a setting of AIfred, not of the open chat.
 import { computed, onMounted } from "vue";
-import type { AgentChoices } from "../api/types";
 import { t } from "../i18n";
 import { useAgentChoices } from "../stores/agentChoices";
 import AgentChoicesRow from "./AgentChoicesRow.vue";
@@ -15,12 +14,6 @@ onMounted(() => void store.load());
 
 const chatAgents = computed(() => store.choices?.agents.filter((row) => row.id !== "vision") ?? []);
 const vision = computed(() => store.choices?.agents.find((row) => row.id === "vision"));
-
-// AIfred, Sokrates, Salomo and Vision have a persona text of their own, every other agent the general one.
-const OWN_PERSONA_TEXT = ["aifred", "sokrates", "salomo", "vision"];
-function personalityTitle(row: AgentChoices): string {
-  return t(OWN_PERSONA_TEXT.includes(row.id) ? `personality_${row.id}_tooltip` : "personality_generic_tooltip");
-}
 </script>
 
 <template>
@@ -38,7 +31,6 @@ function personalityTitle(row: AgentChoices): string {
         :model-id="row.model_id"
         :models="store.choices.models"
         :inherits="row.id !== 'aifred'"
-        :personality-title="personalityTitle(row)"
         :row="row"
         :busy="store.busy"
         @change="(update) => store.change(row.id, update)"
@@ -57,7 +49,6 @@ function personalityTitle(row: AgentChoices): string {
         :model-id="vision.model_id"
         :models="store.choices.vision_models"
         :inherits="false"
-        :personality-title="personalityTitle(vision)"
         :row="vision"
         :busy="store.busy"
         @change="(update) => store.change('vision', update)"
