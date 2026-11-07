@@ -90,7 +90,7 @@ class AgentEditorMixin(rx.State, mixin=True):
     editor_display_name: rx.Field[str] = rx.field("")
     editor_emoji: rx.Field[str] = rx.field("")
     _editor_description: str = ""
-    editor_role: rx.Field[str] = rx.field("custom")
+    editor_role: rx.Field[str] = rx.field("agent")  # "agent" or "system" (agent_config.VALID_ROLES), shown, not chosen
     editor_model: rx.Field[str] = rx.field("")  # Cloud model id, only used for system-role agents
     # Cloud provider for system-role agents (calibration). One of
     # CLOUD_API_PROVIDERS — drives which endpoint + key the model list and
@@ -1255,11 +1255,6 @@ class AgentEditorMixin(rx.State, mixin=True):
         self.editor_emoji_picker_open = False
 
     @rx.event
-    def set_editor_role(self, value: str) -> None:
-        """Update editor role field."""
-        self.editor_role = value
-
-    @rx.event
     def toggle_editor_tool(self, tool_name: str) -> None:
         """Toggle a single tool in the editor whitelist."""
         tools = dict(self.editor_tools)
@@ -1385,7 +1380,6 @@ class AgentEditorMixin(rx.State, mixin=True):
                     display_name=self.editor_display_name,
                     emoji=self.editor_emoji,
                     description=self._editor_description,
-                    role=self.editor_role,
                 )
             except ValueError as error:  # id taken or no valid folder name: the user sees why
                 self.add_debug(f"\u26a0\ufe0f {error}")
@@ -1487,7 +1481,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         self.editor_display_name = ""
         self.editor_emoji = "\U0001f916"
         self._editor_description = ""
-        self.editor_role = "custom"
+        self.editor_role = "agent"
         self._editor_new_agent_id = ""
         self.editor_prompt_tab = "identity"
         self._editor_prompt_content = ""

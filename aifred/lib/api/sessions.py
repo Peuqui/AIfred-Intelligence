@@ -106,13 +106,17 @@ class SessionConfig(BaseModel):
     multi_agent_mode: str
     symposion_agents: list[str]
     incognito: bool = Field(description="The agents work without their long-term memory in this session")
+    debate_seats: dict[str, str] = Field(
+        description="Critic and judge of the debate modes (seat → agent): the session's choice over settings.json's",
+    )
 
 
 def _config_of(session_id: str) -> SessionConfig:
+    from ..debate_seats import session_seats
     from ..session_storage import get_session_config
 
     config = get_session_config(session_id)
-    return SessionConfig(**{key: config[key] for key in DEFAULT_SESSION_CONFIG})
+    return SessionConfig(**{**{key: config[key] for key in DEFAULT_SESSION_CONFIG}, "debate_seats": session_seats(config)})
 
 
 class SessionDetail(BaseModel):
@@ -188,15 +192,24 @@ class SessionConfigUpdate(BaseModel):
     multi_agent_mode: str | None = None
     symposion_agents: list[str] | None = None
     incognito: bool | None = Field(None, description="The agents work without their long-term memory in this session")
+    debate_seats: dict[str, str] | None = Field(None, description="Seats to change (critic, judge) → agent")
 
 
 @api_app.patch("/sessions/{session_id}/config", response_model=SessionConfig, tags=["Sessions"])
 async def sessions_configure(session_id: str, update: SessionConfigUpdate, request: Request) -> SessionConfig:
     from ..agent_config import get_agent_config
-    from ..session_storage import update_session_config
+    from ..debate_seats import SeatError, check_seat_agent
+    from ..session_storage import get_session_config, update_session_config
 
     owned_session(request, session_id)
     changes = update.model_dump(exclude_none=True)
+    if "debate_seats" in changes:
+        try:
+            for seat, agent in changes["debate_seats"].items():
+                check_seat_agent(seat, agent)
+        except SeatError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        changes["debate_seats"] = {**get_session_config(session_id)["debate_seats"], **changes["debate_seats"]}
     agents = [*([changes["active_agent"]] if "active_agent" in changes else []), *changes.get("symposion_agents", [])]
     unknown = [agent for agent in agents if get_agent_config(agent) is None]
     if unknown:

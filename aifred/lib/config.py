@@ -155,6 +155,9 @@ DEFAULT_SETTINGS = {
     # ("majority" = 2 of 3, "unanimous" = 3 of 3). The same values as the browser state's.
     "max_debate_rounds": 3,
     "consensus_type": "majority",
+    # Who sits as critic and judge in the debate modes when a session chooses nobody else
+    # (lib/debate_seats.py); the author is the agent that answers first.
+    "debate_seats": {"critic": "sokrates", "judge": "salomo"},
 }
 
 # ============================================================

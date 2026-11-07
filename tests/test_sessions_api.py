@@ -69,6 +69,18 @@ def test_the_config_accepts_known_agents_and_modes_only(client: TestClient) -> N
     assert [event.kind for event in session_events.replay_after(MINE, 0)] == ["session_config"]
 
 
+def test_the_debate_seats_are_the_sessions_choice_over_the_default(client: TestClient) -> None:
+    from aifred.lib.debate_seats import default_seats
+
+    assert client.get(f"/sessions/{MINE}").json()["config"]["debate_seats"] == default_seats()
+    response = client.patch(f"/sessions/{MINE}/config", json={"debate_seats": {"critic": "pater"}})
+    assert response.status_code == 200 and response.json()["debate_seats"] == {**default_seats(), "critic": "pater"}
+    assert session_storage.get_session_config(MINE)["debate_seats"] == {"critic": "pater"}      # only the choice
+    for seats in ({"critic": "vision"}, {"critic": "gibt-es-nicht"}, {"richter": "salomo"}):
+        assert client.patch(f"/sessions/{MINE}/config", json={"debate_seats": seats}).status_code == 422
+    assert session_storage.get_session_config(MINE)["debate_seats"] == {"critic": "pater"}
+
+
 def test_the_config_model_names_every_field_of_a_session_config() -> None:
     from aifred.lib.api.sessions import SessionConfig
 

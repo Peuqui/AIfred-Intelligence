@@ -328,20 +328,10 @@ def _system_model_section(is_system: rx.Var) -> rx.Component:
     )
 
 
-def _role_description_row(is_automatik: rx.Var, is_system: rx.Var) -> rx.Component:
-    # Role + Description (hidden for Automatik and system agents)
+def _description_row(is_automatik: rx.Var, is_system: rx.Var) -> rx.Component:
+    # Description (hidden for Automatik and system agents). Who critiques and judges in the debate
+    # modes is no property of the agent but the session's seats (lib/debate_seats.py).
     return rx.cond(~is_automatik & ~is_system, rx.hstack(
-        rx.vstack(
-            rx.text(t("agent_editor_role"), color=COLORS["text_secondary"], font_size="12px"),
-            rx.select(
-                ["main", "critic", "judge", "custom"],
-                value=AIState.editor_role,
-                on_change=AIState.set_editor_role,
-                size="2",
-                width="120px",
-            ),
-            spacing="1",
-        ),
         rx.vstack(
             rx.text(t("agent_editor_description"), color=COLORS["text_secondary"], font_size="12px"),
             rx.el.input(
@@ -383,7 +373,7 @@ def _config_view() -> rx.Component:
                 _agent_selector_row(is_new, is_automatik, is_default),
                 _metadata_row(is_new, is_automatik),
                 _system_model_section(is_system),
-                _role_description_row(is_automatik, is_system),
+                _description_row(is_automatik, is_system),
                 _tts_section(is_new, is_automatik, is_system),
                 _tools_section(is_new, is_automatik, is_system),
                 _prompts_section(is_new),

@@ -131,27 +131,15 @@ def get_agent_base_model_id(state: Any, agent: str) -> str:
 def resolve_agent_temperature(state: Any, agent: str) -> float:
     """SSOT for the effective temperature of an agent inference.
 
-    Manual mode: every agent uses its own configured temperature from its
-    ``agent_tuning`` bucket. Auto mode: the temperature of the agent with the
-    role main as base, the agents with the roles critic and judge add their
-    offset on top (agents.json decides the roles, not the names).
+    Manual mode: every agent uses its own configured temperature from its ``agent_tuning`` bucket.
+    Auto mode: AIfred's temperature as the base, every agent adds its own ``temperature_offset``
+    (0 unless set; Sokrates and Salomo bring one, ``agent_tuning.default_tuning``). The offset
+    belongs to the agent, not to a seat it takes in a debate (Peuqui 07.11.2026: no role tags).
     """
     if state.temperature_mode == "manual":
         return float(get_agent_setting(state, agent, "temperature"))
-    from .agent_config import (
-        ROLE_CRITIC,
-        ROLE_JUDGE,
-        ROLE_MAIN,
-        agent_for_role,
-        get_agent_config,
-    )
-    config = get_agent_config(agent)
-    if config is None:
-        raise ValueError(f"Unknown agent: {agent}")
-    base = float(get_agent_setting(state, agent_for_role(ROLE_MAIN), "temperature"))
-    if config.role in (ROLE_CRITIC, ROLE_JUDGE):
-        return min(1.0, base + float(get_agent_setting(state, agent, "temperature_offset")))
-    return base
+    base = float(get_agent_setting(state, "aifred", "temperature"))
+    return min(1.0, base + float(get_agent_setting(state, agent, "temperature_offset")))
 
 
 def get_persisted_tuning(settings: dict, agent: str, field: str, default: Any) -> Any:

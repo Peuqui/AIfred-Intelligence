@@ -707,6 +707,9 @@ DEFAULT_SESSION_CONFIG: dict[str, Any] = {
     "symposion_agents": [],
     # The agents work without their long-term memory in this session: no recall, no memory tools.
     "incognito": False,
+    # Critic and judge this session chose (seat → agent, lib/debate_seats.py); settings.json's
+    # "debate_seats" fills every seat it leaves out.
+    "debate_seats": {},
 }
 
 

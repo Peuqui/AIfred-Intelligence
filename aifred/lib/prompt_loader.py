@@ -357,7 +357,7 @@ def get_agent_system_prompt(
     agent_id: str,
     prompt_key: str = "task",
     lang: str | None = None,
-    multi_agent: bool = False,
+    seats: dict[str, str] | None = None,
     memory: bool = True,
     **kwargs,
 ) -> str:
@@ -371,7 +371,8 @@ def get_agent_system_prompt(
         agent_id: Agent identifier (e.g. "aifred", "sokrates", or any custom agent)
         prompt_key: Key into the agent's prompts dict (default "task" = system_minimal)
         lang: Language code (de/en), defaults to current language
-        multi_agent: If True, include multi-agent roles explanation
+        seats: The debate's seats (lib/debate_seats.py): with them, the description of the seats and
+            of who sits in them (shared/multi_agent_roles)
         memory: If True, include memory instructions (False in incognito mode)
         **kwargs: Extra placeholders for the prompt template
 
@@ -397,7 +398,7 @@ def get_agent_system_prompt(
     task_prompt = load_prompt(prompt_name, lang=lang, **kwargs)
     return _merge_prompt_layers(
         agent_id, task_prompt, lang,
-        multi_agent=multi_agent, memory=memory,
+        seats=seats, memory=memory,
         source=kwargs.get('source', 'browser'),
     )
 
@@ -431,7 +432,7 @@ def get_intent_detection_prompt(user_query: str, lang: str | None = None) -> str
     )
 
 
-def load_multi_agent_roles(lang: str | None = None) -> str:
+def load_multi_agent_roles(seats: dict[str, str], lang: str | None = None) -> str:
     """
     Load shared multi-agent roles description.
 
@@ -444,8 +445,8 @@ def load_multi_agent_roles(lang: str | None = None) -> str:
     Returns:
         Multi-agent roles prompt text
     """
-    from .agent_config import role_names
-    return load_prompt('shared/multi_agent_roles', lang=lang, **role_names())
+    from .debate_seats import seat_names
+    return load_prompt('shared/multi_agent_roles', lang=lang, **seat_names(seats))
 
 
 def load_memory_instructions(lang: str | None = None) -> str:
@@ -457,7 +458,7 @@ def _merge_prompt_layers(
     agent: str,
     task_prompt: str,
     lang: str | None = None,
-    multi_agent: bool = False,
+    seats: dict[str, str] | None = None,
     memory: bool = True,
     source: str = "browser",
 ) -> str:
@@ -481,7 +482,7 @@ def _merge_prompt_layers(
         agent: Agent name ("aifred", "sokrates", "salomo", or custom agent ID)
         task_prompt: The task-specific prompt (already loaded with timestamp)
         lang: Language code (de/en), defaults to current language
-        multi_agent: If True, include shared/multi_agent_roles.txt (for debate modes)
+        seats: The debate's seats: with them, shared/multi_agent_roles.txt names who sits where
         memory: If True, include memory instructions (False in incognito mode)
 
     Returns:
@@ -512,8 +513,8 @@ def _merge_prompt_layers(
         parts.append(reasoning)
 
     # Layer 3: Multi-Agent Roles (only in multi-agent modes)
-    if multi_agent:
-        roles = load_multi_agent_roles(lang)
+    if seats is not None:
+        roles = load_multi_agent_roles(seats, lang)
         if roles:
             parts.append(roles)
 
@@ -666,8 +667,8 @@ def get_sokrates_critic_prompt(round_num: int = 1, lang: str | None = None) -> s
     Returns:
         Sokrates critic system prompt with timestamp prefix and round number
     """
-    from .agent_config import role_names
-    return load_prompt('sokrates/critic', lang=lang, round_num=round_num, **role_names())
+    from .debate_seats import REFLEX_SEATS, seat_names
+    return load_prompt('debate/critic', lang=lang, round_num=round_num, **seat_names(REFLEX_SEATS))
 
 
 def get_sokrates_devils_advocate_prompt(lang: str | None = None) -> str:
@@ -701,14 +702,14 @@ def get_aifred_refinement_prompt(
     Returns:
         Formatted refinement prompt with critique and timestamp prefix
     """
-    from .agent_config import role_names
+    from .debate_seats import REFLEX_SEATS, seat_names
     return load_prompt(
-        'aifred/refinement',
+        'debate/refinement',
         lang=lang,
         critique=critique,
         user_interjection=user_interjection,
         round_num=round_num,
-        **role_names(),
+        **seat_names(REFLEX_SEATS),
     )
 
 
@@ -731,8 +732,8 @@ def get_sokrates_tribunal_prompt(round_num: int = 1, lang: str | None = None) ->
     Returns:
         Sokrates tribunal system prompt with round number
     """
-    from .agent_config import role_names
-    return load_prompt('sokrates/tribunal', lang=lang, round_num=round_num, **role_names())
+    from .debate_seats import REFLEX_SEATS, seat_names
+    return load_prompt('debate/tribunal', lang=lang, round_num=round_num, **seat_names(REFLEX_SEATS))
 
 
 def get_aifred_defense_prompt(
@@ -757,14 +758,14 @@ def get_aifred_defense_prompt(
     Returns:
         Formatted defense prompt with critique and round number
     """
-    from .agent_config import role_names
+    from .debate_seats import REFLEX_SEATS, seat_names
     return load_prompt(
-        'aifred/defense',
+        'debate/defense',
         lang=lang,
         critique=critique,
         user_interjection=user_interjection,
         round_num=round_num,
-        **role_names(),
+        **seat_names(REFLEX_SEATS),
     )
 
 
@@ -800,8 +801,8 @@ def get_salomo_mediator_prompt(round_num: int = 1, lang: str | None = None) -> s
     Returns:
         Salomo mediator system prompt with round number
     """
-    from .agent_config import role_names
-    return load_prompt('salomo/mediator', lang=lang, round_num=round_num, **role_names())
+    from .debate_seats import REFLEX_SEATS, seat_names
+    return load_prompt('debate/mediator', lang=lang, round_num=round_num, **seat_names(REFLEX_SEATS))
 
 
 def get_salomo_judge_prompt(lang: str | None = None) -> str:
@@ -816,8 +817,8 @@ def get_salomo_judge_prompt(lang: str | None = None) -> str:
     Returns:
         Salomo judge system prompt
     """
-    from .agent_config import role_names
-    return load_prompt('salomo/judge', lang=lang, **role_names())
+    from .debate_seats import REFLEX_SEATS, seat_names
+    return load_prompt('debate/judge', lang=lang, **seat_names(REFLEX_SEATS))
 
 
 # ============================================================

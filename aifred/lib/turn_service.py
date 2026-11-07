@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Any
 
 from . import session_events
 from .config import LLAMASWAP_BACKENDS, TURN_TOKEN_EVENT_INTERVAL_S
+from .debate_seats import session_seats
 from .debug_bus import debug, session_scope
 from .logging_utils import log_exception, log_message
 from .runtime_settings import (
@@ -197,7 +198,7 @@ async def _run(request: TurnRequest, turn_id: str) -> None:
                 return
         agent = _route(session_id, config, intent.addressed_to)
         mode = config["multi_agent_mode"]
-        plan = turn_debate.plan_turn(mode, agent, intent.addressed_to, config["symposion_agents"])
+        plan = turn_debate.plan_turn(mode, agent, intent.addressed_to, config["symposion_agents"], session_seats(config))
         seen: tuple[TurnImage, ...] = ()
         if images:
             seen, llm_user_text = await _look_at_images(session_id, view, plan, images, user_text, llm_user_text, intent.language)

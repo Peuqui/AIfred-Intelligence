@@ -856,7 +856,6 @@
   "agent_editor_name": "Name",
   "agent_editor_agent_id": "Agent ID",
   "agent_editor_emoji": "Emoji",
-  "agent_editor_role": "Role",
   "agent_editor_cloud_provider": "Cloud provider",
   "agent_editor_cloud_model": "Cloud model",
   "agent_editor_reasoning_toggle": "Reasoning",

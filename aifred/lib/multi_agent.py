@@ -23,6 +23,7 @@ from .context_manager import (
     strip_thinking_blocks,
     summarize_history_if_needed,
 )
+from .debate_seats import REFLEX_SEATS
 from .formatting import format_number
 from .i18n import t
 
@@ -938,7 +939,7 @@ async def run_sokrates_analysis(
 
             # === SOKRATES CRITIQUE ===
             # Get system prompts: minimal (base personality) + mode-specific
-            sokrates_minimal = get_agent_system_prompt("sokrates", "task",lang=detected_lang, multi_agent=True, memory=memory_enabled)
+            sokrates_minimal = get_agent_system_prompt("sokrates", "task",lang=detected_lang, seats=REFLEX_SEATS, memory=memory_enabled)
             if state.multi_agent_mode == "devils_advocate":
                 mode_prompt = get_sokrates_devils_advocate_prompt(lang=detected_lang)
             else:
@@ -1009,7 +1010,7 @@ async def run_sokrates_analysis(
                 salomo_options = ctx["salomo_options"]
 
                 # Build Salomo system prompt
-                salomo_minimal = get_agent_system_prompt("salomo", "task", lang=detected_lang, multi_agent=True, memory=memory_enabled)
+                salomo_minimal = get_agent_system_prompt("salomo", "task", lang=detected_lang, seats=REFLEX_SEATS, memory=memory_enabled)
                 mediator_prompt = get_salomo_mediator_prompt(round_num=round_num, lang=detected_lang)
                 salomo_system = f"{salomo_minimal}\n\n{mediator_prompt}"
                 if salomo_memory_ctx:
@@ -1067,7 +1068,7 @@ async def run_sokrates_analysis(
                         lang=detected_lang, round_num=round_num + 1,
                     )
 
-                    aifred_system_prompt = get_agent_system_prompt("aifred", "task", lang=detected_lang, multi_agent=True, memory=memory_enabled)
+                    aifred_system_prompt = get_agent_system_prompt("aifred", "task", lang=detected_lang, seats=REFLEX_SEATS, memory=memory_enabled)
                     if aifred_memory_ctx:
                         aifred_system_prompt = f"{aifred_system_prompt}\n\n{aifred_memory_ctx}"
                     aifred_prompt_tokens = _estimate_prompt_tokens(aifred_system_prompt) + _estimate_prompt_tokens(refinement_prompt)
@@ -1202,7 +1203,7 @@ async def run_tribunal(
             state.debate_round = round_num
 
             # --- SOKRATES ATTACK ---
-            sokrates_minimal = get_agent_system_prompt("sokrates", "task", lang=detected_lang, multi_agent=True, memory=memory_enabled)
+            sokrates_minimal = get_agent_system_prompt("sokrates", "task", lang=detected_lang, seats=REFLEX_SEATS, memory=memory_enabled)
             mode_prompt = get_sokrates_tribunal_prompt(round_num=round_num, lang=detected_lang)
             system_prompt = f"{sokrates_minimal}\n\n{mode_prompt}"
 
@@ -1243,7 +1244,7 @@ async def run_tribunal(
                     lang=detected_lang, round_num=round_num + 1,
                 )
 
-                aifred_system_prompt = get_agent_system_prompt("aifred", "task", lang=detected_lang, multi_agent=True, memory=memory_enabled)
+                aifred_system_prompt = get_agent_system_prompt("aifred", "task", lang=detected_lang, seats=REFLEX_SEATS, memory=memory_enabled)
                 aifred_prompt_tokens = _estimate_prompt_tokens(aifred_system_prompt) + _estimate_prompt_tokens(refinement_prompt)
                 async for _ in _check_compression_if_needed(state, llm_client, main_llm_ctx, aifred_prompt_tokens):
                     yield
@@ -1273,7 +1274,7 @@ async def run_tribunal(
         # === JUDGMENT PHASE: Salomo delivers final verdict ===
         state.add_debug("👑 Salomo rendering verdict...")
 
-        salomo_minimal = get_agent_system_prompt("salomo", "task", lang=detected_lang, multi_agent=True, memory=memory_enabled)
+        salomo_minimal = get_agent_system_prompt("salomo", "task", lang=detected_lang, seats=REFLEX_SEATS, memory=memory_enabled)
         judge_prompt = get_salomo_judge_prompt(lang=detected_lang)
         salomo_system = f"{salomo_minimal}\n\n{judge_prompt}"
         if t_salomo_memory_ctx:

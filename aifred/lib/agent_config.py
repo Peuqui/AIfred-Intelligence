@@ -16,32 +16,22 @@ they come from the llama-swap YAML config per model at runtime.
 import json
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Any
 
 from .config import DATA_DIR
 
 AGENTS_FILE = DATA_DIR / "agents.json"
 
-# Valid agent roles
-# "system" agents (calibration, future helpers) are not selectable as
-# chat partners — they back internal workflows and only expose
-# prompt + model in the editor.
-# main, critic and judge are the parts of the multi-agent modes (lib/turn_debate.py): the agent
-# that holds a role speaks it, with the role's prompts from its own prompt mapping.
-ROLE_MAIN = "main"
-ROLE_CRITIC = "critic"
-ROLE_JUDGE = "judge"
+# What an agent is: an agent a chat addresses, or a "system" agent (vision, calibration, future helpers)
+# that backs an internal workflow and only exposes prompt + model in the editor. Who critiques and judges
+# in the debate modes is no property of the agent: the session's seats (lib/debate_seats.py).
+ROLE_AGENT = "agent"
 ROLE_SYSTEM = "system"
-VALID_ROLES = (ROLE_MAIN, ROLE_CRITIC, ROLE_JUDGE, "custom", ROLE_SYSTEM)
+VALID_ROLES = (ROLE_AGENT, ROLE_SYSTEM)
 
 
 # An agent's id names its prompt folder (prompts/<lang>/<id>/); the template folder has a hyphen, so no id is it.
 AGENT_ID_PATTERN = r"[a-z0-9_]+"
 AGENT_TEMPLATE_DIR = "agent-template"
-
-
-class AgentRoleError(LookupError):
-    """No agent holds a role, or the agent of a role lacks a prompt the role needs."""
 
 
 @dataclass
@@ -51,7 +41,7 @@ class AgentConfig:
     display_name: str
     emoji: str
     description: str
-    role: str  # "main" | "critic" | "judge" | "custom" | "system"
+    role: str  # "agent" | "system" (VALID_ROLES)
 
     # Prompt file paths relative to prompts/{lang}/
     # Keys: "identity", "personality", "task", "reminder", + role-specific
@@ -91,15 +81,13 @@ def _default_agents() -> dict[str, dict]:
             "aliases": ["alfred", "ai fred", "eifred", "ai-fred"],
             "emoji": "\U0001f3a9",
             "description": "Gentleman-Berater und KI-Butler",
-            "role": "main",
+            "role": "agent",
             "prompts": {
                 "identity": "aifred/identity.txt",
                 "personality": "aifred/personality.txt",
                 "reminder": "aifred/reminder.txt",
                 "task": "aifred/system_minimal.txt",
                 "direct": "aifred/direct.txt",
-                "refinement": "aifred/refinement.txt",
-                "defense": "aifred/defense.txt",
                 "rag": "aifred/system_rag.txt",
             },
             "toggles": {
@@ -113,15 +101,13 @@ def _default_agents() -> dict[str, dict]:
             "aliases": ["socrates"],
             "emoji": "\U0001f3db\ufe0f",
             "description": "Scharfsinniger Philosoph und Kritiker",
-            "role": "critic",
+            "role": "agent",
             "prompts": {
                 "identity": "sokrates/identity.txt",
                 "personality": "sokrates/personality.txt",
                 "reminder": "sokrates/reminder.txt",
                 "task": "sokrates/system_minimal.txt",
                 "direct": "sokrates/direct.txt",
-                "critic": "sokrates/critic.txt",
-                "tribunal": "sokrates/tribunal.txt",
             },
             "toggles": {
                 "personality": True,
@@ -134,15 +120,13 @@ def _default_agents() -> dict[str, dict]:
             "aliases": ["salomon", "solomon"],
             "emoji": "\U0001f451",
             "description": "Weiser Richter und Synthesist",
-            "role": "judge",
+            "role": "agent",
             "prompts": {
                 "identity": "salomo/identity.txt",
                 "personality": "salomo/personality.txt",
                 "reminder": "salomo/reminder.txt",
                 "task": "salomo/system_minimal.txt",
                 "direct": "salomo/direct.txt",
-                "mediator": "salomo/mediator.txt",
-                "judge": "salomo/judge.txt",
             },
             "toggles": {
                 "personality": True,
@@ -154,7 +138,7 @@ def _default_agents() -> dict[str, dict]:
             "display_name": "Vision",
             "emoji": "\U0001f4f7",
             "description": "Vision Language Model fuer Bildanalyse",
-            "role": "main",
+            "role": "agent",
             "prompts": {
                 "identity": "vision/identity.txt",
                 "personality": "aifred/personality.txt",
@@ -261,44 +245,6 @@ def agent_display_name(agent_id: str) -> str:
     return agent.display_name if agent else agent_id
 
 
-def agent_for_role(role: str) -> str:
-    """The agent that speaks ``role`` (main, critic, judge): the first one in agents.json with it."""
-    for agent_id, config in load_agents().items():
-        if config.role == role:
-            return agent_id
-    raise AgentRoleError(f"No agent has the role '{role}' (data/agents.json)")
-
-
-def role_names() -> dict[str, str]:
-    """The display names of the agents in the debate roles, as the role prompts name them:
-    ``{main_agent}``, ``{critic_agent}``, ``{judge_agent}``. Any agent can hold a role, so no prompt
-    names one itself."""
-    agents = load_agents()
-    return {f"{role}_agent": agents[agent_for_role(role)].display_name for role in (ROLE_MAIN, ROLE_CRITIC, ROLE_JUDGE)}
-
-
-def role_prompt_name(agent_id: str, key: str) -> str:
-    """The agent's prompt ``key`` as load_prompt names it: its path in the agent's prompt mapping
-    without ``.txt``."""
-    config = get_agent_config(agent_id)
-    if config is None:
-        raise AgentRoleError(f"Unknown agent: {agent_id}")
-    path = config.prompts.get(key)
-    if path is None:
-        raise AgentRoleError(
-            f"Agent '{agent_id}' (role {config.role}) has no prompt '{key}' in data/agents.json"
-        )
-    return path.removesuffix(".txt")
-
-
-def role_prompt(agent_id: str, key: str, lang: str, **variables: Any) -> str:
-    """The agent's prompt ``key`` (e.g. "critic", "refinement") in ``lang``, its placeholders filled:
-    the names of the roles (``role_names``) and ``variables``."""
-    from .prompt_loader import load_prompt
-
-    return load_prompt(role_prompt_name(agent_id, key), lang=lang, **role_names(), **variables)
-
-
 # Generic fallback used when an agent has no per-engine voice default.
 # Empty voice means "let the TTS engine pick its own default"; no speed/pitch
 # means "not set" (nothing is sent, the service's tuning of the voice applies).
@@ -376,7 +322,6 @@ def create_agent(
     display_name: str,
     emoji: str,
     description: str,
-    role: str = "custom",
 ) -> AgentConfig:
     """Create a new agent and save to config.
 
@@ -387,16 +332,13 @@ def create_agent(
         display_name: Human-readable name
         emoji: Agent emoji character
         description: Short description
-        role: Agent role ("main", "critic", "judge", "custom")
 
     Returns:
         The newly created AgentConfig
 
     Raises:
-        ValueError: If agent_id already exists or role is invalid
+        ValueError: If agent_id already exists or is no valid id
     """
-    if role not in VALID_ROLES:
-        raise ValueError(f"Invalid role: {role}. Must be one of {VALID_ROLES}")
     if not re.fullmatch(AGENT_ID_PATTERN, agent_id):
         # The id names the agent's prompt folder: nothing outside prompts/<lang>/, never the template.
         raise ValueError(f"Invalid agent id '{agent_id}': lowercase letters, digits and _ only")
@@ -414,22 +356,16 @@ def create_agent(
         "memory_context": f"{agent_id}/memory_context.txt",
     }
 
-    # The prompts of its debate role (turn_debate._DEBATE_ROLES): every mode it can speak in
-    from .turn_debate import role_prompt_keys
-
-    for key in role_prompt_keys(role):
-        prompts[key] = f"{agent_id}/{key}.txt"
-
     config = AgentConfig(
         display_name=display_name,
         emoji=emoji,
         description=description,
-        role=role,
+        role=ROLE_AGENT,
         prompts=prompts,
     )
 
     # Create prompt template files
-    _create_prompt_files(agent_id, display_name, role)
+    _create_prompt_files(agent_id, display_name)
 
     # Save to config
     agents[agent_id] = config.to_dict()
@@ -500,14 +436,12 @@ def update_agent(agent_id: str, updates: dict) -> AgentConfig:
     return _dict_to_config(agents[agent_id])
 
 
-def _create_prompt_files(agent_id: str, display_name: str, role: str) -> None:
+def _create_prompt_files(agent_id: str, display_name: str) -> None:
     """The prompt files of a new agent in every language, existing ones are kept: the base prompts from
-    ``prompts/<lang>/agent-template/`` (its name filled in), the prompts of its debate role copied from
-    the agent that holds the role now (they name the roles' agents, never one of their own)."""
+    ``prompts/<lang>/agent-template/`` (its name filled in). The tasks of the debate seats belong to
+    the seats (prompts/<lang>/debate/), not to an agent."""
     from .prompt_loader import PROMPTS_DIR
-    from .turn_debate import role_prompt_keys
 
-    holder = agent_for_role(role) if role_prompt_keys(role) else None
     for lang in ("de", "en"):
         agent_dir = PROMPTS_DIR / lang / agent_id
         agent_dir.mkdir(parents=True, exist_ok=True)
@@ -515,9 +449,6 @@ def _create_prompt_files(agent_id: str, display_name: str, role: str) -> None:
             path.name: path.read_text(encoding="utf-8").replace("{display_name}", display_name)
             for path in (PROMPTS_DIR / lang / AGENT_TEMPLATE_DIR).glob("*.txt")
         }
-        if holder is not None:
-            for key in role_prompt_keys(role):
-                files[f"{key}.txt"] = (PROMPTS_DIR / lang / f"{role_prompt_name(holder, key)}.txt").read_text(encoding="utf-8")
         for filename, content in files.items():
             filepath = agent_dir / filename
             if not filepath.exists():

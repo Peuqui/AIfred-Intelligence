@@ -1,5 +1,5 @@
 """The multi-agent modes of the server turn (lib/turn_debate.py) without a model: the LLM calls are
-stand-ins that answer per speaker, the session file, event hub, roles from a test agents.json, the
+stand-ins that answer per speaker, the session file, event hub, seats and agents from a test agents.json, the
 prompts, bubbles, votes and cancellation run for real."""
 
 import asyncio
@@ -244,59 +244,79 @@ def test_tribunal_alternates_attack_and_defense_and_the_judge_speaks_last(world:
     assert any(message["content"].startswith("[Sokrates]: ") for message in verdict)   # under his display name
 
 
-def test_a_role_agent_without_its_role_prompt_rejects_the_turn(world: dict[str, Any]) -> None:
-    _edit_agents(world, lambda agents: agents["sokrates"]["prompts"].pop("tribunal"))
-    _mode("tribunal")
+def test_a_seat_whose_agent_is_gone_rejects_the_turn(world: dict[str, Any]) -> None:
+    _mode("tribunal", debate_seats={"critic": "gibt-es-nicht"})
     _turn()
     rejected = _events("turn_rejected")
-    assert rejected[0]["reason"] == "role" and "'tribunal'" in rejected[0]["message"]
+    assert rejected[0]["reason"] == "seat" and "'gibt-es-nicht'" in rejected[0]["message"]
     assert [entry["role"] for entry in _data()["chat_history"]] == ["user"]
     assert _events("agent_started") == []                  # rejected before anyone spoke
 
 
-# ── roles instead of names ───────────────────────────────────────────────
+# ── seats instead of names ───────────────────────────────────────────────
 
 
-def test_the_agent_with_the_critic_role_critiques_with_its_own_prompts(
-    world: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.fixture
+def new_agent(world: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Adds an agent with nothing but its persona (identity, task, direct): it takes a seat with the seat's task."""
     from aifred.lib import prompt_loader
 
     prompts = tmp_path / "prompts"
     shutil.copytree(prompt_loader.PROMPTS_DIR, prompts)
-    for lang in ("de", "en"):
-        (prompts / lang / "kritikus").mkdir()
-        (prompts / lang / "kritikus" / "identity.txt").write_text("Du bist Kritikus.", encoding="utf-8")
-        (prompts / lang / "kritikus" / "task.txt").write_text("Prüfe genau.", encoding="utf-8")
-        (prompts / lang / "kritikus" / "critic.txt").write_text("KRITIKUS-KRITIK Runde {round_num}", encoding="utf-8")
     monkeypatch.setattr(prompt_loader, "PROMPTS_DIR", prompts)
 
-    def kritikus_is_the_critic(agents: dict[str, Any]) -> None:
-        agents["sokrates"]["role"] = "custom"
-        agents["kritikus"] = {
-            "display_name": "Kritikus", "emoji": "🧐", "description": "Prüfer", "role": "critic",
-            "prompts": {"identity": "kritikus/identity.txt", "task": "kritikus/task.txt",
-                        "critic": "kritikus/critic.txt"},
-        }
+    def add(agent: str, name: str) -> None:
+        for lang in ("de", "en"):
+            (prompts / lang / agent).mkdir()
+            (prompts / lang / agent / "identity.txt").write_text(f"Du bist {name}.", encoding="utf-8")
+            (prompts / lang / agent / "task.txt").write_text(f"{name.upper()}-PERSONA", encoding="utf-8")
+            (prompts / lang / agent / "direct.txt").write_text(f"{name} antwortet direkt.", encoding="utf-8")
+        _edit_agents(world, lambda agents: agents.update({agent: {
+            "display_name": name, "emoji": "🧐", "description": name, "role": "agent",
+            "prompts": {"identity": f"{agent}/identity.txt", "task": f"{agent}/task.txt", "direct": f"{agent}/direct.txt"},
+        }}))
 
-    _edit_agents(world, kritikus_is_the_critic)
-    _mode("critical_review")
+    return add
+
+
+def test_the_sessions_critic_critiques_with_the_seats_task(world: dict[str, Any], new_agent: Any) -> None:
+    from aifred.lib.debate_seats import seat_prompt
+
+    new_agent("kritikus", "Kritikus")
+    _mode("critical_review", debate_seats={"critic": "kritikus"})
     _turn()
     assert _bubbles() == [("aifred", "direct", None), ("kritikus", "critical_review", 1)]
     assert _speakers() == ["[AIFRED]", "[KRITIKUS]"]
-    assert "KRITIKUS-KRITIK Runde 1" in _system_prompt(world, "Kritikus")
-    assert world["calls"][-1][0] == "Kritikus"
+    system = _system_prompt(world, "Kritikus")
+    seats = {"main": "aifred", "critic": "kritikus", "judge": "salomo"}
+    assert "KRITIKUS-PERSONA" in system and seat_prompt("critic", seats, "de", round_num=1) in system
 
 
-def test_the_temperature_offset_follows_the_role_not_the_name(world: dict[str, Any]) -> None:
+def test_the_author_of_the_answer_defends_it_not_aifred(world: dict[str, Any], new_agent: Any) -> None:
+    # Code review and refactoring: who wrote the draft answers the critique (07.11.2026: AIfred did).
+    new_agent("autorin", "Autorin")
+    _mode("tribunal", active_agent="autorin")
+    world["view"].max_debate_rounds = 2
+    _turn()
+    assert _bubbles() == [
+        ("autorin", "direct", None),
+        ("sokrates", "tribunal", 1), ("autorin", "tribunal", 2),
+        ("sokrates", "tribunal", 2),
+        ("salomo", "verdict", 2),
+    ]
+    assert "Autorin" in _system_prompt(world, "Sokrates")                    # the critic knows whom it attacks
+
+
+def test_the_temperature_offset_belongs_to_the_agent(world: dict[str, Any]) -> None:
     from aifred.lib.agent_settings import resolve_agent_temperature
 
     view = world["view"]
     view.agent_tuning["aifred"].temperature = 0.5
     view.agent_tuning["sokrates"].temperature_offset = 0.2
     assert resolve_agent_temperature(view, "sokrates") == pytest.approx(0.7)
-    _edit_agents(world, lambda agents: agents["sokrates"].update(role="custom"))
-    assert resolve_agent_temperature(view, "sokrates") == pytest.approx(0.5)
+    assert resolve_agent_temperature(view, "salomo") == pytest.approx(0.5 + view.agent_tuning["salomo"].temperature_offset)
+    view.temperature_mode = "manual"
+    assert resolve_agent_temperature(view, "sokrates") == view.agent_tuning["sokrates"].temperature
 
 
 # ── symposion ────────────────────────────────────────────────────────────

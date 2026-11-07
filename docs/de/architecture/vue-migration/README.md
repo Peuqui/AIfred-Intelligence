@@ -44,10 +44,18 @@ ein Tab offen ist. Mehrere Tabs oder Geräte sehen dieselbe Sitzung live.
   später eingerichteten: konfigurierbar, abschaltbar, löschbar. Die Diskussionsmodi (Kritiker,
   Tribunal mit Richter) und der Standard-Agent einer Sitzung verweisen auf Rollen, denen man in der
   Konfiguration beliebige Agenten zuordnet, nicht auf feste Namen.
-  Umsetzung in zwei Teilen, ohne denselben Code zweimal anzufassen: In Schritt 2 kennt die
-  Server-Schnittstelle der Züge nur Rollen (Hauptagent, Kritiker, Richter) und eine Zuordnung
-  Rolle → Agent, standardmäßig wie heute belegt; das Verhalten bleibt gleich. Abschalten,
-  Löschen und die Zuordnung in der Oberfläche kommen mit der Agenten-Seite in Schritt 5.
+  **Plätze statt Rollen (Peuqui 07.11.2026, nachmittags, umgesetzt):** Die Etiketten `critic`, `judge`,
+  `custom` und `main` in `agents.json` waren historisch gewachsen und sind weg; `role` kennt nur noch
+  `agent` und `system` (Vision, Kalibrierung), AIfred ist der Grundagent über seine ID. Die
+  Diskussionsmodi haben Plätze (`lib/debate_seats.py`): den Verfasser (wer zuerst antwortet; er
+  überarbeitet und verteidigt, vorher fest AIfred, was Code-Review mit Refaktorierung brach), Kritiker
+  und Richter, **je Sitzung wählbar** (`config.debate_seats`), Vorgabe Sokrates und Salomo aus
+  `settings.json`. Jeder Agent kann einen Platz einnehmen und spricht dort mit seiner Persona; die
+  Aufgabe gehört dem Platz (`prompts/<lang>/debate/`, je Datei einmal, vorher Kopien in den Ordnern der
+  Inhaber). Fehlt der Agent eines Platzes, lehnt der Zug laut ab (`seat`). Der Temperaturaufschlag im
+  Modus auto gehört dem Agenten (`temperature_offset`). Der Reflex-Weg (`lib/multi_agent.py`) spricht
+  bis zum Wechsel weiter fest mit AIfred, Sokrates und Salomo (`debate_seats.REFLEX_SEATS`).
+  Abschalten und Löschen kommen mit der Agenten-Seite in Schritt 5.
 - **Agenten-Übersicht** (Peuqui 07.11.2026): je Agent eine Karte mit Persona, Rechten und
   Einstellungen, oben rechts ein Schalter wie bei den Plugins. Jeder Agent ist zur Laufzeit
   ein- und ausschaltbar und löschbar, auch Sokrates und Salomo.
@@ -93,9 +101,9 @@ der neue Dienst entsteht daneben und ersetzt beim Wechsel beide alten Pfade.
   (`session_storage.keep_reply_audio`, über den Zeitstempel des Eintrags) und die Clients bekommen
   sie neu (`message_updated`). Eine Lesung je Sitzung zur Zeit, auch über Züge hinweg; Stopp beendet
   Zug und Lesung in allen Tabs (`stop`).
-- **`lib/turn_debate.py`**: Kritische Prüfung, Auto-Konsens, Tribunal, Symposion über die Rollen
-  main, critic, judge aus `agents.json` (`agent_config.agent_for_role`, `role_prompt`); fehlt eine
-  Rolle oder ihr Prompt, lehnt der Zug mit Grund ab.
+- **`lib/turn_debate.py`**: Kritische Prüfung, Auto-Konsens, Tribunal, Symposion über die Plätze der
+  Sitzung (`lib/debate_seats.py`: Verfasser, Kritiker, Richter); fehlt der Agent eines Platzes, lehnt
+  der Zug mit Grund ab.
 - **Bilder** (`lib/turn_images.py`, im Zug `_look_at_images`): Die Oberfläche lädt sie vorab hoch
   (`POST /api/sessions/{id}/images`, geprüft und verkleinert wie jeder Upload, im Upload-Ordner der
   Sitzung), die Nachricht nennt sie per URL; eine Nachricht, die hinter einem laufenden Zug wartet,
@@ -207,16 +215,15 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   (`observer=True`) sieht alles als fremd und behält seine eigene Stil-Erinnerung. Alle Wege
   schreiben die Kennung als Marke (`[AIFRED]:`, `formatting.assistant_history_entry`, auch die
   Kanäle), gelesen klein als Kennung (liest auch die Anzeigenamen-Marken alter Kanal-Einträge).
-  Die Rollen-Prompts (`shared/multi_agent_roles`, `critic`, `tribunal`, `refinement`, `defense`,
-  `mediator`, `judge`) nennen keinen Agenten mehr: `{main_agent}`, `{critic_agent}`,
-  `{judge_agent}` aus `agent_config.role_names`, für Server- und Reflex-Zug.
+  Die Prompts der Plätze (`shared/multi_agent_roles`, `debate/critic`, `tribunal`, `refinement`,
+  `defense`, `mediator`, `judge`) nennen keinen Agenten: `{main_agent}`, `{critic_agent}`,
+  `{judge_agent}` aus `debate_seats.seat_names`, für Server- und Reflex-Zug.
 - **Agenten-Editor (erledigt 07.11.2026):** Ein neuer Agent bekommt seine Grundprompts aus
   `prompts/<lang>/agent-template/` (Name eingesetzt, auch `memory_context.txt`: ohne sie sah ein neuer
-  Agent seine Erinnerungen nie) und jeden Prompt seiner Debattenrolle (`turn_debate.role_prompt_keys`
-  aus `_DEBATE_ROLES`), kopiert vom heutigen Inhaber der Rolle. Die Texte standen vorher im Code
-  (`_get_role_templates`, mit Ersatz-Umlauten); ein Kritiker bekam kein `tribunal.txt`. Die Kennung
+  Agent seine Erinnerungen nie). Die Aufgaben der Plätze braucht er nicht als Kopie, sie gehören dem
+  Platz. Die Texte standen vorher im Code (`_get_role_templates`, mit Ersatz-Umlauten). Die Kennung
   ist der Name des Prompt-Ordners: nur `[a-z0-9_]` (vorher legte `../x` Dateien außerhalb an).
-- **Bleibt so:** Wer den Hauptagenten direkt anspricht, bekommt nur dessen Antwort (wie bisher).
+- **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
 
 ## Schritte
 
