@@ -22,7 +22,7 @@ import logging
 import sqlite3
 from typing import Any
 
-from .config import VISION_BACKGROUND_WATCH_FPS
+from .config import VISION_BACKGROUND_WATCH_FPS, VISION_MIN_EVENT_INTERVAL_RANGE
 from .vision_settings import load_vision_settings
 from .vision_watch_types import EdgeAiConfig, WatchConfig
 
@@ -131,7 +131,7 @@ def _build_background_config(
     # Außenkamera und ein selten überwachter Schreibtisch brauchen
     # unterschiedliche Werte — deshalb per-Kamera statt global.
     mies = settings.get("min_event_interval_sec")
-    if not isinstance(mies, (int, float)) or not 0.1 <= mies <= 60.0:
+    if not isinstance(mies, (int, float)) or not VISION_MIN_EVENT_INTERVAL_RANGE[0] <= mies <= VISION_MIN_EVENT_INTERVAL_RANGE[1]:
         mies = defaults.min_event_interval_sec
 
     fr = plugin_settings.get("face_recognition") or {}
@@ -344,6 +344,29 @@ async def _start_newly_plugged_cameras(records: list[dict[str, Any]]) -> None:
             await start_background_watcher(source_id)
 
 
+async def apply_background_watch(source_id: str) -> None:
+    """Start or stop the camera's background watcher as its settings say right now: the eye armed (and the
+    vision not off), the camera's background switch on, inside its schedule. The schedule supervisor and
+    the settings page decide through here."""
+    from .vision_store import VisionStore
+    from .vision_watcher import get_default_watcher
+
+    plugin = load_vision_settings()
+    record = VisionStore().get_source(source_id) or {}
+    wanted = (
+        plugin.get("vision_mode") != "off" and bool(plugin.get("vigilantia_armed", False))
+        and bool(record.get("auto_start")) and _schedule_active_now(record.get("settings") or {})
+    )
+    watcher = get_default_watcher()
+    running = watcher.is_running(source_id)
+    if wanted and not running:
+        await start_background_watcher(source_id)
+        logger.info("background watch: %s started", source_id)
+    elif not wanted and running:
+        await watcher.stop(source_id)
+        logger.info("background watch: %s stopped", source_id)
+
+
 async def schedule_supervisor() -> None:
     """Dauer-Supervisor: prüft minütlich die Pro-Kamera-Zeitpläne und startet/
     stoppt die Watcher entsprechend — aber nur wenn global scharf. Kameras ohne
@@ -351,34 +374,19 @@ async def schedule_supervisor() -> None:
     nachträglich angesteckte USB-Kameras an und startet sie. Läuft ab
     Service-Boot, failure-tolerant."""
     from .vision_store import VisionStore
-    from .vision_watcher import get_default_watcher
+
     while True:
         try:
             await asyncio.sleep(60)
             plugin = load_vision_settings()
             if plugin.get("vision_mode") == "off" or not plugin.get("vigilantia_armed", False):
                 continue
-            store = VisionStore()
-            watcher = get_default_watcher()
-            records = store.list_sources()
+            records = VisionStore().list_sources()
             await _start_newly_plugged_cameras(records)
             for record in records:
-                if not record.get("auto_start"):
-                    continue
-                settings = record.get("settings") or {}
-                if not settings.get("schedule_enabled"):
-                    continue
                 source_id = record.get("source_id") or ""
-                if not source_id:
-                    continue
-                active = _schedule_active_now(settings)
-                running = watcher.is_running(source_id)
-                if active and not running:
-                    await start_background_watcher(source_id)
-                    logger.info("schedule: %s im Zeitfenster → gestartet", source_id)
-                elif not active and running:
-                    await watcher.stop(source_id)
-                    logger.info("schedule: %s außerhalb Zeitfenster → gestoppt", source_id)
+                if source_id and record.get("auto_start") and (record.get("settings") or {}).get("schedule_enabled"):
+                    await apply_background_watch(source_id)
         except asyncio.CancelledError:
             raise
         except Exception as e:  # the supervisor loop goes on

@@ -23,6 +23,7 @@ import asyncio
 import logging
 from typing import Any
 
+from .config import VISION_VLM_KEEP_ALIVE_DEFAULT
 from .ollama_models import OLLAMA_ERRORS
 from .vision_settings import load_vision_settings
 
@@ -173,7 +174,7 @@ async def prewarm_vlm(
     elif mode == "live":
         keep_alive = -1
     else:
-        keep_alive = str(vlm_cfg.get("keep_alive", "30m"))
+        keep_alive = str(vlm_cfg.get("keep_alive", VISION_VLM_KEEP_ALIVE_DEFAULT))
 
     try:
         from ollama import AsyncClient

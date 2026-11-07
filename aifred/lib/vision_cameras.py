@@ -16,10 +16,15 @@ from typing import Any
 
 from .config import (
     DATA_DIR,
+    VISION_ALERT_TYPES,
+    VISION_MIN_EVENT_INTERVAL_RANGE,
+    VISION_MIN_EVENT_INTERVAL_SEC,
     VISION_MOTION_MIN_AREA_RATIO,
     VISION_PREVIEW_FACE_THROTTLE_RANGE,
     VISION_PREVIEW_FPS_RANGE,
     VISION_PREVIEW_VLM_COOLDOWN_RANGE,
+    VISION_QUIET_HOURS_DEFAULT,
+    VISION_SCHEDULE_DEFAULT,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,6 +52,15 @@ class Camera:
     resolution: str         # DEFAULT_RESOLUTION or "WxH"
     prompt_context: str     # the briefing the image analysis gets for this camera
     motion_min_area_ratio: float
+    alerts_enabled: bool    # off: the camera still records, but sends no alerts
+    alert_types: list[str]  # the event types it alerts on (VISION_ALERT_TYPES)
+    quiet_enabled: bool     # no alerts between quiet_start and quiet_end (whole hours)
+    quiet_start: int
+    quiet_end: int
+    schedule_enabled: bool  # watched only between schedule_start and schedule_end ("HH:MM")
+    schedule_start: str
+    schedule_end: str
+    min_event_interval_sec: float
 
 
 def cameras() -> list[Camera]:
@@ -79,8 +93,24 @@ def cameras() -> list[Camera]:
             resolution=str(settings.get("resolution") or DEFAULT_RESOLUTION),
             prompt_context=str(record.get("prompt_context") or "").strip(),
             motion_min_area_ratio=float(settings.get("motion_min_area_ratio", VISION_MOTION_MIN_AREA_RATIO)),
+            alerts_enabled=bool(settings.get("alerts_enabled", True)),
+            alert_types=[str(kind) for kind in settings.get("alert_types", VISION_ALERT_TYPES)],
+            quiet_enabled=bool(settings.get("quiet_enabled", False)),
+            quiet_start=int(settings.get("quiet_start", VISION_QUIET_HOURS_DEFAULT[0])),
+            quiet_end=int(settings.get("quiet_end", VISION_QUIET_HOURS_DEFAULT[1])),
+            schedule_enabled=bool(settings.get("schedule_enabled", False)),
+            schedule_start=_hhmm(settings.get("schedule_start", VISION_SCHEDULE_DEFAULT[0])),
+            schedule_end=_hhmm(settings.get("schedule_end", VISION_SCHEDULE_DEFAULT[1])),
+            min_event_interval_sec=float(settings.get("min_event_interval_sec", VISION_MIN_EVENT_INTERVAL_SEC)),
         ))
     return found
+
+
+def _hhmm(value: Any) -> str:
+    from .vision_autostart import schedule_minutes
+
+    minutes = schedule_minutes(value)
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
 def camera(source_id: str) -> Camera | None:
@@ -105,23 +135,66 @@ def resolutions(source_id: str) -> list[tuple[str, str]]:
     return offered
 
 
-def change_camera(source_id: str, *, alias: str | None = None, resolution: str | None = None,
-                  prompt_context: str | None = None) -> None:
-    """Keep what the user set for a camera (vision.db). A resolution must be one the camera offers."""
+WATCH_FIELDS = frozenset({"auto_start", "schedule_enabled", "schedule_start", "schedule_end"})
+
+
+def change_camera(source_id: str, **change: Any) -> bool:
+    """Keep what the user set for a camera (vision.db): ``alias``, ``resolution`` (one the camera offers),
+    ``prompt_context``, ``auto_start``, ``alerts_enabled``, ``alert_types`` (of VISION_ALERT_TYPES),
+    ``quiet_enabled``, ``quiet_start``/``quiet_end`` (hours 0–23), ``schedule_enabled``,
+    ``schedule_start``/``schedule_end`` ("HH:MM"), ``min_event_interval_sec`` (its range). Refuses an unknown
+    field or a value it cannot take (ValueError), nothing is written then. Returns whether the change concerns
+    the background watcher (``vision_autostart.apply_background_watch`` decides then)."""
+    import re
+
     from .vision_store import VisionStore
 
-    store = VisionStore()
+    unknown = set(change) - {"alias", "resolution", "prompt_context", "auto_start", "alerts_enabled", "alert_types",
+                             "quiet_enabled", "quiet_start", "quiet_end", "schedule_enabled", "schedule_start",
+                             "schedule_end", "min_event_interval_sec"}
+    if unknown:
+        raise ValueError(f"unknown camera settings: {sorted(unknown)}")
     settings: dict[str, Any] = {}
-    if alias is not None:
-        settings["alias"] = alias.strip()
-    if resolution is not None:
-        if resolution not in {value for value, _ in resolutions(source_id)}:
-            raise ValueError(f"{source_id} offers no resolution {resolution!r}")
-        settings["resolution"] = resolution
+    for key in ("alerts_enabled", "quiet_enabled", "schedule_enabled"):
+        if key in change:
+            settings[key] = bool(change[key])
+    if "alias" in change:
+        settings["alias"] = str(change["alias"]).strip()
+    if "resolution" in change:
+        if change["resolution"] not in {value for value, _ in resolutions(source_id)}:
+            raise ValueError(f"{source_id} offers no resolution {change['resolution']!r}")
+        settings["resolution"] = change["resolution"]
+    if "alert_types" in change:
+        kinds = list(change["alert_types"])
+        if not set(kinds) <= set(VISION_ALERT_TYPES):
+            raise ValueError(f"alert types must be among {VISION_ALERT_TYPES}, got {kinds}")
+        settings["alert_types"] = [kind for kind in VISION_ALERT_TYPES if kind in kinds]
+    for key in ("quiet_start", "quiet_end"):
+        if key in change:
+            if not 0 <= int(change[key]) <= 23:
+                raise ValueError(f"{key} must be an hour 0–23, got {change[key]}")
+            settings[key] = int(change[key])
+    for key in ("schedule_start", "schedule_end"):
+        if key in change:
+            if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(change[key])):
+                raise ValueError(f"{key} must be HH:MM, got {change[key]!r}")
+            settings[key] = str(change[key])
+    if "min_event_interval_sec" in change:
+        interval = float(change["min_event_interval_sec"])
+        if not VISION_MIN_EVENT_INTERVAL_RANGE[0] <= interval <= VISION_MIN_EVENT_INTERVAL_RANGE[1]:
+            raise ValueError(f"min_event_interval_sec must lie in {VISION_MIN_EVENT_INTERVAL_RANGE}, got {interval}")
+        settings["min_event_interval_sec"] = interval
+    store = VisionStore()
     if settings:
         store.patch_source_settings(source_id, settings)
-    if prompt_context is not None:
-        store.update_source_fields(source_id, prompt_context=prompt_context.strip())
+    fields: dict[str, Any] = {}
+    if "prompt_context" in change:
+        fields["prompt_context"] = str(change["prompt_context"]).strip()
+    if "auto_start" in change:
+        fields["auto_start"] = bool(change["auto_start"])
+    if fields:
+        store.update_source_fields(source_id, **fields)
+    return bool(WATCH_FIELDS & set(change))
 
 
 # ── The live view's own settings ─────────────────────────────────────────

@@ -4,11 +4,15 @@
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import VisionLive from "../components/VisionLive.vue";
+import VisionSettings from "../components/VisionSettings.vue";
 import { t } from "../i18n";
 
 const route = useRoute();
 const tab = computed(() => String(route.params.tab ?? "live"));
-const tabs = [{ id: "live", label: "vision_tab_live" }];
+const tabs = [
+  { id: "live", label: "vision_tab_live" },
+  { id: "settings", label: "vision_tab_settings" },
+];
 </script>
 
 <template>
@@ -17,6 +21,7 @@ const tabs = [{ id: "live", label: "vision_tab_live" }];
       <RouterLink v-for="entry in tabs" :key="entry.id" :to="`/vision/${entry.id}`" :class="{ on: tab === entry.id }">{{ t(entry.label) }}</RouterLink>
     </nav>
     <VisionLive v-if="tab === 'live'" />
+    <VisionSettings v-else-if="tab === 'settings'" />
   </main>
 </template>
 

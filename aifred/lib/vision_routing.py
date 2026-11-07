@@ -64,6 +64,34 @@ def find_ollama_equivalent(
     return None
 
 
+def image_models() -> list[str]:
+    """The image models the vision can be set to: llama-swap's models with a ``-visiond`` describer profile (the
+    path every analysis takes), then Ollama's vision models without a llama-swap twin; the same model in both
+    backends once, by its llama-swap name. Empty when neither answers."""
+    from .calibration.llamaswap_io import parse_llamaswap_config
+    from .config import LLAMASWAP_CONFIG_PATH
+    from .ollama_models import list_ollama_vlm_models
+
+    suffix = "-visiond"
+    models: list[str] = []
+    try:
+        models = sorted(model[: -len(suffix)] for model in parse_llamaswap_config(LLAMASWAP_CONFIG_PATH) if model.endswith(suffix))
+    except (OSError, ValueError) as error:
+        logger.warning("image models: llama-swap's configuration unreadable: %s", error)
+    seen = {_normalize(model) for model in models}
+    models.extend(model.name for model in list_ollama_vlm_models() if _normalize(model.name) not in seen)
+    return models
+
+
+def listed_name(models: list[str], stored: str) -> str:
+    """The name ``stored`` has in ``models`` (an Ollama spelling of a llama-swap model reads as that one); ""
+    when the list does not hold it. The settings keep the stored spelling until the user chooses."""
+    if stored in models:
+        return stored
+    target = _normalize(stored)
+    return next((model for model in models if _normalize(model) == target), "")
+
+
 def visiond_profile_for(name: str) -> str | None:
     """llama-swap-Describer-Profil ``<name>-visiond``, wenn konfiguriert.
 

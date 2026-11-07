@@ -15,6 +15,7 @@ import sqlite3
 from datetime import datetime
 from typing import Any
 
+from .config import VISION_QUIET_HOURS_DEFAULT
 from .vision_settings import load_vision_settings
 
 logger = logging.getLogger(__name__)
@@ -58,8 +59,8 @@ def _alert_passes_filters(source_id: str, store: Any, alert_type: str) -> bool:
 
     if settings.get("quiet_enabled"):
         try:
-            start = int(settings.get("quiet_start", 22)) % 24
-            end = int(settings.get("quiet_end", 6)) % 24
+            start = int(settings.get("quiet_start", VISION_QUIET_HOURS_DEFAULT[0])) % 24
+            end = int(settings.get("quiet_end", VISION_QUIET_HOURS_DEFAULT[1])) % 24
         except (TypeError, ValueError):
             return True
         hour = datetime.now().hour

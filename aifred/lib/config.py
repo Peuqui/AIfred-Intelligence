@@ -846,6 +846,14 @@ VISION_MOTION_VAR_THRESHOLD = 16.0
 VISION_MOTION_WARMUP_FRAMES = 10
 VISION_MOTION_EGO_SHIFT_PX = 3.0
 VISION_MIN_EVENT_INTERVAL_SEC = 1.0
+VISION_MIN_EVENT_INTERVAL_RANGE = (0.1, 60.0)   # what a camera's "min. event interval" may be (seconds)
+VISION_EVENT_INTERVAL_CHOICES = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+# The event types a camera can alert on (all of them unless the camera's alert_types says otherwise).
+VISION_ALERT_TYPES = ("person", "vehicle", "animal", "face")
+# A camera's quiet hours (no alerts; whole hours 0–23) and its active window (watched only then; "HH:MM")
+# while none was set.
+VISION_QUIET_HOURS_DEFAULT = (22, 6)
+VISION_SCHEDULE_DEFAULT = ("18:00", "08:00")
 VISION_WATCH_FPS = 1.0
 VISION_BACKGROUND_WATCH_FPS = 2.0
 VISION_EDGE_AI_POLL_INTERVAL_SEC = 0.5
@@ -871,6 +879,8 @@ UI_TOAST_POSITION = "top-center"
 # Tipp muss ein kleines Stück fahren, nicht drei grobe Sprünge.
 VISION_PTZ_SPEEDS = {"fine": 0.05, "medium": 0.3, "fast": 0.6}
 VISION_PTZ_DEFAULT_SPEED = "fast"
+# How long Ollama keeps the image model loaded after a call in on-demand mode (the plugin's vlm.keep_alive overrides it).
+VISION_VLM_KEEP_ALIVE_DEFAULT = "30m"
 # A held key of the live view sends a sign of life this often; it must stay well below VISION_PTZ_DEADMAN_SEC.
 VISION_PTZ_HEARTBEAT_SEC = 0.4
 

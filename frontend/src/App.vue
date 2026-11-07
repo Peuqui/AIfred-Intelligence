@@ -64,12 +64,13 @@ body {
 
 <style scoped>
 .app { display: flex; flex-direction: column; height: 100vh; padding: 0 16px; box-sizing: border-box; }
-.top { display: flex; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--aifred-border); flex-wrap: wrap; }
-nav { display: flex; gap: 12px; }
+/* The pages wrap inside the bar's middle; the name and the logout stay on its line. */
+.top { display: flex; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--aifred-border); }
+nav { display: flex; flex-wrap: wrap; gap: 4px 8px; flex: 1; min-width: 0; }
 nav a { color: var(--aifred-text-secondary); text-decoration: none; padding: 2px 6px; border-radius: 6px; }
 nav a.router-link-active { color: var(--aifred-text-primary); background: var(--aifred-input-bg); }
-.user { margin-left: auto; color: var(--aifred-text-secondary); }
-.logout { background: none; border: 1px solid var(--aifred-border); color: inherit; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.user { color: var(--aifred-text-secondary); white-space: nowrap; }
+.logout { white-space: nowrap; background: none; border: 1px solid var(--aifred-border); color: inherit; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 .page { flex: 1; min-height: 0; }
 @media (max-width: 760px) {
   .app { padding: 0 8px; }

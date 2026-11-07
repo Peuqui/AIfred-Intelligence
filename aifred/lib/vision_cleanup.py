@@ -37,8 +37,9 @@ from .vision_settings import load_vision_settings
 
 logger = logging.getLogger(__name__)
 
-# Default-TTL wenn das Plugin-Setting nicht gesetzt ist.
+# Default-TTL wenn das Plugin-Setting nicht gesetzt ist, und was es sein darf.
 DEFAULT_RETENTION_DAYS = 14
+RETENTION_DAYS_RANGE = (1, 3650)
 
 # Nur echte Tagesordner (ISO-Datum) unterliegen dem TTL. Alles andere —
 # insbesondere ``faces/enroll/face_N/`` mit den dauerhaften
@@ -47,16 +48,17 @@ DEFAULT_RETENTION_DAYS = 14
 _DAY_DIR_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
-def _load_retention_days() -> int:
+def retention_days() -> int:
     """TTL aus dem Plugin-Setting ``face_recognition.retention_days``.
     Fehlt der Wert, gilt ``DEFAULT_RETENTION_DAYS``; ein Lesefehler oder ein
     Wert außerhalb 1..3650 ist ein ``ValueError``."""
     days = (load_vision_settings().get("face_recognition") or {}).get("retention_days")
     if days is None:
         return DEFAULT_RETENTION_DAYS
-    if isinstance(days, bool) or not isinstance(days, (int, float)) or not 1 <= days <= 3650:
+    low, high = RETENTION_DAYS_RANGE
+    if isinstance(days, bool) or not isinstance(days, (int, float)) or not low <= days <= high:
         raise ValueError(
-            f"face_recognition.retention_days muss eine Zahl 1..3650 sein, ist {days!r}"
+            f"face_recognition.retention_days muss eine Zahl {low}..{high} sein, ist {days!r}"
         )
     return int(days)
 
@@ -155,7 +157,7 @@ async def cleanup_vision_task() -> None:
             except Exception as exc:  # noqa: BLE001 — a failed describe run must not stop the cleanup; logged
                 log_exception("⚠️ Nightly describe error", exc)
 
-            ttl_days = _load_retention_days()
+            ttl_days = retention_days()
             cutoff = datetime.now() - timedelta(days=ttl_days)
             crops_removed = _cleanup_dated_subdirs(
                 DATA_DIR / "vision" / "faces", cutoff

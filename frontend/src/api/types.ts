@@ -50,6 +50,7 @@ export type SpeechRecognition = Schemas["SpeechRecognition"];
 export type LiveView = Schemas["LiveView"];
 export type CameraRow = Schemas["CameraRow"];
 export type ChoiceOption = Schemas["ChoiceOption"];
+export type VigilantiaRow = Schemas["VigilantiaRow"];
 export type QuickChoices = Schemas["QuickChoices"];
 export type AgentChoices = Schemas["AgentChoices"];
 export type ModelOption = Schemas["ModelOption"];

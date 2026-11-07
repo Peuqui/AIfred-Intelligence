@@ -323,40 +323,18 @@ class VisionSettingsMixin(rx.State, mixin=True):
         namens-normalisiert gematcht (Ollama-Schreibweise ↔ llama-swap-
         Name) und sonst geleert. Leere Liste = keine Quelle erreichbar →
         Auswahl unangetastet lassen."""
-        from ..lib.vision_routing import _normalize
+        from ..lib.vision_routing import image_models, listed_name
 
-        models: list[str] = []
-        suffix = "-visiond"
-        try:
-            from ..lib.calibration.llamaswap_io import parse_llamaswap_config
-            from ..lib.config import LLAMASWAP_CONFIG_PATH
-            swap_models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-            models = sorted(
-                mid[: -len(suffix)]
-                for mid in swap_models if mid.endswith(suffix)
-            )
-        except (OSError, ValueError) as e:
-            logger.warning("vision settings: llama-swap discovery failed: %s", e)
-        from ..lib.ollama_models import list_ollama_vlm_models
-        seen = {_normalize(m) for m in models}
-        models.extend(
-            m.name for m in list_ollama_vlm_models()
-            if _normalize(m.name) not in seen
-        )
-
+        models = image_models()
         if not models:
             self.vision_available_models = (
                 [self.vision_model_value] if self.vision_model_value else []
             )
             return
-        if self.vision_model_value and self.vision_model_value not in models:
-            target = _normalize(self.vision_model_value)
-            match = next((m for m in models if _normalize(m) == target), None)
-            # Nur die ANZEIGE auf den gelisteten Namen mappen — die
-            # Settings behalten den gespeicherten Wert, bis der User
-            # aktiv wechselt (analyze_sequence löst beide Schreibweisen
-            # identisch auf).
-            self.vision_model_value = match or ""
+        if self.vision_model_value:
+            # Nur die ANZEIGE auf den gelisteten Namen mappen — die Settings behalten den gespeicherten
+            # Wert, bis der User aktiv wechselt (analyze_sequence löst beide Schreibweisen identisch auf).
+            self.vision_model_value = listed_name(models, self.vision_model_value)
         self.vision_available_models = models
 
     @rx.event

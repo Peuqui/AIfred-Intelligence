@@ -29,6 +29,15 @@ class CameraRow(BaseModel):
     resolution: str = Field(description="'default' or 'WxH'")
     prompt_context: str = Field(description="The briefing the image analysis gets for this camera")
     motion_min_area_ratio: float
+    alerts_enabled: bool = Field(description="Off: the camera still records, but sends no alerts")
+    alert_types: list[str]
+    quiet_enabled: bool
+    quiet_start: int = Field(description="Hour 0–23")
+    quiet_end: int
+    schedule_enabled: bool = Field(description="Watched only inside the window")
+    schedule_start: str = Field(description="HH:MM")
+    schedule_end: str
+    min_event_interval_sec: float
 
 
 class PreviewSettingsRow(BaseModel):
@@ -62,6 +71,16 @@ class CameraChange(BaseModel):
     alias: str | None = None
     resolution: str | None = None
     prompt_context: str | None = None
+    auto_start: bool | None = None
+    alerts_enabled: bool | None = None
+    alert_types: list[str] | None = None
+    quiet_enabled: bool | None = None
+    quiet_start: int | None = None
+    quiet_end: int | None = None
+    schedule_enabled: bool | None = None
+    schedule_start: str | None = None
+    schedule_end: str | None = None
+    min_event_interval_sec: float | None = None
 
 
 class PtzPress(BaseModel):
@@ -103,7 +122,7 @@ def _live() -> LiveView:
         cameras=[CameraRow(**asdict(camera)) for camera in found],
         visible=visible_cameras(settings, found),
         settings=PreviewSettingsRow(**{key: value for key, value in asdict(settings).items() if key != "visible_sources"}),
-        fps_choices=[ChoiceOption(id=str(fps), label=_fps_label(fps, lang)) for fps in VISION_PREVIEW_FPS_CHOICES],
+        fps_choices=[ChoiceOption(id=f"{fps:g}", label=_fps_label(fps, lang)) for fps in VISION_PREVIEW_FPS_CHOICES],
         ptz_speeds=[ChoiceOption(id=speed, label=t(f"vision_preview_ptz_speed_{speed}", lang=lang)) for speed in VISION_PTZ_SPEEDS],
         ptz_default_speed=VISION_PTZ_DEFAULT_SPEED,
         ptz_heartbeat_ms=round(VISION_PTZ_HEARTBEAT_SEC * 1000),
@@ -154,15 +173,20 @@ async def vision_camera_resolutions(source_id: str) -> list[ChoiceOption]:
 
 @api_app.patch("/vision/cameras/{source_id:path}", response_model=CameraRow, tags=["Vision"])
 async def vision_camera_change(source_id: str, change: CameraChange) -> CameraRow:
-    """A camera's name, resolution or briefing; 422 for a resolution the camera does not offer."""
+    """What the user sets for a camera: name, resolution, briefing, background switch, alerts, quiet hours, active
+    window, event interval; 422 for a value the camera cannot take. A change of the background switch or the
+    window takes effect at once (the background watcher starts or stops as the eye and the window say)."""
+    from ..vision_autostart import apply_background_watch
     from ..vision_cameras import camera, change_camera
 
     try:
-        await asyncio.to_thread(lambda: change_camera(source_id, **change.model_dump(exclude_none=True)))
+        watch = await asyncio.to_thread(lambda: change_camera(source_id, **change.model_dump(exclude_none=True)))
     except KeyError as error:
         raise HTTPException(status_code=404, detail=f"unknown camera: {source_id}") from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    if watch:
+        await apply_background_watch(source_id)
     changed = await asyncio.to_thread(camera, source_id)
     if changed is None:
         raise HTTPException(status_code=404, detail=f"unknown camera: {source_id}")
