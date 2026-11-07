@@ -99,9 +99,9 @@ Besitzerprüfung, Anmeldung, Agentenliste, Vue-Oberfläche mit Chat (Live-Strom,
 Stopp, Agentenwahl, Debug-Konsole), gesprochene Antwort im Browser (Wiedergabeliste, Knopf zum
 erneuten Abspielen an der Blase, Sprecher-Vermerk). Offen:
 
-- **Dateien unter `/_upload/`** (Ton, Bilder, Dokumente) liefert heute nur die Reflex-App aus
-  (`aifred.py`, `AuthenticatedStaticFiles`). Der Server braucht dieselben Einhängungen; sie werden
-  eine Funktion in `lib/`, die beide aufrufen.
+- **Dateien unter `/_upload/`** (Ton, Bilder, Dokumente): die Tabelle der Ordner und wer sie ohne
+  Anmeldung sehen darf, steht in `lib/upload_files.py` (`mount_upload_folders`); die Reflex-App ruft
+  sie auf, der Server ohne Reflex muss es beim Wechsel ebenso tun.
 - **Sprachausgabe, Rest:** Musik oder Hörbuch vor einer Lesung anhalten (kommt mit der Audio-Seite);
   eine Blase neu vorlesen lassen (Knopf „neu erzeugen“, heute `resynthesize_bubble_tts` im State).
 

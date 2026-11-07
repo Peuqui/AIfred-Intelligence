@@ -43,3 +43,19 @@ def test_missing_file_still_needs_auth_first(client: TestClient) -> None:
     # No cookie → 403 even for a non-existent path (don't leak existence).
     resp = client.get("/_upload/vigilantia/nope.jpg")
     assert resp.status_code == 403
+
+
+def test_every_upload_folder_needs_the_login_except_shared_previews(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from aifred.lib import upload_files
+
+    monkeypatch.setattr(upload_files, "DATA_DIR", tmp_path)
+    app = Starlette()
+    upload_files.mount_upload_folders(app)
+    client = TestClient(app)
+    for entry in upload_files.UPLOAD_FOLDERS:
+        (tmp_path / entry.folder / "file.txt").write_text(entry.name)
+        expected = 403 if entry.needs_login else 200
+        assert client.get(f"{entry.path}/file.txt").status_code == expected, entry.path
+    assert [entry.path for entry in upload_files.UPLOAD_FOLDERS if not entry.needs_login] == ["/_upload/html_preview"]
+    client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))
+    assert client.get("/_upload/audio/file.txt").text == "session_audio"
