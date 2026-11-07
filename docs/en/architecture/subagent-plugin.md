@@ -26,7 +26,7 @@ memory through files in the workspace.
 |---|---|---|
 | Plugin protocol `ToolPlugin`, `PluginContext` | `aifred/lib/plugin_base.py` | The plugin is an ordinary tool plugin; the context supplies agent, language, session, state, `max_tier`, `source` |
 | Per-agent toolkit `prepare_agent_toolkit` | `aifred/lib/agent_memory.py` | Builds the sub-agent's toolkit, including tier filter and agent whitelist |
-| Event pipeline `run_llm_stream` | `aifred/lib/llm_pipeline.py` | Runs the sub-agent with its own toolkit; model, context and temperature come through the same helpers as the browser turn (`multi_agent`) and the hub turn (`message_processor`). `call_llm` was not an option because it injects the persona reminder into the user message |
+| Event pipeline `run_llm_stream` | `aifred/lib/llm_pipeline.py` | Runs the sub-agent with its own toolkit; model, context and temperature come through the same helpers as the browser turn (`multi_agent`) and the server's turn (`turn_service`, Vue chat and Message Hub). `call_llm` was not an option because it injects the persona reminder into the user message |
 | Tool loop with guards | `aifred/backends/base.py`, `aifred/lib/function_calling.py` | The sub-agent gets them for free: chain depth, loop breaker, context guard, forced final round |
 | Async-generator executor with `progress` events | `function_calling.py`, precedent `research` | The delegation tool streams progress into the status line without blocking the report |
 | Collapsible blocks | `aifred/lib/formatting.py`, `llm_pipeline.PipelineResult` | The inner run is attached to the bubble as HTML next to the text, like the research sources |
@@ -154,7 +154,7 @@ images, camera images (whole bursts too) and the VLM description.
 `llm_pipeline` collects them in `PipelineResult.artifacts`, each with an anchor
 at the point of the turn where its tool ran. `render_bubble` is the one place
 that turns text and artifacts into the bubble in turn order; the browser path
-(`multi_agent`), `call_llm` and the Message Hub use it. The hub shows no tag
+(`multi_agent`), `call_llm` and the server's turn (`turn_service`, the Message Hub's too) use it. The hub shows no tag
 blocks such as thinking or the VLM description, but all other artifacts.
 
 A tool delivers artifacts as an `artifacts` event; the tool loop forwards it

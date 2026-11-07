@@ -129,7 +129,26 @@ der neue Dienst entsteht daneben und ersetzt beim Wechsel beide alten Pfade.
   Agenten arbeiten in dieser Sitzung ohne ihr Langzeitgedächtnis (kein Abruf, keine
   Gedächtnis-Werkzeuge, keine Gedächtnis-Schicht im Prompt), in jedem Modus. Im Reflex-Zug war es
   ein Schalter je Tab, der beim Neuladen verloren ging.
-- Danach übernehmen Kanäle und Scheduler denselben Dienst.
+- **Kanäle, Scheduler und Alarme auf dem Zug-Dienst (erledigt 07.11.2026):** `process_inbound` behält
+  den Vorbau (Kalibrier-Absage über den Kanal, Stufe, Bereinigung, Nutzer-Zuordnung, Sitzung über die
+  Routing-Tabelle, Hub-Hinweis) und die Zustellung (`outbound_text`, `send_reply`, Rückgabe an Scheduler
+  und Alarme); dazwischen läuft `turn_service.run_turn` im Task des Kanals mit einer `TurnOrigin`: die
+  Blase des Kanals, der eingepackte Text (der Zaun `<external_message>` bleibt in der Historie), Stufe,
+  Vertrauen und Metadaten des Absenders für jedes Werkzeug des Zugs (`agent_toolkit`, eine Stelle für
+  Direktantwort und Debatte), Weckwort oder Auftrag als fester Agent. Damit haben Kanäle jetzt
+  Kompression, Diskussionsmodi, Moduswechsel samt Bestätigung, Inkognito je Sitzung (vorher der globale
+  `agent_memory_enabled`, in `settings.json` nicht gesetzt), dieselbe Blase wie der Browser und den
+  Live-Strom für einen offenen Tab. In einem Diskussionsmodus gehen alle Beiträge hinaus, jeder mit
+  „— Name —“ (Peuqui gefragt, ob nur der letzte). Im Browser vorgelesen wird nur ein Browser-Zug; der
+  Kanal spricht selbst. `run_turn` liefert ein `TurnOutcome` (Status, Agent, Antworten). Anders als
+  vorher bleibt eine Frage ohne Antwort in der `llm_history` (wie im Browser), eingepackt. Weg:
+  `_call_engine`, `detect_target_agent_via_llm`, `_append_response`, `user_saved` (FreeEchos frühes
+  Speichern: der Zug speichert die Frage sofort), aus `call_llm` alles nur für den Hub
+  (manuelles num_ctx, Quelle, Ergebnisfelder) und nie Übergebene, `inject_vision_json_context`. Weil
+  Kanäle auf der Schleife des Message Hub laufen (eigener Thread): `clear_replay` und das Starten einer
+  im Browser wartenden Nachricht gehen über `session_events.on_home_loop`, und das Pipeline-Register
+  bricht einen Zug auf dessen eigener Schleife ab (`task.cancel` ist nicht thread-sicher; der Fehler war
+  älter, der Stopp-Knopf traf so auch vorher schon Kanal-Züge).
 
 ### Stand und offene Punkte (07.11.2026, nachmittags)
 

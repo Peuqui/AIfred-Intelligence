@@ -158,23 +158,6 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                     await self._route_voice(room, str(wake_agent), voice_route, text, wav_path)
                     return
 
-                # Flush user question to session immediately so browser shows it
-                # BEFORE LLM inference.
-                # Uses the same SSOT function as process_inbound.
-                from ....lib.message_processor import (
-                    message_from_user,
-                    save_inbound_to_session,
-                )
-                _early_msg = InboundMessage(
-                    channel="freeecho2", channel_id=room, sender=room,
-                    text=text, timestamp=datetime.now(UTC),
-                    metadata={"room": room, "wake_agent": wake_agent},
-                )
-                save_inbound_to_session(
-                    session_id, _early_msg,
-                    message_from_user(_early_msg.channel, _early_msg.channel_id, _early_msg.sender),
-                )
-
                 hub.update("processing")
 
                 self.channel_log(f"[FreeEcho.2 {room}] → process_inbound ({_fe2_time.monotonic()-_fe2_t0:.1f}s)")
@@ -206,9 +189,9 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
             # der Pipeline würde nach einem Room-Takeover den ALTEN Socket
             # re-installieren und der neue Verbindung den Slot klauen.
 
-            # process_inbound calls send_reply automatically (via auto_reply)
-            # User question already flushed to session above (early browser update)
-            outbound = await process_inbound(inbound, user_saved=True)
+            # process_inbound calls send_reply automatically (via auto_reply); its turn saves the
+            # question first thing, so the browser shows it before the model answers.
+            outbound = await process_inbound(inbound)
 
             # Kalibrier-Gate: process_inbound hat abgelehnt (GPUs gehören der
             # Messung). Kein TTS möglich/erwünscht — stattdessen den LOKALEN

@@ -127,43 +127,6 @@ def inject_before_question(
     messages.insert(position, {"role": "user", "content": content})
 
 
-def inject_vision_json_context(
-    messages: list[dict[str, str]],
-    vision_json: dict,
-    position: int = -1
-) -> None:
-    """
-    Inject Vision JSON context as user message into messages list.
-
-    Modifies the list in-place by inserting a user message with
-    extracted image data.
-
-    Args:
-        messages: List of message dicts to modify
-        vision_json: The extracted JSON from Vision-LLM
-        position: Where to insert (-1 = before last message)
-
-    Example:
-        >>> messages = [{"role": "user", "content": "Was steht im Bild?"}]
-        >>> inject_vision_json_context(messages, {"text": "Hello World"})
-        >>> len(messages)
-        2  # Vision context message was inserted
-    """
-    import json
-
-    vision_message = {
-        'role': 'user',
-        'content': f"""[PREVIOUS IMAGE EXTRACTION (STRUCTURED DATA)]:
-
-```json
-{json.dumps(vision_json, ensure_ascii=False, indent=2)}
-```
-
-This data was extracted from an image. Use it for your answer."""
-    }
-    messages.insert(position, vision_message)
-
-
 def build_history_entry(
     agent: str,
     content: str,

@@ -1,11 +1,10 @@
-"""Message Processor — bridge between Message Hub and AIfred Engine.
+"""Message Processor — bridge between the Message Hub and AIfred's turns.
 
-Handles the complete flow for inbound messages:
-1. Find or create a session (via routing table)
-2. Call the AIfred engine (call_llm)
-3. Collect the response
-4. Optionally send a reply (auto-reply)
-5. Update the session with the conversation
+Handles the complete flow for inbound messages (channels, scheduled jobs, alerts):
+1. The sender's rights, identity and session (via routing table)
+2. The turn (``turn_service.run_turn``, the same one the chat runs), with the message wrapped
+   as an external one
+3. The replies back to the channel (auto-reply)
 """
 
 import contextvars
@@ -18,8 +17,10 @@ from .config import MESSAGE_HUB_OWNER
 from .envelope import InboundMessage, OutboundMessage
 from .formatting import build_channel_chat_entry
 from .logging_utils import log_exception, log_message
+from .plugin_base import BaseChannel
 from .routing_table import routing_table
 from .session_storage import create_empty_session, update_chat_data
+from .turn_service import TurnOrigin, TurnReply, TurnRequest, run_turn
 
 # Global notification file for Message Hub events (read by UI timer)
 _NOTIFICATION_FILE = None
@@ -209,56 +210,6 @@ def message_from_user(channel: str, channel_id: str, sender: str) -> bool:
     return _mapped_user_name(channel, channel_id, sender) is not None
 
 
-async def detect_target_agent_via_llm(text: str) -> tuple[str, str, dict, float]:
-    """Detect target agent, language and mode-switch via LLM.
-
-    Uses detect_query_intent_and_addressee() — single source of truth, same
-    pipeline as the browser. Model is resolved via
-    get_effective_model_from_settings() so that TTS-calibrated profiles
-    (e.g. "-tts-xtts") are used when a GPU TTS engine is running. Otherwise
-    llama-swap would try to load the base profile which segfaults due to
-    insufficient VRAM.
-
-    Returns:
-        (agent_id, detected_language, mode_switch_updates, load_time)
-
-        mode_switch_updates is a dict with optional keys ``active_agent``,
-        ``multi_agent_mode``, ``symposion_agents`` —
-        empty dict if the user did not request a mode change.
-        load_time is the model load this call had to wait for (0.0 = warm).
-    """
-    from .config import get_effective_model_from_settings
-    from .intent_detector import detect_query_intent_and_addressee
-    from .llm_client import LLMClient
-    from .settings import load_settings
-
-    settings = load_settings() or {}
-    backend_type = settings.get("backend_type", "llamacpp")
-
-    # Intent-Detection ist eine Automatik-Hilfsaufgabe — Settings lesen,
-    # nicht hartcodiert auf AIfred. Bei "Automatik = (wie Alfred-LLM)" ist
-    # automatik_model leer und get_effective_model_from_settings() faellt
-    # intern auf aifred_model zurueck (siehe config.py).
-    automatik_model = get_effective_model_from_settings("automatik")
-
-    if not automatik_model:
-        log_message("Message Processor: no model for intent detection, defaulting to aifred")
-        return "aifred", "de", {}, 0.0
-
-    client = LLMClient(backend_type)
-
-    addressee, lang, mode_switch, _is_pure_cmd, _raw, load_time = await detect_query_intent_and_addressee(
-        user_query=text,
-        automatik_model=automatik_model,
-        llm_client=client,
-        automatik_num_ctx=None,
-    )
-    from .intent_detector import format_intent_result
-    agent = addressee or "aifred"
-    log_message(f"🎯 {format_intent_result(addressee, lang)}")
-    return agent, lang, mode_switch, load_time
-
-
 async def dispatch_inbound(message: InboundMessage, channel_label: str) -> None:
     """Standard-Dispatch für Channel-Listener: ``process_inbound`` plus
     einheitliches Ergebnis-Log (SSOT — existierte vorher als Kopie in
@@ -273,14 +224,9 @@ async def dispatch_inbound(message: InboundMessage, channel_label: str) -> None:
         )
 
 
-async def process_inbound(message: InboundMessage, user_saved: bool = False) -> OutboundMessage | None:
-    """Process an inbound message through the full pipeline.
-
-    Args:
-        message: The inbound message to process.
-        user_saved: If True, the user question is already saved to the session
-                    (both chat_history and llm_history). Skips _save_to_session.
-                    Used by FreeEcho.2 for early browser flush after STT.
+async def process_inbound(message: InboundMessage) -> OutboundMessage | None:
+    """Process an inbound message as a turn of its channel's session; the reply goes back through
+    the channel when it answers automatically. None when no agent answered.
 
     Uses the Debug Bus (session_scope) so all debug() calls from any
     depth (tools, research, plugins) automatically go to the session.
@@ -341,8 +287,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         log_message(f"User mapping: {message.sender} -> {resolved_name}")
         message.sender = resolved_name
 
-    # 2. Find or create session via routing table (BEFORE intent detection
-    #    so session_scope is active during LLM calls → debug messages go to UI)
+    # 2. Find or create the session via the routing table: the turn's debug lines go to it.
     # A reply to one specific bot message goes to that message's session (e.g.
     # the scheduler job that announced it); everything else to the chat's.
     from .routing_table import REPLY_TO_MESSAGE_KEY
@@ -363,190 +308,36 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         routing_table.set_route(message.channel, message.channel_id, session_id)
         log_message(f"Message Processor: new session {session_id[:8]} for {message.sender}")
 
-    # Resolve plugin and channel label
     plugin = get_channel(message.channel)
     channel_label = channel_display_label(message.channel)
     notification_title = get_session_title(session_id) or subject
 
-    # Register this coroutine so external stop commands (FreeEcho.2 _stop wake-word,
-    # browser stop button, ...) can cancel it via cancel_pipeline().
-    # The pipeline_scope context manager handles register + unregister even on
-    # exceptions/cancellation.
-    import asyncio as _asyncio
-
-    from .pipeline_registry import pipeline_scope
-    _current_task = _asyncio.current_task()
-
-    # ── All phases run inside session_scope ────────────────────
-    # Intent detection runs INSIDE scope so its debug messages reach the UI.
-    # hub_notification_scope writes "received" on entry and guarantees a final
-    # done/error on exit — covers every return path including exceptions in
-    # _call_engine, auto_reply, generate_session_title, etc.
-    with pipeline_scope(session_id, _current_task), session_scope(session_id), \
-            hub_notification_scope(
-                session_id, notification_title, channel_label, message.sender,
-            ) as hub:
-
-        # ── Phase 0: Show incoming message immediately ────────
+    # hub_notification_scope writes "received" on entry and guarantees a final done/error on exit —
+    # every return path, exceptions and cancellation included.
+    with session_scope(session_id), hub_notification_scope(
+        session_id, notification_title, channel_label, message.sender,
+    ) as hub:
         debug(f"📨 {channel_label}: message from {message.sender}")
         if subject and subject != "?":
             debug(f"📧 Subject: {subject}")
-
-        # ── Phase 1: Detect target agent via LLM ─────────────
-        try:
-            agent, detected_lang, mode_switch_updates, intent_load_time = (
-                await detect_target_agent_via_llm(message.text)
-            )
-        except Exception as e:
-            log_message(f"❌ Intent detection FAILED (no fallback): {e}", "error")
-            debug(f"❌ Intent detection FAILED: {e}")
-            raise
-
-        from .agent_config import get_agent_config as _get_agent_cfg
-        from .agent_config import get_agent_label
-        from .intent_detector import format_intent_result, format_mode_switch_summary
-        from .session_storage import get_session_config, update_session_config
-
-        # Apply mode-switch updates (multi_agent_mode, symposion_agents,
-        # active_agent) before routing — so any active_agent
-        # override from a voice command takes effect immediately.
-        if mode_switch_updates:
-            update_session_config(session_id, **mode_switch_updates)
-            summary = format_mode_switch_summary(mode_switch_updates, lang=detected_lang)
-            debug(f"🔧 Mode switch: {summary}")
-            # Voice mode-switch via "agent=..." overrides whatever the LLM
-            # picked as addressee for this turn.
-            if "active_agent" in mode_switch_updates:
-                agent = mode_switch_updates["active_agent"]
-
-        # Routing priority (highest wins):
-        #   1. Wake-Override (channel hint, e.g. FreeEcho.2 wake-word)
-        #   2. LLM-detected addressee from current query
-        #   3. Session active_agent (sticky from previous turn)
-        #   4. Default "aifred"
-        wake_agent = message.metadata.get("wake_agent")
-        llm_addressee = agent if agent != "aifred" else None
-        session_active_raw = get_session_config(session_id).get("active_agent", "aifred")
-        # For sticky-fallback logic below, "aifred" is treated as "no preference"
-        # so the routing pipeline doesn't loop back to the default agent.
-        session_active = None if session_active_raw == "aifred" else session_active_raw
-
-        if wake_agent and _get_agent_cfg(wake_agent):
-            if wake_agent != agent:
-                debug(
-                    f"🎯 Wake-Override: {get_agent_label(wake_agent)} "
-                    f"(LLM would have chosen {get_agent_label(agent)})"
-                )
-            agent = wake_agent
-        elif wake_agent:
-            debug(f"⚠️  Wake-Agent '{wake_agent}' not configured — keeping LLM decision")
-            # llm_addressee or session_active will take effect below
-            if llm_addressee is None and session_active:
-                agent = session_active
-                debug(f"🎯 Sticky agent: {get_agent_label(agent)} (from session)")
-        elif llm_addressee is None and session_active:
-            # No wake hint, no explicit addressee in this query — use sticky agent
-            agent = session_active
-            debug(f"🎯 Sticky agent: {get_agent_label(agent)} (from session)")
-
-        # Persist any explicit address (wake-override or inline) as the new
-        # active_agent so subsequent unaddressed turns route to the same agent
-        # (sticky). Includes switches back to "aifred" — an explicit switch is
-        # an explicit switch, regardless of which agent is the target.
-        if agent != session_active_raw:
-            from .session_storage import set_session_active_agent
-            set_session_active_agent(session_id, agent)
-
-        message.target_agent = agent
-
-        _cfg = _get_agent_cfg(message.target_agent)
-        agent_display_name = _cfg.display_name if _cfg else message.target_agent.capitalize()
-
-        debug(f"🎯 {format_intent_result(agent if agent != 'aifred' else None, detected_lang)}")
-
-        # Save incoming message to session (chat + llm history)
-        if not user_saved:
-            save_inbound_to_session(session_id, message, from_user)
-
-        # An agent switched off (a wake word, a job or the session's agent names it) answers nothing:
-        # out loud, never another agent in its place.
-        from .agent_config import selectable_agents
-        if message.target_agent not in selectable_agents():
-            log_message(f"⛔ {channel_label}: {get_agent_label(message.target_agent)} is switched off or no chat agent — no answer", "warning")
-            debug(f"⛔ {get_agent_label(message.target_agent)} is switched off or no chat agent — no answer")
-            hub.fail()  # scope writes "error" on exit
-            return None
-
-        # ── Phase 2: Call AIfred engine ───────────────────────
         hub.update("processing")
-
-        if plugin:
-            llm_context = plugin.build_context(message)
-        else:
-            sender_info = message.sender
-            if original_sender != message.sender:
-                sender_info = f"{message.sender} (via {original_sender})"
-            llm_context = f"[{channel_label} from {sender_info}]\n\n{message.text}"
-
-        # Wrap external messages in security delimiters. Trust label from
-        # the authenticated owner verdict (N5) — the raw sender string is
-        # forgeable (email From), the mapped name is derived from it.
-        from .security import resolve_trust_label, wrap_external_message
-        trust = resolve_trust_label(message.channel, original_sender, message.metadata)
-        llm_context = wrap_external_message(
-            llm_context, message.sender, message.channel, trust,
-        )
-
-        # Stempel EINMAL je Turn: derselbe Text geht live an die Engine und
-        # in llm_history — siehe message_builder.stamp_user_turn.
-        from .message_builder import stamp_user_turn, user_turn_stamp
-        user_llm_text = stamp_user_turn(llm_context, user_turn_stamp())
-
-        response_text, response_display, result_metadata, history_notes = await _call_engine(
-            user_text=user_llm_text,
-            session_id=session_id,
-            agent=message.target_agent,
-            max_tier=max_tier,
-            source=message.channel,
-            metadata=dict(message.metadata or {}),
-            trust=trust,
-        )
-
-        if not response_text:
-            log_message("Message Processor: engine returned no response", "warning")
-            debug("❌ Engine: no response")
+        # The turn registers itself as the session's pipeline: a stop (FreeEcho.2's _stop, the
+        # browser's button) cancels this task.
+        outcome = await run_turn(TurnRequest(
+            session_id, message.text, source=message.channel,
+            origin=_turn_origin(message, plugin, channel_label, original_sender, from_user, max_tier),
+        ))
+        if outcome.agent is not None:
+            message.target_agent = outcome.agent   # the channel speaks with its voice (FreeEcho.2)
+        if outcome.status != "done" or not any(reply.text.strip() for reply in outcome.replies):
+            log_message(f"{channel_label}: no reply (turn {outcome.status})", "warning")
             hub.fail()  # scope writes "error" on exit
             return None
 
-        debug(f"✅ Response generated ({len(response_text)} chars)")
-        # A cold start usually happens in the intent call above; the answer
-        # carries it like in the browser (_add_agent_panel).
-        if intent_load_time:
-            result_metadata["load_time"] = result_metadata.get("load_time", 0.0) + intent_load_time
-
-        # ── Phase 3: Save response to session ─────────────────
-        # M3: the user turn goes into llm_history HERE (wrapped) — see
-        # _append_response/save_inbound_to_session docstrings.
-        _append_response(
-            session_id, response_text, response_display,
-            metadata=result_metadata, agent=message.target_agent,
-            user_llm_text=user_llm_text, history_notes=history_notes,
-        )
-
-        # ── Phase 3b: Sanitize output for external channels ───
-        from .security import sanitize_outbound
-        outbound_text = sanitize_outbound(response_text)
-
-        # Prefix with agent name if not AIfred (so user knows who answered)
-        if message.target_agent != "aifred":
-            outbound_text = f"— {agent_display_name} —\n\n{outbound_text}"
-
-        # ── Phase 4: Auto-reply if enabled ────────────────────
         reply_metadata = plugin.build_reply_metadata(message) if plugin else {}
-        # silent_reply: vom audio_player gesetzt wenn Audio-Wiedergabe
-        # gestartet wurde — der Channel skippt dann die TTS-Bestaetigung,
-        # damit Music sofort spielt ohne dass der Butler dazwischenredet.
-        if result_metadata.get("silent_reply"):
+        # silent_reply: the audio player started playing — the channel skips its spoken
+        # confirmation so the music starts without the butler talking over it.
+        if any(reply.silent for reply in outcome.replies):
             reply_metadata["silent_reply"] = True
         # The session this reply belongs to: internal triggers (scheduler,
         # webhook) hand it to their delivery layer, threading channels (email)
@@ -556,153 +347,65 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
             channel=message.channel,
             channel_id=message.channel_id,
             recipient=message.sender,
-            text=outbound_text,
+            text=outbound_text(outcome.replies),
             metadata=reply_metadata,
         )
-
-        auto_reply_enabled = _is_auto_reply_enabled(message.channel)
-        if plugin and auto_reply_enabled:
+        if plugin and _is_auto_reply_enabled(message.channel):
             await plugin.send_reply(outbound, message)
         else:
             debug("💬 Response ready (auto-reply off)")
-
-        debug("────────────────────")
-
-        # ── Phase 5: Generate title if missing ────────────────
-        from .llm_engine import generate_session_title
-        title = get_session_title(session_id)
-        if not title:
-            await generate_session_title(message.text, response_text, session_id)
-
-        # ── Phase 6: Done ─────────────────────────────────────
-        # No explicit notification call — hub_notification_scope writes
-        # "done" on normal exit (and "error" on exception or hub.fail()).
-
-    # session_scope exit
     return outbound
 
 
-async def _call_engine(
-    user_text: str,
-    session_id: str,
-    agent: str = "aifred",
-    max_tier: int = 4,
-    source: str = "browser",
-    metadata: dict | None = None,
-    trust: str = "external",
-) -> tuple[str, str, dict, list[str]]:
-    """Call the AIfred engine with full toolkit (memory + plugins).
-
-    Returns (response_clean, response_display, metadata_dict, history_notes);
-    history_notes is what the turn's tools left for the llm_history
-    (PipelineResult.history_notes).
-    Debug messages go through the Debug Bus (session_scope must be active).
-    """
-    from .agent_settings import get_persisted_tuning
-    from .config import BACKEND_URLS, DEFAULT_SETTINGS, DEFAULT_TEMPERATURE
-    from .debug_bus import debug
-    from .llm_engine import call_llm
-    from .session_storage import load_session
-    from .settings import load_settings
-
-
-    # Load current settings
-    settings = load_settings() or {}
-    backend_type = settings.get("backend_type", DEFAULT_SETTINGS["backend_type"])
-    temperature = get_persisted_tuning(settings, agent, "temperature", DEFAULT_TEMPERATURE)
-
-    # Get effective model for the agent (respects TTS/speed variants)
-    from .config import get_effective_model_from_settings
-    model = get_effective_model_from_settings(agent)
-    backend_url = BACKEND_URLS.get(backend_type, "")
-
-
-    if not model:
-        log_message(f"Message Processor: no model configured for {agent}/{backend_type}", "error")
-        return "", "", {}, []
-
-    # Load existing LLM history from session
-    session = load_session(session_id)
-    llm_history = session.get("data", {}).get("llm_history", []) if session else []
-
-
-    # Resolve calibrated context (no State needed). The label names the
-    # loaded variant — otherwise a -vlm-/-speed-/-tts- profile is
-    # indistinguishable from the bare base in the FreeEcho debug log.
-    from .research.context_utils import get_stateless_num_ctx
-    num_ctx, ctx_label = get_stateless_num_ctx(model, backend_type)
-
-
+def _turn_origin(
+    message: InboundMessage, plugin: BaseChannel | None, channel_label: str, original_sender: str, from_user: bool,
+    max_tier: int,
+) -> TurnOrigin:
+    """The turn's view of an inbound message: its bubble, what the model reads (wrapped in the
+    external-message fence, which stays in the history for every later turn) and the sender's rights."""
     from .agent_config import get_agent_config
-    _agent_cfg = get_agent_config(agent)
-    agent_display = _agent_cfg.display_name if _agent_cfg else agent.capitalize()
+    from .debug_bus import debug
+    from .security import resolve_trust_label, wrap_external_message
 
-    from .agent_config import get_agent_emoji
-    debug(f"{get_agent_emoji(agent)} {agent_display}-LLM: {model} ({backend_type})")
-    debug(f"📜 History: {len(llm_history)} messages")
-
-
-    # Prepare full toolkit (memory + all plugin tools)
-    lang = settings.get("ui_language", "de")
-    memory_enabled = settings.get("agent_memory_enabled", True)
-
-    toolkit = None
-    memory_ctx = ""
-    from .agent_memory import prepare_agent_toolkit
-
-    memory_ctx, toolkit = await prepare_agent_toolkit(
-        agent, user_text, lang=lang,
-        memory_enabled=memory_enabled,
-        research_tools_enabled=True,
-        session_id=session_id,
+    if plugin:
+        llm_context = plugin.build_context(message)
+    else:
+        sender_info = message.sender
+        if original_sender != message.sender:
+            sender_info = f"{message.sender} (via {original_sender})"
+        llm_context = f"[{channel_label} from {sender_info}]\n\n{message.text}"
+    # Trust label from the authenticated owner verdict (N5) — the raw sender string is forgeable
+    # (email From), the mapped name is derived from it.
+    trust = resolve_trust_label(message.channel, original_sender, message.metadata)
+    # A wake word or a job names the agent; one not configured leaves the choice to the turn.
+    wake_agent = message.metadata.get("wake_agent")
+    pinned = wake_agent if wake_agent and get_agent_config(wake_agent) else None
+    if wake_agent and pinned is None:
+        debug(f"⚠️ Wake-Agent '{wake_agent}' not configured — the message decides")
+    return TurnOrigin(
+        chat_entry=build_inbound_chat_entry(message, from_user),
+        llm_text=wrap_external_message(llm_context, message.sender, message.channel, trust),
         max_tier=max_tier,
-        source=source,
-        metadata=metadata,
         trust=trust,
+        metadata=dict(message.metadata or {}),
+        pinned_agent=pinned,
     )
 
-    if toolkit:
-        debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent_display}")
 
-    # Collect response — debug chunks go through the Bus automatically
-    response_parts: list[str] = []
-    try:
-        async for chunk in call_llm(
-            user_text=user_text,
-            model_choice=model,
-            history=[],
-            llm_history=llm_history,
-            detected_language=lang,
-            temperature=temperature,
-            backend_type=backend_type,
-            backend_url=backend_url,
-            num_ctx_manual_enabled=True,
-            num_ctx_manual_value=num_ctx,
-            num_ctx_source_label=ctx_label,
-            agent=agent,
-            external_toolkit=toolkit,
-            memory_ctx=memory_ctx if memory_ctx else None,
-            source=source,
-        ):
-            if chunk.get("type") == "content":
-                response_parts.append(chunk.get("text", ""))
-            elif chunk.get("type") == "debug":
-                debug(chunk.get("message", ""))
-            elif chunk.get("type") == "result":
-                data = chunk.get("data", {})
-                if "response_clean" in data:
-                    result_meta = data.get("metadata_dict", {})
-                    return (
-                        data["response_clean"], data["response_display"],
-                        result_meta, data["history_notes"],
-                    )
-    except Exception as exc:  # noqa: BLE001 — no reply ends the message as failed (hub.fail at the caller)
-        log_exception("Message Processor: engine error", exc)
-        debug(f"❌ Engine error: {exc}")
-        return "", "", {}, []
+def outbound_text(replies: Sequence[TurnReply]) -> str:
+    """What goes back to the channel: every reply of the turn in order, cleaned for outside. A reply
+    names its speaker when another agent than AIfred answered, or when several spoke (a debate)."""
+    from .agent_config import BASE_AGENT, agent_display_name
+    from .security import sanitize_outbound
 
-    joined = "".join(response_parts)
-    return joined, joined, {}, []
+    named = len(replies) > 1 or replies[0].agent != BASE_AGENT
+    parts = []
+    for reply in replies:
+        text = sanitize_outbound(reply.text)
+        if named and reply.agent != "system":   # a mode switch's confirmation speaks for nobody
+            text = f"— {agent_display_name(reply.agent)} —\n\n{text}"
+        parts.append(text)
+    return "\n\n".join(parts)
 
 
 def channel_display_label(channel: str) -> str:
@@ -756,19 +459,9 @@ def build_inbound_chat_entry(message: InboundMessage, from_user: bool) -> dict:
 
 
 def save_inbound_to_session(session_id: str, message: InboundMessage, from_user: bool) -> None:
-    """Save inbound message to the session CHAT history (UI) and set update flag.
-
-    Single source of truth for persisting inbound messages (see message_from_user
-    for who counts as the user).
-    Called by process_inbound (normal path) or directly by channels
-    that need early browser flush (FreeEcho.2 after STT).
-
-    M3: Deliberately does NOT touch llm_history. The LLM-facing entry is
-    appended WRAPPED (<external_message> fence) together with the response
-    after the engine call (_append_response) — the fence must persist
-    across turns, and saving it before the call would put the current
-    message twice into the prompt (raw from history + wrapped as
-    current_user_text).
+    """Save an inbound message to the session's CHAT history only (UI): a spoken exchange AIfred
+    only routed on (record_routed_voice_turn), which writes its llm_history entry itself, wrapped in
+    the external-message fence. A message an agent answers is saved by its turn (turn_service).
     """
     from .session_storage import load_session, session_rmw_lock
 
@@ -788,70 +481,6 @@ def save_inbound_to_session(session_id: str, message: InboundMessage, from_user:
             debug_messages=data.get("debug_messages", []),
             owner=MESSAGE_HUB_OWNER,
         )
-
-
-def _append_response(
-    session_id: str,
-    response_text: str,
-    response_display: str,
-    metadata: dict | None = None,
-    agent: str = "aifred",
-    user_llm_text: str | None = None,
-    history_notes: Sequence[str] = (),
-) -> None:
-    """Append the assistant response to an existing session.
-
-    If metadata is provided, appends a performance footer (TTFT, tok/s, etc.)
-    to the chat content — same format as browser-path _add_agent_panel.
-
-    ``history_notes`` is what the turn's tools left for the llm_history
-    (PipelineResult.history_notes); it follows the response text the same
-    way the browser path writes it (message_builder.with_history_notes).
-
-    M3: ``user_llm_text`` is the LLM-facing user message (wrapped in
-    <external_message> security delimiters), appended to llm_history right
-    before the response. Persisting the WRAPPED form keeps the injection
-    fence around external content in every future turn; appending it only
-    after the engine call keeps the current message from appearing twice
-    in the prompt. On engine failure neither entry is written — the LLM
-    never saw an answer, so the exchange stays out of its history.
-    """
-    from .formatting import build_assistant_chat_entry, format_performance_footer
-    from .message_builder import with_history_notes
-    from .session_storage import load_session, session_rmw_lock
-
-    # Bubble: text plus the turn's artifacts (lib/bubble.py), then the
-    # metadata footer (shared with browser-path _add_agent_panel). llm_history
-    # keeps the plain response text and the turn's history notes.
-    display_content = response_display
-    if metadata:
-        meta_footer = format_performance_footer(metadata)
-        if meta_footer:
-            display_content = f"{response_display}\n\n{meta_footer}"
-
-    # M4: load→append→save as ONE unit (see session_rmw_lock).
-    with session_rmw_lock:
-        session = load_session(session_id)
-        data = session.get("data", {}) if session else {}
-        existing_chat = data.get("chat_history", [])
-        existing_llm = data.get("llm_history", [])
-
-        if user_llm_text:
-            existing_llm.append({"role": "user", "content": user_llm_text})
-
-        # SSOT: same dict shape as browser-path _add_agent_panel
-        existing_chat.append(build_assistant_chat_entry(display_content, agent, metadata))
-        existing_llm.append({"role": "assistant", "content": with_history_notes(response_text, history_notes)})
-
-        # Browser detects via session file mtime-watch (SSOT)
-        update_chat_data(
-            session_id=session_id,
-            chat_history=existing_chat,
-            llm_history=existing_llm,
-            owner=MESSAGE_HUB_OWNER,
-        )
-
-
 
 
 def _is_auto_reply_enabled(channel: str) -> bool:

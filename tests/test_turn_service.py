@@ -366,3 +366,152 @@ def test_without_a_model_that_can_see_the_message_goes_on_and_the_user_is_told(
 def test_an_image_of_another_session_is_refused(picture: str, world: dict[str, Any]) -> None:
     _image_turn("Was ist das?", f"/_upload/images/{'f' * 32}/fremd.jpg")
     assert _kinds() == ["turn_rejected", "turn_finished"]
+
+
+# ── A message from outside the chat: channels, jobs, alerts (message_processor.process_inbound) ──
+
+
+class _Channel:
+    """A channel plugin as process_inbound uses it; what it sends is kept."""
+
+    speaker_is_user = True
+    always_reply = True
+    emoji = "✈️"
+
+    def __init__(self) -> None:
+        self.sent: list[Any] = []
+
+    def build_context(self, message: Any) -> str:
+        return f"[Telegram from {message.sender}]\n\n{message.text}"
+
+    def build_reply_metadata(self, _message: Any) -> dict[str, Any]:
+        return {"chat_id": 42}
+
+    async def send_reply(self, outbound: Any, _original: Any) -> None:
+        self.sent.append(outbound)
+
+
+@pytest.fixture
+def channel(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> _Channel:
+    """The session is the channel's (routing table); tier 1, the owner writes; the toolkit's arguments
+    are kept in ``world["toolkit"]``. Speech is on: a channel's reply must still not be read in the browser."""
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from aifred.lib import agent_memory, message_processor, runtime_settings, security
+
+    plugin = _Channel()
+    world["toolkit"] = []
+
+    async def toolkit(*_args: Any, **kwargs: Any) -> tuple[str, None]:
+        world["toolkit"].append(kwargs)
+        return "", None
+
+    async def no_reading(*_args: Any) -> None:
+        raise AssertionError("a channel speaks its reply itself")
+
+    view = replace(world["view"], enable_tts=True, tts_autoplay=True)
+    world["view"] = view
+    monkeypatch.setattr(runtime_settings, "load_runtime_settings", lambda: view)
+    monkeypatch.setattr(agent_memory, "prepare_agent_toolkit", toolkit)
+    monkeypatch.setattr(reply_speech, "begin", no_reading)
+    monkeypatch.setattr("aifred.lib.plugin_registry.get_channel", lambda _name: plugin)
+    monkeypatch.setattr(message_processor, "routing_table", SimpleNamespace(get_route=lambda *_args: SimpleNamespace(session_id=SESSION)))
+    monkeypatch.setattr(message_processor, "channel_display_label", lambda _channel: "Telegram")
+    monkeypatch.setattr(message_processor, "_mapped_user_name", lambda *_args: None)
+    monkeypatch.setattr(message_processor, "write_hub_notification", lambda *_args, status: world.setdefault("hub", []).append(status))
+    monkeypatch.setattr(security, "resolve_tier_for_sender", lambda *_args: 1)
+    monkeypatch.setattr(security, "resolve_trust_label", lambda *_args: "owner")
+    return plugin
+
+
+def _inbound(text: str, **metadata: Any) -> Any:
+    from datetime import UTC, datetime
+
+    from aifred.lib.envelope import InboundMessage
+
+    return InboundMessage(channel="telegram", channel_id="chat-1", sender="Peuqui", text=text,
+                          timestamp=datetime.now(UTC), metadata=metadata)
+
+
+def _process(message: Any) -> Any:
+    from aifred.lib.message_processor import process_inbound
+
+    async def scenario() -> Any:
+        outbound = await process_inbound(message)
+        await asyncio.sleep(0)   # the title task
+        return outbound
+
+    return asyncio.run(scenario())
+
+
+def test_a_channel_message_is_the_chats_turn_within_its_senders_rights(world: dict[str, Any], channel: _Channel) -> None:
+    outbound = _process(_inbound("Wie wird das Wetter?", note="vom Handy"))
+    data = _data()
+    bubble, question = data["chat_history"][0], data["llm_history"][0]["content"]
+    assert bubble["role"] == "user" and bubble["content"].endswith("Wie wird das Wetter?")
+    assert "<external_message" not in bubble["content"]
+    # The fence stays in the history: it protects every later turn that reads it.
+    assert '<external_message sender="Peuqui" channel="telegram" trust="owner">' in question
+    assert question.endswith("[Telegram from Peuqui]\n\nWie wird das Wetter?\n</external_message>")
+    rights = world["toolkit"][0]
+    assert (rights["max_tier"], rights["trust"], rights["source"], rights["metadata"]) == (1, "owner", "telegram", {"note": "vom Handy"})
+    assert channel.sent == [outbound]
+    assert outbound.text == "Hallo Peuqui." and outbound.metadata == {"chat_id": 42, "session_id": SESSION}
+    assert "token" in _kinds() and world["hub"][-1] == "done"     # a tab on the session follows live
+
+
+def test_a_wake_word_pins_the_agent_whoever_the_text_addresses(world: dict[str, Any], channel: _Channel) -> None:
+    world["intent"] = turn_service._Intent("sokrates", "de", {}, False, 0.0)
+    message = _inbound("Sokrates, was meinst du?", wake_agent="salomo")
+    outbound = _process(message)
+    assert _data()["llm_history"][1]["content"].startswith("[SALOMO]: ")
+    assert message.target_agent == "salomo"                     # the channel speaks with his voice
+    assert outbound.text == "— Salomo —\n\nHallo Peuqui."
+    assert session_storage.get_session_config(SESSION)["active_agent"] == "salomo"
+
+
+def test_a_channel_message_without_an_answer_returns_nothing_and_the_toast_says_so(
+    world: dict[str, Any], channel: _Channel,
+) -> None:
+    session_storage.update_session_config(SESSION, multi_agent_mode="devils_advocate")   # refused by the turn
+    assert _process(_inbound("Hallo")) is None
+    assert channel.sent == [] and world["hub"][-1] == "error"
+
+
+def test_a_reply_without_text_is_no_reply_and_nothing_goes_out(world: dict[str, Any], channel: _Channel) -> None:
+    world["chunks"] = []                    # the model wrote nothing (its tool did the work)
+    assert _process(_inbound("Spiel Musik")) is None
+    assert channel.sent == [] and world["hub"][-1] == "error"
+
+
+def test_a_channel_message_for_an_agent_switched_off_is_refused_out_loud(
+    world: dict[str, Any], channel: _Channel, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+
+    from aifred.lib import agent_config
+
+    agents = agent_config._default_agents()
+    agents["sokrates"]["enabled"] = False
+    path = tmp_path / "agents.json"
+    path.write_text(json.dumps({"agents": agents}), encoding="utf-8")
+    monkeypatch.setattr(agent_config, "AGENTS_FILE", path)
+    assert _process(_inbound("Was sagst du dazu?", wake_agent="sokrates")) is None   # as a trigger or a wake word names it
+    rejected = [event for event in session_events.replay_after(SESSION, 0) if event.kind == "turn_rejected"]
+    assert rejected[0].data["reason"] == "agent"
+    assert world["requests"] == [] and channel.sent == []          # no agent answers in his place
+    assert world["hub"][-1] == "error"
+    assert _data()["chat_history"][-1]["content"].endswith("Was sagst du dazu?")
+
+
+def test_every_speaker_of_a_turn_goes_out_named_when_several_spoke() -> None:
+    from aifred.lib.message_processor import outbound_text
+    from aifred.lib.turn_service import TurnReply
+
+    alone = [TurnReply("aifred", "Gern.", silent=False)]
+    debate = [TurnReply("aifred", "Ja.", silent=False), TurnReply("sokrates", "Warum?", silent=False)]
+    switched = [TurnReply("system", "✅ **Tribunal**", silent=False), TurnReply("salomo", "So sei es.", silent=False)]
+    assert outbound_text(alone) == "Gern."
+    assert outbound_text(debate) == "— AIfred —\n\nJa.\n\n— Sokrates —\n\nWarum?"
+    assert outbound_text(switched) == "✅ **Tribunal**\n\n— Salomo —\n\nSo sei es."   # a confirmation speaks for nobody

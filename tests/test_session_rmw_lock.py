@@ -5,7 +5,7 @@ worker thread, debug bus). Every read-modify-write must hold
 ``session_storage.session_rmw_lock`` for the whole load→mutate→save sequence,
 otherwise the later writer overwrites the earlier one (lost update).
 
-These tests hammer the REAL call sites (save_inbound_to_session, _append_response,
+These tests hammer the REAL call sites (save_inbound_to_session, turn_service._append,
 debug_bus._flush_to_session) from parallel threads — without the lock they
 lose entries and fail.
 """
@@ -67,25 +67,29 @@ class TestConcurrentSessionWrites:
         assert session is not None
         expected = self.N_THREADS * self.N_ITER
         assert len(session["data"]["chat_history"]) == expected
-        # M3: save_inbound_to_session writes the CHAT history only — the
-        # llm_history entry is appended (wrapped) via _append_response.
+        # save_inbound_to_session writes the CHAT history only (a routed voice turn
+        # writes its wrapped llm_history entry itself).
         assert "llm_history" not in session["data"]
 
     def test_chat_and_debug_writers_do_not_clobber_each_other(self, session_dir):
-        """Hub response appends and debug-bus flushes hit the same file:
+        """A turn's appends and debug-bus flushes hit the same file:
         both fields must survive intact (the debug flush re-writes
         chat_history from its own load, and vice versa)."""
         from aifred.lib.debug_bus import _flush_to_session
-        from aifred.lib.message_processor import _append_response
+        from aifred.lib.turn_service import _append
 
         sid = "b" * 32
         session_storage.create_empty_session(sid, owner="mp")
 
         def chat_worker(worker_id: int):
             for i in range(self.N_ITER):
-                _append_response(
-                    sid, f"response w{worker_id}-{i}", f"response w{worker_id}-{i}",
-                    user_llm_text=f"<external_message>q w{worker_id}-{i}</external_message>",
+                _append(
+                    sid,
+                    chat=[{"role": "assistant", "content": f"response w{worker_id}-{i}"}],
+                    llm=[
+                        {"role": "user", "content": f"<external_message>q w{worker_id}-{i}</external_message>"},
+                        {"role": "assistant", "content": f"response w{worker_id}-{i}"},
+                    ],
                 )
 
         def debug_worker(worker_id: int):
@@ -101,7 +105,7 @@ class TestConcurrentSessionWrites:
         assert session is not None
         assert len(session["data"]["chat_history"]) == 2 * self.N_ITER
         assert len(session["data"]["debug_messages"]) == 2 * self.N_ITER
-        # user + assistant pair per _append_response call
+        # user + assistant pair per _append call
         assert len(session["data"]["llm_history"]) == 2 * 2 * self.N_ITER
 
     def test_rmw_lock_is_reentrant(self, session_dir):

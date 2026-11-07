@@ -1,9 +1,9 @@
 """
-LLM Engine - Zentrale Funktion für LLM-Aufrufe aller Agenten.
+LLM Engine - der Bildaufruf des Reflex-Chats und der Sitzungstitel.
 
-Diese Funktion wird aufgerufen von:
-- state/_chat_mixin.py: VL Direct (Bild-Upload, das Hauptmodell sieht selbst)
-- message_processor.py: Message Hub und Scheduler (E-Mail, Telegram, Echo Dot, …)
+``call_llm`` ruft nur noch state/_chat_mixin.py auf: VL Direct (Bild-Upload, das Hauptmodell sieht
+selbst). Kanäle, Scheduler und Alarme laufen über den Zug-Dienst (lib/turn_service.py); mit Reflex
+geht auch ``call_llm``.
 
 Yields Dict-Messages die vom Aufrufer geroutet werden:
 - {"type": "debug", "message": str}
@@ -33,26 +33,20 @@ async def call_llm(
     temperature: float,
     backend_type: str,
     backend_url: str | None,
-    state: Any | None = None,
-    multimodal_content: list[dict] | None = None,
+    state: Any,
+    multimodal_content: list[dict],
     memory_ctx: str | None = None,
-    vision_json_context: dict | None = None,
-    stt_time: float = 0.0,
-    cloud_provider_label: str | None = None,
-    num_ctx_manual_enabled: bool = False,
-    num_ctx_manual_value: int | None = None,
     provider: str | None = None,
     agent: str = "aifred",
     vision_task_addon: str = "",
     external_toolkit: Any | None = None,
-    num_ctx_source_label: str = "",
-    source: str = "browser",
 ) -> AsyncIterator[dict]:
     """
-    Generiert eine LLM-Antwort; Werkzeuge kommen über ``external_toolkit`` vom Aufrufer.
+    Generiert die Antwort auf ein Bild im Reflex-Chat; Werkzeuge kommen über ``external_toolkit``
+    vom Aufrufer.
 
     Args:
-        user_text: Die User-Nachricht
+        user_text: Die User-Nachricht (Erinnerungsabruf)
         model_choice: Model ID (z.B. "qwen3:4b")
         history: Chat History (wird aktualisiert und im Result zurückgegeben)
         llm_history: LLM History (Liste von {"role": ..., "content": ...})
@@ -60,21 +54,16 @@ async def call_llm(
         temperature: Temperatur des antwortenden Agenten (agent_tuning)
         backend_type: Backend-Typ ("ollama", "vllm", "llamacpp", "cloud_api")
         backend_url: Backend-URL
-        state: AIState Objekt für num_ctx Lookup (optional)
-        multimodal_content: Multimodal Content für Bilder (optional)
+        state: AIState Objekt für den num_ctx-Lookup und die Sampling-Werte
+        multimodal_content: Bilder und Text der Nutzerfrage
         memory_ctx: Agent-Memory-Kontext aus prepare_agent_toolkit (vom Caller bereits gesammelte Erinnerungen; kommt als eigene Nachricht vor die Nutzerfrage)
-        vision_json_context: Vision JSON Kontext (optional)
-        stt_time: Speech-to-Text Zeit für Metadata (optional)
-        cloud_provider_label: Cloud Provider Label für Debug-Ausgabe (optional)
-        num_ctx_manual_enabled: Manuelles num_ctx aktiviert?
-        num_ctx_manual_value: Manueller num_ctx Wert
 
     Yields:
         Dict mit type und payload:
         - {"type": "debug", "message": str}
         - {"type": "content", "text": str}
         - {"type": "progress", "phase": str} oder {"type": "progress", "clear": True}
-        - {"type": "result", "data": {...}} - Finale Ergebnisse
+        - {"type": "result", "data": {"history": ..., "llm_history": ...}} - Finale Ergebnisse
     """
     yield {"type": "progress", "phase": "llm"}
 
@@ -92,47 +81,26 @@ async def call_llm(
     # personality reminder (prompts/<lang>/<agent>/reminder.txt) as user-message
     # prefix. With "aifred" hardcoded, every agent (Pater Tuck, Sokrates, etc.)
     # would get AIfred's "[STIL: Britischer Butler]" reminder → agent-identity leak.
-    messages: list[dict[str, Any]]
-    if multimodal_content is not None:
-        # Multimodal: Build without user text, then append multimodal content
-        messages = list(build_messages_from_llm_history(
-            llm_history,
-            perspective=agent,
-            detected_language=detected_language
-        ))
-        messages.append({"role": "user", "content": multimodal_content})
-        log_message("📷 Multimodal content injected into user message")
-    else:
-        # Standard: Include user text directly
-        messages = list(build_messages_from_llm_history(
-            llm_history,
-            current_user_text=user_text,
-            perspective=agent,
-            detected_language=detected_language
-        ))
+    # Build without user text, then append the images with the question
+    messages: list[dict[str, Any]] = list(build_messages_from_llm_history(
+        llm_history,
+        perspective=agent,
+        detected_language=detected_language
+    ))
+    messages.append({"role": "user", "content": multimodal_content})
+    log_message("📷 Multimodal content injected into user message")
 
-    # Inject system prompt (agent-aware)
-    # When multimodal content is present, use the real agent's prompt stack
-    # (identity, personality, memory, tools) + vision task as addon.
-    if multimodal_content is not None:
-        # Real agent prompt (with full layer stack: identity, tools, memory, personality)
-        system_prompt = get_agent_system_prompt(agent, "task", lang=detected_language, source=source)
-        # Append vision-specific task instructions as addon — caller renders
-        # the SSOT vision/task_adaptive.txt (identical perception body for
-        # every image, only the follow-up instruction differs by whether
-        # the user asked something specific).
-        if vision_task_addon:
-            system_prompt = f"{system_prompt}\n\n{vision_task_addon}"
-    else:
-        system_prompt = get_agent_system_prompt(agent, "task", lang=detected_language, source=source)
-    # Agent Memory: recall + toolkit. Three possible sources:
-    #   1. external_toolkit + memory_ctx from caller (Message Hub / Scheduler path)
-    #   2. state-based self-lookup (legacy VL / direct call_llm path with agent_memory_enabled)
-    #   3. No memory (multi_agent.py path assembles memory_ctx itself before calling)
+    # The real agent's prompt stack (identity, personality, memory, tools) + the vision task as
+    # addon — the caller renders the SSOT vision/task_adaptive.txt (identical perception body for
+    # every image, only the follow-up instruction differs by whether the user asked something specific).
+    system_prompt = get_agent_system_prompt(agent, "task", lang=detected_language, source="browser")
+    if vision_task_addon:
+        system_prompt = f"{system_prompt}\n\n{vision_task_addon}"
+    # Agent Memory: recall + toolkit. The caller's toolkit and memories, else (no toolkit came)
+    # a memory-only lookup when the tab has memory on.
     memory_toolkit = external_toolkit
     if memory_toolkit:
-        # External toolkit provided (e.g. from Message Hub / Scheduler) — already logged by caller
-        pass
+        pass   # already logged by the caller
     elif state and getattr(state, 'agent_memory_enabled', False):
         from .agent_memory import prepare_agent_toolkit
         self_memory_ctx, memory_toolkit = await prepare_agent_toolkit(
@@ -155,29 +123,16 @@ async def call_llm(
         mem_tok = estimate_tokens([{"content": memory_ctx}])
         yield {"type": "debug", "message": f"🧠 Memory context injected ({mem_tok:,} tok, before question)"}
 
-    # Inject Vision JSON context if available
-    if vision_json_context:
-        from .message_builder import inject_vision_json_context
-        inject_vision_json_context(messages, vision_json_context)
-        log_message(f"📷 Vision JSON injected ({len(str(vision_json_context))} chars)")
-
     # Create LLM client
     llm_client = LLMClient(backend_type=backend_type, base_url=backend_url, provider=provider)
 
     try:
         yield {"type": "debug", "message": f"🌡️ Temperature: {format_number(temperature, 1)}"}
 
-        # Calculate num_ctx
-        if num_ctx_manual_enabled and num_ctx_manual_value:
-            final_num_ctx = num_ctx_manual_value
-            if num_ctx_source_label:
-                yield {"type": "debug", "message": f"🎯 Context: {format_number(final_num_ctx)} ({num_ctx_source_label})"}
-        else:
-            # Use centralized SSOT: get_agent_num_ctx handles vision_num_ctx_enabled,
-            # VRAM calibration cache, XTTS reservation and backend-specific logic.
-            assert state is not None, "state required for num_ctx lookup"
-            final_num_ctx, ctx_source = get_agent_num_ctx(agent, state, model_choice)
-            yield {"type": "debug", "message": f"🎯 Context: {format_number(final_num_ctx)} ({ctx_source})"}
+        # Centralized SSOT: get_agent_num_ctx handles vision_num_ctx_enabled,
+        # VRAM calibration cache, XTTS reservation and backend-specific logic.
+        final_num_ctx, ctx_source = get_agent_num_ctx(agent, state, model_choice)
+        yield {"type": "debug", "message": f"🎯 Context: {format_number(final_num_ctx)} ({ctx_source})"}
 
         # Count input tokens
         input_tokens = estimate_tokens(messages, model_name=model_choice)
@@ -212,7 +167,7 @@ async def call_llm(
 
         async for event in run_llm_stream(
             llm_client, model_choice, cast(list, messages), llm_options, agent_label,
-            source=source, toolkit=memory_toolkit,
+            source="browser", toolkit=memory_toolkit,
         ):
             event_type = event["type"]
             if event_type == "content":
@@ -252,7 +207,7 @@ async def call_llm(
         if history_entry is not None:
             llm_history.append(history_entry)
 
-        # Rebuild metadata with hub-specific params (history_tokens, backend_type, source_label)
+        # Metadata with history_tokens, backend_type, source_label
         from .context_manager import estimate_tokens_from_llm_history
         history_tokens = estimate_tokens_from_llm_history(llm_history)
         source_label = f"{agent_label} ({model_choice})"
@@ -269,10 +224,6 @@ async def call_llm(
             truncated=pipeline_result.truncated,
             load_time=pipeline_result.load_time,
         )
-        # Channel-Hint fuer send_reply: bei erfolgreichem Audio-Tool soll
-        # die TTS-Bestaetigung geskippt werden — Smart-Speaker-UX.
-        if pipeline_result.silent_reply:
-            metadata_dict["silent_reply"] = True
         yield {"type": "debug", "message": debug_msg}
 
         # Update chat_history (UI display with thinking, the turn's bubble
@@ -288,23 +239,7 @@ async def call_llm(
         # Final result - unified Dict format
         yield {
             "type": "result",
-            "data": {
-                "response_clean": response_clean,
-                # The same bubble the browser shows, thinking included.
-                "response_display": bubble_html,
-                # What the turn's tools left for the llm_history — the hub
-                # persists the answer itself (_append_response), so it needs
-                # them alongside the text.
-                "history_notes": pipeline_result.history_notes,
-                "history": history,
-                "llm_history": llm_history,
-                "inference_time": pipeline_result.inference_time,
-                "tokens_per_sec": pipeline_result.work.decode_rate(),
-                "ttft": pipeline_result.ttft,
-                "model_choice": model_choice,
-                "failed_sources": [],
-                "metadata_dict": metadata_dict,
-            }
+            "data": {"history": history, "llm_history": llm_history}
         }
 
     finally:

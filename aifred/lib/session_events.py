@@ -9,12 +9,13 @@ The replay buffer holds what a page opened late still needs: it is emptied when 
 newest value describes, or audio chunks a combined file supersedes).
 
 All state lives on the server's event loop (``bind_home_loop`` at startup): channels and the
-scheduler run in the message hub's thread with a loop of their own, and their ``publish``
-calls are handed over to the home loop, so no lock is needed.
+scheduler run in the message hub's thread with a loop of their own, and what they change here
+(``publish``, ``clear_replay``) is handed over to the home loop (``on_home_loop``), in order, so no
+lock is needed.
 """
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
@@ -57,6 +58,15 @@ def _on_home_loop() -> bool:
         return False
 
 
+def on_home_loop(callback: Callable[..., object], *args: Any) -> None:
+    """Run ``callback`` on the server's loop: at once when called there, else handed over (in the order
+    of the calls). Without a bound loop (tests, command line) there is only one loop: at once."""
+    if _home_loop is not None and not _on_home_loop():
+        _home_loop.call_soon_threadsafe(callback, *args)
+        return
+    callback(*args)
+
+
 def publish(
     session_id: str,
     kind: str,
@@ -67,13 +77,8 @@ def publish(
     """Send an event to every subscriber of the session and keep it for late clients.
 
     ``replaces``: kinds whose earlier events leave the replay buffer when this one arrives.
-    Called from another thread, the event is handed to the home loop and sent from there.
-    Without a bound loop (tests, command line) there is only one loop and it is sent at once.
     """
-    if _home_loop is not None and not _on_home_loop():
-        _home_loop.call_soon_threadsafe(_publish_here, session_id, kind, data, replaces)
-        return
-    _publish_here(session_id, kind, data, replaces)
+    on_home_loop(_publish_here, session_id, kind, data, replaces)
 
 
 def _publish_here(session_id: str, kind: str, data: dict[str, Any], replaces: frozenset[str]) -> None:
@@ -89,6 +94,10 @@ def _publish_here(session_id: str, kind: str, data: dict[str, Any], replaces: fr
 
 def clear_replay(session_id: str, *, keep: frozenset[str] = frozenset()) -> None:
     """Forget the buffered events of the session (ids keep rising), except the kinds in ``keep``."""
+    on_home_loop(_clear_here, session_id, keep)
+
+
+def _clear_here(session_id: str, keep: frozenset[str]) -> None:
     channel = _channel(session_id)
     channel.replay = [event for event in channel.replay if event.kind in keep]
 

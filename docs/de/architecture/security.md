@@ -163,8 +163,8 @@ Fremde Absender sehen keine Erinnerungen:
 | Webhook | nein |
 
 `trust` ist dasselbe Owner-Verdict wie für `wrap_external_message`
-(`resolve_trust_label`). `process_inbound` reicht es über `_call_engine` an
-`prepare_agent_toolkit` weiter. Die Tools tragen `Tool.owner_gated`; nur ein
+(`resolve_trust_label`). `process_inbound` gibt es dem Zug als `TurnOrigin.trust` mit,
+`turn_service.agent_toolkit` reicht es für jeden Agenten des Zugs an `prepare_agent_toolkit` weiter. Die Tools tragen `Tool.owner_gated`; nur ein
 Toolkit, das die Prüfung bestanden hat, enthält sie, deshalb überspringt
 `ToolKit` für sie `needs_confirmation`.
 
@@ -226,7 +226,7 @@ Antworten an externe Channels werden bereinigt:
 2. **Secret-Pattern-Scan** — API-Keys, Tokens, Bearer-Headers werden redacted
 
 Implementiert in `security.py: sanitize_outbound()`.
-Aufgerufen in `message_processor.py: process_inbound()` (Phase 3b).
+Aufgerufen in `message_processor.py: outbound_text()`, für jede Antwort des Zugs.
 
 ### Tool-Output Sanitization
 

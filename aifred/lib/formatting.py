@@ -344,7 +344,7 @@ def performance_footer_text(metadata: dict) -> str:
     """Build the performance metadata line from a metrics dict, as plain text
     (the sub-agent transcript shows it inside a preformatted block).
 
-    Used by both browser-path (_add_agent_panel) and hub-path (_append_response).
+    Used by the bubble footer (format_performance_footer) and the sub-agent transcript.
 
     Args:
         metadata: Dict with keys: ttft, prompt_per_sec, tokens_per_sec,
@@ -436,8 +436,8 @@ def build_assistant_chat_entry(
     """Build a chat_history dict for an assistant message.
 
     Single source of truth for the dict shape that the UI renderer expects.
-    Used by both the browser path (_add_agent_panel) and the hub/channel path
-    (_append_response in message_processor).
+    Used by every agent reply (build_agent_panel_entry) and the turn's confirmation
+    of a mode switch (turn_service).
 
     Args:
         content: Display content (already formatted, with footer if needed).

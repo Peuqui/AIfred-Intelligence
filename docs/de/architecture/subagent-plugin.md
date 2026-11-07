@@ -29,7 +29,7 @@ gemeinsames Gedächtnis über Dateien im Workspace.
 |---|---|---|
 | Plugin-Protokoll `ToolPlugin`, `PluginContext` | `aifred/lib/plugin_base.py` | Das Plugin ist ein gewöhnliches Tool-Plugin, Kontext liefert Agent, Sprache, Session, State, `max_tier`, `source` |
 | Werkzeugkasten pro Agent `prepare_agent_toolkit` | `aifred/lib/agent_memory.py` | Baut den Werkzeugkasten des Sub-Agenten, inklusive Tier-Filter und Agent-Whitelist |
-| Ereignis-Pipeline `run_llm_stream` | `aifred/lib/llm_pipeline.py` | Führt den Sub-Agenten aus, mit eigenem Werkzeugkasten; Modell, Kontext und Temperatur kommen über dieselben Helfer wie im Browser-Turn (`multi_agent`) und im Hub-Turn (`message_processor`). `call_llm` kam nicht in Frage, weil es den Persona-Reminder in die Nutzernachricht einbaut |
+| Ereignis-Pipeline `run_llm_stream` | `aifred/lib/llm_pipeline.py` | Führt den Sub-Agenten aus, mit eigenem Werkzeugkasten; Modell, Kontext und Temperatur kommen über dieselben Helfer wie im Browser-Turn (`multi_agent`) und im Zug des Servers (`turn_service`, Vue-Chat und Message Hub). `call_llm` kam nicht in Frage, weil es den Persona-Reminder in die Nutzernachricht einbaut |
 | Tool-Schleife mit Guards | `aifred/backends/base.py`, `aifred/lib/function_calling.py` | Der Sub-Agent bekommt sie geschenkt: Kettentiefe, Schleifenbrecher, Kontext-Wächter, erzwungene Schlussrunde |
 | Async-Generator-Executor mit `progress`-Ereignissen | `function_calling.py`, Präzedenz `research` | Das Delegations-Werkzeug streamt Fortschritt in die Statuszeile, ohne den Bericht zu blockieren |
 | Aufklappbare Blöcke | `aifred/lib/formatting.py`, `llm_pipeline.PipelineResult` | Der innere Ablauf wird wie die Recherche-Quellen als HTML neben dem Text in die Bubble gehängt |
@@ -164,8 +164,8 @@ Sandbox-Seiten und -Bilder, Kamerabilder (auch ganze Serien) und die
 VLM-Beschreibung. `llm_pipeline` sammelt sie in `PipelineResult.artifacts`,
 jedes mit einem Anker an der Stelle des Turns, an der sein Werkzeug lief.
 `render_bubble` ist die eine Stelle, die Text und Artefakte in Turn-Reihenfolge
-zur Bubble macht; Browser-Pfad (`multi_agent`), `call_llm` und Message Hub
-nutzen sie. Der Hub zeigt keine Tag-Blöcke wie Denkprozess oder
+zur Bubble macht; Browser-Pfad (`multi_agent`), `call_llm` und der Zug des Servers
+(`turn_service`, auch für den Message Hub) nutzen sie. Der Hub zeigt keine Tag-Blöcke wie Denkprozess oder
 VLM-Beschreibung, die übrigen Artefakte schon.
 
 Ein Werkzeug liefert Artefakte als Ereignis `artifacts`; die Tool-Schleife

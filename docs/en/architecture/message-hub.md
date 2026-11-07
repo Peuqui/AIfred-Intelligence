@@ -121,23 +121,27 @@ CREATE TABLE routes (
 ## Agent Routing
 
 When a message is addressed to a specific agent, that agent answers.
-There is no function per agent: `process_inbound()` sets
-`message.target_agent`, and `_call_engine(agent=...)` passes it on to
-`call_llm(agent=...)` — this works for AIfred, Sokrates, Salomo and every
-custom agent from the agent configuration.
+There is no function per agent: the message runs as a turn of the turn service
+(`turn_service.run_turn`, since 07.11.2026 the same as in the Vue chat); this
+works for AIfred, Sokrates, Salomo and every custom agent from the agent
+configuration. Afterwards `process_inbound()` sets `message.target_agent`
+(FreeEcho.2 speaks with that agent's voice).
 
-Target-agent detection is LLM-based: `detect_target_agent_via_llm()` in
-`message_processor.py` wraps `detect_query_intent_and_addressee()` (the same
-detection as the browser) and returns `(agent_id, intent, detected_language,
-mode_switch_updates)`. Routing priority (highest wins):
+Detection runs in the turn (`detect_query_intent_and_addressee()`, the same as
+in the browser): addressee, language, mode switch. Routing priority (highest wins):
 
 1. `metadata["wake_agent"]` — internal triggers and channels hard-pin the
    agent this way (e.g. the scheduler, see `scheduler.py`, or the FreeEcho.2
-   wake word). Intent detection still runs, but its addressee is overridden
-   (only if the wake agent is configured).
+   wake word), as `TurnOrigin.pinned_agent`. Detection still runs, but its
+   addressee is overridden (only if the wake agent is configured).
 2. The addressee the LLM detected in the current message
-3. The session's `active_agent` (sticky from the previous turn)
-4. Default `"aifred"`
+3. The session's `active_agent` (sticky from the previous turn; every address
+   and every pinned agent becomes the new one)
+
+When the session is in a multi-agent mode, several agents speak; the channel
+gets every contribution of the turn in order, each with "— Name —"
+(`outbound_text`). An agent switched off does not answer, nor does another in
+its place.
 
 ---
 
@@ -304,19 +308,13 @@ Routing table (SQLite): thread known?
   └── NO  → create a new session (owner = MESSAGE_HUB_OWNER)
   │
   ▼
-Agent routing: "Sokrates, ..." → target_agent = "sokrates"
-  │
-  ▼
-AIfred engine: call_llm()
-  ├── model + backend from settings.json
-  ├── temperature, thinking mode etc. from the settings
-  └── agent according to target_agent
-  │
-  ▼
-Update the session
-  ├── chat history: "[Email] sender — subject" + body
-  │   (channel name in the UI language, build_user_chat_content())
-  └── LLM history: user text + AIfred's reply
+The server's turn: turn_service.run_turn() (the same as in the Vue chat)
+  ├── the session at once: chat history "[Email] sender — subject" + body
+  │   (channel name in the UI language, build_user_chat_content()),
+  │   LLM history: the text wrapped in <external_message>
+  ├── intent, agent routing: "Sokrates, ..." → Sokrates answers
+  ├── model, context, temperature, thinking per agent from settings.json
+  └── the reply (or replies) as bubbles, the session's multi-agent mode applies
   │
   ▼
 Auto-reply active?

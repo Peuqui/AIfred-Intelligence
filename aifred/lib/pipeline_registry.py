@@ -61,7 +61,7 @@ def register_pipeline(session_id: str, task: asyncio.Task) -> None:
     # try to re-acquire the registry.
     if previous is not None and previous is not task and not previous.done():
         log_message(f"Pipeline registry: superseding old task for session {session_id[:8]}")
-        previous.cancel()
+        _cancel(previous)
 
 
 def unregister_pipeline(session_id: str, task: asyncio.Task | None = None) -> None:
@@ -99,8 +99,14 @@ def cancel_pipeline(session_id: str) -> bool:
         task = _active_pipelines.get(session_id)
     if task is None or task.done():
         return False
-    task.cancel()
+    _cancel(task)
     return True
+
+
+def _cancel(task: asyncio.Task) -> None:
+    """Cancel on the task's own loop: a channel's turn runs on the message hub's thread, the stop
+    comes from the server's (Task.cancel is not thread-safe)."""
+    task.get_loop().call_soon_threadsafe(task.cancel)
 
 
 class pipeline_scope:

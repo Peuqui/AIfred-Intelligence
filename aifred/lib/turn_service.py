@@ -15,11 +15,11 @@ adds ``tts``, ``tts_pause`` and ``tts_speak`` (the playlist), ``notice`` (a mess
 and, once the reading is over, ``message_updated`` (the bubble with what was spoken); these may
 come after ``turn_finished``.
 
-Covered so far: the direct answer of one agent with tools and memory, addressee and language,
-mode switch, history compression, sticky addressing, title, the multi-agent modes
-(``lib/turn_debate.py``), the spoken reply in the browser (``lib/reply_speech.py``), images
-(seen by the answering agent or described once, ``_look_at_images``). Dictation follows
-(docs/de/architecture/vue-migration/README.md).
+Covered: the direct answer of one agent with tools and memory, addressee and language, mode switch,
+history compression, sticky addressing, title, the multi-agent modes (``lib/turn_debate.py``), the
+spoken reply in the browser (``lib/reply_speech.py``), images (seen by the answering agent or
+described once, ``_look_at_images``). A message of a channel, a scheduled job or an alert runs the same
+turn (``TurnOrigin``, from ``message_processor.process_inbound``); its caller delivers the replies.
 
 Every model call of a turn runs through the same three steps, for the direct answer here and for
 each speaker of a debate: build (``AgentCall``), stream (``stream_call``), finish (``finish_call``).
@@ -64,11 +64,44 @@ class TurnRejected(Exception):
 
 
 @dataclass(frozen=True)
+class TurnOrigin:
+    """A message from outside the chat: a channel, a scheduled job, an alert (``process_inbound``).
+
+    Its bubble and what the model reads are built by the channel side; the rights of its sender go to
+    every agent's tools of the turn.
+    """
+
+    chat_entry: dict[str, Any]       # the bubble (message_processor.build_inbound_chat_entry)
+    llm_text: str                    # the user turn as the model reads it: wrapped as an external message
+    max_tier: int                    # the highest tool tier the sender may reach (security.resolve_tier_for_sender)
+    trust: str                       # owner or external (security.resolve_trust_label)
+    metadata: dict[str, Any]         # the channel's extras the tools read (delivery channel of a job, …)
+    pinned_agent: str | None = None  # a wake word or a job names who answers, whoever the text addresses
+
+
+@dataclass(frozen=True)
 class TurnRequest:
     session_id: str
     text: str
     source: str = "browser"
     images: tuple[str, ...] = ()   # URLs of the images uploaded for this message (lib/turn_images.py)
+    origin: TurnOrigin | None = None   # None: the message was written in the chat
+
+
+@dataclass(frozen=True)
+class TurnReply:
+    """A reply of the turn, as a channel delivers it."""
+
+    agent: str
+    text: str        # without thinking (PipelineResult.text_clean)
+    silent: bool     # a tool already answered out loud (audio_player): the channel says nothing
+
+
+@dataclass(frozen=True)
+class TurnOutcome:
+    status: str                  # done | rejected | error
+    agent: str | None            # who the message went to; None when the turn ended before routing
+    replies: tuple[TurnReply, ...]
 
 
 def submit_turn(request: TurnRequest) -> bool:
@@ -88,12 +121,13 @@ def submit_turn(request: TurnRequest) -> bool:
     return False
 
 
-def start_turn(request: TurnRequest) -> asyncio.Task[None]:
+def start_turn(request: TurnRequest) -> asyncio.Task[TurnOutcome]:
     """Run the turn as a task of the current loop; an earlier turn of the session is cancelled."""
     return asyncio.create_task(run_turn(request), name=f"turn-{request.session_id[:8]}")
 
 
-async def run_turn(request: TurnRequest) -> None:
+async def run_turn(request: TurnRequest) -> TurnOutcome:
+    """Run the turn in the current task (it becomes the session's pipeline: a stop cancels it)."""
     from .pipeline_registry import register_pipeline, unregister_pipeline
 
     session_id = request.session_id
@@ -102,9 +136,10 @@ async def run_turn(request: TurnRequest) -> None:
     register_pipeline(session_id, task)
     turn_id = uuid.uuid4().hex
     status = "done"
+    routing = _Routing()
     with session_scope(session_id):
         try:
-            await _run(request, turn_id)
+            await _run(request, turn_id, routing)
         except TurnRejected as rejection:
             status = "rejected"
             debug(f"⚠️ {rejection.message}")
@@ -120,16 +155,27 @@ async def run_turn(request: TurnRequest) -> None:
         finally:
             unregister_pipeline(session_id, task)
             session_events.publish(session_id, "turn_finished", {"turn_id": turn_id, "status": status})
-            _start_next(session_id, request.source)
+            _start_next(session_id)
+    return TurnOutcome(status, routing.agent, tuple(routing.replies))
 
 
-def _start_next(session_id: str, source: str) -> None:
-    """The next message waiting in the session's queue becomes the next turn."""
+def _start_next(session_id: str) -> None:
+    """The next message waiting in the session's queue becomes the next turn, on the server's loop
+    (a channel's turn ends on the message hub's). Only the chat queues (``submit_turn``, dictation,
+    injection): a waiting message is one written in the chat."""
     from .session_storage import pop_pending_message
 
     pending = pop_pending_message(session_id)
     if pending is not None:
-        start_turn(TurnRequest(session_id, pending.text, source, pending.images))
+        session_events.on_home_loop(start_turn, TurnRequest(session_id, pending.text, images=pending.images))
+
+
+@dataclass
+class _Routing:
+    """What the caller of a turn learns of it: who it went to and the replies, filled as it runs."""
+
+    agent: str | None = None
+    replies: list[TurnReply] = field(default_factory=list)
 
 
 # ── The turn ─────────────────────────────────────────────────────────────
@@ -149,13 +195,15 @@ class TurnContext:
     mode: str             # the session's multi-agent mode (after a switch): labels the bubbles
     memory_enabled: bool  # the agents use their long-term memory (the session is not incognito)
     stamp: str            # the turn's time stamp (message_builder.user_turn_stamp)
+    origin: TurnOrigin | None   # a message from outside the chat: its sender's rights for the tools
+    replies: list[TurnReply]    # the turn's replies so far (finish_call), for the caller of run_turn
     # The images the answering agent sees itself in its request; empty when the turn has none or a
     # description of them joined the user turn (_look_at_images).
     seen_images: tuple[TurnImage, ...] = ()
     calls: list[AgentCall] = field(default_factory=list)   # the turn's model calls so far (stream_call)
 
 
-async def _run(request: TurnRequest, turn_id: str) -> None:
+async def _run(request: TurnRequest, turn_id: str, routing: _Routing) -> None:
     from . import turn_debate
     from .calibration_gate import is_calibration_active
     from .formatting import build_user_chat_entry
@@ -180,9 +228,13 @@ async def _run(request: TurnRequest, turn_id: str) -> None:
         raise TurnRejected("no_model", "No model selected — pick one in the settings")
 
     session_events.clear_replay(session_id, keep=frozenset({"service_status"}))
-    entry = build_user_chat_entry(bubble_text(user_text, images, view.ui_language), bubble_images(images))
+    origin = request.origin
+    if origin is None:
+        entry = build_user_chat_entry(bubble_text(user_text, images, view.ui_language), bubble_images(images))
+    else:
+        entry = origin.chat_entry
     stamp = user_turn_stamp()
-    llm_user_text = stamp_user_turn(history_text(user_text, images), stamp)
+    llm_user_text = stamp_user_turn(history_text(user_text, images) if origin is None else origin.llm_text, stamp)
     _append(session_id, chat=[entry], llm=[{"role": "user", "content": llm_user_text}])
     session_events.publish(session_id, "turn_started", {"turn_id": turn_id, "user_entry": entry})
     debug("📨 User request received")
@@ -194,9 +246,10 @@ async def _run(request: TurnRequest, turn_id: str) -> None:
         if intent.mode_switch:
             config = _apply_mode_switch(session_id, config, intent)
             if intent.is_pure_command:
-                _confirm_mode_switch(session_id, config, intent)
+                routing.replies.append(_confirm_mode_switch(session_id, config, intent))
                 return
-        agent = _route(session_id, config, intent.addressed_to)
+        agent = _route(session_id, config, intent.addressed_to, origin.pinned_agent if origin else None)
+        routing.agent = agent
         mode = config["multi_agent_mode"]
         plan = turn_debate.plan_turn(mode, agent, intent.addressed_to, config["symposion_agents"], session_seats(config))
         seen: tuple[TurnImage, ...] = ()
@@ -206,7 +259,8 @@ async def _run(request: TurnRequest, turn_id: str) -> None:
         if not memory_enabled:
             debug("🔒 Incognito mode (no memory)")
         ctx = TurnContext(
-            session_id, view, llm_client, user_text, llm_user_text, intent, request.source, mode, memory_enabled, stamp, seen,
+            session_id, view, llm_client, user_text, llm_user_text, intent, request.source, mode, memory_enabled, stamp,
+            origin, routing.replies, seen,
         )
         await _compress(ctx, plan.agents)
         if plan.responder is None:
@@ -291,7 +345,7 @@ def _apply_mode_switch(session_id: str, config: dict[str, Any], intent: _Intent)
     return config
 
 
-def _confirm_mode_switch(session_id: str, config: dict[str, Any], intent: _Intent) -> None:
+def _confirm_mode_switch(session_id: str, config: dict[str, Any], intent: _Intent) -> TurnReply:
     """A message that only switched the mode gets a confirmation instead of an answer."""
     from .agent_config import get_agent_label
     from .formatting import build_assistant_chat_entry
@@ -305,22 +359,27 @@ def _confirm_mode_switch(session_id: str, config: dict[str, Any], intent: _Inten
     entry["mode"] = "mode_switch"
     _append(session_id, chat=[entry], llm=[{"role": "assistant", "content": text}])
     session_events.publish(session_id, "message_added", {"entry": entry})
+    return TurnReply("system", text, silent=False)
 
 
-def _route(session_id: str, config: dict[str, Any], addressed_to: str | None) -> str:
-    """The agent that answers: the one addressed in the message, else the session's active agent.
+def _route(session_id: str, config: dict[str, Any], addressed_to: str | None, pinned: str | None) -> str:
+    """The agent that answers: the one a wake word or a job pinned, else the one addressed in the
+    message, else the session's active agent.
 
     An explicit address sticks: it becomes the session's active agent for the next turns.
     """
     from .agent_config import get_agent_label
     from .session_storage import update_session_config
 
-    if addressed_to and addressed_to != config["active_agent"]:
-        update_session_config(session_id, active_agent=addressed_to)
-        config["active_agent"] = addressed_to
+    if pinned and addressed_to and pinned != addressed_to:
+        debug(f"🎯 Wake-Override: {get_agent_label(pinned)} (the message addressed {get_agent_label(addressed_to)})")
+    chosen = pinned or addressed_to
+    if chosen and chosen != config["active_agent"]:
+        update_session_config(session_id, active_agent=chosen)
+        config["active_agent"] = chosen
         session_events.publish(session_id, "session_config", _public_config(config))
-    agent = addressed_to or config["active_agent"]
-    if addressed_to:
+    agent = chosen or config["active_agent"]
+    if chosen:
         debug(f"{get_agent_label(agent)} Direct addressing")
     return agent
 
@@ -492,6 +551,24 @@ def measure_prompt(messages: list[dict[str, Any]], toolkit: Any, model: str) -> 
     return system, history, estimate_toolkit_tokens(toolkit, model_name=model)
 
 
+async def agent_toolkit(ctx: TurnContext, agent: str) -> tuple[str, Any]:
+    """The agent's recalled memories and tools for this turn, within the rights of the message's
+    sender (a channel's tier and trust; the chat's own are the full ones)."""
+    from .agent_memory import prepare_agent_toolkit
+
+    origin = ctx.origin
+    if origin is None:
+        return await prepare_agent_toolkit(
+            agent, ctx.user_text, lang=ctx.intent.language, memory_enabled=ctx.memory_enabled,
+            research_tools_enabled=True, session_id=ctx.session_id, source=ctx.source,
+        )
+    return await prepare_agent_toolkit(
+        agent, ctx.user_text, lang=ctx.intent.language, memory_enabled=ctx.memory_enabled,
+        research_tools_enabled=True, session_id=ctx.session_id, source=ctx.source,
+        max_tier=origin.max_tier, metadata=origin.metadata, trust=origin.trust,
+    )
+
+
 def session_llm_history(session_id: str) -> list[dict[str, Any]]:
     from .session_storage import load_session
 
@@ -513,7 +590,6 @@ async def _respond(ctx: TurnContext, agent: str) -> PipelineResult | None:
 async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
     """The direct answer's call: the agent's direct prompt, the history from its perspective, the
     memories right before the question; the turn's images in the question when the agent sees them."""
-    from .agent_memory import prepare_agent_toolkit
     from .agent_settings import (
         THINKING_OFF,
         resolve_agent_temperature,
@@ -535,10 +611,7 @@ async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
     num_ctx, ctx_source = agent_context(view, agent)
     debug(f"   🎯 Context: {format_number(num_ctx)} ({ctx_source})")
 
-    memory_ctx, toolkit = await prepare_agent_toolkit(
-        agent, ctx.user_text, lang=lang, memory_enabled=ctx.memory_enabled, research_tools_enabled=True,
-        session_id=ctx.session_id, source=ctx.source,
-    )
+    memory_ctx, toolkit = await agent_toolkit(ctx, agent)
     # The agent thinks as its own row says for the model it runs on (Peuqui 07.11.2026: AIfred's
     # choice does not apply to the other agents).
     thinking = thinking_mode(view, agent, model)
@@ -585,8 +658,9 @@ async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
 async def stream_call(ctx: TurnContext, call: AgentCall) -> PipelineResult | None:
     """Stream the call to the clients; None when the pipeline ends without a result.
 
-    A cancelled stream keeps what had arrived as an interrupted bubble, in every mode. The reply is
-    read aloud while it streams when the settings want it (``reply_speech``).
+    A cancelled stream keeps what had arrived as an interrupted bubble, in every mode. A reply to the
+    chat is read aloud while it streams when the settings want it (``reply_speech``); a channel speaks
+    its reply itself.
     """
     from . import reply_speech
     from .llm_pipeline import run_llm_stream
@@ -598,7 +672,9 @@ async def stream_call(ctx: TurnContext, call: AgentCall) -> PipelineResult | Non
     budget_var.set(call.tool_budget)
     # Several agents speak in a multi-agent turn: their tool lines carry the speaker.
     tool_agent = call.log_label if ctx.mode != "standard" else ""
-    speech = await reply_speech.begin(ctx.session_id, call, ctx.view, ctx.intent.language, ctx.view.ui_language)
+    speech = None
+    if ctx.origin is None:
+        speech = await reply_speech.begin(ctx.session_id, call, ctx.view, ctx.intent.language, ctx.view.ui_language)
     session_events.publish(
         ctx.session_id, "agent_started", {"agent": call.agent, "display_name": call.label, "emoji": call.emoji},
     )
@@ -655,6 +731,7 @@ def finish_call(
     _append(ctx.session_id, chat=[entry], llm=[history_entry] if history_entry else [])
     session_events.publish(ctx.session_id, "message_added", {"entry": entry})
     reply_speech.keep_on(ctx.session_id, call, entry)
+    ctx.replies.append(TurnReply(call.agent, result.text_clean, result.silent_reply))
     return entry
 
 

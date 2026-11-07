@@ -49,6 +49,7 @@ from .turn_service import (
     agent_context,
     agent_identity,
     agent_model,
+    agent_toolkit,
     compress_history,
     finish_call,
     measure_prompt,
@@ -170,11 +171,10 @@ class _Member:
 
 async def _cast(ctx: TurnContext, seats: dict[str, str]) -> dict[str, _Member]:
     """Contexts, temperatures and options of the debate's agents, then their memories and tools."""
-    from .agent_memory import prepare_agent_toolkit
     from .agent_settings import resolve_agent_temperature
     from .llm_client import build_llm_options
 
-    view, lang = ctx.view, ctx.intent.language
+    view = ctx.view
     configs = {seat: agent_identity(agent) for seat, agent in seats.items()}
     contexts = {seat: agent_context(view, agent) for seat, agent in seats.items()}
     for seat, (num_ctx, source) in contexts.items():
@@ -190,10 +190,7 @@ async def _cast(ctx: TurnContext, seats: dict[str, str]) -> dict[str, _Member]:
     members: dict[str, _Member] = {}
     for seat, agent in seats.items():
         config, num_ctx, model = configs[seat], contexts[seat][0], agent_model(view, agent)
-        memory, toolkit = await prepare_agent_toolkit(
-            agent, ctx.user_text, lang=lang, memory_enabled=ctx.memory_enabled, research_tools_enabled=True,
-            session_id=ctx.session_id, source=ctx.source,
-        )
+        memory, toolkit = await agent_toolkit(ctx, agent)
         if memory:
             debug(f"🧠 Memory context recalled for {config.display_name}")
         members[seat] = _Member(
@@ -533,7 +530,6 @@ async def _symposion_call(
 ) -> AgentCall:
     """A speaker's call: its identity, the symposion's rules, the conversation with its own
     contributions as its own; memories only in round 1, before the last contribution."""
-    from .agent_memory import prepare_agent_toolkit
     from .agent_settings import resolve_agent_temperature
     from .llm_client import build_llm_options
     from .message_builder import inject_before_question
@@ -546,10 +542,7 @@ async def _symposion_call(
     system_prompt = f"{get_agent_system_prompt(agent, prompt_key='direct', lang=lang, memory=ctx.memory_enabled)}\n\n{rules}"
     if reflection:
         system_prompt = f"{system_prompt}\n\n{reflection}"
-    memory, toolkit = await prepare_agent_toolkit(
-        agent, ctx.user_text, lang=lang, memory_enabled=ctx.memory_enabled, research_tools_enabled=True,
-        session_id=ctx.session_id, source=ctx.source,
-    )
+    memory, toolkit = await agent_toolkit(ctx, agent)
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
     for entry in conversation:
         own = entry["role"] == "assistant" and entry.get("agent") == agent

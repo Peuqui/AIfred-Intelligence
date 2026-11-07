@@ -24,8 +24,8 @@ Every LLM call in AIfred flows through a unified chunk-processing pipeline (`run
      +--------+--------+   +--------+--------+    +--------+--------+
               |                      |                      |
               |               +------v------+        +------v------+
-              |               |  call_llm() |        |_call_engine |
-              |               |llm_engine.py|        |  > call_llm |
+              |               |  call_llm() |        |  run_turn() |
+              |               |llm_engine.py|        |turn_service |
               |               +------+------+        +------+------+
               |                      |                      |
      +--------v----------+          |                      |
@@ -220,9 +220,11 @@ run_generic_agent_direct_response(agent_id="sokrates", ...)
 
 Same for Salomo and custom agents.
 
-### 5. Message Hub (Inbound Email)
+### 5. Message Hub (Inbound Email, Scheduler, Alerts)
 
-Completely stateless — no Reflex State needed, only settings file and session storage.
+Completely stateless — no Reflex State needed. Since 07.11.2026 the message runs as a turn of the
+turn service (`lib/turn_service.py`), the one the Vue interface uses for the chat: intent, mode
+switch, compression, multi-agent modes and the same bubble as in the browser.
 
 ```
 email_channel/__init__.py: listener_loop() — email received via IMAP IDLE
@@ -230,36 +232,31 @@ email_channel/__init__.py: listener_loop() — email received via IMAP IDLE
   v
 message_processor.py: dispatch_inbound() -> process_inbound(InboundMessage)
   |
-  |-- 1. Find or create session (routing_table) — before intent
-  |       detection, so session_scope is active for the LLM calls
+  |-- 1. Calibration gate (refusal through the channel), the sender's tier,
+  |       sanitizing, user mapping
+  |-- 2. Find or create session (routing_table)
   |       hub_notification_scope: toast "received" in the browser
-  |-- 2. detect_target_agent_via_llm(text)
-  |       -> (agent_id, detected_language, mode_switch_updates, load_time)
-  |       Wraps detect_query_intent_and_addressee() (automatik model);
-  |       then routing priority: metadata["wake_agent"] > addressee
-  |       > session active_agent > "aifred"
-  |-- 3. Save incoming message to session (save_user_to_session)
-  |-- 4. _call_engine(user_text, session_id, agent, ...)
-  |       |-- Settings from settings.json (no State)
-  |       |-- LLM history from session file
-  |       |-- num_ctx: get_stateless_num_ctx() (no State)
-  |       |-- Toolkit: prepare_agent_toolkit(research_tools_enabled=True)
-  |       |       -> Full plugins (web, email, EPIM, documents, etc.)
-  |       |-- call_llm(external_toolkit=toolkit,
-  |       |            num_ctx_manual_enabled=True, num_ctx_manual_value=num_ctx)
-  |       |     |
-  |       |     v
-  |       |     run_llm_stream()  <-- PIPELINE
-  |       |       Chunks collected (no UI streaming)
-  |       |       Tool call/result -> debug sink
-  |       |
+  |-- 3. _turn_origin(): the bubble (build_inbound_chat_entry), what the model
+  |       reads (the plugin's context, wrapped by wrap_external_message — the
+  |       fence stays in the llm_history), tier, trust, channel metadata,
+  |       metadata["wake_agent"] as the pinned agent (only when configured)
+  |-- 4. turn_service.run_turn(TurnRequest(origin=...)) in the channel's task
+  |       |-- the user entry goes into the session at once (chat + llm_history)
+  |       |-- intent: addressee, language, mode switch (a confirmation for a
+  |       |     pure command); routing: pinned agent > addressee > active_agent
+  |       |-- compression, plan (the session's multi-agent mode)
+  |       |-- per agent: agent_toolkit() -> prepare_agent_toolkit with the
+  |       |     origin's tier, trust and metadata
+  |       |-- run_llm_stream()  <-- PIPELINE (token events to open tabs; not
+  |       |     read aloud in the browser, the channel speaks itself)
+  |       |-- replies saved as bubbles, title in the background
   |       v
-  |       response_clean (+ display, final, metadata, history_notes) returned
+  |       TurnOutcome: status, agent, replies (text_clean, silent)
   |
-  |-- 5. Save response to session (_append_response)
+  |-- 5. outbound_text(): every reply of the turn, sanitized; with a name line
+  |       when another agent than AIfred, or several, spoke
   |-- 6. Auto-reply via plugin.send_reply() (if the channel has always_reply
   |       or its auto-reply toggle is on — email: SMTP)
-  |-- 7. generate_session_title() (if the session has no title yet)
 ```
 
 ### 6. Session Title Generation
@@ -371,7 +368,7 @@ positives.
 | Auto-Consensus | `run_sokrates_analysis` | `_stream_agent_to_history` -> `run_llm_stream` | Multiple rounds, voting |
 | Tribunal | `run_tribunal` | `_stream_agent_to_history` -> `run_llm_stream` | 3 agents, Salomo judges |
 | Symposion | `run_symposion` | `_stream_agent_to_history` -> `run_llm_stream` | N agents sequentially |
-| Message Hub | `process_inbound` | `call_llm` -> `run_llm_stream` | Stateless, auto-reply |
+| Message Hub | `process_inbound` | `turn_service.run_turn` -> `stream_call` -> `run_llm_stream` | Stateless, the same turn as the Vue chat, auto-reply |
 | Title Gen | `generate_session_title` | **No** — `client.chat()` | Non-streaming, 300 s timeout |
 | Intent | `detect_query_intent_and_addressee` | **No** — `client.chat()` | Automatik model |
 
@@ -383,8 +380,9 @@ positives.
 |---|---|
 | `aifred/lib/llm_pipeline.py` | Unified chunk-processing pipeline (`run_llm_stream`, `PipelineResult`) |
 | `aifred/lib/multi_agent.py` | Chat streaming (`_stream_agent_to_history`), debate modes, agent dispatch |
-| `aifred/lib/llm_engine.py` | `call_llm()` (Vision + Hub entry), `generate_session_title()` |
-| `aifred/lib/message_processor.py` | Message Hub pipeline (`process_inbound`, `_call_engine`) |
+| `aifred/lib/llm_engine.py` | `call_llm()` (image in the Reflex chat), `generate_session_title()` |
+| `aifred/lib/turn_service.py` | The server's turn (Vue chat, channels, scheduler, alerts): `run_turn`, `TurnOrigin`, `TurnOutcome` |
+| `aifred/lib/message_processor.py` | Message Hub pipeline (`process_inbound`, `outbound_text`) |
 | `aifred/lib/llm_client.py` | `LLMClient`, `build_llm_options()`, backend abstraction |
 | `aifred/lib/message_builder.py` | `build_messages_from_llm_history()` — perspective transformation |
 | `aifred/lib/agent_memory.py` | `prepare_agent_toolkit()` — memory + plugin tools |

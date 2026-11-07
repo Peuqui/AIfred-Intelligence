@@ -162,8 +162,8 @@ Foreign senders see no memories:
 | Webhook | no |
 
 `trust` is the same owner verdict as for `wrap_external_message`
-(`resolve_trust_label`). `process_inbound` passes it via `_call_engine` to
-`prepare_agent_toolkit`. The tools carry `Tool.owner_gated`; only a toolkit
+(`resolve_trust_label`). `process_inbound` hands it to the turn as `TurnOrigin.trust`,
+and `turn_service.agent_toolkit` passes it to `prepare_agent_toolkit` for every agent of the turn. The tools carry `Tool.owner_gated`; only a toolkit
 that passed the check contains them, so `ToolKit` skips
 `needs_confirmation` for them.
 
@@ -225,7 +225,7 @@ Responses to external channels are cleaned:
 2. **Secret pattern scan** — API keys, tokens, Bearer headers are redacted
 
 Implemented in `security.py: sanitize_outbound()`.
-Called in `message_processor.py: process_inbound()` (phase 3b).
+Called in `message_processor.py: outbound_text()`, for every reply of the turn.
 
 ### Tool Output Sanitization
 

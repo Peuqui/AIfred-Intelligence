@@ -121,23 +121,27 @@ CREATE TABLE routes (
 ## Agent-Routing
 
 Wenn eine Nachricht an einen bestimmten Agenten gerichtet ist, antwortet dieser.
-Es gibt keine Funktion pro Agent: `process_inbound()` setzt
-`message.target_agent`, und `_call_engine(agent=...)` reicht ihn an
-`call_llm(agent=...)` weiter — das gilt für AIfred, Sokrates, Salomo und jeden
-Custom Agent aus der Agenten-Konfiguration.
+Es gibt keine Funktion pro Agent: Die Nachricht läuft als Zug des Zug-Dienstes
+(`turn_service.run_turn`, seit 07.11.2026 derselbe wie im Vue-Chat); das gilt für
+AIfred, Sokrates, Salomo und jeden Custom Agent aus der Agenten-Konfiguration.
+Danach setzt `process_inbound()` `message.target_agent` (FreeEcho.2 spricht mit
+dessen Stimme).
 
-Die Ziel-Agent-Erkennung läuft LLM-basiert: `detect_target_agent_via_llm()` in
-`message_processor.py` kapselt `detect_query_intent_and_addressee()` (dieselbe
-Erkennung wie im Browser) und liefert `(agent_id, intent, detected_language,
-mode_switch_updates)`. Routing-Priorität (höchste gewinnt):
+Die Erkennung läuft im Zug (`detect_query_intent_and_addressee()`, dieselbe wie
+im Browser): Adressat, Sprache, Moduswechsel. Routing-Priorität (höchste gewinnt):
 
 1. `metadata["wake_agent"]` — interne Trigger und Kanäle pinnen den Agenten so
-   hart (z.B. der Scheduler, siehe `scheduler.py`, oder das FreeEcho.2-Wake-Word).
-   Die Intent-Erkennung läuft trotzdem, ihr Adressat wird aber überschrieben
-   (nur wenn der Wake-Agent konfiguriert ist).
+   hart (z.B. der Scheduler, siehe `scheduler.py`, oder das FreeEcho.2-Wake-Word),
+   als `TurnOrigin.pinned_agent`. Die Erkennung läuft trotzdem, ihr Adressat
+   wird aber überschrieben (nur wenn der Wake-Agent konfiguriert ist).
 2. Der vom LLM erkannte Adressat der aktuellen Nachricht
-3. `active_agent` der Session (bleibt vom vorigen Turn hängen)
-4. Default `"aifred"`
+3. `active_agent` der Session (bleibt vom vorigen Turn hängen; jede Ansprache
+   und jeder feste Agent wird der neue)
+
+Steht die Session in einem Diskussionsmodus, sprechen mehrere Agenten; an den
+Kanal gehen alle Beiträge des Zugs nacheinander, jeder mit „— Name —“
+(`outbound_text`). Ein abgeschalteter Agent antwortet nicht, auch kein anderer
+an seiner Stelle.
 
 ---
 
@@ -322,19 +326,13 @@ Routing Table (SQLite): Thread bekannt?
   └── NEIN → Neue Session erstellen (owner = MESSAGE_HUB_OWNER)
   │
   ▼
-Agent-Routing: "Sokrates, ..." → target_agent = "sokrates"
-  │
-  ▼
-AIfred Engine: call_llm()
-  ├── Model + Backend aus settings.json
-  ├── Temperature, Thinking Mode etc. aus Settings
-  └── Agent je nach target_agent
-  │
-  ▼
-Session aktualisieren
-  ├── Chat-History: "[E-Mail] sender — subject" + Body
-  │   (Kanalname in der UI-Sprache, build_user_chat_content())
-  └── LLM-History: User-Text + AIfred-Antwort
+Zug des Servers: turn_service.run_turn() (derselbe wie im Vue-Chat)
+  ├── Session sofort: Chat-History "[E-Mail] sender — subject" + Body
+  │   (Kanalname in der UI-Sprache, build_user_chat_content()),
+  │   LLM-History: der Text eingepackt in <external_message>
+  ├── Absicht, Agent-Routing: "Sokrates, ..." → Sokrates antwortet
+  ├── Modell, Kontext, Temperatur, Denken je Agent aus settings.json
+  └── Antwort(en) als Blase, Diskussionsmodus der Session gilt
   │
   ▼
 Auto-Reply aktiv?
