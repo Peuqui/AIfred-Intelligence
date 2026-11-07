@@ -19,6 +19,7 @@ import os
 import re
 import secrets
 import threading
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -644,23 +645,53 @@ def attach_reply_audio(session_id: str, audio_url: str, tts_note: str) -> bool:
     """Put spoken audio onto the newest assistant bubble that has none yet —
     what a device channel (the Echo) spoke becomes listenable in the browser
     like a browser reply's. False when the session has no such bubble."""
+
+    def newest_without_audio(history: list[dict[str, Any]]) -> dict[str, Any] | None:
+        return next(
+            (m for m in reversed(history) if m.get("role") == "assistant" and not m.get("has_audio")), None,
+        )
+
+    return _put_reply_audio(session_id, newest_without_audio, [audio_url], [], tts_note) is not None
+
+
+def keep_reply_audio(
+    session_id: str, timestamp: str, audio_urls: list[str], browser_speech: list[dict[str, Any]], tts_note: str,
+) -> dict[str, Any] | None:
+    """What was spoken of the reply with ``timestamp`` goes onto its bubble (the server turn's
+    reading, lib/reply_speech.py). Returns the updated entry; None when the bubble is gone."""
+
+    def by_timestamp(history: list[dict[str, Any]]) -> dict[str, Any] | None:
+        return next((m for m in history if m.get("timestamp") == timestamp), None)
+
+    return _put_reply_audio(session_id, by_timestamp, audio_urls, browser_speech, tts_note)
+
+
+def _put_reply_audio(
+    session_id: str,
+    find: Callable[[list[dict[str, Any]]], dict[str, Any] | None],
+    audio_urls: list[str],
+    browser_speech: list[dict[str, Any]],
+    tts_note: str,
+) -> dict[str, Any] | None:
+    """The fields of a spoken bubble, on the message ``find`` picks; saved under the session lock.
+    The speed is baked into the audio (``playback_rate`` 1.0x)."""
     with session_rmw_lock:
         session = load_session(session_id)
         if session is None:
-            return False
-        history = session["data"].get("chat_history", [])
-        for message in reversed(history):
-            if message.get("role") != "assistant" or message.get("has_audio"):
-                continue
-            message["metadata"] = {
-                **(message.get("metadata") or {}),
-                "audio_urls": [audio_url], "tts_note": tts_note, "playback_rate": "1.0x",
-            }
-            message["has_audio"] = True
-            message["audio_urls_json"] = json.dumps([audio_url])
-            message["tts_note"] = tts_note
-            return save_session(session_id, session)
-        return False
+            return None
+        message = find(session["data"].get("chat_history", []))
+        if message is None:
+            return None
+        message["metadata"] = {
+            **(message.get("metadata") or {}),
+            "audio_urls": audio_urls, "browser_speech": browser_speech, "tts_note": tts_note,
+            "playback_rate": "1.0x",
+        }
+        message["has_audio"] = True
+        message["audio_urls_json"] = json.dumps(audio_urls)
+        message["browser_speech_json"] = json.dumps(browser_speech, ensure_ascii=False)
+        message["tts_note"] = tts_note
+        return message if save_session(session_id, session) else None
 
 
 # ============================================================

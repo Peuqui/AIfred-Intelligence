@@ -72,9 +72,9 @@ AIfred ins Internet stellst (siehe [Einrichtungsanleitung → Auf die Web-UI zug
 | `/api/sessions` | GET / POST | Die eigenen Sessions (`session_id`, `title`, `last_message_at`, `message_count`, `channel`) / neue anlegen |
 | `/api/sessions/{id}` | GET / DELETE | Eine eigene Session öffnen (`chat_history`, `config`, `debug_messages`, `running`, `last_event_id`) / löschen. Fremde oder ungültige IDs antworten 404 |
 | `/api/sessions/{id}/messages` | POST | `{text}` — der Server führt den Zug selbst, auch ohne offenen Tab; läuft schon einer, wartet die Nachricht (`queued: true`) |
-| `/api/sessions/{id}/stop` | POST | Laufenden Zug abbrechen (die gestreamte Teilantwort bleibt) |
+| `/api/sessions/{id}/stop` | POST | Laufenden Zug abbrechen (die gestreamte Teilantwort bleibt) und das Vorlesen beenden, in allen Tabs |
 | `/api/sessions/{id}/config` | PATCH | `active_agent`, `multi_agent_mode`, `symposion_agents` (nur bekannte Agenten und Modi) |
-| `/api/sessions/{id}/events` | GET | Ereignisstrom (SSE) der Session: `turn_started`, `agent_started`, `token`, `tool_status`, `message_added`, `turn_finished`, `debug`, … — `?after=<id>` bzw. `Last-Event-ID` |
+| `/api/sessions/{id}/events` | GET | Ereignisstrom (SSE) der Session: `turn_started`, `agent_started`, `token`, `tool_status`, `message_added`, `message_updated` (Blase mit dem Gesprochenen), `turn_finished`, `debug`, `notice`, Wiedergabeliste `tts` / `tts_pause` / `tts_speak` / `stop`, … — `?after=<id>` bzw. `Last-Event-ID` |
 | `/api/agents/summary` | GET | Die Agenten, die ein Chat ansprechen kann (`id`, `display_name`, `emoji`, `role`) |
 | `/api/auth/login` · `/me` · `/logout` | POST / GET / POST | Anmeldung der Vue-Oberfläche (setzt dasselbe Login-Cookie wie der Reflex-Login) |
 | `/api/session/config` | POST | Konfiguration pro Session: `active_agent`, `multi_agent_mode`, `symposion_agents` |

@@ -8,14 +8,17 @@ tools write meanwhile (``debug_bus``) are never overwritten.
 Events of a turn, in order: ``turn_started`` (the user's entry), ``session_config`` (after a
 mode switch or a sticky address), ``agent_started``, ``token`` (text pieces, bundled),
 ``tool_status``, ``message_added`` (the finished reply), ``turn_finished``; ``turn_rejected``
-instead when the turn cannot start, ``message_queued`` for a message that waits behind it. ``debug`` lines arrive throughout, ``session_title`` after
-the first exchange. In a multi-agent mode ``agent_started`` … ``message_added`` repeat for every
-agent that speaks.
+instead when the turn cannot start, ``message_queued`` for a message that waits behind it.
+``debug`` lines arrive throughout, ``session_title`` after the first exchange. In a multi-agent
+mode ``agent_started`` … ``message_added`` repeat for every agent that speaks. A reply read aloud
+adds ``tts``, ``tts_pause`` and ``tts_speak`` (the playlist), ``notice`` (a message for the user)
+and, once the reading is over, ``message_updated`` (the bubble with what was spoken); these may
+come after ``turn_finished``.
 
 Covered so far: the direct answer of one agent with tools and memory, intent and language,
 mode switch, history compression, sticky addressing, title, the multi-agent modes
-(``lib/turn_debate.py``). Images, speech and dictation follow
-(docs/de/architecture/vue-migration/README.md).
+(``lib/turn_debate.py``), the spoken reply in the browser (``lib/reply_speech.py``). Images and
+dictation follow (docs/de/architecture/vue-migration/README.md).
 
 Every model call of a turn runs through the same three steps, for the direct answer here and for
 each speaker of a debate: build (``AgentCall``), stream (``stream_call``), finish (``finish_call``).
@@ -44,6 +47,7 @@ if TYPE_CHECKING:
     from ..backends.base import LLMOptions
     from .agent_config import AgentConfig
     from .llm_pipeline import PipelineResult
+    from .reply_speech import ReplySpeech
 
 
 class TurnRejected(Exception):
@@ -486,8 +490,10 @@ async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
 async def stream_call(ctx: TurnContext, call: AgentCall) -> PipelineResult | None:
     """Stream the call to the clients; None when the pipeline ends without a result.
 
-    A cancelled stream keeps what had arrived as an interrupted bubble, in every mode.
+    A cancelled stream keeps what had arrived as an interrupted bubble, in every mode. The reply is
+    read aloud while it streams when the settings want it (``reply_speech``).
     """
+    from . import reply_speech
     from .llm_pipeline import run_llm_stream
     from .tool_output_cap import budget_var
 
@@ -496,20 +502,27 @@ async def stream_call(ctx: TurnContext, call: AgentCall) -> PipelineResult | Non
     budget_var.set(call.tool_budget)
     # Several agents speak in a multi-agent turn: their tool lines carry the speaker.
     tool_agent = call.log_label if ctx.mode != "standard" else ""
+    speech = await reply_speech.begin(ctx.session_id, call, ctx.view, ctx.intent.language, ctx.view.ui_language)
     session_events.publish(
         ctx.session_id, "agent_started", {"agent": call.agent, "display_name": call.label, "emoji": call.emoji},
     )
-    stream = _TokenStream(ctx.session_id)
+    stream = _TokenStream(ctx.session_id, speech)
     result: PipelineResult | None = None
+    streamed = False
     try:
         async for event in run_llm_stream(
             ctx.llm_client, call.model, call.messages, call.options, call.log_label,
             source=ctx.source, toolkit=call.toolkit, on_debug=debug,
         ):
             result = _handle_stream_event(ctx.session_id, event, stream, ctx.view.ui_language, tool_agent) or result
+        streamed = True
     except asyncio.CancelledError:
         _save_partial(ctx.session_id, call.agent, stream.text, ctx.view.ui_language)
         raise
+    finally:
+        # A reply without a result becomes no bubble: its reading ends with it.
+        if speech is not None:
+            speech.end(complete=streamed and result is not None)
     stream.flush()
     if result is not None:
         debug(result.debug_msg)
@@ -525,10 +538,12 @@ def finish_call(
     round_num: int | None = None,
     load_time: float = 0.0,
 ) -> dict[str, Any]:
-    """Save the reply as a bubble (marker, mode, round) and in the llm history, tell the clients.
+    """Save the reply as a bubble (marker, mode, round) and in the llm history, tell the clients;
+    what is read of it goes onto the bubble when its reading is over.
 
     ``load_time`` is the intent call's model load of this turn: the first answer carries it.
     """
+    from . import reply_speech
     from .bubble import render_bubble
     from .formatting import assistant_history_entry, build_agent_panel_entry
 
@@ -543,6 +558,7 @@ def finish_call(
     history_entry = assistant_history_entry(call.agent, result.answer_text, result.history_notes)
     _append(ctx.session_id, chat=[entry], llm=[history_entry] if history_entry else [])
     session_events.publish(ctx.session_id, "message_added", {"entry": entry})
+    reply_speech.keep_on(ctx.session_id, call, entry)
     return entry
 
 
@@ -582,16 +598,20 @@ def _marker(turn_mode: str, mode: str, round_num: int | None, lang: str) -> str:
 
 
 class _TokenStream:
-    """Text pieces of the answer, sent as ``token`` events at most every TURN_TOKEN_EVENT_INTERVAL_S."""
+    """Text pieces of the answer, sent as ``token`` events at most every TURN_TOKEN_EVENT_INTERVAL_S
+    and, while the reply is read aloud, each at once to its reading."""
 
-    def __init__(self, session_id: str) -> None:
+    def __init__(self, session_id: str, speech: ReplySpeech | None) -> None:
         self.session_id = session_id
+        self.speech = speech
         self.text = ""
         self._pending = ""
         self._sent_at = 0.0
 
     def add(self, piece: str) -> None:
         self.text += piece
+        if self.speech is not None:
+            self.speech.feed(piece)
         self._pending += piece
         if time.monotonic() - self._sent_at >= TURN_TOKEN_EVENT_INTERVAL_S:
             self.flush()

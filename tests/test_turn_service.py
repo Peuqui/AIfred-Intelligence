@@ -8,7 +8,9 @@ from typing import Any
 
 import pytest
 
-from aifred.lib import session_events, session_storage, turn_service
+from fake_reading import FakeReading
+
+from aifred.lib import audio_processing, reply_speech, session_events, session_storage, turn_service
 from aifred.lib.agent_tuning import default_agent_tuning
 from aifred.lib.llm_pipeline import PipelineResult
 from aifred.lib.runtime_settings import RuntimeSettings
@@ -37,11 +39,11 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     view = RuntimeSettings(
         backend_type="ollama", backend_url="http://x", temperature_mode="auto", ui_language="de",
         enable_tts=False, automatik_model_id="", agent_tuning=default_agent_tuning(),
-        max_debate_rounds=3, consensus_type="majority",
+        tts_autoplay=False, tts_agents={}, max_debate_rounds=3, consensus_type="majority",
     )
     view.agent_tuning["aifred"].model_id = "qwen3:8b"
     world: dict[str, Any] = {"chunks": [{"type": "content", "text": "Hallo "}, {"type": "content", "text": "Peuqui."}],
-                             "titles": [], "block": None}
+                             "titles": [], "block": None, "view": view}
 
     async def intent(_view: Any, _client: Any, _text: str) -> turn_service._Intent:
         return world.get("intent") or turn_service._Intent("FAKTISCH", None, "de", {}, False, 0.0)
@@ -82,6 +84,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     yield world
     session_storage._session_meta_cache.clear()
     session_events._channels.pop(SESSION, None)
+    reply_speech._readings.pop(SESSION, None)
 
 
 def _kinds() -> list[str]:
@@ -191,3 +194,44 @@ def test_a_message_waits_behind_a_running_turn_and_starts_after_it(world: dict[s
     assert [e["content"] for e in _data()["chat_history"] if e["role"] == "user"] == ["Erste Frage", "Zweite Frage"]
     assert [e["role"] for e in _data()["chat_history"]] == ["user", "assistant", "user", "assistant"]
     assert seen.index("message_queued") < seen.index("turn_finished")   # queued while the first one ran
+
+
+@pytest.fixture
+def speaking(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Replies are read aloud; the reading is a stand-in that is over when the text is."""
+    world["view"].enable_tts = True
+    world["view"].tts_autoplay = True
+    FakeReading.made.clear()
+    monkeypatch.setattr(FakeReading, "ends_on_finish", True)
+    monkeypatch.setattr(reply_speech, "BrowserReading", FakeReading)
+    monkeypatch.setattr(audio_processing, "save_audio_to_session", lambda urls, sid: f"/_upload/audio/{sid}/reply.wav")
+    return world
+
+
+def test_a_reply_read_aloud_gets_its_audio_when_the_reading_is_over(speaking: dict[str, Any]) -> None:
+    async def scenario() -> None:
+        await _turn("Hallo AIfred")
+        await reply_speech._readings[SESSION].settled()
+
+    asyncio.run(scenario())
+    assert FakeReading.made[0].fed == ["Hallo ", "Peuqui."]
+    reply = _data()["chat_history"][-1]
+    assert reply["has_audio"] and reply["metadata"]["audio_urls"] == [f"/_upload/audio/{SESSION}/reply.wav"]
+    updated = [e for e in session_events.replay_after(SESSION, 0) if e.kind == "message_updated"]
+    assert updated[0].data["entry"]["timestamp"] == reply["timestamp"]
+
+
+def test_a_cancelled_reply_is_not_read_to_its_end(speaking: dict[str, Any]) -> None:
+    async def scenario() -> None:
+        speaking["block"] = asyncio.Event()
+        speaking["streamed"] = asyncio.Event()
+        task = turn_service.start_turn(turn_service.TurnRequest(SESSION, "Erzähl"))
+        await speaking["streamed"].wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+    reading = FakeReading.made[0]
+    assert reading.aborted and not reading.finished
+    assert not _data()["chat_history"][-1]["has_audio"]          # the interrupted bubble keeps no audio

@@ -47,7 +47,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     view = RuntimeSettings(
         backend_type="ollama", backend_url="http://x", temperature_mode="auto", ui_language="de",
         enable_tts=False, automatik_model_id="", agent_tuning=default_agent_tuning(),
-        max_debate_rounds=3, consensus_type="majority",
+        tts_autoplay=False, tts_agents={}, max_debate_rounds=3, consensus_type="majority",
     )
     view.agent_tuning["aifred"].model_id = "qwen3:8b"
     world: dict[str, Any] = {

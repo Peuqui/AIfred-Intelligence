@@ -19,6 +19,7 @@ import reflex as rx
 
 from ..lib.browser_reading import BrowserReading
 from ..lib.logging_utils import log_message
+from ..lib.reply_speech import speech_language, speech_wanted
 from ..lib.tts_client import TTSSuiteError
 from ._tts_config_mixin import _lang
 
@@ -96,7 +97,6 @@ class TTSStreamingMixin(rx.State, mixin=True):
         def _save_current_session(self): ...
         @rx.event
         def add_debug(self, message: str) -> None: ...
-        def _tts_agent_enabled(self, agent: str) -> bool: ...
 
     # ── State Variables ──────────────────────────────────────────────
 
@@ -131,21 +131,8 @@ class TTSStreamingMixin(rx.State, mixin=True):
     # ── TTS Helpers ──────────────────────────────────────────────────
 
     def _resolve_tts_language(self, agent: str) -> str:
-        """Pick the synthesis language for an agent.
-
-        Order of precedence:
-          1. Per-agent override (tts_agents[agent]["language"]),
-             skipped when empty or "auto".
-          2. Language the LLM detected from the user prompt.
-          3. UI language.
-
-        Returns a two-letter ISO code ("de", "en", "zh", …) — the language of the
-        reading request.
-        """
-        override = str(self.tts_agents.get(agent, {}).get("language", "") or "").lower()
-        if override and override != "auto":
-            return override
-        return str(self._last_detected_language or self.ui_language)
+        """The language the agent speaks (rule: ``reply_speech.speech_language``)."""
+        return speech_language(self.tts_agents, agent, self._last_detected_language, self.ui_language)
 
     # ============================================================
     # THE READING OF A REPLY
@@ -208,15 +195,8 @@ class TTSStreamingMixin(rx.State, mixin=True):
         return False
 
     def _tts_streaming_wanted(self, agent: str = "aifred") -> bool:
-        """SSOT for "should this reply be spoken while it is written?".
-
-        Global TTS on, autoplay on (no consumer otherwise), and the per-agent voice not disabled.
-        How much the service reads at once (sentence, paragraph, whole) is its unit's business,
-        not a reason to read the reply in another way.
-        """
-        if not (self.enable_tts and self.tts_autoplay):
-            return False
-        return self._tts_agent_enabled(agent)
+        """Is this reply spoken while it is written? (rule: ``reply_speech.speech_wanted``)"""
+        return speech_wanted(self, agent)
 
     def _pause_media_for_tts(self) -> None:
         """Auto-pause media playback before the first TTS entry goes to the browser. Position is

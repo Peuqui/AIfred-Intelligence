@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { t } from "../i18n";
+import { speaking } from "../lib/speech";
 
 defineProps<{ running: boolean; queued: number }>();
 const emit = defineEmits<{ send: [text: string]; stop: [] }>();
@@ -28,7 +29,7 @@ function onKey(event: KeyboardEvent): void {
     <div class="actions">
       <span v-if="queued" class="queued">{{ t("messages_waiting", { count: queued }) }}</span>
       <span class="hint">{{ t("enter_sends_hint") }}</span>
-      <button v-if="running" class="stop" @click="emit('stop')">⏹ {{ t("stop_turn") }}</button>
+      <button v-if="running || speaking" class="stop" @click="emit('stop')">⏹ {{ t("stop_turn") }}</button>
       <button class="send" :disabled="!text.trim()" @click="send">{{ t("send_text") }}</button>
     </div>
   </div>

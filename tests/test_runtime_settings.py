@@ -17,7 +17,7 @@ def _view(backend: str = "llamacpp", **tuning: dict[str, Any]) -> rs.RuntimeSett
     view = rs.RuntimeSettings(
         backend_type=backend, backend_url="", temperature_mode="auto", ui_language="de",
         enable_tts=False, automatik_model_id="", agent_tuning=default_agent_tuning(),
-        max_debate_rounds=3, consensus_type="majority",
+        tts_autoplay=False, tts_agents={}, max_debate_rounds=3, consensus_type="majority",
     )
     for agent, fields in tuning.items():
         for name, value in fields.items():

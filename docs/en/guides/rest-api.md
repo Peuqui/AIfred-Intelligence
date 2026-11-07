@@ -72,9 +72,9 @@ expose AIfred to the internet (see [Deployment → Access the web UI](deployment
 | `/api/sessions` | GET / POST | Your own sessions (`session_id`, `title`, `last_message_at`, `message_count`, `channel`) / create one |
 | `/api/sessions/{id}` | GET / DELETE | Open one of your sessions (`chat_history`, `config`, `debug_messages`, `running`, `last_event_id`) / delete it. A foreign or invalid id answers 404 |
 | `/api/sessions/{id}/messages` | POST | `{text}` — the server runs the turn itself, also without an open tab; while one runs, the message waits (`queued: true`) |
-| `/api/sessions/{id}/stop` | POST | Cancel the running turn (the streamed partial answer stays) |
+| `/api/sessions/{id}/stop` | POST | Cancel the running turn (the streamed partial answer stays) and end the reading aloud, in every tab |
 | `/api/sessions/{id}/config` | PATCH | `active_agent`, `multi_agent_mode`, `symposion_agents` (known agents and modes only) |
-| `/api/sessions/{id}/events` | GET | Event stream (SSE) of the session: `turn_started`, `agent_started`, `token`, `tool_status`, `message_added`, `turn_finished`, `debug`, … — `?after=<id>` or `Last-Event-ID` |
+| `/api/sessions/{id}/events` | GET | Event stream (SSE) of the session: `turn_started`, `agent_started`, `token`, `tool_status`, `message_added`, `message_updated` (bubble with what was spoken), `turn_finished`, `debug`, `notice`, playlist `tts` / `tts_pause` / `tts_speak` / `stop`, … — `?after=<id>` or `Last-Event-ID` |
 | `/api/agents/summary` | GET | The agents a chat can address (`id`, `display_name`, `emoji`, `role`) |
 | `/api/auth/login` · `/me` · `/logout` | POST / GET / POST | Login of the Vue UI (sets the same login cookie as the Reflex login) |
 | `/api/session/config` | POST | Per-session config: `active_agent`, `multi_agent_mode`, `symposion_agents` |

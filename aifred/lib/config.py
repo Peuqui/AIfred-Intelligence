@@ -110,6 +110,10 @@ DEFAULT_TTS_ESCALATION: list[dict[str, object]] = [
     for engine in ("qwen3local", "xtts", "dashscope_audio3", "piper", "edge", "browser")
 ]
 
+# Auto-Play (global, ein Schalter) ist standardmäßig aus. Die Standard-Einheit der Sprachausgabe
+# (satzweise / absatzweise / am Stück) trägt die Engine selbst (Katalog der TTS-Suite: ``unit_default``).
+TTS_AUTOPLAY_DEFAULT = False
+
 DEFAULT_SETTINGS = {
     # NOTE: Model names are defined in BACKEND_DEFAULT_MODELS below (backend-specific)
     # They will be merged in settings.py get_default_settings()
@@ -129,6 +133,10 @@ DEFAULT_SETTINGS = {
     "voice": "Deutsch (Katja)",
     "tts_playback_rate": "1.25x",  # Browser playback speed (1.25 = default, speed via Agent Settings)
     "enable_tts": False,
+    "tts_autoplay": TTS_AUTOPLAY_DEFAULT,
+    # Per agent: its voice on/off ("enabled", default on) and the language it speaks ("language",
+    # empty or "auto" = the language of the question).
+    "tts_agents": {},
     # Startliste der Sprachausgabe (Reihenfolge, an/aus, Rechner je Eintrag), von AIfred geführt:
     # bestimmt nur Reihenfolge und Anfangs-"an" der genannten Zeilen; jede weitere Katalogzeile
     # des Dienstes kommt beim Abgleich ausgeschaltet dahinter.
@@ -370,9 +378,6 @@ def sort_voices_custom_first(voices: list[str]) -> list[str]:
 # ``aifred.lib.agent_config.get_tts_voice_default(agent_id, engine)`` or
 # ``get_tts_voice_defaults_for_engine(engine)``.
 
-# Auto-Play (global, ein Schalter) ist standardmäßig aus. Die Standard-Einheit der Sprachausgabe
-# (satzweise / absatzweise / am Stück) trägt die Engine selbst (Katalog der TTS-Suite: ``unit_default``).
-TTS_AUTOPLAY_DEFAULT = False
 # ============================================================
 # CONTEXT MANAGEMENT
 # ============================================================

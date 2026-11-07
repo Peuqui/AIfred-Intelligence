@@ -50,7 +50,12 @@ ein Tab offen ist. Mehrere Tabs oder Geräte sehen dieselbe Sitzung live.
   Löschen und die Zuordnung in der Oberfläche kommen mit der Agenten-Seite in Schritt 5.
 - **Agenten-Übersicht** (Peuqui 07.11.2026): je Agent eine Karte mit Persona, Rechten und
   Einstellungen, oben rechts ein Schalter wie bei den Plugins. Jeder Agent ist zur Laufzeit
-  ein- und ausschaltbar und löschbar, am Ende auch AIfred, Sokrates und Salomo.
+  ein- und ausschaltbar und löschbar, auch Sokrates und Salomo.
+- **AIfred bleibt der Grundagent** (Peuqui 07.11.2026, vormittags): Er ist Namensgeber und der
+  eine Agent, den man nicht löscht; umbenennen geht (Anzeigename), die ID bleibt `aifred`. Jeder
+  Agent kann ein eigenes Modell haben oder AIfreds nehmen (wie heute). An AIfreds Eintrag hängen
+  deshalb weiter: die Modell-Vererbung, die Prüfung „kein Modell gewählt“, das Titelmodell und die
+  Denkwahl im Direktchat. Offen: ob AIfred abschaltbar sein soll.
 
 ## Schritt 2 im Einzelnen: Zug-Dienst ohne State
 
@@ -62,7 +67,7 @@ der neue Dienst entsteht daneben und ersetzt beim Wechsel beide alten Pfade.
 
 - **`lib/runtime_settings.py`**: Sicht auf `settings.json` mit den Feldern, die Modellwahl, Kontext,
   Sampling und Denken lesen (`agent_tuning`, `backend_type`, `backend_url`, `temperature_mode`,
-  `ui_language`, `enable_tts`, `agent_memory_enabled`). Die vorhandenen Funktionen
+  `ui_language`, `enable_tts`, `tts_autoplay`, `tts_agents`, `agent_memory_enabled`). Die vorhandenen Funktionen
   (`get_agent_setting`, `get_agent_num_ctx`, `build_llm_options`, `thinking_mode`, …) brauchen nur
   ein Objekt mit diesen Feldern. Der Aufbau von `agent_tuning` aus `settings.json` (heute im
   Backend-Mixin) und die wirksame Modell-ID (heute zweimal: `_effective_model_id` im State,
@@ -73,17 +78,32 @@ der neue Dienst entsteht daneben und ersetzt beim Wechsel beide alten Pfade.
   `_stream_agent_to_history`), Speichern unter `session_rmw_lock`, Titel, Abbruch über
   `pipeline_registry`. Ereignisse über `session_events`: `turn_started`, `agent_started`, `token`,
   `tool_status`, `debug`, `message_added`, `turn_finished` (Liste in `inventar-chat-sitzungen.md` 5.2).
+- **`lib/reply_speech.py`**: die gesprochene Antwort. Ob vorgelesen wird (`enable_tts` ∧
+  `tts_autoplay` ∧ Stimme des Agenten an) und in welcher Sprache (eigene des Agenten, sonst die der
+  Frage, sonst die der Oberfläche), gilt hier einmal, auch für den Reflex-State. `stream_call` gibt
+  den Text an eine `BrowserReading`; die Wiedergabeliste geht als `tts`, `tts_pause`, `tts_speak`
+  über den Ereignisstrom der Sitzung. Ist die Lesung vorbei, hängt das Gesprochene an der Blase
+  (`session_storage.keep_reply_audio`, über den Zeitstempel des Eintrags) und die Clients bekommen
+  sie neu (`message_updated`). Eine Lesung je Sitzung zur Zeit, auch über Züge hinweg; Stopp beendet
+  Zug und Lesung in allen Tabs (`stop`).
 - **`lib/turn_debate.py`**: Kritische Prüfung, Auto-Konsens, Tribunal, Symposion über die Rollen
   main, critic, judge aus `agents.json` (`agent_config.agent_for_role`, `role_prompt`); fehlt eine
   Rolle oder ihr Prompt, lehnt der Zug mit Grund ab.
-- Danach in dieser Reihenfolge: Bilder, TTS im Browser, Diktat, Inkognito als Sitzungsschalter; dann
-  übernehmen Kanäle und Scheduler denselben Dienst.
+- Danach in dieser Reihenfolge: Bilder, Diktat, Inkognito als Sitzungsschalter; dann übernehmen
+  Kanäle und Scheduler denselben Dienst.
 
 ### Stand und offene Punkte (07.11.2026, vormittags)
 
 Erledigt: Ereignis-Hub, App-Hülle, Einstellungssicht, Zug-Dienst mit allen Modi, Sitzungs-API mit
 Besitzerprüfung, Anmeldung, Agentenliste, Vue-Oberfläche mit Chat (Live-Strom, Warteschlange,
-Stopp, Agentenwahl, Debug-Konsole). Offen:
+Stopp, Agentenwahl, Debug-Konsole), gesprochene Antwort im Browser (Wiedergabeliste, Knopf zum
+erneuten Abspielen an der Blase, Sprecher-Vermerk). Offen:
+
+- **Dateien unter `/_upload/`** (Ton, Bilder, Dokumente) liefert heute nur die Reflex-App aus
+  (`aifred.py`, `AuthenticatedStaticFiles`). Der Server braucht dieselben Einhängungen; sie werden
+  eine Funktion in `lib/`, die beide aufrufen.
+- **Sprachausgabe, Rest:** Musik oder Hörbuch vor einer Lesung anhalten (kommt mit der Audio-Seite);
+  eine Blase neu vorlesen lassen (Knopf „neu erzeugen“, heute `resynthesize_bubble_tts` im State).
 
 - **Rollentausch vollständig:** `message_builder.build_messages_from_llm_history` kennt nur die
   Perspektiven aifred, sokrates, salomo; ein eigener Agent in einer Rolle sähe fremde Antworten als
@@ -94,10 +114,6 @@ Stopp, Agentenwahl, Debug-Konsole). Offen:
   `_get_role_templates` hält Prompts im Code. Die Vorlagen gehören nach `prompts/`, je Rolle alle
   nötigen Schlüssel.
 - **Bleibt so:** Wer den Hauptagenten direkt anspricht, bekommt nur dessen Antwort (wie bisher).
-- **Grundmodell vs. Hauptrolle:** Modell-Vererbung (Agent ohne eigenes Modell nimmt AIfreds), die
-  Denkzeile des Direktchats, „kein Modell gewählt“ und das Titelmodell hängen am Eintrag „aifred“
-  der Einstellungen, nicht an der Rolle main. Vorschlag: so lassen (Einstellung „Grundmodell“),
-  Peuqui entscheidet.
 
 ## Schritte
 

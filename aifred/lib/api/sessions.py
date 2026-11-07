@@ -58,6 +58,27 @@ class SessionSummary(BaseModel):
     channel: str
 
 
+class Utterance(BaseModel):
+    """A part of a reply the browser's own voice speaks (lib/browser_reading.py); voice "Auto" or
+    empty = a voice of the device for the language."""
+
+    text: str
+    language: str
+    voice: str = ""
+    rate: float | None = None
+    pitch: float | None = None
+
+
+class EntryMetadata(BaseModel):
+    """What a bubble keeps besides its text: what was spoken of it (lib/session_storage.py
+    ``keep_reply_audio``), and more the client does not read yet."""
+
+    model_config = ConfigDict(extra="allow")
+
+    audio_urls: list[str] = Field(default_factory=list)
+    browser_speech: list[Utterance] = Field(default_factory=list)
+
+
 class ChatEntry(BaseModel):
     """One message of a session's chat history (lib/formatting.py builds them). Older session
     files lack some fields; fields the client does not read pass through."""
@@ -72,7 +93,9 @@ class ChatEntry(BaseModel):
     mode: str = ""
     timestamp: str = ""
     time_display: str = ""
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: EntryMetadata = Field(default_factory=EntryMetadata)
+    has_audio: bool = False
+    tts_note: str = Field("", description="Who spoke the reply (the engines of the escalation list)")
 
 
 class SessionDetail(BaseModel):
@@ -126,11 +149,13 @@ async def sessions_open(session_id: str, request: Request) -> SessionDetail:
 
 @api_app.delete("/sessions/{session_id}", status_code=204, tags=["Sessions"])
 async def sessions_delete(session_id: str, request: Request) -> Response:
+    from .. import reply_speech
     from ..pipeline_registry import cancel_pipeline
     from ..session_storage import delete_session
 
     owned_session(request, session_id)
     cancel_pipeline(session_id)
+    reply_speech.discard(session_id)
     delete_session(session_id, expected_owner=current_user(request))
     return Response(status_code=204)
 
@@ -188,10 +213,15 @@ async def sessions_send(session_id: str, message: MessageIn, request: Request) -
 
 @api_app.post("/sessions/{session_id}/stop", tags=["Sessions"])
 async def sessions_stop(session_id: str, request: Request) -> dict[str, bool]:
+    """End the running turn and the reading aloud, also one that outlasts its turn;
+    ``cancelled`` says whether a turn was running."""
+    from .. import reply_speech
     from ..pipeline_registry import cancel_pipeline
 
     owned_session(request, session_id)
-    return {"cancelled": cancel_pipeline(session_id)}
+    cancelled = cancel_pipeline(session_id)
+    reply_speech.stop(session_id)
+    return {"cancelled": cancelled}
 
 
 # ── Follow ───────────────────────────────────────────────────────────────

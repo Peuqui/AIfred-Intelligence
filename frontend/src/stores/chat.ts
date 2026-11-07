@@ -5,6 +5,7 @@ import { ref } from "vue";
 import { api } from "../api/client";
 import { followSession } from "../api/events";
 import type { ChatEntry, MessageAccepted, SessionDetail } from "../api/types";
+import * as speech from "../lib/speech";
 import { useSessions } from "./sessions";
 
 interface Streaming {
@@ -35,6 +36,7 @@ export const useChat = defineStore("chat", () => {
 
   async function open(id: string): Promise<void> {
     source?.close();
+    speech.stop(); // the other session's reading goes on for its other tabs, not here
     const detail = await api<SessionDetail>(`sessions/${id}`);
     sessionId.value = id;
     title.value = detail.title ?? null;
@@ -51,6 +53,7 @@ export const useChat = defineStore("chat", () => {
 
   function close(): void {
     source?.close();
+    speech.stop();
     source = null;
     sessionId.value = null;
   }
@@ -85,6 +88,12 @@ export const useChat = defineStore("chat", () => {
         streaming.value = null;
         toolStatus.value = "";
         break;
+      case "message_updated": {
+        // The bubble with what was spoken of it, once its reading is over.
+        const entry = data.entry as ChatEntry;
+        history.value = history.value.map((old) => (old.role === entry.role && old.timestamp === entry.timestamp ? entry : old));
+        break;
+      }
       case "history_replaced":
         history.value = data.chat_history as ChatEntry[];
         break;
@@ -97,6 +106,17 @@ export const useChat = defineStore("chat", () => {
         break;
       case "turn_rejected":
         notice.value = String(data.message);
+        break;
+      case "notice":
+        notice.value = String(data.text);
+        break;
+      case "tts":
+      case "tts_pause":
+      case "tts_speak":
+        speech.enqueue(kind, data);
+        break;
+      case "stop":
+        speech.stop();
         break;
       case "turn_finished":
         running.value = false;
@@ -118,8 +138,10 @@ export const useChat = defineStore("chat", () => {
     });
   }
 
+  // Ends the turn and the reading aloud, in every tab of the session (the server sends "stop").
   async function stop(): Promise<void> {
     if (!sessionId.value) return;
+    speech.stop();
     await api<{ cancelled: boolean }>(`sessions/${sessionId.value}/stop`, { method: "POST" });
   }
 

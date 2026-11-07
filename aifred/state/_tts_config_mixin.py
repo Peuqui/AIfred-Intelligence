@@ -233,7 +233,8 @@ class TTSConfigMixin(rx.State, mixin=True):
     # ── Per-agent mute and language ───────────────────────────────
 
     def _tts_agent_enabled(self, agent: str) -> bool:
-        return bool(self.tts_agents.get(agent, {}).get("enabled", True))
+        from ..lib.reply_speech import agent_voice_enabled
+        return agent_voice_enabled(self.tts_agents, agent)
 
     def _set_tts_agent(self, agent: str, key: str, value: Any) -> None:
         self.tts_agents = {**self.tts_agents, agent: {**self.tts_agents.get(agent, {}), key: value}}
