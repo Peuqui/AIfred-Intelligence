@@ -1187,54 +1187,20 @@ TTS_BURNIN_VRAM_POLL_S = 0.3
 LLAMACPP_CALIBRATION_DRAIN_TIMEOUT_S = 30.0
 
 def get_effective_model_from_settings(agent: str = "aifred") -> str:
-    """Resolve effective model ID from settings.json (no Reflex state needed).
+    """Effective model id from settings.json (paths without a Reflex state).
 
-    Headless counterpart to State._effective_model_id. Delegates suffix
-    resolution to ``resolve_variant_suffix`` — the SSOT shared with the
-    state-based resolver, so both pick the same variant under the same
-    toggles (including the Speed+TTS fallback to TTS-base when no
-    combined variant exists).
+    An agent without an own model, like the Automatik without one, runs on AIfred's
+    (rules: lib/runtime_settings).
     """
-    from .settings import load_settings
-    settings = load_settings() or {}
-    backend_type = settings.get("backend_type", "llamacpp")
-
-    # Base model. ``speed_agent`` tracks whose Speed toggle applies:
-    # an agent that shares AIfred's LLM must also share AIfred's Speed
-    # toggle, otherwise Hub and browser resolve different variants and
-    # llama-swap double-loads (base ↔ -speed) on every channel request.
-    saved = settings.get("backend_models", {}).get(backend_type, {})
-    base_id = saved.get(agent, "")
-    speed_agent = agent
-    if not base_id:
-        # Fall back to AIfred's model (other agents share the same LLM)
-        base_id = saved.get("aifred", "")
-        speed_agent = "aifred"
-    if not base_id:
-        return str(base_id)
-    # The Automatik has no independent Speed toggle — it mirrors AIfred's
-    # (same rule as State._effective_automatik_id in the browser path).
-    if agent == "automatik":
-        speed_agent = "aifred"
-
-    from .agent_settings import get_persisted_tuning
-    from .calibration import parse_llamaswap_config, resolve_effective_suffix
-    from .tts_llm_coordination import planned_tts_engine
-
-    swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-    has_speed_variant = f"{base_id}-speed" in swap_cfg
-
-    suffix = resolve_effective_suffix(
-        Path(LLAMASWAP_CONFIG_PATH),
-        base_id,
-        backend_type,
-        speed_on=get_persisted_tuning(settings, speed_agent, "speed_mode", False),
-        has_speed_variant=has_speed_variant,
-        tts_active=settings.get("enable_tts", False),
-        tts_engine=planned_tts_engine(base_id) if settings.get("enable_tts", False) else "",
+    from .runtime_settings import (
+        effective_automatik_id,
+        effective_model_id,
+        load_runtime_settings,
     )
-    return str(base_id + suffix)
-
+    view = load_runtime_settings()
+    if agent == "automatik":
+        return effective_automatik_id(view)
+    return effective_model_id(view, agent) or effective_model_id(view, "aifred")
 
 # Docker-Compose paths for services AIfred starts itself (STT). The TTS containers belong to the TTS-Suite.
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

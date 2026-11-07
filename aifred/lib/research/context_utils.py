@@ -160,21 +160,15 @@ def get_agent_num_ctx(
         # SSOT is the State toggle (enable_tts) plus the planned engine of
         # the escalation list, not a live container probe — same rationale
         # as _effective_model_id.
-        from ..calibration import parse_llamaswap_config, resolve_effective_suffix
+        from ..calibration import parse_llamaswap_config
         from ..config import LLAMASWAP_CONFIG_PATH
-        from ..tts_llm_coordination import planned_tts_engine
+        from ..runtime_settings import effective_suffix
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
 
-        # Resolve the variant via the SSOT — same rules as the model-id
-        # resolver in _agent_config_mixin.
-        suffix = resolve_effective_suffix(
-            LLAMASWAP_CONFIG_PATH,
-            model_id,
-            backend_type,
-            speed_on=get_agent_setting(state, owner, "speed_mode", False),
+        # The variant the model owner's toggles load (rules: lib/runtime_settings).
+        suffix = effective_suffix(
+            state, model_id, owner,
             has_speed_variant=get_agent_setting(state, owner, "has_speed_variant", False),
-            tts_active=bool(getattr(state, "enable_tts", False)),
-            tts_engine=planned_tts_engine(model_id) if getattr(state, "enable_tts", False) else "",
         )
         effective_id = model_id + suffix
 

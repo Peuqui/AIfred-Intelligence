@@ -70,6 +70,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
         _min_agent_context_limit: int
+        automatik_model_id: rx.Field[str]
         available_models_dict: rx.Field[dict[str, str]]
         backend_id: rx.Field[str]
         backend_type: rx.Field[str]
@@ -400,51 +401,9 @@ class AgentConfigMixin(rx.State, mixin=True):
     # ================================================================
 
     def _effective_model_id(self, agent: str) -> str:
-        """Return model ID with variant suffix for the current configuration.
-
-        Accepts any registered agent — custom agents resolve to AIfred's
-        model/speed bucket via the agent_settings SSOT.
-
-        Delegates the suffix resolution to the SSOT helper
-        :func:`aifred.lib.calibration.resolve_variant_suffix`, so the
-        agents, the Automatik path, the compression-ctx lookup and the
-        chat gate all use the same fallback rules. The tuning buckets
-        always contain the base ID; this method is what every code path
-        sends to the backend.
-
-        See ``resolve_variant_suffix`` for the precedence rules
-        (Speed+TTS > TTS only > Speed only > base, with graceful
-        fallback when a variant isn't actually present in the YAML).
-
-        SSOT for the active profile is the user's UI toggle
-        (``enable_tts``) plus the planned engine of the escalation list
-        (``planned_tts_engine``), NOT the live container state.
-        Probing the container via HTTP every call would leak transient
-        states (idle KEEP_ALIVE, busy with a batch of sentences,
-        restart in progress) into model resolution.
-        The load of that name clears the profile's cards through GPU-Orc
-        (``_load_model``); the toggle stays authoritative for the rest of
-        the request.
-        """
-        from ..lib.agent_settings import get_agent_setting
-        base_id: str = get_agent_setting(self, agent, "model_id")
-        if not base_id:
-            return base_id
-
-        from ..lib.calibration import resolve_effective_suffix
-        from ..lib.config import LLAMASWAP_CONFIG_PATH
-        from ..lib.tts_llm_coordination import planned_tts_engine
-
-        suffix = resolve_effective_suffix(
-            LLAMASWAP_CONFIG_PATH,
-            base_id,
-            self.backend_type,
-            speed_on=get_agent_setting(self, agent, "speed_mode"),
-            has_speed_variant=get_agent_setting(self, agent, "has_speed_variant"),
-            tts_active=bool(self.enable_tts),
-            tts_engine=planned_tts_engine(base_id) if self.enable_tts else "",
-        )
-        return base_id + suffix
+        """Model ID with variant suffix for the current configuration (rules: lib/runtime_settings)."""
+        from ..lib.runtime_settings import effective_model_id
+        return effective_model_id(self, agent)
 
     def _image_describer(self) -> tuple[str, str, bool]:
         """SSOT model choice for uploaded images.

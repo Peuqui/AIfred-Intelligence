@@ -229,117 +229,19 @@ class BackendMixin(rx.State, mixin=True):
 
     @property
     def _effective_automatik_id(self) -> str:
-        """Resolve Automatik model ID with TTS profile awareness.
-
-        Empty or same base model as AIfred → follow AIfred exactly.
-        Different model → still apply TTS profile if GPU TTS is running
-        (otherwise the base profile won't fit in VRAM alongside TTS).
-        """
-        if not self.automatik_model_id:
-            return self._effective_model_id("aifred")
-        if self.automatik_model_id == self.agent_tuning["aifred"].model_id:
-            return self._effective_model_id("aifred")
-        # Different Automatik model — still needs TTS / Speed variants
-        # if those toggles are active in the UI. Route through the SSOT
-        # so the fallback rules stay identical to _effective_model_id.
-        from ..lib.calibration import resolve_effective_suffix
-        from ..lib.config import LLAMASWAP_CONFIG_PATH
-        from ..lib.tts_llm_coordination import planned_tts_engine
-
-        # Automatik mirrors the AIfred agent's Speed toggle — it doesn't
-        # have an independent UI control, so a separate
-        # ``automatik_speed_mode`` flag doesn't exist.
-        suffix = resolve_effective_suffix(
-            LLAMASWAP_CONFIG_PATH,
-            self.automatik_model_id,
-            self.backend_type,
-            speed_on=self.agent_tuning["aifred"].speed_mode,
-            # The Automatik model has no own state flag; whether ITS
-            # ``-speed`` profile exists is checked by the resolver
-            # (Rule 7 ``in models``). AIfred's flag would be the wrong
-            # model's property here.
-            has_speed_variant=True,
-            tts_active=bool(self.enable_tts),
-            tts_engine=planned_tts_engine(self.automatik_model_id) if self.enable_tts else "",
-        )
-        return self.automatik_model_id + suffix
+        """Model ID of the Automatik (rules: lib/runtime_settings)."""
+        from ..lib.runtime_settings import effective_automatik_id
+        return effective_automatik_id(self)
 
     # ================================================================
     # HELPER METHODS
     # ================================================================
 
-    def _load_agent_model_params(self, agent: str, model_id: str) -> None:
-        """Load model parameters (rope_factor, max_context, etc.) for one agent from cache.
-
-        Works for both ollama and llamacpp backends.
-        """
-        if not model_id:
-            return
-
-        backend = getattr(self, "backend_type", None) or getattr(self, "backend_id", None)
-
-        from ..lib.agent_settings import set_agent_setting
-        if backend == "ollama":
-            from ..lib.model_vram_cache import get_model_parameters
-            params = get_model_parameters(model_id)
-            set_agent_setting(self, agent, "rope_factor", params["rope_factor"])
-            set_agent_setting(self, agent, "max_context", params["max_context"])
-            set_agent_setting(self, agent, "is_hybrid", params["is_hybrid"])
-            set_agent_setting(self, agent, "supports_thinking", params["supports_thinking"])
-        elif backend in LLAMASWAP_BACKENDS:
-            from ..lib.model_vram_cache import (
-                get_llamacpp_calibration,
-                get_thinking_support_for_model,
-            )
-            from ..lib.model_discovery import is_vllm_entry
-            if is_vllm_entry(model_id):
-                # vLLM-Eintrag: Kontext aus dem llama-swap-Entry (SSOT),
-                # keine Speed-Varianten, kein RoPE.
-                from ..lib.operating_points import get_vllm_entry_context
-                set_agent_setting(self, agent, "rope_factor", 1.0)
-                set_agent_setting(self, agent, "is_hybrid", False)
-                set_agent_setting(self, agent, "supports_thinking", get_thinking_support_for_model(model_id))
-                from ..lib.calibration import model_has_speed_variant
-                set_agent_setting(
-                    self, agent, "has_speed_variant",
-                    model_has_speed_variant(model_id),
-                )
-                set_agent_setting(self, agent, "max_context", get_vllm_entry_context(model_id))
-                return
-            set_agent_setting(self, agent, "rope_factor", 1.0)
-            set_agent_setting(self, agent, "is_hybrid", False)
-            set_agent_setting(self, agent, "supports_thinking", get_thinking_support_for_model(model_id))
-            # Reihenfolge: has_speed_variant MUSS vor _effective_model_id
-            # gesetzt sein — der Variant-Resolver liest es. SSoT ist die config
-            # (existiert ein -speed-Eintrag), NICHT das Cache-speed_split-Feld:
-            # eine frische Multi-GPU-Kali lässt letzteres unbesetzt (397B-Bug).
-            from ..lib.calibration import model_has_speed_variant
-            set_agent_setting(
-                self, agent, "has_speed_variant",
-                model_has_speed_variant(model_id),
-            )
-            # max_context ist VARIANTEN-spezifisch: das aktive
-            # ``-tts-<engine>-vlm-<vlm>``-Koexistenz-Profil hat weniger
-            # Kontext als die Basis (TTS belegt VRAM). Den Kalibrierungs-
-            # Lookup also mit der AUFGELÖSTEN Varianten-ID machen (die ganze
-            # Matrix ist kalibriert), nicht mit der Basis-ID. Fallback auf
-            # die Basis, falls die Variante mal nicht kalibriert ist.
-            effective_id = self._effective_model_id(agent) or model_id
-            ctx = get_llamacpp_calibration(effective_id)
-            if ctx is None and effective_id != model_id:
-                ctx = get_llamacpp_calibration(model_id)
-            set_agent_setting(self, agent, "max_context", ctx or 0)
-
     def _load_all_agent_model_params(self) -> None:
-        """Load model parameters for all agents from cache."""
-        backend = getattr(self, "backend_type", None) or getattr(self, "backend_id", None)
-        if backend not in ("ollama", "llamacpp", "vllm"):
-            return
-
+        """Load model parameters for all agents from cache (rules: lib/runtime_settings)."""
+        from ..lib.runtime_settings import load_agent_model_params
         for agent, tuning in self.agent_tuning.items():
-            if agent == "vision" and backend not in LLAMASWAP_BACKENDS:
-                continue
-            self._load_agent_model_params(agent, tuning.model_id)
+            load_agent_model_params(self, agent, tuning.model_id)
 
     def _clear_models_state(self, include_vision: bool = False) -> None:
         """Reset available models to empty (used on backend/provider switch errors)."""
@@ -573,75 +475,12 @@ class BackendMixin(rx.State, mixin=True):
                     self.user_name = saved_settings.get("user_name", self.user_name)
                     self.user_gender = saved_settings.get("user_gender", self.user_gender)
 
-                    # Load per-agent tuning (dict format, SSOT field list in
-                    # agent_settings). Buckets for agents not yet in state
-                    # (custom agents) are created on demand. Missing keys keep
-                    # the class defaults — no legacy flat-key fallback.
-                    from ..lib.agent_settings import PERSISTED_TUNING_FIELDS
-                    from ..lib.agent_tuning import default_tuning
-                    for agent, entry in saved_settings.get("agent_tuning", {}).items():
-                        bucket = self.agent_tuning.get(agent)
-                        if bucket is None:
-                            bucket = default_tuning(agent)
-                            self.agent_tuning[agent] = bucket
-                        for field in (*PERSISTED_TUNING_FIELDS, "num_ctx_manual", "num_ctx_manual_enabled"):
-                            if field in entry:
-                                setattr(bucket, field, entry[field])
-
-                    # Restore the Vigilantia master switch (vigilantia_armed) +
-                    # vision_mode / VLM model from the vision plugin's settings.json,
-                    # so the 👁️ eye shows the real scharf/unscharf state right after
-                    # login instead of the default "disarmed". The background watchers
-                    # run server-side regardless — this is purely the UI restore that
-                    # was previously only done when the vision popup opened.
-                    self._refresh_vision_settings()
-
-                    # Load TTS/STT Settings
-                    self.enable_tts = saved_settings.get("enable_tts", self.enable_tts)
-                    self.tts_autoplay = saved_settings.get("tts_autoplay", self.tts_autoplay)
-                    self.tts_agents = saved_settings.get("tts_agents", self.tts_agents)
-                    self.narrator_voices = saved_settings.get("narrator_voices", self.narrator_voices)
-                    self.tts_playback_rate = saved_settings.get("tts_playback_rate", self.tts_playback_rate)
-                    self.tts_pitch = saved_settings.get("tts_pitch", self.tts_pitch)
-                    self.show_transcription = saved_settings.get("show_transcription", self.show_transcription)
-                    self.enter_sends_message = saved_settings.get("enter_sends_message", self.enter_sends_message)
-
-                    # Load vLLM YaRN Settings
-                    self.enable_yarn = saved_settings.get("enable_yarn", self.enable_yarn)
-                    self.yarn_factor = 1.0
-                    self.yarn_factor_input = "1.0"
-
-                    # Load UI Settings
-                    self.auto_refresh_enabled = saved_settings.get("auto_scroll", self.auto_refresh_enabled)
-
-                    # Load Multi-Agent Settings
-                    self.multi_agent_mode = saved_settings.get("multi_agent_mode", self.multi_agent_mode)
-                    self.max_debate_rounds = saved_settings.get("max_debate_rounds", self.max_debate_rounds)
-                    self.consensus_type = saved_settings.get("consensus_type", self.consensus_type)
-                    # sokrates/salomo model ids come from backend_models below
-                    # (single source of truth — no flat keys anymore)
-
-                    # Load per-backend models — keys are agent ids
-                    # (+ "automatik"); buckets for custom agents materialize
-                    # on demand.
-                    backend_models = saved_settings.get("backend_models", {})
-                    _had_backend_settings = self.backend_id in backend_models
+                    # Per-agent tuning and the backend's models (rules: lib/runtime_settings).
+                    from ..lib.runtime_settings import apply_saved_models, apply_saved_tuning
+                    apply_saved_tuning(self, saved_settings)
+                    _had_backend_settings = apply_saved_models(self, saved_settings)
+                    self.automatik_model = self.automatik_model_id
                     if _had_backend_settings:
-                        from ..lib.agent_config import get_agent_config
-                        from ..lib.agent_tuning import default_tuning
-                        backend_data = backend_models[self.backend_id]
-                        for agent, model_id_raw in backend_data.items():
-                            if agent == "automatik":
-                                self.automatik_model_id = model_id_raw
-                                self.automatik_model = model_id_raw
-                                continue
-                            if agent not in self.agent_tuning:
-                                if get_agent_config(agent) is None:
-                                    continue  # agent no longer registered
-                                self.agent_tuning[agent] = default_tuning(agent)
-                            self.agent_tuning[agent].model_id = model_id_raw
-                            self.agent_tuning[agent].model = model_id_raw
-
                         # Load all model parameters from cache on startup
                         self._load_all_agent_model_params()
 
@@ -651,47 +490,16 @@ class BackendMixin(rx.State, mixin=True):
                     rate_value = self.tts_playback_rate.replace("x", "")
                     yield rx.call_script(f"setTimeout(() => {{ if (typeof setTtsPlaybackRate === 'function') setTtsPlaybackRate({rate_value}); }}, 100)")
 
-                # Apply config.py defaults as final fallback
-                backend_defaults = config.BACKEND_DEFAULT_MODELS.get(self.backend_type, {})
-
-                if not self.agent_tuning["aifred"].model:
-                    self.agent_tuning["aifred"].model = backend_defaults.get("aifred", "")
-                    self.agent_tuning["aifred"].model_id = self.agent_tuning["aifred"].model
-                    if self.agent_tuning["aifred"].model:
-                        self.add_debug(f"⚙️ Using default aifred_model from config.py: {self.agent_tuning["aifred"].model}")
-                    else:
-                        self.add_debug("⚠️ No aifred_model configured")
-
-                if not self.automatik_model and not _had_backend_settings:
-                    self.automatik_model = backend_defaults.get("automatik", "")
-                    self.automatik_model_id = self.automatik_model
-                    if self.automatik_model:
-                        self.add_debug(f"⚙️ Using default automatik_model from config.py: {self.automatik_model}")
-                    else:
-                        self.add_debug("⚠️ No automatik_model configured")
-
-                if not self.agent_tuning["vision"].model:
-                    self.agent_tuning["vision"].model = backend_defaults.get("vision", "")
-                    self.agent_tuning["vision"].model_id = self.agent_tuning["vision"].model
-                    if self.agent_tuning["vision"].model:
-                        self.add_debug(f"⚙️ Using default vision_model from config.py: {self.agent_tuning["vision"].model}")
-                    else:
+                # The backend's default models where none is set (rules: lib/runtime_settings).
+                from ..lib.runtime_settings import apply_default_models
+                for agent, model in apply_default_models(self, _had_backend_settings):
+                    if model:
+                        self.add_debug(f"⚙️ Using default {agent}_model from config.py: {model}")
+                    elif agent in ("aifred", "automatik"):
+                        self.add_debug(f"⚠️ No {agent}_model configured")
+                    elif agent == "vision":
                         self.add_debug("ℹ️ No vision_model configured - will auto-detect first available vision model")
-
-                # Multi-Agent Models (optional)
-                # Only apply config.py defaults if NO per-backend settings exist.
-                # Empty string ("") is a valid saved value meaning "use AIfred-LLM".
-                if not _had_backend_settings and not self.agent_tuning["sokrates"].model_id:
-                    self.agent_tuning["sokrates"].model_id = backend_defaults.get("sokrates", "")
-                    self.agent_tuning["sokrates"].model = self.agent_tuning["sokrates"].model_id
-                    if self.agent_tuning["sokrates"].model_id:
-                        self.add_debug(f"⚙️ Using default sokrates_model from config.py: {self.agent_tuning["sokrates"].model_id}")
-
-                if not _had_backend_settings and not self.agent_tuning["salomo"].model_id:
-                    self.agent_tuning["salomo"].model_id = backend_defaults.get("salomo", "")
-                    self.agent_tuning["salomo"].model = self.agent_tuning["salomo"].model_id
-                    if self.agent_tuning["salomo"].model_id:
-                        self.add_debug(f"⚙️ Using default salomo_model from config.py: {self.agent_tuning["salomo"].model_id}")
+                self.automatik_model = self.automatik_model_id
 
                 # Generate internal session ID
                 if not self.session_id:
@@ -1554,7 +1362,8 @@ class BackendMixin(rx.State, mixin=True):
             )
 
         # Load model parameters from cache
-        self._load_agent_model_params("aifred", self.agent_tuning["aifred"].model_id)
+        from ..lib.runtime_settings import load_agent_model_params
+        load_agent_model_params(self, "aifred", self.agent_tuning["aifred"].model_id)
 
         if self.backend_type in LLAMASWAP_BACKENDS and not self.agent_tuning["aifred"].has_speed_variant:
             self.agent_tuning["aifred"].speed_mode = False
@@ -1603,7 +1412,8 @@ class BackendMixin(rx.State, mixin=True):
         self._show_model_calibration_info(self.agent_tuning["vision"].model_id)
         # Like every agent (and like the start-up load in _load_all_agent_model_params).
         if self.backend_type in LLAMASWAP_BACKENDS:
-            self._load_agent_model_params("vision", model_id)
+            from ..lib.runtime_settings import load_agent_model_params
+            load_agent_model_params(self, "vision", model_id)
 
         if self.backend_type == "llamacpp":
             from ..lib.calibration import model_has_speed_variant
