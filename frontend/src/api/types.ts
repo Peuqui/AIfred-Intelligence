@@ -20,6 +20,7 @@ export type DocumentDeleted = Schemas["DocumentsDeleted"];
 export type DocumentPreview = Schemas["DocumentPreview"];
 export type DocumentIndexProgress = Schemas["DocumentIndexProgress"];
 export type DocumentsUploaded = Schemas["DocumentsUploaded"];
+export type IndexOverview = Schemas["IndexOverview"];
 export type DocumentSourceInfo = Schemas["DocumentSourceInfo"];
 export type SourceListing = Schemas["SourceListing"];
 export type SourceRow = Schemas["SourceRow"];

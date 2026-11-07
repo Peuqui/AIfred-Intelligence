@@ -10,6 +10,7 @@ comes, never through Reflex state. Login cookie required like every API path (ap
 """
 import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from typing import Literal
 from urllib.parse import quote
 
@@ -20,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .. import document_indexing
 from .. import file_manager as fm
 from ..document_sources import DocumentSource, DocumentSourceError, get_document_source
+from ..formatting import format_stamp
 from ..logging_utils import log_exception, log_message
 from ..upload_files import DOCUMENTS_URL
 from .app import api_app
@@ -273,6 +275,74 @@ async def documents_index_progress() -> DocumentIndexProgress:
     return _index_progress()
 
 
+# ── Index care ───────────────────────────────────────────────────────────
+
+
+class IndexOrphan(BaseModel):
+    filename: str
+    chunks: int
+    indexed: str = Field(description="When it was indexed, as the lists show a point in time")
+
+
+class IndexOverview(BaseModel):
+    """The search index of the documents: how much is in it, and what of it has lost its file."""
+
+    documents: int
+    chunks: int
+    orphans: list[IndexOrphan] = Field(description="Indexed files of the local folder that are gone from the disk")
+
+
+class OrphansRemoval(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    filenames: list[str]
+
+
+class IndexCleared(BaseModel):
+    chunks_removed: int
+
+
+def _index_overview() -> IndexOverview:
+    listed = _done(fm.list_indexed()).metadata["documents"]
+    orphans = _done(fm.list_orphaned()).metadata["orphans"]
+    return IndexOverview(
+        documents=len(listed), chunks=sum(int(entry["total_chunks"]) for entry in listed),
+        orphans=[IndexOrphan(filename=entry["filename"], chunks=int(entry["total_chunks"]),
+                             indexed=format_stamp(datetime.fromisoformat(entry["upload_date"]).timestamp()))
+                 for entry in orphans],
+    )
+
+
+@api_app.get("/documents/index/overview", response_model=IndexOverview, tags=["Documents"])
+async def documents_index_overview() -> IndexOverview:
+    """Documents and sections in the search index, and the entries whose file is gone."""
+    return await asyncio.to_thread(_index_overview)
+
+
+@api_app.post("/documents/index/orphans/remove", response_model=IndexOverview, tags=["Documents"])
+async def documents_index_orphans_remove(removal: OrphansRemoval) -> IndexOverview:
+    """Take orphaned entries out of the index. Only entries that are orphans right now: a file still on
+    disk is taken out of the index through the delete of the folder listing, not here."""
+    orphans = {entry["filename"] for entry in _done(await asyncio.to_thread(fm.list_orphaned)).metadata["orphans"]}
+    for filename in removal.filenames:
+        if filename in orphans:
+            await fm.deindex_file(filename)
+    log_message(f"🧹 Index: {len(set(removal.filenames) & orphans)} orphaned entries removed")
+    return await asyncio.to_thread(_index_overview)
+
+
+@api_app.post("/documents/index/clear", response_model=IndexCleared, tags=["Documents"])
+async def documents_index_clear() -> IndexCleared:
+    """Take every section of every document out of the search index; the files stay where they are."""
+    from ..document_store import get_document_store
+
+    store = get_document_store()
+    if store is None:
+        raise HTTPException(status_code=503, detail="Document store not available")
+    removed = await asyncio.to_thread(store.clear)
+    log_message(f"🧹 Index cleared: {removed} sections")
+    return IndexCleared(chunks_removed=removed)
+
+
 # ── Further sources ──────────────────────────────────────────────────────
 
 
@@ -363,12 +433,10 @@ async def documents_sources() -> list[DocumentSourceInfo]:
 @api_app.get("/documents/source/{source_key}", response_model=SourceListing, tags=["Documents"])
 async def documents_source_listing(source_key: str, folder_id: str = "", query: str = "") -> SourceListing:
     """A folder of a source (``folder_id`` "" = its root), or the hits of a search over the whole source."""
-    from datetime import datetime
     from pathlib import Path
 
     from ..document_sources import source_index_name
     from ..document_store import PARSERS
-    from ..formatting import format_stamp
 
     source = _source(source_key)
     entries = await _source_call(source_key, lambda found: found.search(query) if query else found.list_folder(folder_id))

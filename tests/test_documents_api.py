@@ -25,8 +25,13 @@ class _Index:
     async def delete_document(self, path: str, delete_file: bool = False) -> int:
         return self.chunks.pop(path, 0)
 
-    def list_documents(self) -> list[dict[str, str]]:
-        return [{"filename": path} for path in self.chunks]
+    def list_documents(self) -> list[dict[str, object]]:
+        return [{"filename": path, "total_chunks": chunks, "upload_date": "2026-11-07T21:04:00", "source": ""} for path, chunks in self.chunks.items()]
+
+    def clear(self) -> int:
+        removed = sum(self.chunks.values())
+        self.chunks.clear()
+        return removed
 
     def rename_document(self, old: str, new: str) -> int:
         self.chunks[new] = self.chunks.pop(old)
@@ -162,3 +167,14 @@ def test_a_damaged_file_does_not_stop_the_run_and_a_folder_brings_what_is_below(
     assert progress["failed"] == [{"path": "leer.txt", "reason": "Document is empty: leer.txt"}]
     assert set(index.chunks) == {"bericht.txt", "projekt/plan.md", "projekt/unten/tief.txt"}
     assert client.post("/documents/local/index", json={"folders": ["../.."]}).status_code == 422
+
+
+def test_the_index_care_finds_orphans_and_removes_only_those(client: TestClient, documents: tuple[Path, _Index]) -> None:
+    _folder, index = documents
+    index.chunks["weg.txt"] = 4                                              # its file is gone
+    overview = client.get("/documents/index/overview").json()
+    assert (overview["documents"], overview["chunks"]) == (2, 7)
+    assert overview["orphans"] == [{"filename": "weg.txt", "chunks": 4, "indexed": "07.11.2026 21:04"}]
+    after = client.post("/documents/index/orphans/remove", json={"filenames": ["weg.txt", "bericht.txt"]}).json()
+    assert after["orphans"] == [] and index.chunks == {"bericht.txt": 3}     # the file on disk keeps its entry
+    assert client.post("/documents/index/clear").json() == {"chunks_removed": 3} and index.chunks == {}

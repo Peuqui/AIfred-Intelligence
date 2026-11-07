@@ -192,6 +192,13 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   404 (`file/{file_id}`, auch auf `main`); jetzt `{file_id:path}`. Die Testinstanz kann einen Ordner als
   Prüfquelle anbieten (`AIFRED_TEST_SOURCE_DIR`). Offen: Fehlertexte nennen die Datei doppelt, weil der
   Indexer sie für die Reflex-Hinweise selbst voranstellt — mit Reflex bereinigen.
+- **Index-Pflege (erledigt 07.11.2026):** 🧹 auf der Dokumente-Seite öffnet `IndexCare.vue`: wie viele
+  Dokumente und Abschnitte der Suchindex hält, die verwaisten Einträge (Datei im lokalen Ordner nicht
+  mehr da) mit Abschnitten und Indexier-Zeitpunkt, einzeln oder alle aus dem Index zu nehmen, und den
+  ganzen Index leeren nach einer Rückfrage (die Dateien bleiben). Der Server nimmt nur Einträge heraus,
+  die gerade verwaist sind; eine Datei, die noch da ist, verlässt den Index über das Löschen in der
+  Ordnerliste. Dünn über `file_manager.list_indexed/list_orphaned/deindex_file` und
+  `document_store.clear`, wie der Reflex-Tab.
 - **Einstellungen, Teil 2 (offen):** Backend-Wechsel, Kalibrierung, Neustarts von Backend und AIfred,
   Grundeinstellungen laden. Neustarts treffen die gemeinsamen Dienste (llama-swap,
   Produktionsdienst): nur mit Peuqui abgestimmt testen.
@@ -279,7 +286,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   der Zahl seiner Erinnerungen (auch Sammlungen gelöschter Agenten), rechts seine Einträge mit Typ-Filter,
   bearbeiten (über `AgentMemory.update` wie das Werkzeug der Agenten), einzeln oder alle löschen.
   `AgentMemory.counts()` und `entries()` sind jetzt öffentlich; ein Agent ohne Sammlung wird nicht gelesen
-  (das legte eine an). Index-Pflege (verwaiste Einträge) gehört auf die Dokumente-Seite (offen).
+  (das legte eine an). Die Index-Pflege (verwaiste Einträge) liegt auf der Dokumente-Seite (siehe dort).
 - **Agenten-Bündel (erledigt 07.11.2026):** 📦 und 📥 in der Kopfzeile der Agenten-Seite (`AgentBundles.vue`):
   Export der gewählten Agenten als ZIP, Import mit Vorschau des Bündels, Auswahl und Konfliktregel
   (umbenennen, überschreiben, abbrechen), danach die Warnungen. Die Antworten von Vorschau und Import sind

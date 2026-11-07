@@ -317,6 +317,9 @@ per `dotenv.set_key` und Plugin-Settings, startet Kanal-Worker per `asyncio.crea
 
 ### Neue Endpunkte (Vorschlag)
 
+Gebaut wurde teils anders (z. B. Aufträge unter `/jobs`, Index-Pflege unter `/documents/index/…`); was
+gilt, steht in `docs/de/guides/rest-api.md`.
+
 | Bereich | Endpunkte |
 |---|---|
 | Anmeldung | `POST /auth/login`, `POST /auth/register`, `POST /auth/logout`, `GET /auth/me`; Login und Register von der Cookie-Pflicht ausgenommen, Cookie HttpOnly, Secure, SameSite=Lax |

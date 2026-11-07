@@ -6,6 +6,7 @@
 // (Nextcloud …) opens in SourceBrowser; the progress of an indexing run is shared by both.
 import { computed, onMounted, ref } from "vue";
 import type { DocumentPreview, DocumentRow } from "../api/types";
+import IndexCare from "../components/IndexCare.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import SourceBrowser from "../components/SourceBrowser.vue";
 import { t } from "../i18n";
@@ -18,6 +19,7 @@ onMounted(async () => {
   await docs.watchIndexing();
 });
 const local = computed(() => docs.source === LOCAL);
+const caring = ref(false);
 
 const folder = computed(() => docs.listing?.folder ?? "");
 // The folder as a trail of its parts, each a place to go back to.
@@ -160,6 +162,7 @@ const runOutcome = computed(() => {
             @click="indexFolder"
           >📚</button>
           <button :title="t('doc_refresh')" @click="go(folder)">🔄</button>
+          <button :title="t('db_index_title')" @click="caring = true">🧹</button>
           <button v-if="selected.length" :disabled="run?.running" @click="indexSelected">
             📚 {{ t("doc_index") }} ({{ selected.length }})
           </button>
@@ -227,6 +230,8 @@ const runOutcome = computed(() => {
       <p v-else-if="docs.listing" class="empty">{{ folder ? t("doc_folder_empty") : t("doc_manager_empty") }}</p>
     </template>
     <SourceBrowser v-else />
+
+    <IndexCare v-if="caring" @close="caring = false" @changed="go(folder)" />
 
     <ModalDialog v-if="deleting" @close="deleting = null">
       <strong>{{ t("doc_delete_confirm_title") }}</strong>
