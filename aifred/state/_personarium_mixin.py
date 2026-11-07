@@ -1,19 +1,16 @@
-"""Personarium — Identitäten-Verwaltungs-Modal.
+"""Personarium — Identitäten-Verwaltungs-Modal (Reflex-Kopie; die Regeln stehen in ``lib/personarium.py``, auch für
+die Vue-Seite und ``/api/vision/face/*``).
 
-Liste aller im ``vision_store.faces`` registrierten Personen mit
-Avatar (letzter Crop), Anzahl Embeddings und letzter Sichtung.
-Aktionen: Umbenennen, Löschen, einzelne Embeddings entfernen.
-
-Reads gehen direkt über den ``VisionStore`` (kein API-Roundtrip),
-Writes ebenfalls — die REST-Endpoints unter ``/api/vision/face/*``
-sind für externe Konsumenten gedacht.
+Liste aller Personen mit Avatar (letzter Crop), Anzahl Embeddings und letzter Sichtung; Umbenennen, Löschen,
+einzelne Embeddings entfernen; offene Gesichter zuordnen und lernen, verwerfen, neu erkennen.
 """
 
 from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import Any
+from dataclasses import asdict
+from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 
@@ -22,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 class PersonariumMixin(rx.State, mixin=True):
     """UI state for the Personarium identity management modal."""
+
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here (mypy checks them against the real ones where AIState combines
+        # the mixins).
+        ui_language: rx.Field[str]
 
     personarium_open: rx.Field[bool] = rx.field(False)
     # Liste aller Identitäten — befüllt beim Modal-Open + nach jeder
@@ -78,10 +80,10 @@ class PersonariumMixin(rx.State, mixin=True):
 
     def _refresh_personarium_faces(self) -> None:
         """Lade Liste neu — wird nach jeder Aktion gerufen."""
+        from ..lib.personarium import persons
+
         try:
-            from ..lib.vision_store import VisionStore
-            store = VisionStore()
-            self.personarium_faces = store.list_faces_with_summary()
+            self.personarium_faces = persons()
         except sqlite3.Error as e:
             logger.warning("personarium refresh failed: %s", e)
             self.personarium_faces = []
@@ -118,28 +120,16 @@ class PersonariumMixin(rx.State, mixin=True):
         ]
 
     def _reload_personarium_embeddings(self) -> None:
-        """Embeddings der gerade verwalteten Identität laden (ohne den
-        numpy-Vektor — der gehört nicht in den Reflex-State)."""
+        """Embeddings der gerade verwalteten Identität laden (``lib.personarium.embeddings``, ohne den Vektor)."""
+        from ..lib.personarium import embeddings
+
         fid = int(self.personarium_manage_face_id)
         if fid <= 0:
             self.personarium_embeddings = []
             return
         try:
-            from ..lib.vision_store import VisionStore
-            rows = VisionStore().list_embeddings(fid)
-            # Neueste zuerst — ein frisch gelerntes Embedding erscheint
-            # damit sofort vorn im aufgeklappten Grid.
-            rows = sorted(rows, key=lambda r: int(r.get("id") or 0), reverse=True)
-            self.personarium_embeddings = [
-                {
-                    "id": int(r.get("id") or 0),
-                    "quality": round(float(r.get("quality_score", 0.0) or 0.0), 2),
-                    "created_at": str(r.get("created_at", "") or "")[:19].replace("T", " "),
-                    "crop_url": str(r.get("crop_url", "") or ""),
-                }
-                for r in rows
-            ]
-        except sqlite3.Error as e:
+            self.personarium_embeddings = [{**row, "quality": round(row["quality"], 2)} for row in embeddings(fid)]
+        except (KeyError, sqlite3.Error) as e:  # the person went meanwhile, or the store failed
             logger.warning("personarium embeddings load failed: %s", e)
             self.personarium_embeddings = []
 
@@ -158,13 +148,11 @@ class PersonariumMixin(rx.State, mixin=True):
     def personarium_delete_embedding(self, embedding_id: int) -> None:
         """Ein einzelnes Embedding löschen (Crop bleibt auf Disk, wird vom
         Cleanup-TTL erfasst). Aktualisiert Liste + Identity-Count."""
+        from ..lib.personarium import delete_embedding
+
         try:
-            from ..lib.vision_filters.face_recognize import bump_enrollment_epoch
-            from ..lib.vision_store import VisionStore
-            store = VisionStore()
-            store.delete_embedding(int(embedding_id))
-            bump_enrollment_epoch()  # frisch erkennen
-        except sqlite3.Error as e:
+            delete_embedding(int(embedding_id))
+        except (KeyError, sqlite3.Error) as e:  # already gone, or the store failed
             logger.warning("delete embedding failed: %s", e)
             self.personarium_status = f"⚠️ {e}"
             return
@@ -189,163 +177,99 @@ class PersonariumMixin(rx.State, mixin=True):
 
     @rx.event
     def personarium_save_rename(self) -> None:
-        """Persistiert den neuen Namen über VisionStore."""
+        """Neuer Name über ``lib.personarium.rename`` (die Erkennung nutzt ihn sofort)."""
+        from ..lib.i18n import t
+        from ..lib.personarium import rename
+
         face_id = int(self.personarium_edit_face_id)
         new_name = (self.personarium_edit_name or "").strip()
         if face_id <= 0 or not new_name:
             return
         try:
-            from ..lib.vision_store import VisionStore
-            store = VisionStore()
-            store.rename_face(face_id, new_name)
-            self.personarium_status = f"✓ Umbenannt: {new_name}"
-        except ValueError as e:
-            self.personarium_status = f"⚠️ {e}"
-            return
-        except sqlite3.Error as e:
+            rename(face_id, new_name)
+        except (KeyError, ValueError, sqlite3.Error) as e:  # gone, a name another person has, or the store failed
             logger.warning("personarium rename failed: %s", e)
             self.personarium_status = f"⚠️ {e}"
             return
+        self.personarium_status = t("personarium_renamed", lang=self.ui_language, name=new_name)
         self.personarium_edit_face_id = 0
         self.personarium_edit_name = ""
         self._refresh_personarium_faces()
-        # Alle lebenden Recognizer neu laden lassen, damit der nächste
-        # Frame den neuen Namen anzeigt.
-        from ..lib.vision_filters.face_recognize import bump_enrollment_epoch
-        bump_enrollment_epoch()
 
     @rx.event
     def personarium_delete_face(self, face_id: int) -> None:
-        """Identity vollständig löschen (Face-Row + Embeddings +
-        face_id-Refs in Events). Crops auf Disk bleiben und werden
-        vom vision_cleanup-Task per TTL aufgeräumt."""
+        """Identity vollständig löschen (``lib.personarium.delete``: Person, Embeddings, Bezüge der Events).
+        Crops auf Disk bleiben und werden vom vision_cleanup-Task per TTL aufgeräumt."""
+        from ..lib.i18n import t
+        from ..lib.personarium import delete
+
         try:
-            from ..lib.vision_store import VisionStore
-            store = VisionStore()
-            face = store.get_face_by_id(int(face_id))
-            if not face:
-                return
-            info = store.delete_face_with_assets(int(face_id))
-            self.personarium_status = (
-                f"✓ '{face['name']}' gelöscht "
-                f"({info['embeddings_deleted']} Embeddings)"
-            )
+            name, embeddings_deleted = delete(int(face_id))
+        except KeyError:  # deleted meanwhile (another page): the list shows it
+            self._refresh_personarium_faces()
+            return
         except sqlite3.Error as e:
             logger.warning("personarium delete failed: %s", e)
             self.personarium_status = f"⚠️ {e}"
             return
+        self.personarium_status = t("personarium_deleted", lang=self.ui_language, name=name, count=embeddings_deleted)
         self._refresh_personarium_faces()
-        from ..lib.vision_filters.face_recognize import bump_enrollment_epoch
-        bump_enrollment_epoch()
 
     # ── Unzugeordnete Gesichter (Nachtaggen + Lernen) ────────────────
 
     def _refresh_personarium_untagged(self) -> None:
-        """ALLE noch nicht geklärten face_unknown/face_unsure-Events laden —
-        einschließlich der unsicheren MIT Kandidat (die tragen bereits eine
-        face_id und fehlten deshalb komplett; ``matched_name`` nennt den
-        Verdacht, den der Nutzer bestätigen oder verwerfen kann). Jede
-        Aufnahme als eigene Karte, ohne Cluster-Dedupe und ohne Deckel.
-        Der Nutzer sieht sofort den kompletten Bestand (das Grid scrollt)
-        und arbeitet ihn ab: Zuordnen lernt genau den geklickten Crop,
-        der Cluster-Sweep räumt sichere Duplikate desselben Vorkommnisses
-        weg, ✕ verwirft das ganze Vorkommnis. Nichts rückt nach —
-        Nachrück-Fenster hatten Karten hinter Karten versteckt."""
+        """Alle offenen Gesichter (``lib.personarium.open_faces``): unbekannte und unsichere, eine Karte je
+        Crop-Datei, ohne Deckel. Häkchen auf Karten, die es nicht mehr gibt, fallen weg."""
+        from ..lib.personarium import open_faces
+
         try:
-            from ..lib.vision_store import VisionStore
-            rows = VisionStore().list_events_with_summary(
-                event_types=["face_unknown", "face_unsure"],
-                unknown_only=True,
-                limit=2000,
-            )
+            cards = open_faces()
         except sqlite3.Error as e:
             logger.warning("personarium untagged load failed: %s", e)
             self.personarium_untagged = []
             return
-        open_rows = [
-            r for r in rows
-            if r.get("crop_url")
-            and not r.get("untagged_dismissed")
-            and not r.get("identity_confirmed")
-        ]
-        # Pro Sichtung wird EINE Crop-Datei überschrieben, jedes Event der
-        # Sichtung zeigt auf dieselbe Datei. Eine Karte je Datei (die neueste
-        # Aufnahme führt), die übrigen Events hängen als ``member_ids`` daran —
-        # Verwerfen und Zuordnen gelten für die ganze Gruppe.
-        groups: dict[str, list[dict[str, Any]]] = {}
-        for r in open_rows:
-            groups.setdefault(str(r["crop_url"]), []).append(r)
-        self.personarium_untagged = [
-            {
-                "id": int(members[0]["id"]),
-                "member_ids": [int(m["id"]) for m in members],
-                "count": len(members),
-                "crop_url": str(members[0]["crop_url"]),
-                "event_type": str(members[0]["event_type"]),
-                "matched_name": str(members[0].get("matched_name") or ""),
-                "source_name": str(members[0].get("source_name") or ""),
-                "date_display": str(members[0].get("date_display") or ""),
-                "time_display": str(members[0].get("time_display") or ""),
-            }
-            for members in groups.values()
-        ]
-        # Häkchen auf Karten, die inzwischen zugeordnet oder verworfen
-        # wurden, würden eine Auswahl zeigen, die es nicht mehr gibt.
-        alive = {e["id"] for e in self.personarium_untagged}
-        self.personarium_untagged_selected = [
-            eid for eid in self.personarium_untagged_selected if eid in alive
-        ]
-
-    def _untagged_group_ids(self, card_ids: list[int]) -> list[int]:
-        """Alle Event-IDs hinter den Karten ``card_ids`` (Gruppen je Crop-Datei)."""
-        wanted = {int(i) for i in card_ids}
-        return [
-            int(member)
-            for card in self.personarium_untagged if int(card["id"]) in wanted
-            for member in card["member_ids"]
-        ]
+        self.personarium_untagged = [{**asdict(card), "count": len(card.member_ids)} for card in cards]
+        alive = {card.id for card in cards}
+        self.personarium_untagged_selected = [eid for eid in self.personarium_untagged_selected if eid in alive]
 
     @rx.event
     async def personarium_rematch_untagged(self):
-        """Manueller Re-Match (Button überm Grid): alle unzugeordneten
-        Gesichter erneut gegen die aktuelle Embedding-DB erkennen —
-        sichere Treffer werden abgehakt (KEINE neuen Embeddings), der
-        Rest bleibt zum Zuordnen/Verwerfen sichtbar."""
+        """Manueller Re-Match (``lib.personarium.start_rematch``, einer zur Zeit für alle Oberflächen): alle
+        offenen Gesichter erneut gegen die Embeddings erkennen, sichere Treffer zuordnen (keine neuen Embeddings)."""
+        from ..lib.personarium import RematchRunning, rematch, start_rematch
+
+        try:
+            run = start_rematch()
+        except RematchRunning:  # started here or on the Vue page
+            self.personarium_status = rematch().message(self.ui_language)
+            return
         self.personarium_rematch_busy = True
         yield
-        try:
-            from ..lib.face_enroll import rematch_untagged_faces
-            result = await rematch_untagged_faces()
-            by_name = ", ".join(
-                f"{n}: {c}" for n, c in sorted(result["by_name"].items())
-            )
-            rest = int(result["checked"]) - int(result["resolved"])
-            self.personarium_status = (
-                f"✓ {result['resolved']} von {result['checked']} Aufnahmen "
-                f"erkannt und zugeordnet"
-                + (f" ({by_name})" if by_name else "")
-                + (f" — {rest} bleiben unzugeordnet" if rest else "")
-            )
-        except Exception as e:  # the Personarium shows why: face model, files and store
-            logger.warning("personarium rematch failed: %s", e, exc_info=True)
-            self.personarium_status = f"⚠️ {e}"
+        await run
+        self.personarium_status = rematch().message(self.ui_language)
         self.personarium_rematch_busy = False
         self._refresh_personarium_untagged()
         self._refresh_personarium_faces()
 
-    @rx.event
-    def personarium_dismiss_untagged(self, event_id: int) -> None:
-        """Genau diese Aufnahme aus den Vorschlägen nehmen (zu schlechter
-        Crop) — das Event bleibt in Casus/Chronik erhalten."""
+    def _dismiss_cards(self, card_ids: list[int]) -> None:
+        from ..lib.i18n import t
+        from ..lib.personarium import dismiss
+
         try:
-            from ..lib.vision_store import VisionStore
-            VisionStore().dismiss_untagged_events(self._untagged_group_ids([int(event_id)]))
-            self.personarium_status = "✓ Aufnahme verworfen"
-        except sqlite3.Error as e:
+            count = dismiss(card_ids)
+        except (KeyError, sqlite3.Error) as e:  # a card assigned meanwhile, or the store failed
             logger.warning("personarium dismiss failed: %s", e)
             self.personarium_status = f"⚠️ {e}"
+            self._refresh_personarium_untagged()
             return
+        self.personarium_status = t("personarium_dismissed", lang=self.ui_language, count=count)
+        self.personarium_untagged_selected = []
         self._refresh_personarium_untagged()
+
+    @rx.event
+    def personarium_dismiss_untagged(self, event_id: int) -> None:
+        """Genau diese Karte aus den Vorschlägen nehmen (zu schlechter Crop) — die Events bleiben im Casus."""
+        self._dismiss_cards([int(event_id)])
 
     @rx.event
     def personarium_toggle_untagged(self, event_id: int) -> None:
@@ -375,20 +299,8 @@ class PersonariumMixin(rx.State, mixin=True):
     @rx.event
     def personarium_dismiss_selected(self) -> None:
         """Die angehakten Aufnahmen verwerfen."""
-        if not self.personarium_untagged_selected:
-            return
-        try:
-            from ..lib.vision_store import VisionStore
-            n = VisionStore().dismiss_untagged_events(
-                self._untagged_group_ids(self.personarium_untagged_selected)
-            )
-            self.personarium_status = f"✓ {n} Aufnahmen verworfen"
-        except sqlite3.Error as e:
-            logger.warning("personarium dismiss selected failed: %s", e)
-            self.personarium_status = f"⚠️ {e}"
-            return
-        self.personarium_untagged_selected = []
-        self._refresh_personarium_untagged()
+        if self.personarium_untagged_selected:
+            self._dismiss_cards(list(self.personarium_untagged_selected))
 
     @rx.event
     def personarium_request_dismiss_all(self) -> None:
@@ -404,19 +316,8 @@ class PersonariumMixin(rx.State, mixin=True):
     def personarium_dismiss_all_untagged(self) -> None:
         """Alle gerade gelisteten Aufnahmen verwerfen."""
         self.personarium_confirm_dismiss_all = False
-        ids = self._untagged_group_ids([int(e["id"]) for e in self.personarium_untagged])
-        if not ids:
-            return
-        try:
-            from ..lib.vision_store import VisionStore
-            n = VisionStore().dismiss_untagged_events(ids)
-            self.personarium_status = f"✓ {n} Aufnahmen verworfen"
-        except sqlite3.Error as e:
-            logger.warning("personarium dismiss all failed: %s", e)
-            self.personarium_status = f"⚠️ {e}"
-            return
-        self.personarium_untagged_selected = []
-        self._refresh_personarium_untagged()
+        if self.personarium_untagged:
+            self._dismiss_cards([int(e["id"]) for e in self.personarium_untagged])
 
     @rx.event
     def personarium_start_tag(self, event_id: int) -> None:
@@ -441,9 +342,9 @@ class PersonariumMixin(rx.State, mixin=True):
 
     @rx.event
     async def personarium_save_tag(self):
-        """Zuordnen + Lernen: Embedding aus dem gespeicherten Frame
-        nachrechnen (lib.face_enroll), der Person anhängen und das
-        Event zuordnen. Bestehende Person via face_id, neue via Name."""
+        """Zuordnen + Lernen über ``lib.personarium.assign``: bestehende Person via face_id, neue via Name."""
+        from ..lib.personarium import assign
+
         event_id = int(self.personarium_tag_event_id)
         choice = self.personarium_tag_value
         if event_id <= 0 or not choice:
@@ -451,43 +352,16 @@ class PersonariumMixin(rx.State, mixin=True):
         self.personarium_tag_busy = True
         yield
         try:
-            from ..lib.face_enroll import enroll_face_from_event
             if choice == "__new__":
-                result = await enroll_face_from_event(
-                    event_id, name=self.personarium_tag_new_name,
-                )
+                done = await assign(event_id, name=self.personarium_tag_new_name)
             else:
-                result = await enroll_face_from_event(
-                    event_id, face_id=int(choice),
-                )
-            from ..lib.face_enroll import confirm_group_events
-            confirm_group_events(
-                [i for i in self._untagged_group_ids([event_id]) if i != event_id],
-                int(result["face_id"]),
-            )
-            from ..lib.formatting import format_number
-            if result["embedding_skipped"]:
-                self.personarium_status = (
-                    f"ℹ️ '{result['name']}' hat schon ein fast gleiches Embedding "
-                    f"(Ähnlichkeit {format_number(result['similarity'] * 100, 0)} %) — "
-                    f"Aufnahme zugeordnet, nicht erneut gelernt"
-                )
-            else:
-                self.personarium_status = (
-                    f"✓ Gesicht als '{result['name']}' gelernt "
-                    f"(Qualität {format_number(result['quality'], 2)})"
-                )
-            siblings = int(result.get("siblings_resolved") or 0)
-            if siblings:
-                self.personarium_status += (
-                    f" — {siblings} weitere Aufnahme(n) des Vorkommnisses "
-                    f"mit zugeordnet"
-                )
+                done = await assign(event_id, face_id=int(choice))
         except Exception as e:  # the Personarium shows why: face model, files and store
             logger.warning("personarium tag+learn failed: %s", e, exc_info=True)
             self.personarium_status = f"⚠️ {e}"
             self.personarium_tag_busy = False
             return
+        self.personarium_status = done.message(self.ui_language)
         self.personarium_tag_busy = False
         self.personarium_tag_event_id = 0
         self.personarium_tag_value = ""

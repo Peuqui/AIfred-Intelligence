@@ -7,13 +7,15 @@
 // with progress, cancelled at will). Both analyses are runs of the server, one at a time; this page follows them. A click on a picture opens the slideshow over every page (grouped: the occurrence's film). New events
 // arrive over a stream; the list loads again then, unless a picture or an assignment is open (it waits for that).
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import { ApiError, PROGRESS_POLL_MS, api, apiUrl } from "../api/client";
 import type { CasusChoices, CasusEvent, CasusPage, CasusRuns, FilmPicture } from "../api/types";
 import { formatNumber, t, tCount } from "../i18n";
 import ImageLightbox from "./ImageLightbox.vue";
 
 const choices = ref<CasusChoices | null>(null);
-const chosen = reactive({ source: "", type: "all", face: "all" });
+// A person's events open from the persons tab: #/vision/events?face=<id>.
+const chosen = reactive({ source: "", type: "all", face: String(useRoute().query.face ?? "all") });
 const grouped = ref(false);
 const offset = ref(0);
 const list = ref<CasusPage | null>(null);

@@ -358,9 +358,10 @@ als „unbekannt" behandeln kann statt als False-Positive.
 Eingelernte Personen liegen in der `faces`-Tabelle des Vision-Stores. Das
 **Personarium**-UI-Modal listet jede Identität mit Avatar (letzter Crop),
 Embedding-Anzahl und Zeitpunkt der letzten Sichtung und erlaubt, eine Person
-umzubenennen, zu löschen oder einzelne Embeddings zu entfernen. Reads und Writes
-gehen direkt über den `VisionStore`; die REST-Endpoints unter
-`/api/vision/face/*` sind für externe Konsumenten gedacht.
+umzubenennen, zu löschen oder einzelne Embeddings zu entfernen; offene Gesichter
+werden zugeordnet (und gelernt), verworfen oder neu erkannt. Die Regeln stehen in
+`lib/personarium.py`; das Reflex-Modal, der Reiter Personen der Vue-Seite und die
+REST-Endpoints unter `/api/vision/face/*` nutzen sie gemeinsam.
 
 `vision_enroll_face` ist der LLM-zugewandte Single-Shot-Pfad. Erneuter Aufruf mit
 bestehendem Namen hängt ein weiteres Embedding an dieselbe Person an —

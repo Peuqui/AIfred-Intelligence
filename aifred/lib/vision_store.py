@@ -781,7 +781,7 @@ class VisionStore:
         since: datetime | None = None,
         until: datetime | None = None,
         grouped: bool = False,
-        limit: int = 200,
+        limit: int | None = 200,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         """Listet Events für die Casus-Ereignisverwaltung. Pro Event ein
@@ -794,7 +794,7 @@ class VisionStore:
         Caller an ``identity_confirmed``.
 
         ``grouped``: one row per occurrence (``_OCCURRENCE``), its newest event, with ``cluster_member_count``
-        (0 for an event without a cluster and in the flat list).
+        (0 for an event without a cluster and in the flat list). ``limit=None``: every event from ``offset`` on.
         """
         where, params = _event_filter(
             source_id=source_id, event_types=event_types, face_id=face_id,
@@ -817,7 +817,7 @@ class VisionStore:
             )
         else:
             query = f"SELECT {columns}, 0 AS cluster_member_count {joined} ORDER BY {_NEWEST_FIRST} LIMIT ? OFFSET ?"
-        params.extend([limit, offset])
+        params.extend([-1 if limit is None else limit, offset])   # LIMIT -1: SQLite's "no limit"
         with self._conn() as conn:
             rows = conn.execute(query, tuple(params)).fetchall()
         # Kamera-Anzeigenamen über die SSoT-Map (source_label) anreichern —
@@ -1184,38 +1184,18 @@ class VisionStore:
             )
             return cur.rowcount > 0
 
-    def list_untagged_face_events(
-        self,
-        cluster_id: str | None = None,
-        *,
-        exclude_id: int | None = None,
-        include_dismissed: bool = True,
-        limit: int = 2000,
-    ) -> list[dict[str, Any]]:
-        """face_unknown/face_unsure-Events ohne face_id (mit geparster
-        classification/metadata wie ``get_event``) — mit ``cluster_id``
-        auf EIN Vorkommnis begrenzt (Enroll-Cluster-Sweep), ohne über
-        den gesamten Bestand. ``include_dismissed=False`` blendet per ✕
-        verworfene Aufnahmen aus (manueller Re-Match: dessen Bilanz muss
-        zum sichtbaren Grid passen)."""
+    def list_untagged_face_events(self, cluster_id: str, *, exclude_id: int | None = None) -> list[dict[str, Any]]:
+        """face_unknown/face_unsure-Events ohne face_id EINES Vorkommnisses (mit geparster classification/metadata
+        wie ``get_event``) — für den Cluster-Sweep nach einem Enroll."""
         query = (
             "SELECT * FROM events WHERE face_id IS NULL "
-            "AND event_type IN ('face_unknown', 'face_unsure')"
+            "AND event_type IN ('face_unknown', 'face_unsure') AND cluster_id = ?"
         )
-        params: list[Any] = []
-        if cluster_id:
-            query += " AND cluster_id = ?"
-            params.append(cluster_id)
-        if not include_dismissed:
-            query += (
-                " AND COALESCE(json_extract(classification, "
-                "'$.untagged_dismissed'), 0) = 0"
-            )
+        params: list[Any] = [cluster_id]
         if exclude_id is not None:
             query += " AND id != ?"
             params.append(int(exclude_id))
-        query += " ORDER BY timestamp DESC LIMIT ?"
-        params.append(int(limit))
+        query += " ORDER BY timestamp DESC"
         with self._conn() as conn:
             rows = conn.execute(query, tuple(params)).fetchall()
         out: list[dict[str, Any]] = []

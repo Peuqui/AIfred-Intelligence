@@ -5,6 +5,7 @@ import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import VisionEvents from "../components/VisionEvents.vue";
 import VisionLive from "../components/VisionLive.vue";
+import VisionPersons from "../components/VisionPersons.vue";
 import VisionSettings from "../components/VisionSettings.vue";
 import { t } from "../i18n";
 
@@ -13,6 +14,7 @@ const tab = computed(() => String(route.params.tab ?? "live"));
 const tabs = [
   { id: "live", label: "vision_tab_live" },
   { id: "events", label: "vision_tab_events" },
+  { id: "persons", label: "vision_tab_persons" },
   { id: "settings", label: "vision_tab_settings" },
 ];
 </script>
@@ -24,6 +26,7 @@ const tabs = [
     </nav>
     <VisionLive v-if="tab === 'live'" />
     <VisionEvents v-else-if="tab === 'events'" />
+    <VisionPersons v-else-if="tab === 'persons'" />
     <VisionSettings v-else-if="tab === 'settings'" />
   </main>
 </template>

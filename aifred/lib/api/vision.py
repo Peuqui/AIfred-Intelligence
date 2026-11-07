@@ -1,13 +1,14 @@
 """Vision endpoints: snapshot/stream/events, face enrollment/Personarium,
 event frames, zone masks and motion tuning."""
 
+import asyncio
 import sqlite3
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
 from fastapi.responses import HTMLResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_message
 
@@ -360,6 +361,7 @@ class FaceSummary(BaseModel):
     name: str
     embedding_count: int
     last_seen: str
+    last_seen_display: str = Field(description="The last sighting as the lists show a moment ('' = never seen)")
     crop_url: str
     notes: str = ""
 
@@ -391,12 +393,10 @@ class FaceRenameRequest(BaseModel):
 
 @api_app.get("/vision/face/list", response_model=FaceSummaryList, tags=["Vision"])
 async def vision_face_list() -> FaceSummaryList:
-    """Liste aller enrolled Identitäten mit Avatar (letzter Crop),
-    Anzahl Embeddings und letzter Sichtung."""
-    from ..vision_store import VisionStore
-    store = VisionStore()
-    rows = store.list_faces_with_summary()
-    return FaceSummaryList(faces=[FaceSummary(**r) for r in rows])
+    """Every person with its picture (the newest crop), how many embeddings it has and when it was seen last."""
+    from ..personarium import persons
+
+    return FaceSummaryList(faces=[FaceSummary(**row) for row in await asyncio.to_thread(persons)])
 
 
 @api_app.get(
@@ -428,16 +428,17 @@ async def vision_face_details(face_id: int) -> FaceDetailResponse:
     tags=["Vision"],
 )
 async def vision_face_rename(face_id: int, request: FaceRenameRequest) -> SystemActionResponse:
-    """Identity umbenennen. 409 wenn der neue Name schon vergeben ist."""
-    from ..vision_store import VisionStore
-    store = VisionStore()
+    """Rename a person (the recognition uses the new name at once); 404 for no such person, 409 for a name another
+    person has."""
+    from ..personarium import rename
+
     try:
-        ok = store.rename_face(face_id, request.name)
-    except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
-    if not ok:
-        raise HTTPException(status_code=404, detail=f"face {face_id} not found")
-    return SystemActionResponse(success=True, message=f"renamed to '{request.name}'")
+        await asyncio.to_thread(rename, face_id, request.name)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=f"face {face_id} not found") from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return SystemActionResponse(success=True, message=f"renamed to '{request.name.strip()}'")
 
 
 @api_app.delete(
@@ -446,22 +447,37 @@ async def vision_face_rename(face_id: int, request: FaceRenameRequest) -> System
     tags=["Vision"],
 )
 async def vision_face_delete(face_id: int) -> SystemActionResponse:
-    """Komplette Identity löschen: faces-Row + alle Embeddings + face_id-
-    Refs in events auf NULL. Crops auf Disk bleiben — werden vom
-    Cleanup-Task per TTL aufgeräumt."""
-    from ..vision_store import VisionStore
-    store = VisionStore()
-    face = store.get_face_by_id(face_id)
-    if not face:
-        raise HTTPException(status_code=404, detail=f"face {face_id} not found")
-    info = store.delete_face_with_assets(face_id)
-    # Alle lebenden Recognizer neu laden lassen, damit die Identity verschwindet
-    from ..vision_filters.face_recognize import bump_enrollment_epoch
-    bump_enrollment_epoch()
-    return SystemActionResponse(
-        success=True,
-        message=f"deleted face {face_id} ({info['embeddings_deleted']} embeddings)",
-    )
+    """Delete a person with its embeddings (its events keep no person; the crops stay until the cleanup's
+    retention). ``message`` says it in the page's language. 404 for no such person."""
+    from ..i18n import t
+    from ..personarium import delete
+    from ..prompt_loader import get_language
+
+    try:
+        name, embeddings_deleted = await asyncio.to_thread(delete, face_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=f"face {face_id} not found") from error
+    log_message(f"👤 Person {face_id} ({name}) deleted with {embeddings_deleted} embeddings")
+    return SystemActionResponse(success=True, message=t("personarium_deleted", lang=get_language(), name=name,
+                                                         count=embeddings_deleted))
+
+
+class FaceEmbedding(BaseModel):
+    id: int
+    quality: float
+    created_at: str
+    crop_url: str
+
+
+@api_app.get("/vision/face/{face_id}/embeddings", response_model=list[FaceEmbedding], tags=["Vision"])
+async def vision_face_embeddings(face_id: int) -> list[FaceEmbedding]:
+    """A person's embeddings, newest first (without the vector); 404 for no such person."""
+    from ..personarium import embeddings
+
+    try:
+        return [FaceEmbedding(**row) for row in await asyncio.to_thread(embeddings, face_id)]
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=f"face {face_id} not found") from error
 
 
 @api_app.delete(
@@ -470,17 +486,115 @@ async def vision_face_delete(face_id: int) -> SystemActionResponse:
     tags=["Vision"],
 )
 async def vision_embedding_delete(embedding_id: int) -> SystemActionResponse:
-    """Einzelnes Embedding löschen — nützlich um schlechte
-    Enrollment-Samples (falsche Pose, schlechtes Licht) rauszuwerfen
-    ohne die ganze Identity zu kippen."""
-    from ..vision_store import VisionStore
-    store = VisionStore()
-    ok = store.delete_embedding(embedding_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail=f"embedding {embedding_id} not found")
-    from ..vision_filters.face_recognize import bump_enrollment_epoch
-    bump_enrollment_epoch()
+    """Delete one embedding (a poor sample: wrong pose, bad light) without the person; 404 for no such one."""
+    from ..personarium import delete_embedding
+
+    try:
+        await asyncio.to_thread(delete_embedding, embedding_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=f"embedding {embedding_id} not found") from error
     return SystemActionResponse(success=True, message="embedding deleted")
+
+
+class OpenFace(BaseModel):
+    id: int = Field(description="The card: its newest event")
+    member_ids: list[int] = Field(description="Every event of the sighting (they share the crop)")
+    crop_url: str
+    event_type: str = Field(description="face_unsure: the recognition guesses matched_name")
+    matched_name: str
+    source_name: str
+    date_display: str
+    time_display: str
+
+
+class OpenFacesDismiss(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    cards: list[int] = Field(min_length=1)
+
+
+class OpenFaceAssign(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    face_id: int | None = Field(None, description="An existing person by id, or:")
+    name: str | None = Field(None, description="a person by name, made if new")
+
+
+class ActionDone(BaseModel):
+    message: str = Field(description="What happened, in the page's language")
+
+
+@api_app.get("/vision/face/open", response_model=list[OpenFace], tags=["Vision"])
+async def vision_open_faces() -> list[OpenFace]:
+    """Every face no person is confirmed for and nobody dismissed, newest first, one card per crop file."""
+    from dataclasses import asdict
+
+    from ..personarium import open_faces
+
+    return [OpenFace(**asdict(card)) for card in await asyncio.to_thread(open_faces)]
+
+
+@api_app.post("/vision/face/open/dismiss", response_model=ActionDone, tags=["Vision"])
+async def vision_open_faces_dismiss(dismissing: OpenFacesDismiss) -> ActionDone:
+    """Take cards out of the open faces (their events stay in the Casus); 404 for a card no longer open."""
+    from ..i18n import t
+    from ..personarium import dismiss
+    from ..prompt_loader import get_language
+
+    try:
+        dismissed = await asyncio.to_thread(dismiss, dismissing.cards)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=f"no open face {error.args[0]}") from error
+    return ActionDone(message=t("personarium_dismissed", lang=get_language(), count=dismissed))
+
+
+@api_app.post("/vision/face/open/{card_id}/assign", response_model=ActionDone, tags=["Vision"])
+async def vision_open_face_assign(card_id: int, assigning: OpenFaceAssign) -> ActionDone:
+    """Assign the card's face to a person (``face_id``, or ``name`` for an existing or a new one) and learn it from
+    the picture (the face model computes the embedding). 404 for a card no longer open, 422 for neither or both of
+    ``face_id`` and ``name``, no such person, an empty name, or a face the model no longer finds."""
+    from ..personarium import assign
+    from ..prompt_loader import get_language
+
+    if (assigning.face_id is None) == (assigning.name is None):
+        raise HTTPException(status_code=422, detail="either face_id or name")
+    try:
+        done = await assign(card_id, face_id=assigning.face_id, name=assigning.name)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=f"no open face {card_id}") from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    log_message(f"👤 Open face {card_id} → {done.name} ({'learned' if done.learned else 'assigned'})")
+    return ActionDone(message=done.message(get_language()))
+
+
+class RematchState(BaseModel):
+    running: bool
+    message: str = Field(description="The state or the last outcome in words ('' before the first run)")
+
+
+def _rematch_state() -> RematchState:
+    from ..personarium import rematch
+    from ..prompt_loader import get_language
+
+    state = rematch()
+    return RematchState(running=state.running, message=state.message(get_language()))
+
+
+@api_app.get("/vision/face/rematch", response_model=RematchState, tags=["Vision"])
+async def vision_face_rematch_state() -> RematchState:
+    return _rematch_state()
+
+
+@api_app.post("/vision/face/rematch", response_model=RematchState, status_code=202, tags=["Vision"])
+async def vision_face_rematch() -> RematchState:
+    """Recognise every open face again against the embeddings: sure matches are assigned (no new embeddings), the
+    rest stays open. Answers at once, ``GET`` follows it; 409 while it runs."""
+    from ..personarium import RematchRunning, start_rematch
+
+    try:
+        start_rematch()
+    except RematchRunning as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return _rematch_state()
 
 
 @api_app.get("/vision/frame", tags=["Vision"])

@@ -345,8 +345,10 @@ ambiguity as "unknown" rather than a false positive.
 Enrolled people live in the `faces` table of the vision store. The **Personarium**
 UI modal lists every identity with an avatar (last crop), embedding count and
 last-seen timestamp, and lets you rename a person, delete one, or remove
-individual embeddings. Reads and writes go directly through `VisionStore`; the
-REST endpoints under `/api/vision/face/*` are for external consumers.
+individual embeddings; open faces are assigned (and learned), dismissed or
+recognised again. The rules live in `lib/personarium.py`; the Reflex modal, the
+persons tab of the Vue page and the REST endpoints under `/api/vision/face/*`
+share them.
 
 `vision_enroll_face` is the LLM-facing single-shot path. Calling it again with an
 existing name appends another embedding to the same person — iterative

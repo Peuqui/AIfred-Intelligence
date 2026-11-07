@@ -403,8 +403,23 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   zweiten Mal), neue Beschreibung in der Zeile, die anderen ✨ währenddessen gesperrt; „Alle analysieren“ über eine
   Gruppe von 11 Ereignissen ohne Beschreibung: Platzprüfung, „Analysiere 0 / 1 Cluster (aus 11 Ereignissen)“,
   „Fertig — 1 Cluster analysiert“, alle 11 wieder beschrieben. Die Platzprüfung lehnt ein nicht vermessenes Modell ab;
-  die Testinstanz brauchte dafür eine Kopie von `data/vlm_vram_cache.json`. Offen: der Weg ins Personarium (kommt mit
-  dem Reiter Personen).
+  die Testinstanz brauchte dafür eine Kopie von `data/vlm_vram_cache.json`.
+- **Vision, Personen (Personarium) (erledigt 08.11.2026):** `VisionPersons.vue` (Reiter 👤, `#/vision/persons`): jede
+  Person mit Bild, Zahl der Embeddings und letzter Sichtung; umbenennen, löschen (mit Rückfrage), ihre Embeddings mit
+  Ausschnitt und Qualität, einzeln löschen, 🗂️ öffnet ihre Ereignisse (`#/vision/events?face=<id>`). Darunter die
+  offenen Gesichter, eine Karte je Sichtung (gleiche Crop-Datei), getrennt in unsicher Erkannte (mit Vermutung) und
+  Unbekannte: einer bestehenden oder neuen Person zuordnen (das Gesichtsmodell lernt sie aus dem Bild, auf der CPU),
+  verwerfen (einzeln, ausgewählt, alle mit Rückfrage), alle neu erkennen (Lauf des Servers, einer zur Zeit). Die Regeln
+  stehen in `lib/personarium.py`, auch für den Reflex-Personarium und `/api/vision/face/*` (die Endpunkte gab es,
+  benutzt hat sie niemand): Umbenennen über die API lud die Erkennung bisher nicht neu, die offenen Gesichter hatten
+  eine Obergrenze von 2000 trotz „ohne Deckel“, die Meldungen standen fest auf Deutsch im State. „Neu erkennen“ prüfte
+  eine andere Menge als die Karten (nur Gesichter ohne Person, also nie die unsicher erkannten; auch welche ohne
+  Ausschnitt; höchstens 2000), seine Bilanz passte nicht zur Seite; jetzt prüft es genau die Ereignisse hinter den
+  offenen Karten (`face_enroll.rematch_untagged_faces` über `personarium.open_faces`). Geprüft gegen die Testinstanz mit
+  einer Kopie der Personen und Embeddings: Umbenennen hin und zurück, 8 von 8 Embeddings, 🗂️ führt zu den 24
+  Ereignissen der Person, eine Prüfperson in 6 s gelernt (CPU) und gelöscht, eine Karte verworfen, Neu erkennen über
+  27 Karten mit 50 Ereignissen („0 von 50“, die Produktion hatte sie schon geprüft). Offen: Posen hinzufügen
+  (Einlernen aus der Live-Kamera).
 - **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
 
 ## Schritte

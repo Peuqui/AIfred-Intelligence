@@ -129,22 +129,21 @@ async def _resolve_cluster_siblings(
 
 
 async def rematch_untagged_faces() -> dict[str, Any]:
-    """Manueller Re-Match (Personarium-Button): ALLE unzugeordneten
-    face_unknown/face_unsure-Events erneut gegen die aktuelle
-    Embedding-DB erkennen und sichere Treffer zuordnen — ohne neue
-    Embeddings. Sinnvoll, nachdem der Nutzer die guten Crops gelernt
-    hat: der Rest desselben Besuchers wird abgehakt, übrig bleibt nur
-    echt Unbekanntes/Unbrauchbares.
+    """Manueller Re-Match (Personarium-Button): die Ereignisse hinter allen offenen Karten
+    (``personarium.open_faces``: unbekannte und unsicher erkannte, nicht verworfen, nicht bestätigt) erneut
+    gegen die aktuelle Embedding-DB erkennen und sichere Treffer zuordnen — ohne neue Embeddings. Die
+    Bilanz passt damit zu den Karten, die die Seite zeigt. Sinnvoll, nachdem der Nutzer die guten Crops
+    gelernt hat: der Rest desselben Besuchers wird abgehakt, übrig bleibt nur echt Unbekanntes/Unbrauchbares.
 
     Returnt ``{"checked": int, "resolved": int, "by_name": {name: n}}``.
     """
+    from .personarium import open_faces
     from .vision_filters.face_detect import get_default_detector
     from .vision_store import VisionStore
 
     store = VisionStore()
-    # Nur die sichtbaren Kandidaten (ohne per ✕ Verworfene) — die Bilanz
-    # in der Statuszeile muss zum Grid passen.
-    events = store.list_untagged_face_events(include_dismissed=False)
+    found = [store.get_event(event_id) for card in open_faces() for event_id in card.member_ids]
+    events = [event for event in found if event is not None]  # one deleted meanwhile (another page) is gone
     if not events:
         return {"checked": 0, "resolved": 0, "by_name": {}}
     by_name = await _match_and_assign(
