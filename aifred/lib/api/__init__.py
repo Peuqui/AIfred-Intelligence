@@ -52,6 +52,7 @@ from . import service_status
 from . import sessions
 from . import login
 from . import agent_choices
+from . import memory
 from . import app_shell  # last: its /app mount must follow every /app route
 
 from .browser_bus import browser_push, browser_queue_clear

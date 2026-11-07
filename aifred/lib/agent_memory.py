@@ -257,7 +257,16 @@ class AgentMemory:
             })
         return memories
 
-    def _all_entries(self, agent_id: str) -> list[dict[str, Any]]:
+    def counts(self) -> dict[str, int]:
+        """How many memories each agent has, for every agent with a collection (also one deleted since:
+        its entries are still there to read, edit or delete)."""
+        return {
+            collection.name.removeprefix(AGENT_MEMORY_COLLECTION_PREFIX): collection.count()
+            for collection in self._client.list_collections()
+            if collection.name.startswith(AGENT_MEMORY_COLLECTION_PREFIX)
+        }
+
+    def entries(self, agent_id: str) -> list[dict[str, Any]]:
         """Every memory of the agent, newest first."""
         col = self._collection(agent_id)
         if col.count() == 0:
@@ -270,6 +279,7 @@ class AgentMemory:
                 "content": meta.get("content", ""),
                 "type": meta.get("type", ""),
                 "date": meta.get("date", ""),
+                "session_id": meta.get("session_id", ""),
             }
             for i, meta in enumerate(all_data["metadatas"])
         ]
@@ -288,7 +298,7 @@ class AgentMemory:
         ``query`` are marked ``expanded``: their content goes into the context
         too; for the others the agent calls read_memory.
         """
-        entries = self._all_entries(agent_id)
+        entries = self.entries(agent_id)
         if not entries:
             return []
         expanded = {e["id"] for e in entries[:n_recent]}

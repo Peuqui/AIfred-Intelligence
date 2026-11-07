@@ -49,6 +49,7 @@
   "settings": "⚙️ Settings",
   "nav_chat": "Chat",
   "nav_agents": "🤖 Agents",
+  "nav_memory": "🧠 Memory",
   "agents_switch_title": "Switch on or off: switched off, the agent appears in no choice, and jobs or channels naming it report an error",
   "agents_base_hint": "Base agent: always on, never deleted",
   "agents_switched_off": "Switched off",

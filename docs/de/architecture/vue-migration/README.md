@@ -275,6 +275,12 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Pfadschutz für Prompt-Dateien liegt jetzt an einer Stelle (`prompt_loader.prompt_path`, auch für die
   Reflex-Kopie). Bleibt für andere Seiten: Sprachausgabe je Agent (Audio), geplante Aufträge je Agent
   (Aufträge), Gedächtnis ansehen und löschen, Automatik-Prompt, Cloud-Modell der Systemagenten.
+- **Gedächtnis-Seite (erledigt 07.11.2026):** `MemoryView.vue` (🧠 in der Kopfleiste): links jeder Agent mit
+  der Zahl seiner Erinnerungen (auch Sammlungen gelöschter Agenten), rechts seine Einträge mit Typ-Filter,
+  bearbeiten (über `AgentMemory.update` wie das Werkzeug der Agenten), einzeln oder alle löschen.
+  `AgentMemory.counts()` und `entries()` sind jetzt öffentlich; ein Agent ohne Sammlung wird nicht gelesen
+  (das legte eine an). Index-Pflege (verwaiste Einträge) gehört auf die Dokumente-Seite, Export und Import
+  von Agenten-Bündeln auf die Agenten-Seite (API vorhanden) — beides offen.
 - **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
 
 ## Schritte
