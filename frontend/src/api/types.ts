@@ -8,6 +8,7 @@ export type SessionConfig = Schemas["SessionConfig"];
 export type ChatEntry = Schemas["ChatEntry"];
 export type Utterance = Schemas["Utterance"];
 export type UploadedImage = Schemas["UploadedImage"];
+export type CropBox = Schemas["CropBox"];
 export type DictationAccepted = Schemas["DictationAccepted"];
 export type DictationSettings = Schemas["DictationSettings"];
 export type DictatedTextResult = Schemas["DictatedTextResult"];

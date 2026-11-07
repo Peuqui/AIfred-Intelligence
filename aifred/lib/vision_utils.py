@@ -200,6 +200,16 @@ def filename_timestamp(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%d_%H-%M-%S") + f"_{dt.microsecond // 1000:03d}"
 
 
+# What filename_timestamp writes, joined to the end of a name's stem by "_".
+_FILENAME_TIMESTAMP_SUFFIX = re.compile(r"_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_\d{3}$")
+
+
+def upload_stem(name: str) -> str:
+    """The stem an upload was saved under, without the timestamp ``save_session_upload`` added: an
+    edited image is saved again under its stem, so its name does not grow with every edit."""
+    return _FILENAME_TIMESTAMP_SUFFIX.sub("", Path(name).stem)
+
+
 def slugify_for_filename(text: str, fallback: str = "cam") -> str:
     """Short, filesystem-safe slug from a camera alias for a filename prefix.
     Keeps unicode word chars (umlauts ok), collapses the rest to single

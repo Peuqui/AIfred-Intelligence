@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import reflex as rx
 
 from ..lib.config import MAX_IMAGES_PER_MESSAGE
+from ..lib.turn_images import TurnImage
 
 if TYPE_CHECKING:
     from ..lib.agent_tuning import AgentTuning
@@ -322,68 +323,43 @@ class ImageMixin(rx.State, mixin=True):
         self._rotate_crop_image(clockwise=True)
 
     def _rotate_crop_image(self, clockwise: bool = True) -> None:
-        """Internal: Rotate image 90 degrees in crop preview"""
-        from pathlib import Path
-
-        from PIL import Image
+        """Internal: Rotate image 90 degrees in crop preview (rule: ``turn_images.rotate_upload``)."""
+        from ..lib.turn_images import rotate_upload
 
         if self.crop_image_index < 0 or self.crop_image_index >= len(self.pending_images):
             return
+        try:
+            turned = rotate_upload(self.session_id, self._crop_target(), clockwise)
+        except OSError as e:
+            self.add_debug(f"\u274c Rotate failed: {e}")
+            return
+        self._replace_pending_image(turned)
+        self.crop_preview_url = turned.url
+        self.crop_rotation = (self.crop_rotation + (90 if clockwise else -90)) % 360
+        # Reset crop box (dimensions may have changed)
+        self.crop_box_x = 0.0
+        self.crop_box_y = 0.0
+        self.crop_box_width = 100.0
+        self.crop_box_height = 100.0
+        arrow = "\u21bb" if clockwise else "\u21ba"
+        self.add_debug(f"\U0001f504 Image rotated {arrow} 90\u00b0")
+
+    def _crop_target(self) -> TurnImage:
+        """The pending image the crop modal works on."""
+        from pathlib import Path
 
         image_data = self.pending_images[self.crop_image_index]
-        image_path = Path(image_data.get("path", ""))
+        return TurnImage(image_data["name"], image_data["url"], Path(image_data["path"]))
 
-        if not image_path.exists():
-            self.add_debug("\u274c Rotate failed: Image file not found")
-            return
-
-        try:
-            img = Image.open(image_path)
-
-            if clockwise:
-                img_rotated = img.transpose(Image.Transpose.ROTATE_270)
-                rotation_delta = 90
-                direction = "\u21bb"
-            else:
-                img_rotated = img.transpose(Image.Transpose.ROTATE_90)
-                rotation_delta = -90
-                direction = "\u21ba"
-
-            format_to_use = img.format if img.format in ['JPEG', 'PNG', 'GIF', 'WEBP', 'BMP'] else 'JPEG'
-            img_rotated.save(image_path, format=format_to_use, quality=90)
-
-            new_size_kb = image_path.stat().st_size // 1024
-
-            # Cache-busting timestamp so the browser refetches the rotated file
-            import time
-            cache_buster = f"?t={int(time.time() * 1000)}"
-            base_url = image_data["url"].split("?")[0]
-            new_url = f"{base_url}{cache_buster}"
-
-            self.crop_preview_url = new_url
-
-            # Reassign the whole list with a fresh dict at the updated index
-            # so Reflex's reactivity picks up the nested-dict change.
-            idx = self.crop_image_index
-            self.pending_images = [
-                *self.pending_images[:idx],
-                {**self.pending_images[idx], "size_kb": str(new_size_kb), "url": new_url},
-                *self.pending_images[idx + 1:],
-            ]
-
-            # Track cumulative rotation
-            self.crop_rotation = (self.crop_rotation + rotation_delta) % 360
-
-            # Reset crop box (dimensions may have changed)
-            self.crop_box_x = 0.0
-            self.crop_box_y = 0.0
-            self.crop_box_width = 100.0
-            self.crop_box_height = 100.0
-
-            self.add_debug(f"\U0001f504 Image rotated {direction} 90\u00b0")
-
-        except (ValueError, FileNotFoundError, AttributeError) as e:
-            self.add_debug(f"\u274c Rotate failed: {e}")
+    def _replace_pending_image(self, image: TurnImage) -> None:
+        """The pending image of the crop modal is now ``image`` (a new file). The whole list is
+        reassigned so Reflex notices the change at the nested-list level."""
+        idx = self.crop_image_index
+        self.pending_images = [
+            *self.pending_images[:idx],
+            {"name": image.name, "path": str(image.path), "url": image.url, "size_kb": str(image.path.stat().st_size // 1024)},
+            *self.pending_images[idx + 1:],
+        ]
 
     @rx.event
     async def apply_crop_with_coords(self, coords_json: str) -> None:
@@ -401,93 +377,28 @@ class ImageMixin(rx.State, mixin=True):
             self.cancel_crop()
 
     async def _do_apply_crop(self, x: float, y: float, width: float, height: float) -> None:
-        """Interne Funktion: Fuehrt den Crop mit gegebenen Koordinaten aus"""
-        from datetime import datetime
-        from pathlib import Path
-
-        from ..lib.vision_utils import (
-            UPLOAD_IMAGES_DIR,
-            crop_and_resize_image,
-            filename_timestamp,
-            get_image_url,
-            save_image_to_file,
-        )
+        """Interne Funktion: Führt den Crop mit gegebenen Koordinaten aus (Regel: ``turn_images.crop_upload``)."""
+        from ..lib.formatting import format_number
+        from ..lib.turn_images import crop_upload
 
         if self.crop_image_index < 0 or self.crop_image_index >= len(self.pending_images):
             self.add_debug("\u274c Crop failed: Invalid image index")
             self.cancel_crop()
             return
-
-        image_data = self.pending_images[self.crop_image_index]
-
-        # Read original bytes from file
-        image_path = Path(image_data["path"])
+        image = self._crop_target()
         try:
-            original_bytes = await asyncio.to_thread(image_path.read_bytes)
-        except FileNotFoundError as e:
+            cropped = await asyncio.to_thread(
+                crop_upload, self.session_id, image, {"x": x, "y": y, "width": width, "height": height},
+            )
+        except OSError as e:
             self.add_debug(f"\u274c Crop failed: {e}")
             self.cancel_crop()
             return
-
-        import io
-
-        from PIL import Image
-        original_img = Image.open(io.BytesIO(original_bytes))
-        _orig_width, _orig_height = original_img.size
-
-        # Crop anwenden (nur wenn nicht 100%)
-        if x > 0.5 or y > 0.5 or width < 99.5 or height < 99.5:
-            crop_box = {
-                "x": x,
-                "y": y,
-                "width": width,
-                "height": height,
-            }
-            cropped_bytes = crop_and_resize_image(original_bytes, crop_box=crop_box)
-
-            cropped_img = Image.open(io.BytesIO(cropped_bytes))
-            px_width, px_height = cropped_img.size
-
-            # Save cropped image under a NEW unique name (stem + fresh
-            # timestamp) — same name would resolve to the same path now that
-            # there's no uuid prefix, and the unlink() below would then delete
-            # the file we just wrote.
-            _stamp = filename_timestamp(datetime.now())
-            _old = image_data["name"]
-            _stem = _old.rsplit(".", 1)[0] if "." in _old else _old
-            _ext = _old.rsplit(".", 1)[1] if "." in _old else "jpg"
-            crop_name = f"{_stem}_crop_{_stamp}.{_ext}"
-            new_path = save_image_to_file(
-                cropped_bytes, self.session_id, crop_name,
-                base_dir=UPLOAD_IMAGES_DIR,
-            )
-            new_url = get_image_url(new_path)
-
-            # Delete old file
-            try:
-                image_path.unlink()
-            except OSError:
-                pass
-
-            # Update pending_images with the new file (full reassign so
-            # Reflex notices the change at the nested-list level).
-            idx = self.crop_image_index
-            self.pending_images = [
-                *self.pending_images[:idx],
-                {
-                    "name": crop_name,
-                    "path": str(new_path),
-                    "url": new_url,
-                    "size_kb": str(len(cropped_bytes) // 1024),
-                },
-                *self.pending_images[idx + 1:],
-            ]
-
-            self.add_debug(f"\u2702\ufe0f Image cropped: {width:.0f}% x {height:.0f}% \u2192 {px_width} x {px_height} px")
+        if cropped is image:
+            self.add_debug(f"\u2139\ufe0f No crop needed: {image.name}")
         else:
-            self.add_debug(f"\u2139\ufe0f No crop needed: {image_data['name']}")
-
-        # Close modal
+            self._replace_pending_image(cropped)
+            self.add_debug(f"\u2702\ufe0f Image cropped: {format_number(width, 0)}% x {format_number(height, 0)}%")
         self.cancel_crop()
 
     # ------------------------------------------------------------------

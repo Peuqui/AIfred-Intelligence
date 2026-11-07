@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .. import session_events
 from ..config import MULTI_AGENT_MODES
 from ..session_storage import DEFAULT_SESSION_CONFIG
+from ..turn_images import TurnImage
 from .app import api_app
 
 SSE_KEEPALIVE_S = 15.0
@@ -311,6 +312,21 @@ class UploadedImage(BaseModel):
     size_kb: int
 
 
+def _uploaded(image: TurnImage) -> UploadedImage:
+    return UploadedImage(name=image.name, url=image.url, size_kb=image.path.stat().st_size // 1024)
+
+
+def _pending_image(request: Request, session_id: str, name: str) -> TurnImage:
+    """An uploaded image of the user's own session, by its name; 404 for any other."""
+    from ..turn_images import session_images
+
+    owned_session(request, session_id)
+    try:
+        return session_images(session_id, [f"/_upload/images/{session_id}/{name}"])[0]
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
 @api_app.post("/sessions/{session_id}/images", response_model=list[UploadedImage], tags=["Sessions"])
 async def sessions_upload_images(session_id: str, files: list[UploadFile], request: Request) -> list[UploadedImage]:
     """Images for the next message: checked, made smaller like every upload, kept in the session's
@@ -327,22 +343,45 @@ async def sessions_upload_images(session_id: str, files: list[UploadFile], reque
     for filename, content in uploads:
         stem, _, ext = filename.rpartition(".")
         path = await asyncio.to_thread(save_session_upload, content, session_id, stem, ext.lower())
-        stored.append(UploadedImage(name=path.name, url=get_image_url(path), size_kb=path.stat().st_size // 1024))
+        stored.append(_uploaded(TurnImage(path.name, get_image_url(path), path)))
     return stored
 
 
 @api_app.delete("/sessions/{session_id}/images/{name}", status_code=204, tags=["Sessions"])
 async def sessions_delete_image(session_id: str, name: str, request: Request) -> Response:
     """An uploaded image the user took off the next message."""
-    from ..turn_images import session_images
-
-    owned_session(request, session_id)
-    try:
-        image = session_images(session_id, [f"/_upload/images/{session_id}/{name}"])[0]
-    except ValueError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
-    image.path.unlink()
+    _pending_image(request, session_id, name).path.unlink()
     return Response(status_code=204)
+
+
+class Rotation(BaseModel):
+    clockwise: bool = Field(description="Turn right (true) or left (false), by 90 degrees")
+
+
+@api_app.post("/sessions/{session_id}/images/{name}/rotate", response_model=UploadedImage, tags=["Sessions"])
+async def sessions_rotate_image(session_id: str, name: str, rotation: Rotation, request: Request) -> UploadedImage:
+    """An uploaded image turned by 90 degrees; it comes back under a new name, the old file is gone."""
+    from ..turn_images import rotate_upload
+
+    image = _pending_image(request, session_id, name)
+    return _uploaded(await asyncio.to_thread(rotate_upload, session_id, image, rotation.clockwise))
+
+
+class CropBox(BaseModel):
+    x: float = Field(ge=0, lt=100, description="Left edge, percent of the image's width")
+    y: float = Field(ge=0, lt=100, description="Top edge, percent of the image's height")
+    width: float = Field(gt=0, le=100, description="Percent of the image's width")
+    height: float = Field(gt=0, le=100, description="Percent of the image's height")
+
+
+@api_app.post("/sessions/{session_id}/images/{name}/crop", response_model=UploadedImage, tags=["Sessions"])
+async def sessions_crop_image(session_id: str, name: str, box: CropBox, request: Request) -> UploadedImage:
+    """A part of an uploaded image; it comes back under a new name, the old file is gone. A box over
+    the whole image leaves it as it is (same name)."""
+    from ..turn_images import crop_upload
+
+    image = _pending_image(request, session_id, name)
+    return _uploaded(await asyncio.to_thread(crop_upload, session_id, image, box.model_dump()))
 
 
 # ── Dictation and audio files ────────────────────────────────────────────

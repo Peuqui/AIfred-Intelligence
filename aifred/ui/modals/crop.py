@@ -84,7 +84,7 @@ def crop_modal() -> rx.Component:
                     variant="soft",
                     color_scheme="blue",
                     size="3",
-                    title="90° links",
+                    title=t("crop_rotate_left"),
                 ),
                 rx.button(
                     rx.icon("rotate-cw", size=16),
@@ -92,7 +92,7 @@ def crop_modal() -> rx.Component:
                     variant="soft",
                     color_scheme="blue",
                     size="3",
-                    title="90° rechts",
+                    title=t("crop_rotate_right"),
                 ),
                 rx.button(
                     rx.hstack(
@@ -133,6 +133,6 @@ def crop_modal() -> rx.Component:
             z_index="1001",
         ),
         open_var=AIState.crop_modal_open,
-        backdrop_color="rgba(0, 0, 0, 0.85)",
+        backdrop_color=COLORS["backdrop"],
         touch_action_none=True,  # Verhindert Browser-Scroll
     )

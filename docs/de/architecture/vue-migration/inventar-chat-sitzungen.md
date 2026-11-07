@@ -392,7 +392,7 @@ prüft die Middleware nur „angemeldet“, `lib/api/app.py:50-71`). Der Ereigni
 | `POST /api/sessions/{id}/stop` | → `{pipeline_cancelled, audio_stopped}` | neu, nutzt `handle_stop_command` |
 | `POST /api/sessions/{id}/images` (multipart) | → `{id, name, url, size_kb}` | `handle_image_upload/_camera_upload` |
 | `DELETE /api/sessions/{id}/images/{img}` | | `remove_pending_image`, `clear_pending_images` |
-| `POST /api/sessions/{id}/images/{img}/rotate` `{direction}`, `/crop` `{x,y,width,height}` | → neuer Eintrag | Zuschneide-Handler |
+| `POST /api/sessions/{id}/images/{img}/rotate` `{clockwise}`, `/crop` `{x,y,width,height}` | → neuer Eintrag (gebaut 07.11.2026, neue Datei unter neuem Namen) | Zuschneide-Handler |
 | `POST /api/sessions/{id}/audio` (multipart, `source=mic|file`) | → `{upload_id, estimate_s, needs_confirm, question}` | `_handle_audio` |
 | `POST /api/sessions/{id}/audio/{upload_id}/transcribe` `{confirmed, unload_llm?}` | → `{target: bubble|workspace|queue|input, text?}` | `_run_transcription`, Bestätigungs-Rückrufe |
 | `POST /api/sessions/{id}/memory/pin` | → `{stored, updated}` | `save_session_memory` |

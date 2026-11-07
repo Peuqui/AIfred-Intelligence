@@ -20,6 +20,7 @@ const emit = defineEmits<{
   stop: [];
   upload: [files: File[]];
   removeImage: [name: string];
+  editImage: [index: number];
   dictate: [file: File, source: "mic" | "file"];
   heard: [text: string];
   dictationSettings: [changes: Partial<DictationSettings>];
@@ -90,9 +91,10 @@ function audioPicked(event: Event): void {
 <template>
   <div class="input" @dragover.prevent @drop.prevent="upload($event.dataTransfer?.files)">
     <div v-if="images.length || uploading" class="pending">
-      <figure v-for="image in images" :key="image.name">
+      <figure v-for="(image, index) in images" :key="image.name">
         <img :src="image.url" :alt="image.name" />
         <button class="remove" :title="t('remove_image')" @click="emit('removeImage', image.name)">×</button>
+        <button class="edit" :title="t('crop_tooltip')" @click="emit('editImage', index)">✂️</button>
       </figure>
       <span v-if="uploading" class="uploading">{{ t("image_uploading") }}</span>
     </div>
@@ -154,6 +156,19 @@ figure img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; b
   line-height: 18px;
   background: var(--aifred-danger);
   color: var(--aifred-text-on-accent);
+}
+.edit {
+  position: absolute;
+  bottom: -6px;
+  right: -6px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  line-height: 20px;
+  background: var(--aifred-card-bg);
+  border: 1px solid var(--aifred-border-light);
 }
 .uploading { font-size: 0.75rem; color: var(--aifred-text-muted); }
 .actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }

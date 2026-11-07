@@ -126,13 +126,20 @@ der neue Dienst entsteht daneben und ersetzt beim Wechsel beide alten Pfade.
 Erledigt: Ereignis-Hub, App-Hülle, Einstellungssicht, Zug-Dienst mit allen Modi, Sitzungs-API mit
 Besitzerprüfung, Anmeldung, Agentenliste, Vue-Oberfläche mit Chat (Live-Strom, Warteschlange,
 Stopp, Agentenwahl, Debug-Konsole), gesprochene Antwort im Browser (Wiedergabeliste, Knopf zum
-erneuten Abspielen an der Blase, Sprecher-Vermerk, Blase neu vorlesen, alle Antworten neu vertonen), Bilder (hochladen, einfügen, ziehen,
-entfernen; gesehen oder einmal beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
+erneuten Abspielen an der Blase, Sprecher-Vermerk, Blase neu vorlesen, alle Antworten neu
+vertonen), Bilder (hochladen, einfügen, ziehen, entfernen, drehen, zuschneiden; gesehen oder einmal
+beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
 
 - **Dateien unter `/_upload/`** (Ton, Bilder, Dokumente): die Tabelle der Ordner und wer sie ohne
   Anmeldung sehen darf, steht in `lib/upload_files.py` (`mount_upload_folders`); die Reflex-App ruft
   sie auf, der Server ohne Reflex muss es beim Wechsel ebenso tun.
-- **Bilder, Rest:** drehen und zuschneiden vor dem Senden (heute Zuschneide-Dialog im State).
+- **Bilder drehen und zuschneiden (erledigt 07.11.2026):** ✂️ am Vorschaubild öffnet `ImageEditor.vue`
+  (Rahmen mit Ecken und Kanten, Mindestseite 10 %, Rechnung in `lib/cropBox.ts`). Der Server
+  (`turn_images.rotate_upload`, `crop_upload`) legt das Bild als neue Datei unter neuem Namen ab und
+  löscht die alte, damit kein Browser die alte Fassung aus dem Cache zeigt; der Name wächst nicht
+  (`vision_utils.upload_stem`). Ein Rahmen über das ganze Bild (0,5 % Toleranz) schneidet nichts. Der
+  Reflex-State nutzt dieselben Funktionen (vorher eigene Kopie: Drehen überschrieb die Datei mit
+  `?t=` an der URL, ein zugeschnittenes PNG behielt seine Endung über JPEG-Inhalt).
 - **Browser-Erkennung** (Peuqui 07.11.2026): Im Diktat-Menü neben dem Mikrofon wählt man die
   Spracherkennung, STT-Suite (Standard) oder Browser (Web Speech API; Chrome und Edge schicken die
   Sprache an Google bzw. Microsoft, Firefox kann es nicht), dazu „erst ins Eingabefeld“.

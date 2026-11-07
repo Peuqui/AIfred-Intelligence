@@ -6,6 +6,8 @@ The image itself never enters the history: the user turn there carries its ``/_u
 image is ``vision_routing.chat_describer``: the model that answers when it can see (it gets the
 image in its request, ``seeing_question`` and ``seeing_content``), else a describer once, whose description joins the
 user turn (``describe_images``) for every agent of the turn.
+
+Before it is sent, an uploaded image can be turned or cut (``rotate_upload``, ``crop_upload``).
 """
 
 from __future__ import annotations
@@ -41,6 +43,51 @@ def session_images(session_id: str, urls: list[str]) -> list[TurnImage]:
             raise ValueError(f"not an image of this session: {url}")
         images.append(TurnImage(path.name, get_image_url(path), path))
     return images
+
+
+# A box closer to the whole image than this (percent at each edge) cuts nothing.
+WHOLE_IMAGE_TOLERANCE = 0.5
+# Formats a turned image keeps; any other becomes JPEG.
+_TURN_FORMATS = ("JPEG", "PNG", "GIF", "WEBP", "BMP")
+
+
+def rotate_upload(session_id: str, image: TurnImage, clockwise: bool) -> TurnImage:
+    """The uploaded ``image`` turned by 90 degrees, as a new file under a new name (no browser shows
+    the old one from its cache); the old file goes."""
+    import io
+
+    from PIL import Image
+
+    with Image.open(image.path) as picture:
+        kind = picture.format if picture.format in _TURN_FORMATS else "JPEG"
+        extension = image.path.suffix.lstrip(".") if kind == picture.format else "jpg"
+        turned = picture.transpose(Image.Transpose.ROTATE_270 if clockwise else Image.Transpose.ROTATE_90)
+    buffer = io.BytesIO()
+    turned.save(buffer, format=kind, quality=90)
+    return _replace_upload(session_id, image, buffer.getvalue(), extension)
+
+
+def crop_upload(session_id: str, image: TurnImage, box: dict[str, float]) -> TurnImage:
+    """The part ``box`` of the uploaded ``image`` (``x``, ``y``, ``width``, ``height`` in percent of
+    the image, from the top left) as a new JPEG under a new name; the old file goes. A box over the
+    whole image leaves it as it is."""
+    from .vision_utils import crop_and_resize_image
+
+    edge = WHOLE_IMAGE_TOLERANCE
+    if box["x"] <= edge and box["y"] <= edge and box["width"] >= 100 - edge and box["height"] >= 100 - edge:
+        return image
+    return _replace_upload(session_id, image, crop_and_resize_image(image.path.read_bytes(), crop_box=box), "jpg")
+
+
+def _replace_upload(session_id: str, image: TurnImage, content: bytes, extension: str) -> TurnImage:
+    """``content`` saved like an upload under the stem of ``image``, whose file goes."""
+    from .vision_utils import get_image_url, save_session_upload, upload_stem
+
+    path = save_session_upload(content, session_id, upload_stem(image.name), extension)
+    # Within the millisecond of the image's own save the name is the same: the file was overwritten.
+    if path != image.path:
+        image.path.unlink()
+    return TurnImage(path.name, get_image_url(path), path)
 
 
 def bubble_text(text: str, images: list[TurnImage], lang: str) -> str:

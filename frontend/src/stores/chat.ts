@@ -6,6 +6,7 @@ import { ApiError, api } from "../api/client";
 import { followSession } from "../api/events";
 import type {
   ChatEntry,
+  CropBox,
   DictatedTextResult,
   DictationAccepted,
   DictationSettings,
@@ -264,6 +265,31 @@ export const useChat = defineStore("chat", () => {
     });
   }
 
+  // An image of the next message turned or cut; the server keeps it as another file, the entry follows.
+  async function editImage(index: number, action: "rotate" | "crop", body: object): Promise<boolean> {
+    const image = pendingImages.value[index];
+    if (!sessionId.value || !image) return false;
+    try {
+      const edited = await api<UploadedImage>(`sessions/${sessionId.value}/images/${encodeURIComponent(image.name)}/${action}`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      pendingImages.value = pendingImages.value.map((old, at) => (at === index ? edited : old));
+      return true;
+    } catch (error) {
+      notice.value = error instanceof ApiError ? error.detail : String(error);
+      return false;
+    }
+  }
+
+  function rotateImage(index: number, clockwise: boolean): Promise<boolean> {
+    return editImage(index, "rotate", { clockwise });
+  }
+
+  function cropImage(index: number, box: CropBox): Promise<boolean> {
+    return editImage(index, "crop", box);
+  }
+
   async function removeImage(name: string): Promise<void> {
     if (!sessionId.value) return;
     await api<void>(`sessions/${sessionId.value}/images/${encodeURIComponent(name)}`, { method: "DELETE" });
@@ -289,6 +315,6 @@ export const useChat = defineStore("chat", () => {
     sessionId, title, history, debugLines, config, running, streaming, toolStatus, notice, queued,
     pendingImages, uploading, draft, dictations, dictationSettings, open, close, send, stop, configure,
     uploadImages, removeImage, dictate, dictated, loadDictationSettings, changeDictationSettings,
-    speechSettings, loadSpeechSettings, readAgain, regenerating, regenerateAll,
+    speechSettings, loadSpeechSettings, readAgain, regenerating, regenerateAll, rotateImage, cropImage,
   };
 });

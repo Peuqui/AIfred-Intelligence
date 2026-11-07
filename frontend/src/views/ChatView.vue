@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
-import type { AgentSummary } from "../api/types";
+import type { AgentSummary, CropBox } from "../api/types";
 import AgentSelect from "../components/AgentSelect.vue";
 import ChatInput from "../components/ChatInput.vue";
 import DebugConsole from "../components/DebugConsole.vue";
+import ImageEditor from "../components/ImageEditor.vue";
 import LoginForm from "../components/LoginForm.vue";
 import MessageBubble from "../components/MessageBubble.vue";
 import SessionList from "../components/SessionList.vue";
@@ -21,6 +22,29 @@ const agents = ref<AgentSummary[]>([]);
 const messages = ref<HTMLElement | null>(null);
 const streamingHtml = computed(() => (chat.streaming ? renderMarkdown(chat.streaming.text) : ""));
 const hasReplies = computed(() => chat.history.some((entry) => entry.role === "assistant"));
+
+// The image of the next message in the crop dialog (its place in the list: turning gives it a new name).
+const editing = ref<number | null>(null);
+const editingImage = computed(() => (editing.value === null ? undefined : chat.pendingImages[editing.value]));
+const editBusy = ref(false);
+// Another session (or the image sent) leaves no image at that place: the dialog is over, not waiting.
+watch(editingImage, (image) => {
+  if (!image) editing.value = null;
+});
+
+async function rotateImage(clockwise: boolean): Promise<void> {
+  if (editing.value === null) return;
+  editBusy.value = true;
+  await chat.rotateImage(editing.value, clockwise);
+  editBusy.value = false;
+}
+
+async function cropImage(box: CropBox): Promise<void> {
+  if (editing.value === null) return;
+  editBusy.value = true;
+  if (await chat.cropImage(editing.value, box)) editing.value = null;
+  editBusy.value = false;
+}
 
 async function start(): Promise<void> {
   agents.value = await api<AgentSummary[]>("agents/summary");
@@ -126,11 +150,20 @@ onMounted(async () => {
         @stop="chat.stop"
         @upload="chat.uploadImages"
         @remove-image="chat.removeImage"
+        @edit-image="(index) => (editing = index)"
         @dictate="chat.dictate"
         @heard="chat.dictated"
         @dictation-settings="chat.changeDictationSettings"
       />
       <DebugConsole :lines="chat.debugLines" />
+      <ImageEditor
+        v-if="editingImage"
+        :image="editingImage"
+        :busy="editBusy"
+        @rotate="rotateImage"
+        @crop="cropImage"
+        @close="editing = null"
+      />
     </main>
   </div>
 </template>
