@@ -7,6 +7,10 @@ reconnects passes the last id it saw and gets the events after it from the repla
 The replay buffer holds what a page opened late still needs: it is emptied when a new turn starts
 (``clear_replay``), and an event can replace earlier ones of given kinds (a state that only the
 newest value describes, or audio chunks a combined file supersedes).
+
+All state lives on the server's event loop (``bind_home_loop`` at startup): channels and the
+scheduler run in the message hub's thread with a loop of their own, and their ``publish``
+calls are handed over to the home loop, so no lock is needed.
 """
 
 import asyncio
@@ -37,17 +41,42 @@ def _channel(session_id: str) -> _Channel:
     return _channels.setdefault(session_id, _Channel())
 
 
+_home_loop: asyncio.AbstractEventLoop | None = None
+
+
+def bind_home_loop(loop: asyncio.AbstractEventLoop) -> None:
+    """The server's event loop, which owns the hub (called once at startup)."""
+    global _home_loop
+    _home_loop = loop
+
+
+def _on_home_loop() -> bool:
+    try:
+        return asyncio.get_running_loop() is _home_loop
+    except RuntimeError:  # a plain thread without a loop
+        return False
+
+
 def publish(
     session_id: str,
     kind: str,
     data: dict[str, Any],
     *,
     replaces: frozenset[str] = frozenset(),
-) -> SessionEvent:
+) -> None:
     """Send an event to every subscriber of the session and keep it for late clients.
 
     ``replaces``: kinds whose earlier events leave the replay buffer when this one arrives.
+    Called from another thread, the event is handed to the home loop and sent from there.
+    Without a bound loop (tests, command line) there is only one loop and it is sent at once.
     """
+    if _home_loop is not None and not _on_home_loop():
+        _home_loop.call_soon_threadsafe(_publish_here, session_id, kind, data, replaces)
+        return
+    _publish_here(session_id, kind, data, replaces)
+
+
+def _publish_here(session_id: str, kind: str, data: dict[str, Any], replaces: frozenset[str]) -> None:
     channel = _channel(session_id)
     channel.last_id += 1
     event = SessionEvent(channel.last_id, kind, data)
@@ -56,7 +85,6 @@ def publish(
     channel.replay.append(event)
     for queue in channel.subscribers:
         queue.put_nowait(event)
-    return event
 
 
 def clear_replay(session_id: str, *, keep: frozenset[str] = frozenset()) -> None:

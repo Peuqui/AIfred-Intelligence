@@ -6,6 +6,7 @@ first, and a full queue dropped events silently.
 
 import asyncio
 import json
+import threading
 from collections.abc import Iterator
 
 import pytest
@@ -21,6 +22,7 @@ def _fresh_channel() -> Iterator[None]:
     session_events._channels.pop(SESSION, None)
     yield
     session_events._channels.pop(SESSION, None)
+    session_events._home_loop = None
 
 
 def test_every_subscriber_gets_every_event() -> None:
@@ -34,7 +36,8 @@ def test_every_subscriber_gets_every_event() -> None:
 
 
 def test_a_late_subscriber_gets_the_missed_events_once() -> None:
-    first = session_events.publish(SESSION, "a", {})
+    session_events.publish(SESSION, "a", {})
+    (first,) = session_events.replay_after(SESSION, 0)
     session_events.publish(SESSION, "b", {})
 
     async def scenario() -> tuple[list[str], int]:
@@ -45,11 +48,12 @@ def test_a_late_subscriber_gets_the_missed_events_once() -> None:
 
 
 def test_ids_keep_rising_across_a_clear() -> None:
-    before = session_events.publish(SESSION, "a", {})
+    session_events.publish(SESSION, "a", {})
+    (before,) = session_events.replay_after(SESSION, 0)
     session_events.clear_replay(SESSION)
-    after = session_events.publish(SESSION, "b", {})
-    assert after.id > before.id
-    assert [event.kind for event in session_events.replay_after(SESSION, 0)] == ["b"]
+    session_events.publish(SESSION, "b", {})
+    (after,) = session_events.replay_after(SESSION, 0)
+    assert (after.kind, after.id > before.id) == ("b", True)
 
 
 def test_clear_keeps_the_kinds_asked_for() -> None:
@@ -91,3 +95,24 @@ def test_the_combined_reply_audio_drops_the_buffered_chunks() -> None:
     browser_bus.browser_push(SESSION, "tts_pause", "500")
     browser_bus.browser_push(SESSION, "bubble_audio", "http://x/all.wav")
     assert [event.kind for event in session_events.replay_after(SESSION, 0)] == ["bubble_audio"]
+
+
+def test_a_publish_from_another_thread_is_handed_to_the_home_loop() -> None:
+    """Channels and the scheduler run in the hub thread with a loop of their own."""
+
+    async def scenario() -> tuple[str, int, bool]:
+        session_events.bind_home_loop(asyncio.get_running_loop())
+        async with session_events.subscribe(SESSION) as (_, queue):
+            seen_from: list[bool] = []
+
+            def from_hub_thread() -> None:
+                session_events.publish(SESSION, "token", {"text": "x"})
+                seen_from.append(queue.qsize() == 0)   # not touched from this thread
+
+            worker = threading.Thread(target=from_hub_thread)
+            worker.start()
+            worker.join()
+            event = await asyncio.wait_for(queue.get(), timeout=2)
+            return event.kind, len(session_events.replay_after(SESSION, 0)), seen_from[0]
+
+    assert asyncio.run(scenario()) == ("token", 1, True)

@@ -1378,5 +1378,17 @@ async def _service_status_lifespan():
         task.cancel()
 
 
+@contextlib.asynccontextmanager
+async def _session_events_lifespan():
+    """The event hub belongs to this loop; publishes from the hub thread are handed over to it."""
+    import asyncio
+
+    from .lib import session_events
+
+    session_events.bind_home_loop(asyncio.get_running_loop())
+    yield
+
+
+app.register_lifespan_task(_session_events_lifespan)
 app.register_lifespan_task(_message_hub_lifespan)
 app.register_lifespan_task(_service_status_lifespan)
