@@ -1032,14 +1032,18 @@ def _resolve_upload_marker(
         relative = str(match.group(1))
         if session_scoped:
             # VI7: the first path segment IS the owning session id. Reject a
-            # URL that names a different session (cross-session access).
-            first_seg = relative.split("/", 1)[0]
+            # URL that names a different session (cross-session access), and
+            # contain the rest under the session's OWN folder: contained only
+            # under ``base``, "<own>/../<other>/x.jpg" reached another
+            # session's file (07.11.2026).
+            first_seg, _, rest = relative.partition("/")
             if first_seg != session_id:
                 logger.warning(
                     f"⚠️ Rejected cross-session upload access: URL names "
                     f"session {first_seg!r}, caller is {session_id!r}"
                 )
                 return None
+            return _contain_under(base / session_id, rest)
         return _contain_under(base, relative)
 
     return None

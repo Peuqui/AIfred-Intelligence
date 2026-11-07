@@ -43,5 +43,11 @@ class TestSessionIsolation:
         # Path-Traversal bleibt dicht (eigene Session, aber ../-Ausbruch).
         assert url_to_file_path("/_upload/images/sess-A/../../etc/passwd", "sess-A") is None
 
+    def test_traversal_into_another_session_blocked(self):
+        # Bis 07.11.2026 bestand das die Prüfung: das erste Segment ist die eigene Session, die
+        # Eingrenzung galt nur dem ganzen Upload-Ordner, und ../ führte in die fremde Session.
+        assert url_to_file_path("/_upload/images/sess-A/../sess-B/pic.jpg", "sess-A") is None
+        assert url_to_file_path("/_upload/sandbox_output/sess-A/../sess-B/plot.png", "sess-A") is None
+
     def test_unknown_marker_returns_none(self):
         assert url_to_file_path("/something/else.jpg", "sess-A") is None
