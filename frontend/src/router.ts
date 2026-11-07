@@ -7,6 +7,7 @@ import JobsView from "./views/JobsView.vue";
 import MemoryView from "./views/MemoryView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import SpeechView from "./views/SpeechView.vue";
+import VisionView from "./views/VisionView.vue";
 
 export const router = createRouter({
   history: createWebHashHistory(),
@@ -17,6 +18,8 @@ export const router = createRouter({
     { path: "/memory", component: MemoryView },
     { path: "/jobs", component: JobsView },
     { path: "/speech", component: SpeechView },
+    { path: "/vision", redirect: "/vision/live" },
+    { path: "/vision/:tab", component: VisionView },
     { path: "/settings", component: SettingsView },
   ],
 });

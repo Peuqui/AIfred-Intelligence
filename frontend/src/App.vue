@@ -37,6 +37,7 @@ onMounted(async () => {
         <RouterLink to="/">💬 {{ t("nav_chat") }}</RouterLink>
         <RouterLink to="/agents">{{ t("nav_agents") }}</RouterLink>
         <RouterLink to="/documents">{{ t("doc_manager_title") }}</RouterLink>
+        <RouterLink to="/vision">{{ t("nav_vision") }}</RouterLink>
         <RouterLink to="/memory">{{ t("nav_memory") }}</RouterLink>
         <RouterLink to="/jobs">{{ t("nav_jobs") }}</RouterLink>
         <RouterLink to="/speech">{{ t("nav_speech") }}</RouterLink>
@@ -66,7 +67,7 @@ body {
 .top { display: flex; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--aifred-border); flex-wrap: wrap; }
 nav { display: flex; gap: 12px; }
 nav a { color: var(--aifred-text-secondary); text-decoration: none; padding: 2px 6px; border-radius: 6px; }
-nav a.router-link-exact-active { color: var(--aifred-text-primary); background: var(--aifred-input-bg); }
+nav a.router-link-active { color: var(--aifred-text-primary); background: var(--aifred-input-bg); }
 .user { margin-left: auto; color: var(--aifred-text-secondary); }
 .logout { background: none; border: 1px solid var(--aifred-border); color: inherit; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 .page { flex: 1; min-height: 0; }

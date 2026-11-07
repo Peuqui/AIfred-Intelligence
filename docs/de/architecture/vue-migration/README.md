@@ -342,6 +342,19 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   schlüsselweise (`update_settings`), nicht mehr die ganze Datei aus dem Speicher. Tempo- und
   Tonhöhenstufen kommen aus `config.py` (vorher fest in der Reflex-Oberfläche); Rendering der Reflex-Seiten
   vorher und nachher byteweise gleich. Probehören fehlt noch (braucht die TTS-Suite auf einer Karte).
+- **Vision, Paket 1: Live (erledigt 07.11.2026):** Plan mit Peuqui: eine Seite 👁️ mit Reitern (Live, Ereignisse,
+  Personen, Einstellungen; jeder mit eigener Adresse `#/vision/<reiter>`, die Live-Ansicht öffnet so auch in einem eigenen
+  Fenster), die Kamera als zentrale Karte, Querverweise Ereignis↔Person, gleiche Bausteine für gleiche Dinge, ein
+  Abzeichen im Chat statt der Feed-Karte; dazu die Fehler aus `inventar-vision-medien.md` 7.x. Gebaut: `lib/vision_cameras.py`
+  (EINE Kamera-Liste statt zwei im State, Name über `VisionStore.source_label`; Auflösungen auf Anfrage; Einstellungen der
+  Ansicht mit Bereichen aus `config.py`, ein falscher Wert in der Datei ist ein Fehler statt eines stillen Standards),
+  `api/cameras.py`, `VisionView.vue` + `VisionLive.vue` (Kameras ein/aus, Bildrate oder Einzelbild, Vergrößern per Klick,
+  Auflösung, Briefing, PTZ gehalten mit Lebenszeichen aus `config.py` und Wächterposition, Foto) und `ImageLightbox.vue`
+  (eine Bildanzeige für Fotos, später Ereignisse und Gesichter). Gegen die echten Kameras geprüft (Reolink mit PTZ, Reolink
+  Zoom): Bilder, Einzelbild, Briefing, Foto 3840 × 2160; der Kopf fährt (mittlere Bildabweichung 36,7 nach 2 s links,
+  6,5 zurück in der Wächterposition). Die Testinstanz bekommt die Kameras über eine Kopie der Vision-Einstellungen mit
+  unscharfem Auge und die Zugangsdaten über `AIFRED_TEST_ENV_KEYS`. Offen in der Live-Ansicht: die Live-Analyse (VLM-Text,
+  Gesichter), die die Hintergrundüberwachung nicht mehr abschaltet.
 - **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
 
 ## Schritte
