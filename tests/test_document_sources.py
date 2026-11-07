@@ -23,6 +23,9 @@ class FakeSource:
     key = "fake_drive"
     writable = True
 
+    def __init__(self) -> None:
+        self.downloaded: list[str] = []
+
     def label(self, lang: str) -> str:
         return "Fake Drive"
 
@@ -33,6 +36,7 @@ class FakeSource:
         return []
 
     async def download(self, file_id: str) -> SourceDownload:
+        self.downloaded.append(file_id)
         if file_id == "broken":
             raise DocumentSourceError("Fake Drive: downloading failed (HTTP 404)")
 
@@ -97,6 +101,12 @@ def test_a_file_streams_with_its_name(client: TestClient) -> None:
 ])
 def test_unknown_source_and_failed_download(client: TestClient, path: str, status: int) -> None:
     assert client.get(path).status_code == status
+
+
+def test_an_id_with_slashes_reaches_the_source(client: TestClient, plugins) -> None:
+    # Nextcloud's id is the file's path: a file in a sub-folder has slashes in it (gave 404 before 07.11.2026).
+    assert client.get("/documents/source/fake_drive/file/Projekt/Unten/Plan.txt").status_code == 200
+    assert plugins[0].document_source.downloaded == ["Projekt/Unten/Plan.txt"]
 
 
 def test_the_login_cookie_is_required(client: TestClient) -> None:

@@ -14,9 +14,10 @@ from ..logging_utils import log_message
 from .app import api_app
 
 
-@api_app.get("/documents/source/{source_key}/file/{file_id}", tags=["Documents"])
+@api_app.get("/documents/source/{source_key}/file/{file_id:path}", tags=["Documents"])
 async def document_source_file(source_key: str, file_id: str) -> StreamingResponse:
-    """Download one file of a document source (404 unknown source, 502 source failed)."""
+    """Download one file of a document source (404 unknown source, 502 source failed). The id may hold
+    slashes: Nextcloud's is the file's path."""
     try:
         source = get_document_source(source_key)
     except LookupError as missing:
