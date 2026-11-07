@@ -1,15 +1,17 @@
 <script setup lang="ts">
 // The memory page: the agents' long-term memories (lib/agent_memory.py). Left every agent with its count (also a
 // collection of an agent deleted since), right the entries of the one open, newest first, filtered by type:
-// read, edit (summary and content; the summary is one line, the index's limit), delete one or all.
-import { computed, onMounted, ref } from "vue";
+// read, edit (summary and content; the summary is one line, the index's limit), delete one or all. An agent's
+// card opens the page with that agent (#/memory?agent=<id>).
+import { computed, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import type { MemoryEntry } from "../api/types";
 import ModalDialog from "../components/ModalDialog.vue";
 import { t } from "../i18n";
 import { useMemory } from "../stores/memory";
 
 const memory = useMemory();
-onMounted(() => void memory.load());
+const route = useRoute();
 
 const filter = ref("");
 const types = computed(() => [...new Set(memory.entries.map((entry) => entry.type))].sort());
@@ -35,6 +37,9 @@ async function confirmClear(): Promise<void> {
   clearing.value = false;
   await memory.clear();
 }
+
+// Last: it runs at once and needs everything above (open() uses editing).
+watch(() => route.query.agent, (agent) => void (typeof agent === "string" && agent ? open(agent) : memory.load()), { immediate: true });
 </script>
 
 <template>
