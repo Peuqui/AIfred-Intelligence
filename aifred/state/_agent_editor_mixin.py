@@ -1379,13 +1379,17 @@ class AgentEditorMixin(rx.State, mixin=True):
                 self.add_debug("\u26a0\ufe0f Agent-ID is required")
                 return None
 
-            create_agent(
-                agent_id=agent_id,
-                display_name=self.editor_display_name,
-                emoji=self.editor_emoji,
-                description=self._editor_description,
-                role=self.editor_role,
-            )
+            try:
+                create_agent(
+                    agent_id=agent_id,
+                    display_name=self.editor_display_name,
+                    emoji=self.editor_emoji,
+                    description=self._editor_description,
+                    role=self.editor_role,
+                )
+            except ValueError as error:  # id taken or no valid folder name: the user sees why
+                self.add_debug(f"\u26a0\ufe0f {error}")
+                return rx.toast.error(str(error), duration=6000)
             self.add_debug(
                 f"\u2705 Agent '{self.editor_display_name}' created"
             )

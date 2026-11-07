@@ -387,12 +387,9 @@ def format_memory_context(
     agent_id: str = "",
     lang: str = "de",
 ) -> str:
-    """Format retrieved memories for injection into the system prompt.
-
-    Loads the memory_context prompt template from:
-    1. prompts/{lang}/{agent_id}/memory_context.txt (agent-specific)
-    2. prompts/{lang}/shared/memory_context.txt (shared fallback)
-    """
+    """Format retrieved memories for injection into the prompt, with the agent's template
+    ``prompts/{lang}/{agent_id}/memory_context.txt`` (every agent gets one when it is created,
+    from prompts/<lang>/agent-template/; there is no shared one)."""
     if not memories:
         return ""
 
@@ -410,7 +407,7 @@ def format_memory_context(
             lines.extend(f"    {line}" for line in mem["content"].splitlines() if line.strip())
     memories_text = "\n".join(lines)
 
-    # Load prompt template (agent-specific only, no fallback)
+    # The agent's own template (no shared one)
     from pathlib import Path
     prompts_dir = Path(__file__).parent.parent.parent / "prompts"
     template_path = prompts_dir / lang / agent_id / "memory_context.txt"

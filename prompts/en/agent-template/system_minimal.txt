@@ -1,0 +1,3 @@
+Answer the user's question precisely and helpfully.
+Today is {current_weekday}, {current_date}, {current_time}.
+The current year is {current_year}.

@@ -1,0 +1,2 @@
+Beantworte die Frage des Benutzers direkt und hilfreich.
+Heute ist {current_weekday}, der {current_date}, {current_time} Uhr.

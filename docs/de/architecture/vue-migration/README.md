@@ -155,9 +155,12 @@ entfernen; gesehen oder einmal beschrieben), Diktat und Audio-Dateien, Inkognito
   Die Rollen-Prompts (`shared/multi_agent_roles`, `critic`, `tribunal`, `refinement`, `defense`,
   `mediator`, `judge`) nennen keinen Agenten mehr: `{main_agent}`, `{critic_agent}`,
   `{judge_agent}` aus `agent_config.role_names`, für Server- und Reflex-Zug.
-- **Agenten-Editor:** `create_agent` legt für critic nur „critic“ an, für main keine Rollen-Prompts;
-  `_get_role_templates` hält Prompts im Code. Die Vorlagen gehören nach `prompts/`, je Rolle alle
-  nötigen Schlüssel.
+- **Agenten-Editor (erledigt 07.11.2026):** Ein neuer Agent bekommt seine Grundprompts aus
+  `prompts/<lang>/agent-template/` (Name eingesetzt, auch `memory_context.txt`: ohne sie sah ein neuer
+  Agent seine Erinnerungen nie) und jeden Prompt seiner Debattenrolle (`turn_debate.role_prompt_keys`
+  aus `_DEBATE_ROLES`), kopiert vom heutigen Inhaber der Rolle. Die Texte standen vorher im Code
+  (`_get_role_templates`, mit Ersatz-Umlauten); ein Kritiker bekam kein `tribunal.txt`. Die Kennung
+  ist der Name des Prompt-Ordners: nur `[a-z0-9_]` (vorher legte `../x` Dateien außerhalb an).
 - **Bleibt so:** Wer den Hauptagenten direkt anspricht, bekommt nur dessen Antwort (wie bisher).
 
 ## Schritte

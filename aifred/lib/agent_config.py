@@ -14,6 +14,7 @@ they come from the llama-swap YAML config per model at runtime.
 """
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -32,6 +33,11 @@ ROLE_CRITIC = "critic"
 ROLE_JUDGE = "judge"
 ROLE_SYSTEM = "system"
 VALID_ROLES = (ROLE_MAIN, ROLE_CRITIC, ROLE_JUDGE, "custom", ROLE_SYSTEM)
+
+
+# An agent's id names its prompt folder (prompts/<lang>/<id>/); the template folder has a hyphen, so no id is it.
+AGENT_ID_PATTERN = r"[a-z0-9_]+"
+AGENT_TEMPLATE_DIR = "agent-template"
 
 
 class AgentRoleError(LookupError):
@@ -391,6 +397,9 @@ def create_agent(
     """
     if role not in VALID_ROLES:
         raise ValueError(f"Invalid role: {role}. Must be one of {VALID_ROLES}")
+    if not re.fullmatch(AGENT_ID_PATTERN, agent_id):
+        # The id names the agent's prompt folder: nothing outside prompts/<lang>/, never the template.
+        raise ValueError(f"Invalid agent id '{agent_id}': lowercase letters, digits and _ only")
 
     agents = load_agents_raw()
     if agent_id in agents:
@@ -405,12 +414,11 @@ def create_agent(
         "memory_context": f"{agent_id}/memory_context.txt",
     }
 
-    # Add role-specific prompts
-    if role == "critic":
-        prompts["critic"] = f"{agent_id}/critic.txt"
-    elif role == "judge":
-        prompts["mediator"] = f"{agent_id}/mediator.txt"
-        prompts["judge"] = f"{agent_id}/judge.txt"
+    # The prompts of its debate role (turn_debate._DEBATE_ROLES): every mode it can speak in
+    from .turn_debate import role_prompt_keys
+
+    for key in role_prompt_keys(role):
+        prompts[key] = f"{agent_id}/{key}.txt"
 
     config = AgentConfig(
         display_name=display_name,
@@ -493,85 +501,24 @@ def update_agent(agent_id: str, updates: dict) -> AgentConfig:
 
 
 def _create_prompt_files(agent_id: str, display_name: str, role: str) -> None:
-    """Create template prompt files for a new agent in both languages."""
-    from .config import PROJECT_ROOT
+    """The prompt files of a new agent in every language, existing ones are kept: the base prompts from
+    ``prompts/<lang>/agent-template/`` (its name filled in), the prompts of its debate role copied from
+    the agent that holds the role now (they name the roles' agents, never one of their own)."""
+    from .prompt_loader import PROMPTS_DIR
+    from .turn_debate import role_prompt_keys
 
-    prompts_dir = PROJECT_ROOT / "prompts"
-
-    # Role-specific templates
-    role_templates = _get_role_templates(display_name, role)
-
+    holder = agent_for_role(role) if role_prompt_keys(role) else None
     for lang in ("de", "en"):
-        agent_dir = prompts_dir / lang / agent_id
+        agent_dir = PROMPTS_DIR / lang / agent_id
         agent_dir.mkdir(parents=True, exist_ok=True)
-
-        templates = role_templates.get(lang, role_templates.get("de", {}))
-
-        for filename, content in templates.items():
+        files = {
+            path.name: path.read_text(encoding="utf-8").replace("{display_name}", display_name)
+            for path in (PROMPTS_DIR / lang / AGENT_TEMPLATE_DIR).glob("*.txt")
+        }
+        if holder is not None:
+            for key in role_prompt_keys(role):
+                files[f"{key}.txt"] = (PROMPTS_DIR / lang / f"{role_prompt_name(holder, key)}.txt").read_text(encoding="utf-8")
+        for filename, content in files.items():
             filepath = agent_dir / filename
             if not filepath.exists():
                 filepath.write_text(content, encoding="utf-8")
-
-
-def _get_role_templates(display_name: str, role: str) -> dict[str, dict[str, str]]:
-    """Get prompt templates for a given role.
-
-    Returns:
-        Dict mapping lang -> {filename: content}
-    """
-    templates: dict[str, dict[str, str]] = {
-        "de": {
-            "identity.txt": f"Du bist {display_name}.",
-            "personality.txt": "",
-            "system_minimal.txt": (
-                "Beantworte die Frage des Benutzers praezise und hilfreich.\n"
-                "Heute ist {current_weekday}, der {current_date}, {current_time} Uhr.\n"
-                "Das aktuelle Jahr ist {current_year}."
-            ),
-            "direct.txt": (
-                "Beantworte die Frage des Benutzers direkt und hilfreich.\n"
-                "Heute ist {current_weekday}, der {current_date}, {current_time} Uhr."
-            ),
-        },
-        "en": {
-            "identity.txt": f"You are {display_name}.",
-            "personality.txt": "",
-            "system_minimal.txt": (
-                "Answer the user's question precisely and helpfully.\n"
-                "Today is {current_weekday}, {current_date}, {current_time}.\n"
-                "The current year is {current_year}."
-            ),
-            "direct.txt": (
-                "Answer the user's question directly and helpfully.\n"
-                "Today is {current_weekday}, {current_date}, {current_time}."
-            ),
-        },
-    }
-
-    # Add role-specific templates
-    if role == "critic":
-        templates["de"]["critic.txt"] = (
-            "Analysiere die Antwort kritisch. Finde Schwaechen, Luecken "
-            "und moegliche Verbesserungen. Runde {round_num}."
-        )
-        templates["en"]["critic.txt"] = (
-            "Critically analyze the response. Find weaknesses, gaps "
-            "and possible improvements. Round {round_num}."
-        )
-    elif role == "judge":
-        templates["de"]["mediator.txt"] = (
-            "Synthetisiere die verschiedenen Perspektiven zu einem "
-            "ausgewogenen Urteil. Runde {round_num}."
-        )
-        templates["de"]["judge.txt"] = (
-            "Fasse die Debatte zusammen und sprich ein abschliessendes Urteil."
-        )
-        templates["en"]["mediator.txt"] = (
-            "Synthesize the different perspectives into a balanced "
-            "judgment. Round {round_num}."
-        )
-        templates["en"]["judge.txt"] = (
-            "Summarize the debate and deliver a final verdict."
-        )
-
-    return templates

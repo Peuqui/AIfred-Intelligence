@@ -75,6 +75,13 @@ _DEBATE_ROLES: dict[str, dict[str, tuple[str, ...]]] = {
     },
 }
 
+def role_prompt_keys(role: str) -> tuple[str, ...]:
+    """The prompts an agent in ``role`` needs besides its base prompt, over every debate mode (a new
+    agent gets them all, agent_config.create_agent)."""
+    keys = {key for roles in _DEBATE_ROLES.values() for key in roles.get(role, ()) if key != _BASE_PROMPT}
+    return tuple(sorted(keys))
+
+
 # ── Who speaks ───────────────────────────────────────────────────────────
 
 
