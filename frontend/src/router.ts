@@ -6,6 +6,7 @@ import DocumentsView from "./views/DocumentsView.vue";
 import JobsView from "./views/JobsView.vue";
 import MemoryView from "./views/MemoryView.vue";
 import SettingsView from "./views/SettingsView.vue";
+import SpeechView from "./views/SpeechView.vue";
 
 export const router = createRouter({
   history: createWebHashHistory(),
@@ -15,6 +16,7 @@ export const router = createRouter({
     { path: "/documents", component: DocumentsView },
     { path: "/memory", component: MemoryView },
     { path: "/jobs", component: JobsView },
+    { path: "/speech", component: SpeechView },
     { path: "/settings", component: SettingsView },
   ],
 });

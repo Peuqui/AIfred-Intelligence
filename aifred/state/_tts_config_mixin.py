@@ -35,12 +35,6 @@ def _error_text(error: Exception, lang: str) -> str:
     return unreachable_text(error, lang) if isinstance(error, TTSSuiteUnreachable) else str(error)
 
 
-def _entry_at(entries: list[dict[str, Any]], index: int) -> dict[str, Any]:
-    if not 0 <= index < len(entries):
-        raise ValueError(f"the list has no entry at position {index} (it changed, reload the page)")
-    return entries[index]
-
-
 class TTSConfigMixin(rx.State, mixin=True):
     """Mixin for TTS configuration, the list editor and voice settings."""
 
@@ -52,7 +46,6 @@ class TTSConfigMixin(rx.State, mixin=True):
         editor_agent_id: rx.Field[str]
 
         def _save_settings(self) -> None: ...
-        def _write_settings_file(self, settings: dict[str, Any]) -> None: ...
         @rx.event
         def add_debug(self, message: str) -> None: ...
 
@@ -75,61 +68,22 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     # ── List (computed) ───────────────────────────────────────────
 
-    @rx.var(deps=["tts_list_revision", "ui_language"], auto_deps=False)
+    @rx.var(deps=["tts_list_revision", "ui_language", "agent_tuning"], auto_deps=False)
     def tts_service_error(self) -> str:
         """Why the service's data (status, labels, choices) is not shown (empty = it answers)."""
-        from ..lib.tts_client import TTSSuiteError
-        from ..lib.tts_service import catalog, unreachable_text
-        try:
-            catalog()
-        except TTSSuiteError as error:
-            return unreachable_text(error, _lang(self))
-        return ""
+        from ..lib.tts_settings import list_view
+        return list_view(_lang(self), self.agent_tuning["aifred"].model_id).service_error
 
     @rx.var(
         deps=["tts_list_revision", "ui_language", "agent_tuning", "backend_type", "llamaswap_revision"],
         auto_deps=False,
     )
     def tts_escalation_rows(self) -> list[dict[str, Any]]:
-        """One row per list entry, in order — what the menu shows. The list comes from the
-        settings and is shown even while the service does not answer; then label, status
-        and note are bare (``tts_service_error`` says why)."""
-        from ..lib.i18n import t
-        from ..lib.tts_client import TTSSuiteError
-        from ..lib.tts_llm_coordination import planned_tts_engine
-        from ..lib.tts_service import entries, entry_label, status_key, stored_entries
+        """One row per list entry, in order — what the menu shows (``tts_settings.list_view``)."""
+        from dataclasses import asdict
 
-        lang = _lang(self)
-        service_down = False
-        reserved = ""
-        try:
-            listed = entries()
-            reserved = planned_tts_engine(self.agent_tuning["aifred"].model_id)
-        except TTSSuiteError:
-            service_down = True
-            listed = tuple(stored_entries())
-        rows: list[dict[str, Any]] = []
-        for index, entry in enumerate(listed):
-            unavailable = entry.info is None and not service_down
-            if unavailable:
-                note = t("tts_entry_not_offered", lang=lang)
-            elif entry.info is not None and not entry.info.installed:
-                note = t("tts_entry_not_installed", lang=lang)
-            else:
-                note = (entry.info.start_hint or "") if entry.info is not None else ""
-            rows.append({
-                "index": index,
-                "engine": entry.engine,
-                "label": entry_label(entry, lang),
-                "enabled": entry.enabled,
-                "unit": entry.unit,
-                "unavailable": unavailable,
-                "reserved": entry.host is None and entry.engine == reserved,
-                "note": note,
-                "warn": entry.enabled and entry.info is not None and entry.info.status == "unreachable",
-                "status": t("tts_status_unreachable", lang=lang) if service_down else t(f"tts_status_{status_key(entry)}", lang=lang),
-            })
-        return rows
+        from ..lib.tts_settings import list_view
+        return [asdict(row) for row in list_view(_lang(self), self.agent_tuning["aifred"].model_id).rows]
 
     @rx.var(deps=["enable_tts"], auto_deps=False)
     def tts_player_visible(self) -> bool:
@@ -152,59 +106,38 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     # ── List editing (settings.json) ──────────────────────────────
 
-    async def _edit_tts_lists(self, change: Callable[[dict[str, Any]], None]) -> list[Any]:
-        """Match the list with the catalog, apply ``change`` to a copy of the persisted
-        settings, check, save the complete result. Returns the events the handler yields: an error
-        toast when nothing was saved (also while the service does not answer: the match needs the
-        catalog). A moved planned engine needs nothing here: the next load of the model picks its
-        profile (``planned_tts_engine``)."""
-        import copy
-
-        from ..lib.settings import persisted_settings
+    async def _edit_tts_lists(self, change: Callable[[], bool]) -> list[Any]:
+        """Run a change of the list (``tts_settings``); the events the handler yields: an error toast
+        when nothing was saved (also while the service does not answer: the change needs its catalog)."""
         from ..lib.toast import toast
         from ..lib.tts_client import TTSSuiteError
-        from ..lib.tts_service import catalog, check_stored_settings, matched_list
 
-        settings = copy.deepcopy(persisted_settings())
         try:
-            rows = await asyncio.to_thread(catalog)
-            settings["tts_escalation"] = matched_list(rows)
-            change(settings)
-            check_stored_settings(settings)
-        except (TTSSuiteError, ValueError, KeyError) as error:
+            saved = await asyncio.to_thread(change)
+        except (TTSSuiteError, ValueError) as error:
             return [toast("error", f"TTS: {_error_text(error, _lang(self))}")]
-        self._write_settings_file(settings)
+        if not saved:
+            return [toast("error", "TTS: settings.json could not be written")]
         self.tts_list_revision += 1
         return []
 
     @rx.event
     async def move_tts_entry(self, index: int, delta: int):
-        def change(settings: dict[str, Any]) -> None:
-            entries = settings["tts_escalation"]
-            _entry_at(entries, index)
-            target = index + delta
-            if 0 <= target < len(entries):
-                entries[index], entries[target] = entries[target], entries[index]
-        for event in await self._edit_tts_lists(change):
+        from ..lib.tts_settings import move_entry
+        for event in await self._edit_tts_lists(lambda: move_entry(index, delta)):
             yield event
 
     @rx.event
     async def set_tts_entry_enabled(self, index: int, enabled: bool):
-        def change(settings: dict[str, Any]) -> None:
-            _entry_at(settings["tts_escalation"], index)["enabled"] = enabled
-        for event in await self._edit_tts_lists(change):
+        from ..lib.tts_settings import enable_entry
+        for event in await self._edit_tts_lists(lambda: enable_entry(index, enabled)):
             yield event
 
     @rx.event
     async def set_tts_entry_unit(self, engine_key: str, unit: str):
         """Speech unit of an engine (system-wide, every agent and channel)."""
-        from ..lib.tts_client import SPEECH_UNITS
-
-        def change(settings: dict[str, Any]) -> None:
-            if unit not in SPEECH_UNITS:
-                raise ValueError(f"speech unit must be one of {SPEECH_UNITS}, got {unit!r}")
-            settings.setdefault("tts_toggles_per_engine", {}).setdefault(engine_key, {})["unit"] = unit
-        for event in await self._edit_tts_lists(change):
+        from ..lib.tts_settings import set_engine_unit
+        for event in await self._edit_tts_lists(lambda: set_engine_unit(engine_key, unit)):
             yield event
 
     @rx.event(background=True)
@@ -273,23 +206,9 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     @rx.var(deps=["editor_tts_engine", "_editor_tts_settings"], auto_deps=False)
     def editor_tts_available_voices(self) -> list[str]:
-        """Voices of the edited engine from the TTS service plus every voice already
-        saved for it (the saved ones alone while the service does not answer)."""
-        from ..lib.settings import persisted_settings
-        from ..lib.tts_client import TTSSuiteUnreachable
-        from ..lib.tts_service import voice_names
-
-        try:
-            voices = set(voice_names(self.editor_tts_engine))
-        except TTSSuiteUnreachable:
-            voices = set()
-        saved = persisted_settings().get("tts_agent_voices_per_engine", {}).get(self.editor_tts_engine, {})
-        voices |= {str(cfg.get("voice")) for cfg in saved.values() if isinstance(cfg, dict) and cfg.get("voice")}
-        current = self._editor_tts_settings.get("voice", "")
-        if current:
-            voices.add(str(current))
-        starred = sorted(v for v in voices if v.startswith("★"))
-        return starred + sorted(v for v in voices if not v.startswith("★"))
+        """Voices of the edited engine (``tts_settings.voice_choices``)."""
+        from ..lib.tts_settings import voice_choices
+        return voice_choices(self.editor_tts_engine, str(self._editor_tts_settings.get("voice", "")))
 
     @rx.var(deps=["_editor_tts_settings"], auto_deps=False)
     def editor_agent_tts_voice(self) -> str:
@@ -324,32 +243,18 @@ class TTSConfigMixin(rx.State, mixin=True):
         self._set_tts_agent(self.editor_agent_id, "language", TTS_LANGUAGE_LABEL_TO_CODE.get(label, "auto"))
 
     def _load_editor_tts_settings(self) -> None:
-        """Load the edited agent's voice settings for the edited engine:
-        the user's saved values, else the agent's default from agents.json."""
-        from ..lib.agent_config import get_tts_voice_default
-        from ..lib.settings import persisted_settings
+        """Load the edited agent's voice settings for the edited engine (``tts_settings.agent_voice``)."""
+        from ..lib.tts_settings import agent_voice
 
         agent_id = self.editor_agent_id
-        if not agent_id:
-            self._editor_tts_settings = {}
-            return
-        saved = persisted_settings().get("tts_agent_voices_per_engine", {}).get(self.editor_tts_engine, {}).get(agent_id)
-        self._editor_tts_settings = dict(saved) if saved else dict(get_tts_voice_default(agent_id, self.editor_tts_engine))
+        self._editor_tts_settings = agent_voice(agent_id, self.editor_tts_engine) if agent_id else {}
 
     def _save_editor_tts_settings(self) -> None:
         """Persist the edited agent's voice settings for the edited engine."""
-        from ..lib.settings import load_settings
+        from ..lib.tts_settings import save_agent_voice
 
-        agent_id = self.editor_agent_id
-        if not agent_id:
-            return
-        settings = load_settings() or {}
-        per_engine = settings.setdefault("tts_agent_voices_per_engine", {}).setdefault(self.editor_tts_engine, {})
-        per_engine[agent_id] = {
-            key: self._editor_tts_settings[key]
-            for key in ("voice", "speed", "pitch") if key in self._editor_tts_settings
-        }
-        self._write_settings_file(settings)
+        if self.editor_agent_id:
+            save_agent_voice(self.editor_agent_id, self.editor_tts_engine, self._editor_tts_settings)
 
     @rx.event
     def set_editor_tts_engine(self, label: str):
@@ -425,12 +330,9 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     @rx.var(deps=["narrator_voices", "narrator_voice_engine"], auto_deps=False)
     def narrator_voice_display(self) -> str:
-        """Saved voice for the edited engine, else its first own voice."""
-        saved = self.narrator_voices.get(self.narrator_voice_engine, "")
-        options = self.narrator_voice_options
-        if saved and saved in options:
-            return saved
-        return options[0] if options else ""
+        """Saved voice for the edited engine, else its first own voice (``tts_settings.narrator_voice``)."""
+        from ..lib.tts_settings import narrator_voice
+        return narrator_voice(self.narrator_voice_engine, self.narrator_voice_options)
 
     @rx.event
     def set_narrator_voice_engine(self, label: str):

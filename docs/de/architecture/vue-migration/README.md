@@ -305,7 +305,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   eingeschaltete Plugins); eine Liste behält, was sie für Werkzeuge abgeschalteter Plugins hielt (Reflex
   verlor sie beim Speichern). ＋ legt einen Agenten aus der Vorlage an, der Editor öffnet sich. Der
   Pfadschutz für Prompt-Dateien liegt jetzt an einer Stelle (`prompt_loader.prompt_path`, auch für die
-  Reflex-Kopie). Bleibt für andere Seiten: Sprachausgabe je Agent (Audio), geplante Aufträge je Agent
+  Reflex-Kopie). Bleibt für andere Seiten: geplante Aufträge je Agent
   (Aufträge), Gedächtnis ansehen und löschen, Automatik-Prompt, Cloud-Modell der Systemagenten.
 - **Gedächtnis-Seite (erledigt 07.11.2026):** `MemoryView.vue` (🧠 in der Kopfleiste): links jeder Agent mit
   der Zahl seiner Erinnerungen (auch Sammlungen gelöschter Agenten), rechts seine Einträge mit Typ-Filter,
@@ -326,6 +326,16 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   wieder), ein einmaliger Auftrag braucht einen gültigen Zeitpunkt (vorher wurde jeder Text gespeichert).
   Kanäle kommen aus dem Plugin-Register statt einer festen Liste; stille Ersatzwerte des Reflex-Formulars
   (Intervall 60 s, Datum 2026-01-01) gibt es nicht mehr.
+- **Sprach-Seite (erledigt 07.11.2026):** `SpeechView.vue` (🔊 in der Kopfleiste): Sprachausgabe und
+  Autoplay (vorher auf der Einstellungsseite), AIfreds Liste der Engines (verschieben, schalten, Einheit je
+  Engine, Status frisch lesen; ohne TTS-Suite aus den Einstellungen mit Grund), die Stimmen aller
+  Chat-Agenten auf einer gewählten Engine (Schalter, Sprache, Stimme, Tempo, Tonhöhe) mit dem Vorleser in
+  derselben Tabelle, ob die Spracherkennung antwortet (Gerät, Engine und Modell stellt die STT-Suite selbst
+  ein). Die Regeln stehen jetzt in `lib/tts_settings.py`, auch für den Reflex-State (Zeilen, Änderung der
+  Liste als eine Transaktion, Stimmenauswahl, Stimme laden und speichern, Vorleser-Stimme); geschrieben wird
+  schlüsselweise (`update_settings`), nicht mehr die ganze Datei aus dem Speicher. Tempo- und
+  Tonhöhenstufen kommen aus `config.py` (vorher fest in der Reflex-Oberfläche); Rendering der Reflex-Seiten
+  vorher und nachher byteweise gleich. Probehören fehlt noch (braucht die TTS-Suite auf einer Karte).
 - **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
 
 ## Schritte

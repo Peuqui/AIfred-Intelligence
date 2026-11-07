@@ -13,6 +13,12 @@ CallerName = Annotated[str, Field(
 )]
 
 
+class ChoiceOption(BaseModel):
+    """One entry of a choice: what the server keeps and what the user reads."""
+    id: str
+    label: str
+
+
 class SystemActionResponse(BaseModel):
     """Response for system actions"""
     success: bool

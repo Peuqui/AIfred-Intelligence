@@ -7,13 +7,15 @@ nichts geschrieben (der Fake-Dienst beantwortet nur GET /engines). Der Dienst is
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
 
-from aifred.lib import tts_service
+from aifred.lib import settings, tts_service
 from aifred.lib.agent_tuning import default_tuning
 from aifred.lib.tts_client import TTSClient
 from aifred.state._tts_config_mixin import TTSConfigMixin
@@ -49,20 +51,36 @@ class FakeTTSService:
 
 
 class SettingsFile:
-    """settings.json as the editor sees it: persisted_settings() reads it, _write_settings_file replaces it."""
+    """The test's settings.json (a temporary file): the editor reads and writes it as the real one. A test
+    that only stood in for the reading let the writes reach the real file (07.11.2026: the worktree's)."""
 
-    def __init__(self, entries: list[dict[str, Any]]) -> None:
-        self.data: dict[str, Any] = {"tts_escalation": entries, "tts_toggles_per_engine": {}}
-        self.writes = 0
+    def __init__(self, path: Path, entries: list[dict[str, Any]]) -> None:
+        self.path = path
+        self._written = ""
+        self.set(tts_escalation=entries, tts_toggles_per_engine={})
+
+    @property
+    def data(self) -> dict[str, Any]:
+        loaded: dict[str, Any] = json.loads(self.path.read_text(encoding="utf-8"))
+        return loaded
+
+    def set(self, **fields: Any) -> None:
+        """What the test puts into the file (before the editor acts)."""
+        current = self.data if self.path.exists() else {}
+        self._written = json.dumps({**current, **fields})
+        self.path.write_text(self._written, encoding="utf-8")
+
+    def untouched(self) -> bool:
+        """The editor wrote nothing since the test's last ``set``."""
+        return self.path.read_text(encoding="utf-8") == self._written
 
 
 @pytest.fixture
-def settings_file(monkeypatch: pytest.MonkeyPatch) -> Callable[..., SettingsFile]:
+def settings_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., SettingsFile]:
     def make(entries: list[dict[str, Any]]) -> SettingsFile:
-        file = SettingsFile(entries)
-        monkeypatch.setattr("aifred.lib.settings.persisted_settings", lambda: file.data)
-        monkeypatch.setattr(tts_service, "persisted_settings", lambda: file.data)
-        return file
+        path = tmp_path / "settings.json"
+        monkeypatch.setattr(settings, "SETTINGS_FILE", path)
+        return SettingsFile(path, entries)
 
     return make
 
@@ -117,16 +135,10 @@ class FakeState(_StateBase):
     _edit_tts_lists = TTSConfigMixin._edit_tts_lists
     _tts_agent_enabled = TTSConfigMixin._tts_agent_enabled
 
-    def __init__(self, file: SettingsFile | None = None) -> None:
-        self.file = file
+    def __init__(self) -> None:
         self.tts_list_revision = 0
         self.agent_tuning = {"aifred": default_tuning("aifred")}
         self.agent_tuning["aifred"].model_id = "model"
-
-    def _write_settings_file(self, settings: dict[str, Any]) -> None:
-        assert self.file is not None
-        self.file.data = settings
-        self.file.writes += 1
 
 
 def computed(name: str, state: FakeState) -> Any:
@@ -182,7 +194,7 @@ def test_row_notes_name_missing_row_missing_image_and_start_failure(service) -> 
 
 def test_the_unit_of_a_row_is_the_choice_else_the_default_of_the_catalog(service) -> None:
     _, file = service([stored("xtts"), stored("piper")], catalog=[catalog_row("xtts", unit_default="paragraph"), catalog_row("piper")])
-    file.data["tts_toggles_per_engine"] = {"piper": {"unit": "whole"}}
+    file.set(tts_toggles_per_engine={"piper": {"unit": "whole"}})
     assert [row["unit"] for row in computed("tts_escalation_rows", FakeState())] == ["paragraph", "whole"]
 
 
@@ -240,7 +252,7 @@ def test_move_entry_swaps_neighbours_and_saves_the_complete_matched_list(service
         [stored("xtts"), stored("piper"), stored("edge")],
         catalog=[catalog_row("xtts"), catalog_row("piper"), catalog_row("edge"), catalog_row("extra_engine")],
     )
-    state = FakeState(file)
+    state = FakeState()
     events = run(TTSConfigMixin.move_tts_entry, state, 1, -1)
     assert file.data["tts_escalation"] == [
         stored("piper"), stored("xtts"), stored("edge"), stored("extra_engine", enabled=False),   # the unknown row is saved, off
@@ -250,16 +262,15 @@ def test_move_entry_swaps_neighbours_and_saves_the_complete_matched_list(service
 
 def test_enable_entry_changes_only_the_flag_of_that_entry(service, toasts) -> None:
     _, file = service([stored("xtts"), stored("xtts", "Box"), stored("piper")])
-    events = run(TTSConfigMixin.set_tts_entry_enabled, FakeState(file), 1, False)
+    events = run(TTSConfigMixin.set_tts_entry_enabled, FakeState(), 1, False)
     assert file.data["tts_escalation"] == [stored("xtts"), stored("xtts", "Box", enabled=False), stored("piper")]
     assert events == []
 
 
 def test_switching_off_keeps_every_configuration(service, toasts) -> None:
     _, file = service([stored("piper")])
-    file.data["tts_toggles_per_engine"] = {"piper": {"unit": "whole"}}
-    file.data["tts_agent_voices_per_engine"] = {"piper": {"aifred": {"voice": "Ramona"}}}
-    run(TTSConfigMixin.set_tts_entry_enabled, FakeState(file), 0, False)
+    file.set(tts_toggles_per_engine={"piper": {"unit": "whole"}}, tts_agent_voices_per_engine={"piper": {"aifred": {"voice": "Ramona"}}})
+    run(TTSConfigMixin.set_tts_entry_enabled, FakeState(), 0, False)
     assert file.data["tts_toggles_per_engine"] == {"piper": {"unit": "whole"}}
     assert file.data["tts_agent_voices_per_engine"] == {"piper": {"aifred": {"voice": "Ramona"}}}
     assert file.data["tts_escalation"] == [stored("piper", enabled=False)]
@@ -267,15 +278,15 @@ def test_switching_off_keeps_every_configuration(service, toasts) -> None:
 
 def test_a_stale_index_is_a_toast_not_a_wrong_change(service, toasts) -> None:
     _, file = service([stored("xtts")])
-    events = run(TTSConfigMixin.set_tts_entry_enabled, FakeState(file), 5, False)
+    events = run(TTSConfigMixin.set_tts_entry_enabled, FakeState(), 5, False)
     assert len(events) == 1 and events[0][0] == "error" and "no entry at position 5" in events[0][1]
-    assert file.writes == 0
+    assert file.untouched()
 
 
 def test_set_unit_writes_it_under_the_engine_and_keeps_the_rest(service, toasts) -> None:
     _, file = service([stored("piper")])
-    file.data["tts_toggles_per_engine"] = {"piper": {"autoplay": True, "unit": "sentence"}}
-    state = FakeState(file)
+    file.set(tts_toggles_per_engine={"piper": {"autoplay": True, "unit": "sentence"}})
+    state = FakeState()
     run(TTSConfigMixin.set_tts_entry_unit, state, "piper", "whole")
     assert file.data["tts_toggles_per_engine"]["piper"] == {"autoplay": True, "unit": "whole"}
     assert state.tts_list_revision == 1
@@ -285,21 +296,21 @@ def test_set_unit_writes_it_under_the_engine_and_keeps_the_rest(service, toasts)
 
 def test_set_unit_for_an_engine_without_choice_creates_it(service, toasts) -> None:
     _, file = service([stored("piper")])
-    run(TTSConfigMixin.set_tts_entry_unit, FakeState(file), "piper", "paragraph")
+    run(TTSConfigMixin.set_tts_entry_unit, FakeState(), "piper", "paragraph")
     assert file.data["tts_toggles_per_engine"] == {"piper": {"unit": "paragraph"}}
 
 
 def test_an_unknown_unit_is_a_toast_and_nothing_is_written(service, toasts) -> None:
     _, file = service([stored("piper")])
-    events = run(TTSConfigMixin.set_tts_entry_unit, FakeState(file), "piper", "chapter")
+    events = run(TTSConfigMixin.set_tts_entry_unit, FakeState(), "piper", "chapter")
     assert len(events) == 1 and events[0][0] == "error" and "speech unit" in events[0][1]
-    assert file.writes == 0
+    assert file.untouched()
 
 
 def test_editing_needs_the_service_because_the_match_needs_the_catalog(settings_file, toasts) -> None:
     file = settings_file([stored("xtts"), stored("piper")])
-    state = FakeState(file)   # the conftest client points at a dead address
+    state = FakeState()   # the conftest client points at a dead address
     events = run(TTSConfigMixin.move_tts_entry, state, 1, -1)
     assert len(events) == 1 and events[0][0] == "error" and events[0][1].startswith(f"TTS: {UNREACHABLE_PREFIX}")
-    assert file.writes == 0 and state.tts_list_revision == 0
+    assert file.untouched() and state.tts_list_revision == 0
 

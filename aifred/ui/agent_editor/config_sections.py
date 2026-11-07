@@ -5,6 +5,7 @@ from __future__ import annotations
 import reflex as rx
 from reflex_components_lucide.icon import Icon
 
+from ...lib.config import TTS_PITCH_CHOICES, TTS_SPEED_CHOICES
 from ...state import AIState
 from ...theme import COLORS
 from ..helpers import t
@@ -94,17 +95,7 @@ def _tts_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> rx.
             rx.hstack(
                 rx.text(t("agent_editor_tts_speed"), font_size="11px", color=COLORS["text_secondary"], width="55px"),
                 rx.select(
-                    # 0.05 steps in the speech-natural range so
-                    # there's a value between 0.8 and 0.9 (0.85);
-                    # coarser at the fast extremes. All previous
-                    # values (incl. 1.25x) stay on this grid.
-                    [
-                        "0.5x", "0.55x", "0.6x", "0.65x", "0.7x",
-                        "0.75x", "0.8x", "0.85x", "0.9x", "0.95x",
-                        "1.0x", "1.05x", "1.1x", "1.15x", "1.2x",
-                        "1.25x", "1.3x", "1.35x", "1.4x", "1.45x",
-                        "1.5x", "1.75x", "2.0x",
-                    ],
+                    TTS_SPEED_CHOICES,
                     value=AIState.editor_agent_tts_speed,
                     on_change=AIState.set_editor_agent_tts_speed,
                     size="1",
@@ -112,7 +103,7 @@ def _tts_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> rx.
                 ),
                 rx.text(t("agent_editor_tts_pitch"), font_size="11px", color=COLORS["text_secondary"], width="55px"),
                 rx.select(
-                    ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
+                    TTS_PITCH_CHOICES,
                     value=AIState.editor_agent_tts_pitch,
                     on_change=AIState.set_editor_agent_tts_pitch,
                     size="1",

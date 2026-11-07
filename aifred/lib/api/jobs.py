@@ -12,6 +12,7 @@ from ..logging_utils import log_message
 from ..scheduler import Job
 from ..security import TIER_ADMIN, TIER_READONLY
 from .app import api_app
+from .schemas import ChoiceOption
 
 
 class CronPreset(BaseModel):
@@ -21,11 +22,6 @@ class CronPreset(BaseModel):
     dom: str
     month: str
     dow: str
-
-
-class ChoiceOption(BaseModel):
-    id: str
-    label: str
 
 
 class JobOptions(BaseModel):

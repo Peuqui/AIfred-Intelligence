@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// AIfred's general settings, part one: language and the user, speech output, debate. The agents' models
-// and switches are their quick choices (🎛️ in the chat); backend, calibration and restarts follow.
+// AIfred's general settings, part one: language and the user, debate. Speech output has its own page
+// (🔊), the agents' models and switches are their quick choices (🎛️ in the chat); backend, calibration
+// and restarts follow.
 import { t } from "../i18n";
 import { useSettings } from "../stores/settings";
 
@@ -32,17 +33,6 @@ function named(event: Event): void {
           <button :class="{ on: settings.current.user_gender === 'female' }" :aria-pressed="settings.current.user_gender === 'female'" @click="settings.change({ user_gender: 'female' })">♀</button>
         </span>
       </div>
-    </section>
-
-    <section>
-      <label class="line">
-        <span class="name">{{ t("tts_heading") }}</span>
-        <input type="checkbox" :checked="settings.current.enable_tts" @change="settings.change({ enable_tts: !settings.current.enable_tts })" />
-      </label>
-      <label class="line">
-        <span class="name">{{ t("tts_autoplay_label") }}</span>
-        <input type="checkbox" :checked="settings.current.tts_autoplay" :disabled="!settings.current.enable_tts" @change="settings.change({ tts_autoplay: !settings.current.tts_autoplay })" />
-      </label>
     </section>
 
     <section>
