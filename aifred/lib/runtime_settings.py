@@ -45,6 +45,10 @@ class RuntimeSettings:
     enable_tts: bool
     automatik_model_id: str
     agent_tuning: dict[str, AgentTuning]
+    # Multi-agent modes (lib/turn_debate.py): rounds of a debate, symposion and tribunal, and how
+    # many votes end an auto-consensus ("majority" or "unanimous").
+    max_debate_rounds: int
+    consensus_type: str
 
 
 def load_runtime_settings() -> RuntimeSettings:
@@ -61,6 +65,8 @@ def load_runtime_settings() -> RuntimeSettings:
         enable_tts=bool(saved["enable_tts"]),
         automatik_model_id="",
         agent_tuning=default_agent_tuning(),
+        max_debate_rounds=saved["max_debate_rounds"],
+        consensus_type=saved["consensus_type"],
     )
     apply_saved_tuning(view, saved)
     had_backend_settings = apply_saved_models(view, saved)

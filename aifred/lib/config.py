@@ -137,7 +137,11 @@ DEFAULT_SETTINGS = {
     "enable_gpu": True,
     # NOTE: temperature is per-agent (agent_tuning bucket), no flat key
     "temperature_mode": "auto",  # "auto" (Intent-Detection) or "manual" (user slider)
-    "enable_thinking": False  # Qwen3 Thinking Mode (Chain-of-Thought Reasoning)
+    "enable_thinking": False,  # Qwen3 Thinking Mode (Chain-of-Thought Reasoning)
+    # Multi-agent modes: rounds of a debate/tribunal/symposion, votes that end an auto-consensus
+    # ("majority" = 2 of 3, "unanimous" = 3 of 3). The same values as the browser state's.
+    "max_debate_rounds": 3,
+    "consensus_type": "majority",
 }
 
 # ============================================================

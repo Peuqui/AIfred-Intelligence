@@ -15,6 +15,7 @@ they come from the llama-swap YAML config per model at runtime.
 
 import json
 from dataclasses import asdict, dataclass, field
+from typing import Any
 
 from .config import DATA_DIR
 
@@ -24,8 +25,17 @@ AGENTS_FILE = DATA_DIR / "agents.json"
 # "system" agents (calibration, future helpers) are not selectable as
 # chat partners — they back internal workflows and only expose
 # prompt + model in the editor.
+# main, critic and judge are the parts of the multi-agent modes (lib/turn_debate.py): the agent
+# that holds a role speaks it, with the role's prompts from its own prompt mapping.
+ROLE_MAIN = "main"
+ROLE_CRITIC = "critic"
+ROLE_JUDGE = "judge"
 ROLE_SYSTEM = "system"
-VALID_ROLES = ("main", "critic", "judge", "custom", ROLE_SYSTEM)
+VALID_ROLES = (ROLE_MAIN, ROLE_CRITIC, ROLE_JUDGE, "custom", ROLE_SYSTEM)
+
+
+class AgentRoleError(LookupError):
+    """No agent holds a role, or the agent of a role lacks a prompt the role needs."""
 
 
 @dataclass
@@ -243,6 +253,36 @@ def agent_display_name(agent_id: str) -> str:
     """The name an agent speaks and signs with; its id if it no longer exists."""
     agent = get_agent_config(agent_id)
     return agent.display_name if agent else agent_id
+
+
+def agent_for_role(role: str) -> str:
+    """The agent that speaks ``role`` (main, critic, judge): the first one in agents.json with it."""
+    for agent_id, config in load_agents().items():
+        if config.role == role:
+            return agent_id
+    raise AgentRoleError(f"No agent has the role '{role}' (data/agents.json)")
+
+
+def role_prompt_name(agent_id: str, key: str) -> str:
+    """The agent's prompt ``key`` as load_prompt names it: its path in the agent's prompt mapping
+    without ``.txt``."""
+    config = get_agent_config(agent_id)
+    if config is None:
+        raise AgentRoleError(f"Unknown agent: {agent_id}")
+    path = config.prompts.get(key)
+    if path is None:
+        raise AgentRoleError(
+            f"Agent '{agent_id}' (role {config.role}) has no prompt '{key}' in data/agents.json"
+        )
+    return path.removesuffix(".txt")
+
+
+def role_prompt(agent_id: str, key: str, lang: str, **variables: Any) -> str:
+    """The agent's prompt ``key`` (e.g. "critic", "refinement") in ``lang``, its placeholders filled
+    (``load_prompt`` takes any value its template formats)."""
+    from .prompt_loader import load_prompt
+
+    return load_prompt(role_prompt_name(agent_id, key), lang=lang, **variables)
 
 
 # Generic fallback used when an agent has no per-engine voice default.

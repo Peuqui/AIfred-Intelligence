@@ -9,11 +9,16 @@ Events of a turn, in order: ``turn_started`` (the user's entry), ``session_confi
 mode switch or a sticky address), ``agent_started``, ``token`` (text pieces, bundled),
 ``tool_status``, ``message_added`` (the finished reply), ``turn_finished``; ``turn_rejected``
 instead when the turn cannot start, ``message_queued`` for a message that waits behind it. ``debug`` lines arrive throughout, ``session_title`` after
-the first exchange.
+the first exchange. In a multi-agent mode ``agent_started`` … ``message_added`` repeat for every
+agent that speaks.
 
 Covered so far: the direct answer of one agent with tools and memory, intent and language,
-mode switch, history compression, sticky addressing, title. Multi-agent modes, images, speech
-and dictation follow (docs/de/architecture/vue-migration/README.md).
+mode switch, history compression, sticky addressing, title, the multi-agent modes
+(``lib/turn_debate.py``). Images, speech and dictation follow
+(docs/de/architecture/vue-migration/README.md).
+
+Every model call of a turn runs through the same three steps, for the direct answer here and for
+each speaker of a debate: build (``AgentCall``), stream (``stream_call``), finish (``finish_call``).
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import session_events
 from .config import LLAMASWAP_BACKENDS, TURN_TOKEN_EVENT_INTERVAL_S
@@ -34,6 +39,11 @@ from .runtime_settings import (
     effective_automatik_id,
     effective_model_id,
 )
+
+if TYPE_CHECKING:
+    from ..backends.base import LLMOptions
+    from .agent_config import AgentConfig
+    from .llm_pipeline import PipelineResult
 
 
 class TurnRejected(Exception):
@@ -116,7 +126,22 @@ def _start_next(session_id: str, source: str) -> None:
 # ── The turn ─────────────────────────────────────────────────────────────
 
 
+@dataclass(frozen=True)
+class TurnContext:
+    """What every model call of a turn shares."""
+
+    session_id: str
+    view: RuntimeSettings
+    llm_client: Any
+    user_text: str        # as written: memory recall
+    llm_user_text: str    # stamped, the last llm_history entry
+    intent: _Intent
+    source: str
+    mode: str             # the session's multi-agent mode (after a switch): labels the bubbles
+
+
 async def _run(request: TurnRequest, turn_id: str) -> None:
+    from . import turn_debate
     from .calibration_gate import is_calibration_active
     from .formatting import build_user_chat_entry
     from .llm_client import LLMClient
@@ -151,12 +176,19 @@ async def _run(request: TurnRequest, turn_id: str) -> None:
                 _confirm_mode_switch(session_id, config, intent)
                 return
         agent = _route(session_id, config, intent.addressed_to)
-        if config["multi_agent_mode"] != "standard":
-            raise TurnRejected(
-                "mode", f"Multi-agent mode '{config['multi_agent_mode']}' does not run on the server yet",
-            )
-        await _compress(session_id, view, llm_client, [agent], intent.language)
-        await _respond(session_id, view, llm_client, agent, user_text, llm_user_text, intent, request.source)
+        ctx = TurnContext(
+            session_id, view, llm_client, user_text, llm_user_text, intent, request.source,
+            config["multi_agent_mode"],
+        )
+        plan = turn_debate.plan_turn(ctx.mode, agent, intent.addressed_to, config["symposion_agents"])
+        await _compress(ctx, plan.agents)
+        if plan.responder is None:
+            await turn_debate.run_symposion(ctx, plan)
+        else:
+            answer = await _respond(ctx, plan.responder)
+            # The debate starts from the answer; without one there is nothing to critique.
+            if answer is not None and plan.debate:
+                await turn_debate.run_debate(ctx, plan, answer.text)
     finally:
         await llm_client.close()
     _start_title(session_id, view)
@@ -272,102 +304,154 @@ def _public_config(config: dict[str, Any]) -> dict[str, Any]:
 # ── History compression ──────────────────────────────────────────────────
 
 
-async def _compress(
-    session_id: str, view: RuntimeSettings, llm_client: Any, agents: list[str], language: str,
+async def _compress(ctx: TurnContext, agents: list[str]) -> None:
+    """Before the turn: compress when the history would crowd the smallest context of the turn's
+    agents, measured with the largest of their system prompts (who speaks when is open yet)."""
+    from .prompt_loader import get_direct_prompt_tokens
+
+    context_limit = min(agent_context(ctx.view, agent)[0] for agent in agents)
+    prompt_tokens = max(get_direct_prompt_tokens(agent, ctx.intent.language, memory=True) for agent in agents)
+    await compress_history(ctx, agents, context_limit, prompt_tokens, 0, "Pre-Message Compression")
+
+
+async def compress_history(
+    ctx: TurnContext,
+    agents: list[str],
+    context_limit: int,
+    system_prompt_tokens: int,
+    toolkit_tokens: int,
+    label: str,
 ) -> None:
-    """Compress the history when it would crowd the context of the turn's smallest agent."""
-    from .agent_settings import get_agent_base_model_id
+    """Compress the session's history when it would crowd ``context_limit``; the largest model of
+    the turn's ``agents`` summarizes (compression quality matters most)."""
     from .context_manager import largest_compression_model, summarize_history_if_needed
-    from .prompt_loader import get_max_direct_prompt_tokens
-    from .research.context_utils import get_agent_num_ctx
     from .session_storage import load_session, session_rmw_lock, update_chat_data
 
-    session = load_session(session_id) or {}
-    data = session.get("data", {})
-    if not data.get("chat_history"):
-        return
-    context_limit = min(get_agent_num_ctx(agent, view, get_agent_base_model_id(view, agent))[0] for agent in agents)
-    model = largest_compression_model(
-        effective_model_id(view, agent) or effective_model_id(view, "aifred") for agent in agents
-    )
+    data = (load_session(ctx.session_id) or {}).get("data", {})
     async for event in summarize_history_if_needed(
         history=data["chat_history"],
-        llm_client=llm_client,
-        model_name=model,
+        llm_client=ctx.llm_client,
+        model_name=largest_compression_model(agent_model(ctx.view, agent) for agent in agents),
         context_limit=context_limit,
         llm_history=data.get("llm_history", []),
-        system_prompt_tokens=get_max_direct_prompt_tokens("standard", language, memory=True),
-        detected_language=language,
+        system_prompt_tokens=system_prompt_tokens,
+        detected_language=ctx.intent.language,
+        toolkit_tokens=toolkit_tokens,
     ):
         if event["type"] == "debug":
             debug(event["message"])
         elif event["type"] == "history_update":
             with session_rmw_lock:
-                current = (load_session(session_id) or {}).get("data", {})
+                current = (load_session(ctx.session_id) or {}).get("data", {})
+                llm_history = event.get("llm_history") or current.get("llm_history", [])
                 update_chat_data(
-                    session_id=session_id,
+                    session_id=ctx.session_id,
                     chat_history=event["chat_history"],
-                    llm_history=event.get("llm_history") or current.get("llm_history", []),
+                    llm_history=llm_history,
                     debug_messages=current.get("debug_messages", []),
                 )
-            session_events.publish(session_id, "history_replaced", {"chat_history": event["chat_history"]})
-            debug(f"✅ Pre-Message Compression: {len(event['chat_history'])} UI messages")
+            session_events.publish(ctx.session_id, "history_replaced", {"chat_history": event["chat_history"]})
+            debug(f"✅ {label}: {len(event['chat_history'])} UI / {len(llm_history)} LLM messages")
 
 
-# ── The agent's answer ───────────────────────────────────────────────────
+# ── An agent's model call: build, stream, finish ─────────────────────────
 
 
-async def _respond(
-    session_id: str,
-    view: RuntimeSettings,
-    llm_client: Any,
-    agent: str,
-    user_text: str,
-    llm_user_text: str,
-    intent: _Intent,
-    source: str,
-) -> None:
-    """The agent answers with its full toolkit; text streams to the clients, the finished reply is saved."""
+@dataclass(frozen=True)
+class AgentCall:
+    """One model call of an agent, ready to stream."""
+
+    agent: str
+    label: str              # display name: bubble and events
+    emoji: str
+    model: str              # the effective model id the request goes to
+    messages: list[dict[str, Any]]
+    options: LLMOptions
+    toolkit: Any
+    prompt_tokens: int      # system prompt and messages, without the tool schemas
+    tool_budget: int        # tokens a single tool result may take (tool_output_cap)
+    log_label: str          # names the call in debug and log lines ("AIfred Refinement")
+
+
+def agent_identity(agent: str) -> AgentConfig:
     from .agent_config import get_agent_config
-    from .agent_memory import prepare_agent_toolkit
-    from .agent_settings import (
-        get_agent_base_model_id,
-        resolve_agent_temperature,
-        thinking_fields,
-        thinking_mode,
-    )
-    from .bubble import render_bubble
-    from .context_manager import estimate_tokens, estimate_toolkit_tokens
-    from .formatting import (
-        assistant_history_entry,
-        build_agent_panel_entry,
-        format_number,
-    )
-    from .llm_client import build_llm_options
-    from .llm_pipeline import PipelineResult, run_llm_stream
-    from .message_builder import build_messages_from_llm_history, inject_before_question
-    from .prompt_loader import get_agent_direct_prompt
-    from .research.context_utils import get_agent_num_ctx
-    from .session_storage import load_session
-    from .tool_output_cap import budget_var, compute_budget
 
     config = get_agent_config(agent)
     if config is None:
         raise TurnRejected("agent", f"Unknown agent: {agent}")
-    label, emoji = config.display_name, config.emoji
-    model = effective_model_id(view, agent) or effective_model_id(view, "aifred")
-    debug(f"{emoji} {label}-LLM: {model} ({view.backend_type})")
-    num_ctx, ctx_source = get_agent_num_ctx(agent, view, get_agent_base_model_id(view, agent))
+    return config
+
+
+def agent_model(view: RuntimeSettings, agent: str) -> str:
+    """The model the agent's requests go to: its own, else AIfred's (the inheritance rule)."""
+    return effective_model_id(view, agent) or effective_model_id(view, "aifred")
+
+
+def agent_context(view: RuntimeSettings, agent: str) -> tuple[int, str]:
+    """The agent's context window and where it comes from (the lookup wants the base model id)."""
+    from .agent_settings import get_agent_base_model_id
+    from .research.context_utils import get_agent_num_ctx
+
+    return get_agent_num_ctx(agent, view, get_agent_base_model_id(view, agent))
+
+
+def measure_prompt(messages: list[dict[str, Any]], toolkit: Any, model: str) -> tuple[int, int, int]:
+    """Tokens of the system prompt, of the other messages and of the tool schemas."""
+    from .context_manager import estimate_tokens, estimate_toolkit_tokens
+
+    system = estimate_tokens([m for m in messages if m["role"] == "system"], model_name=model)
+    history = estimate_tokens([m for m in messages if m["role"] != "system"], model_name=model)
+    return system, history, estimate_toolkit_tokens(toolkit, model_name=model)
+
+
+def session_llm_history(session_id: str) -> list[dict[str, Any]]:
+    from .session_storage import load_session
+
+    history: list[dict[str, Any]] = (load_session(session_id) or {}).get("data", {}).get("llm_history", [])
+    return history
+
+
+async def _respond(ctx: TurnContext, agent: str) -> PipelineResult | None:
+    """The agent answers the user directly with its full toolkit; the finished reply is saved."""
+    call = await _direct_call(ctx, agent)
+    result = await stream_call(ctx, call)
+    if result is None:
+        return None
+    finish_call(ctx, call, result, mode="direct", load_time=ctx.intent.load_time)
+    debug("────────────────────")
+    return result
+
+
+async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
+    """The direct answer's call: the agent's direct prompt, the history from its perspective, the
+    memories right before the question."""
+    from .agent_memory import prepare_agent_toolkit
+    from .agent_settings import (
+        resolve_agent_temperature,
+        thinking_fields,
+        thinking_mode,
+    )
+    from .context_manager import estimate_tokens
+    from .formatting import format_number
+    from .llm_client import build_llm_options
+    from .message_builder import build_messages_from_llm_history, inject_before_question
+    from .prompt_loader import get_agent_direct_prompt
+    from .tool_output_cap import compute_budget
+
+    view, lang = ctx.view, ctx.intent.language
+    config = agent_identity(agent)
+    model = agent_model(view, agent)
+    debug(f"{config.emoji} {config.display_name}-LLM: {model} ({view.backend_type})")
+    num_ctx, ctx_source = agent_context(view, agent)
     debug(f"   🎯 Context: {format_number(num_ctx)} ({ctx_source})")
 
     memory_ctx, toolkit = await prepare_agent_toolkit(
-        agent, user_text, lang=intent.language, memory_enabled=True, research_tools_enabled=True,
-        session_id=session_id, source=source,
+        agent, ctx.user_text, lang=lang, memory_enabled=True, research_tools_enabled=True,
+        session_id=ctx.session_id, source=ctx.source,
     )
-    system_prompt = get_agent_direct_prompt(agent, lang=intent.language, memory=True)
-    history = (load_session(session_id) or {}).get("data", {}).get("llm_history", [])
+    system_prompt = get_agent_direct_prompt(agent, lang=lang, memory=True)
     messages: list[dict[str, Any]] = build_messages_from_llm_history(
-        history[:-1], llm_user_text, perspective=agent, detected_language=intent.language,
+        session_llm_history(ctx.session_id)[:-1], ctx.llm_user_text, perspective=agent, detected_language=lang,
     )
     messages.insert(0, {"role": "system", "content": system_prompt})
     memory_tokens = 0
@@ -378,49 +462,123 @@ async def _respond(
         debug(f"🧠 Memory context injected ({format_number(memory_tokens)} tok, before question)")
 
     temperature = resolve_agent_temperature(view, agent)
-    system_tokens = estimate_tokens([{"content": system_prompt}], model_name=model)
-    history_tokens = estimate_tokens([m for m in messages if m["role"] != "system"], model_name=model)
-    tool_tokens = estimate_toolkit_tokens(toolkit, model_name=model)
+    system_tokens, history_tokens, tool_tokens = measure_prompt(messages, toolkit, model)
     total = system_tokens + tool_tokens + history_tokens
     debug(
         f"📊 Prompt: System {format_number(system_tokens)} + Tools {format_number(tool_tokens)} + "
         f"History {format_number(history_tokens)} = {format_number(total)} / {format_number(num_ctx)} tok"
     )
     debug(f"🌡️ Temperature: {format_number(temperature, 1)}")
-    budget_var.set(compute_budget(num_ctx, system_tokens, history_tokens, memory_tokens, tool_tokens))
     # The direct chat thinks as AIfred's row says for the model the answering agent runs on.
     enable_thinking, reasoning_effort = thinking_fields(thinking_mode(view, "aifred", model))
     options = replace(
         build_llm_options(view, agent, model, temperature, num_ctx),
         enable_thinking=enable_thinking, reasoning_effort=reasoning_effort,
     )
-    if toolkit:
-        debug(f"🔧 Toolkit: {[tool.name for tool in toolkit.tools]} for {label}")
+    return AgentCall(
+        agent, config.display_name, config.emoji, model, messages, options, toolkit,
+        prompt_tokens=system_tokens + history_tokens,
+        tool_budget=compute_budget(num_ctx, system_tokens, history_tokens, memory_tokens, tool_tokens),
+        log_label=config.display_name,
+    )
 
-    session_events.publish(session_id, "agent_started", {"agent": agent, "display_name": label, "emoji": emoji})
-    stream = _TokenStream(session_id)
+
+async def stream_call(ctx: TurnContext, call: AgentCall) -> PipelineResult | None:
+    """Stream the call to the clients; None when the pipeline ends without a result.
+
+    A cancelled stream keeps what had arrived as an interrupted bubble, in every mode.
+    """
+    from .llm_pipeline import run_llm_stream
+    from .tool_output_cap import budget_var
+
+    if call.toolkit:
+        debug(f"🔧 Toolkit: {[tool.name for tool in call.toolkit.tools]} for {call.log_label}")
+    budget_var.set(call.tool_budget)
+    # Several agents speak in a multi-agent turn: their tool lines carry the speaker.
+    tool_agent = call.log_label if ctx.mode != "standard" else ""
+    session_events.publish(
+        ctx.session_id, "agent_started", {"agent": call.agent, "display_name": call.label, "emoji": call.emoji},
+    )
+    stream = _TokenStream(ctx.session_id)
     result: PipelineResult | None = None
     try:
         async for event in run_llm_stream(
-            llm_client, model, messages, options, label, source=source, toolkit=toolkit, on_debug=debug,
+            ctx.llm_client, call.model, call.messages, call.options, call.log_label,
+            source=ctx.source, toolkit=call.toolkit, on_debug=debug,
         ):
-            result = _handle_stream_event(session_id, event, stream, view.ui_language) or result
+            result = _handle_stream_event(ctx.session_id, event, stream, ctx.view.ui_language, tool_agent) or result
     except asyncio.CancelledError:
-        _save_partial(session_id, agent, stream.text, view.ui_language)
+        _save_partial(ctx.session_id, call.agent, stream.text, ctx.view.ui_language)
         raise
     stream.flush()
-    if result is None:
-        return
-    debug(result.debug_msg)
-    content = render_bubble(result.text, result.artifacts, model_name=f"{label} ({model})")
+    if result is not None:
+        debug(result.debug_msg)
+    return result
+
+
+def finish_call(
+    ctx: TurnContext,
+    call: AgentCall,
+    result: PipelineResult,
+    *,
+    mode: str,
+    round_num: int | None = None,
+    load_time: float = 0.0,
+) -> dict[str, Any]:
+    """Save the reply as a bubble (marker, mode, round) and in the llm history, tell the clients.
+
+    ``load_time`` is the intent call's model load of this turn: the first answer carries it.
+    """
+    from .bubble import render_bubble
+    from .formatting import assistant_history_entry, build_agent_panel_entry
+
+    content = render_bubble(result.text, result.artifacts, model_name=f"{call.label} ({call.model})")
     metadata = {**result.metadata_dict}
-    if intent.load_time and metadata:
-        metadata["load_time"] = metadata.get("load_time", 0.0) + intent.load_time
-    entry = build_agent_panel_entry(agent, content, mode="direct", metadata=metadata, lang=intent.language)
-    history_entry = assistant_history_entry(agent, result.answer_text, result.history_notes)
-    _append(session_id, chat=[entry], llm=[history_entry] if history_entry else [])
-    session_events.publish(session_id, "message_added", {"entry": entry})
-    debug("────────────────────")
+    if load_time and metadata:
+        metadata["load_time"] = metadata.get("load_time", 0.0) + load_time
+    entry = build_agent_panel_entry(
+        call.agent, content, mode=mode, round_num=round_num, metadata=metadata,
+        marker=_marker(ctx.mode, mode, round_num, ctx.view.ui_language), lang=ctx.intent.language,
+    )
+    history_entry = assistant_history_entry(call.agent, result.answer_text, result.history_notes)
+    _append(ctx.session_id, chat=[entry], llm=[history_entry] if history_entry else [])
+    session_events.publish(ctx.session_id, "message_added", {"entry": entry})
+    return entry
+
+
+def _mode_label(mode: str, lang: str) -> str:
+    """The label of a bubble's mode; empty for a direct answer."""
+    from .i18n import t
+
+    labels = {
+        "auto_consensus": t("auto_consensus_label", lang=lang),
+        "tribunal": t("multi_agent_tribunal", lang=lang),
+        "refinement": t("refinement_label", lang=lang),
+        "synthesis": t("salomo_synthesis_label", lang=lang),
+        "verdict": t("salomo_verdict_label", lang=lang),
+        "critical_review": t("critical_review_label", lang=lang),
+        "symposion": t("multi_agent_symposion", lang=lang),
+    }
+    return labels[mode].rstrip(":") if mode in labels else ""
+
+
+def _marker(turn_mode: str, mode: str, round_num: int | None, lang: str) -> str:
+    """The line above a multi-agent step, e.g. "[Auto-Konsens: Synthese R1]"; empty for a direct
+    answer. The turn's mode goes in front unless the step's label already names it. Text and look
+    as the browser's (state/_chat_mixin._build_marker): both write the same session files."""
+    label = _mode_label(mode, lang)
+    if not label:
+        return ""
+    prefix = ""
+    if turn_mode != "standard" and mode not in ("auto_consensus", "tribunal", "symposion") and mode != turn_mode:
+        turn_label = _mode_label(turn_mode, lang)
+        if turn_label:
+            prefix = f"{turn_label}: "
+    suffix = f" R{round_num}" if round_num else ""
+    return (
+        f"<span style='color: rgba(255, 255, 255, 0.6); font-style: italic; font-size: 12px;'>"
+        f"[{prefix}{label}{suffix}]</span>\n\n"
+    )
 
 
 class _TokenStream:
@@ -445,8 +603,13 @@ class _TokenStream:
         self._sent_at = time.monotonic()
 
 
-def _handle_stream_event(session_id: str, event: dict[str, Any], stream: _TokenStream, lang: str) -> Any:
-    """Turn one pipeline event into events and debug lines; returns the result when it arrives."""
+def _handle_stream_event(
+    session_id: str, event: dict[str, Any], stream: _TokenStream, lang: str, tool_agent: str,
+) -> Any:
+    """Turn one pipeline event into events and debug lines; returns the result when it arrives.
+
+    ``tool_agent`` names the speaker in front of its tool calls (empty: the one agent of the turn).
+    """
     from .context_manager import estimate_tokens
     from .debug_format import format_tool_call, format_tool_result
     from .formatting import format_number
@@ -462,7 +625,7 @@ def _handle_stream_event(session_id: str, event: dict[str, Any], stream: _TokenS
         _tool_status(session_id, _plugin_status(event.get("name", ""), {}, lang))
     elif kind == "tool_call":
         name, arguments = event.get("name", ""), event.get("arguments", "")
-        debug(f"🔧 {format_tool_call(name, arguments)}")
+        debug(f"🔧 {format_tool_call(name, arguments, agent=tool_agent)}")
         memory_status = {
             "store_memory": "tool_memory", "update_memory": "tool_memory_update",
             "delete_memory": "tool_memory_delete", "read_memory": "tool_memory_read",

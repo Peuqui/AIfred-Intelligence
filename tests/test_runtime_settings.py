@@ -17,6 +17,7 @@ def _view(backend: str = "llamacpp", **tuning: dict[str, Any]) -> rs.RuntimeSett
     view = rs.RuntimeSettings(
         backend_type=backend, backend_url="", temperature_mode="auto", ui_language="de",
         enable_tts=False, automatik_model_id="", agent_tuning=default_agent_tuning(),
+        max_debate_rounds=3, consensus_type="majority",
     )
     for agent, fields in tuning.items():
         for name, value in fields.items():
@@ -88,6 +89,7 @@ def test_load_takes_missing_keys_from_the_defaults(monkeypatch: pytest.MonkeyPat
     view = rs.load_runtime_settings()
     defaults = settings.get_default_settings()
     assert (view.temperature_mode, view.ui_language) == (defaults["temperature_mode"], defaults["ui_language"])
+    assert (view.max_debate_rounds, view.consensus_type) == (defaults["max_debate_rounds"], defaults["consensus_type"])
 
 
 def test_the_channel_resolver_inherits_aifreds_model(monkeypatch: pytest.MonkeyPatch) -> None:

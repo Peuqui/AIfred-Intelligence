@@ -37,6 +37,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     view = RuntimeSettings(
         backend_type="ollama", backend_url="http://x", temperature_mode="auto", ui_language="de",
         enable_tts=False, automatik_model_id="", agent_tuning=default_agent_tuning(),
+        max_debate_rounds=3, consensus_type="majority",
     )
     view.agent_tuning["aifred"].model_id = "qwen3:8b"
     world: dict[str, Any] = {"chunks": [{"type": "content", "text": "Hallo "}, {"type": "content", "text": "Peuqui."}],
@@ -129,10 +130,12 @@ def test_a_turn_during_calibration_is_rejected_and_saves_nothing(world: dict[str
     assert _kinds() == ["turn_rejected", "turn_finished"]
 
 
-def test_a_multi_agent_mode_is_refused_until_the_server_runs_it(world: dict[str, Any]) -> None:
-    session_storage.update_session_config(SESSION, multi_agent_mode="tribunal")
+def test_a_mode_the_server_does_not_offer_is_refused(world: dict[str, Any]) -> None:
+    # devils_advocate is no longer offered (config.MULTI_AGENT_MODES); an old session may still hold it.
+    session_storage.update_session_config(SESSION, multi_agent_mode="devils_advocate")
     asyncio.run(_turn("Hallo"))
-    assert "turn_rejected" in _kinds()
+    rejected = [e for e in session_events.replay_after(SESSION, 0) if e.kind == "turn_rejected"]
+    assert rejected[0].data["reason"] == "mode"
     assert [entry["role"] for entry in _data()["chat_history"]] == ["user"]
 
 
