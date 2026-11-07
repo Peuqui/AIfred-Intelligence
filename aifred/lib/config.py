@@ -408,6 +408,10 @@ HISTORY_CHARS_PER_TOKEN = 3.5
 # Note: num_ctx only affects max context size, NOT processing speed!
 AUTOMATIK_LLM_NUM_CTX = 12288  # 12K context for all Automatik tasks
 
+# Text pieces of a streaming answer go to the clients as one ``token`` event at most this often
+# (lib/turn_service.py): fewer events, still live.
+TURN_TOKEN_EVENT_INTERVAL_S = 0.05
+
 # Obergrenze für die Antwortlänge jedes Aufrufs über die OpenAI-kompatiblen
 # Backends (vLLM, llama.cpp), wenn der Aufruf selbst keine setzt. Ohne sie lief
 # am 16.10.2026 ein Sub-Agent über drei Stunden: DeepSeek schrieb nach einem

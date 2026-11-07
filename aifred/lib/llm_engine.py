@@ -12,6 +12,7 @@ Yields Dict-Messages die vom Aufrufer geroutet werden:
 - {"type": "result", "data": {...}}
 """
 
+import re
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
@@ -321,6 +322,21 @@ async def call_llm(
 
     finally:
         await llm_client.close()
+
+
+def first_exchange(llm_history: list[dict[str, str]]) -> tuple[str, str] | None:
+    """The first user message and the first reply of a session, for its title.
+
+    The reply loses its speaker label ("[AIFRED]: ", a custom agent's uppercased id): the title
+    model would echo it. An image-only first turn has no user text and stands as "[Bildanalyse]".
+    None until both exist.
+    """
+    first_user = next((entry.get("content", "") for entry in llm_history if entry.get("role") == "user"), "")
+    first_reply = next((entry.get("content", "") for entry in llm_history if entry.get("role") == "assistant"), "")
+    first_reply = re.sub(r"^\[[A-Z0-9_]+\]:\s*", "", first_reply, count=1)
+    if not first_reply:
+        return None
+    return first_user or "[Bildanalyse]", first_reply
 
 
 async def generate_session_title(

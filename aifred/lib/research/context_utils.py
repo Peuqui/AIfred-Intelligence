@@ -21,7 +21,7 @@ from ..model_vram_cache import (
 )
 
 if TYPE_CHECKING:
-    from ...state import AIState
+    from ..runtime_settings import TuningTarget
 
 
 _current_native_context: int = 0
@@ -90,7 +90,7 @@ def get_stateless_num_ctx(model_id: str, backend_type: str) -> tuple[int, str]:
 
 def get_agent_num_ctx(
     agent: str,
-    state: "AIState",
+    state: "TuningTarget",
     model_id: str,
     fallback: int = MAIN_LLM_FALLBACK_CONTEXT  # Use config constant (32K) as default
 ) -> tuple[int, str]:
@@ -107,7 +107,7 @@ def get_agent_num_ctx(
         agent: Agent identifier — any registered agent (canonical or custom;
             each owns its tuning bucket, model-bound toggles resolve via
             the model owner)
-        state: AIState instance containing per-agent settings
+        state: Reflex state or RuntimeSettings (per-agent settings, backend, TTS toggle)
         model_id: **BASE** model ID without variant suffix (e.g., "qwen3:14b" or
             "Qwen3.5-...-IQ3_XXS"). MUST NOT be a resolved variant id like
             ``<base>-speed`` or ``<base>-tts-<engine>`` — this function runs

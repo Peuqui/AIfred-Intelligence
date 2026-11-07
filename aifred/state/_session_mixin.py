@@ -726,34 +726,11 @@ class SessionMixin(rx.State, mixin=True):
             self.current_session_title = existing_title
             return
 
-        # Extract first Q&A pair from llm_history
-        _llm_hist = self._chat_sub().llm_history
-        if len(_llm_hist) < 2:
+        from ..lib.llm_engine import first_exchange
+        exchange = first_exchange(self._chat_sub().llm_history)
+        if exchange is None:
             return
-
-        import re as _re
-        # Strip any agent label prefix ("[AIFRED]:", "[SOKRATES]:", "[SALOMO]:",
-        # plus any custom agent uppercased label). Without this the title
-        # generator sees the label as part of the content and either echoes it
-        # or produces a confused title.
-        _label_re = _re.compile(r"^\[[A-Z0-9_]+\]:\s*")
-        first_user_msg = None
-        first_ai_response = None
-        for msg in _llm_hist:
-            content = msg.get("content", "")
-            if msg.get("role") == "user" and first_user_msg is None:
-                first_user_msg = content
-            elif msg.get("role") == "assistant" and first_ai_response is None:
-                first_ai_response = _label_re.sub("", content, count=1)
-            if first_user_msg and first_ai_response:
-                break
-
-        # Vision-Only: placeholder for image-only uploads
-        if not first_user_msg and first_ai_response:
-            first_user_msg = "[Bildanalyse]"
-
-        if not first_user_msg or not first_ai_response:
-            return
+        first_user_msg, first_ai_response = exchange
 
         # Determine num_ctx override to avoid Ollama reload
         num_ctx_override = 0
