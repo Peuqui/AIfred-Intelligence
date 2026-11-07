@@ -425,13 +425,13 @@ def channel(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> _Channel:
     return plugin
 
 
-def _inbound(text: str, **metadata: Any) -> Any:
+def _inbound(text: str, task: bool = False, **metadata: Any) -> Any:
     from datetime import UTC, datetime
 
     from aifred.lib.envelope import InboundMessage
 
     return InboundMessage(channel="telegram", channel_id="chat-1", sender="Peuqui", text=text,
-                          timestamp=datetime.now(UTC), metadata=metadata)
+                          timestamp=datetime.now(UTC), metadata=metadata, task=task)
 
 
 def _process(message: Any) -> Any:
@@ -477,6 +477,20 @@ def test_a_channel_message_without_an_answer_returns_nothing_and_the_toast_says_
     session_storage.update_session_config(SESSION, multi_agent_mode="devils_advocate")   # refused by the turn
     assert _process(_inbound("Hallo")) is None
     assert channel.sent == [] and world["hub"][-1] == "error"
+
+
+def test_a_task_of_the_system_goes_to_its_agent_without_the_intent_detection(
+    world: dict[str, Any], channel: _Channel, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 07.11.2026, live: a job's template ("Du führst einen geplanten Job aus …") read as a pure switch to the
+    # standard mode; the job delivered the confirmation and never did its task.
+    async def detection(*_args: Any) -> turn_service._Intent:
+        raise AssertionError("a task's text is no person's words")
+
+    monkeypatch.setattr(turn_service, "_detect_intent", detection)
+    outbound = _process(_inbound("[Geplanter Job: Gebet]\n\nWechsle nichts, sprich ein Gebet.", task=True, wake_agent="sokrates"))
+    assert outbound.text == "— Sokrates —\n\nHallo Peuqui."
+    assert any("Intent skipped (a task of the system)" in line for line in _data()["debug_messages"])
 
 
 def test_a_reply_without_text_is_no_reply_and_nothing_goes_out(world: dict[str, Any], channel: _Channel) -> None:

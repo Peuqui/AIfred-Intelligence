@@ -501,6 +501,7 @@ async def _execute_job(job: Job) -> None:
             DELIVERY_CHANNEL_KEY: _delivery_channel(job),
         },
         target_agent=agent,
+        task=True,
     )
 
     outbound = await process_inbound(msg)
@@ -512,10 +513,9 @@ async def _execute_job(job: Job) -> None:
     if not session_id:
         raise RuntimeError(f"process_inbound returned no session_id for job '{job.name}'")
 
-    # The whole answer goes out, as the browser shows it (without thinking) —
-    # the same outbound text every channel reply gets. Cutting it at the last
-    # tool call lost the message whenever the agent wrote it first and then
-    # updated its memory (2026-10-04).
+    # What goes out is what the model wrote after its last tool call, without thinking — the same text
+    # every channel reply gets (PipelineResult.text_clean; 20.10.2026: a message written before the tools
+    # and once more after them went out twice). The job prompt asks for the tools first, then the message once.
     store.add_run(job.job_id, session_id, outbound.text)
     await _deliver_result(job, outbound.text, session_id)
 

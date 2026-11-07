@@ -140,7 +140,11 @@ der neue Dienst entsteht daneben und ersetzt beim Wechsel beide alten Pfade.
   `agent_memory_enabled`, in `settings.json` nicht gesetzt), dieselbe Blase wie der Browser und den
   Live-Strom für einen offenen Tab. In einem Diskussionsmodus gehen alle Beiträge hinaus, jeder mit
   „— Name —“ (Peuqui gefragt, ob nur der letzte). Im Browser vorgelesen wird nur ein Browser-Zug; der
-  Kanal spricht selbst. `run_turn` liefert ein `TurnOutcome` (Status, Agent, Antworten). Anders als
+  Kanal spricht selbst. Einen Text, den AIfred selbst als Aufgabe baut (Auftrag, Alarm:
+  `InboundMessage.task`), liest die Absichtserkennung nicht; der feste Agent antwortet in der Sprache der
+  Oberfläche. Gefunden im Live-Test (07.11.2026, Qwen3VL-30B-A3B): die Vorlage eines Auftrags galt als
+  reiner Wechsel in den Standard-Modus, der Auftrag lieferte nur die Bestätigung; danach rechnete derselbe
+  Auftrag über `calculate` richtig (22:06). `run_turn` liefert ein `TurnOutcome` (Status, Agent, Antworten). Anders als
   vorher bleibt eine Frage ohne Antwort in der `llm_history` (wie im Browser), eingepackt. Weg:
   `_call_engine`, `detect_target_agent_via_llm`, `_append_response`, `user_saved` (FreeEchos frühes
   Speichern: der Zug speichert die Frage sofort), aus `call_llm` alles nur für den Hub

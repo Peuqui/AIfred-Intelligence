@@ -21,6 +21,9 @@ class InboundMessage:
     timestamp: datetime
     metadata: dict = field(default_factory=dict)   # Channel-specific extras
     target_agent: str = "aifred"                   # Which agent should respond?
+    # AIfred wrote the text itself as a task (a scheduled job, an alert): no person's words, so nothing in
+    # it addresses an agent or switches a mode (07.11.2026: a job's template read as "switch to standard").
+    task: bool = False
 
 
 @dataclass

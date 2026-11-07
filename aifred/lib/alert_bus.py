@@ -320,6 +320,7 @@ async def _compose_via_llm(ev: AlertEvent, extra_context: str = "") -> str | Non
         timestamp=ev.timestamp or _dt.now(),
         metadata={"wake_agent": "aifred", "max_tier": 0},
         target_agent="aifred",
+        task=True,
     )
     out = await process_inbound(msg)
     return out.text if out and out.text else None

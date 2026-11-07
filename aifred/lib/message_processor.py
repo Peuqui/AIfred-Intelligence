@@ -389,6 +389,7 @@ def _turn_origin(
         trust=trust,
         metadata=dict(message.metadata or {}),
         pinned_agent=pinned,
+        task=message.task,
     )
 
 

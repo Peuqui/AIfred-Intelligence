@@ -141,7 +141,11 @@ im Browser): Adressat, Sprache, Moduswechsel. Routing-Priorität (höchste gewin
 Steht die Session in einem Diskussionsmodus, sprechen mehrere Agenten; an den
 Kanal gehen alle Beiträge des Zugs nacheinander, jeder mit „— Name —“
 (`outbound_text`). Ein abgeschalteter Agent antwortet nicht, auch kein anderer
-an seiner Stelle.
+an seiner Stelle. Einen Text, den AIfred selbst als Aufgabe baut (geplanter
+Auftrag, Alarm: `InboundMessage.task`), liest die Erkennung nicht: Er enthält
+keine Worte eines Menschen, sein Agent steht fest, er spricht die Sprache der
+Oberfläche (07.11.2026: die Vorlage eines Auftrags galt als „Wechsel in den
+Standard-Modus“, der Auftrag lieferte nur die Bestätigung).
 
 ---
 

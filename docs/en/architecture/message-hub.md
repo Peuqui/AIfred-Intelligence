@@ -141,7 +141,11 @@ in the browser): addressee, language, mode switch. Routing priority (highest win
 When the session is in a multi-agent mode, several agents speak; the channel
 gets every contribution of the turn in order, each with "— Name —"
 (`outbound_text`). An agent switched off does not answer, nor does another in
-its place.
+its place. A text AIfred builds itself as a task (a scheduled job, an alert:
+`InboundMessage.task`) skips the detection: it holds no person's words, its
+agent is pinned, it speaks the interface's language (07.11.2026: a job's
+template read as "switch to the standard mode", the job delivered only the
+confirmation).
 
 ---
 

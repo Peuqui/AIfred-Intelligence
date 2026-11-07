@@ -110,8 +110,8 @@ class TestExecuteJob:
         return sched.get_job_store().add("News", "interval", "60", {"message": "Nachrichten"})
 
     def test_delivers_and_records_whole_answer(self, monkeypatch):
-        # The message written before a closing memory update must go out too
-        # (2026-10-04: only the sentence after update_memory was mailed).
+        # The reply process_inbound hands back goes out and into the run history as it is: the scheduler
+        # cuts nothing (what the reply holds is the pipeline's text_clean).
         job = self._job()
         seen: dict = {}
         answer = "Gebet und Psalm.\n\nAmen."
@@ -128,6 +128,7 @@ class TestExecuteJob:
         asyncio.run(sched._execute_job(job))
 
         assert seen["msg"].text.startswith("[Geplanter Job: News]")
+        assert seen["msg"].task   # AIfred's own template: no person's words for the intent detection
         assert seen["delivered"] == (answer, "sess")
         assert [t for _, t in sched.get_job_store().recent_runs(job.job_id, 5)] == [answer]
 

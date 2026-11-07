@@ -77,6 +77,7 @@ class TurnOrigin:
     trust: str                       # owner or external (security.resolve_trust_label)
     metadata: dict[str, Any]         # the channel's extras the tools read (delivery channel of a job, …)
     pinned_agent: str | None = None  # a wake word or a job names who answers, whoever the text addresses
+    task: bool = False               # AIfred wrote the text as a task (job, alert): no intent detection
 
 
 @dataclass(frozen=True)
@@ -241,7 +242,13 @@ async def _run(request: TurnRequest, turn_id: str, routing: _Routing) -> None:
 
     llm_client = LLMClient(backend_type=view.backend_type, base_url=view.backend_url)
     try:
-        intent = await _detect_intent(view, llm_client, user_text)
+        if origin is not None and origin.task:
+            # The intent detection reads a person's words; a task's text is AIfred's own template, its
+            # agent is pinned and it speaks the interface's language.
+            debug(f"🎯 Intent skipped (a task of the system), Lang: {view.ui_language.upper()} (UI)")
+            intent = _Intent(None, view.ui_language, {}, False, 0.0)
+        else:
+            intent = await _detect_intent(view, llm_client, user_text)
         config = get_session_config(session_id)
         if intent.mode_switch:
             config = _apply_mode_switch(session_id, config, intent)
