@@ -620,6 +620,7 @@
   "vision_rtsp_cred_hint": "Zugangsdaten landen in der .env, nie in der settings.json. Beim Bearbeiten leer lassen = unverändert.",
   "vision_rtsp_save": "Speichern",
   "vision_rtsp_cancel": "Abbrechen",
+  "vision_rtsp_name_taken": "Eine Kamera mit diesem Namen gibt es schon. Bestehende bearbeitest du über das Stecker-Symbol an ihrer Karte.",
   "vision_settings_source_resolution_label": "Auflösung:",
   "vision_settings_face_retention_label": "Aufbewahrung (Tage)",
   "vision_settings_face_retention_help": "Wie lange Face-Crops, Motion-Frames und DB-Events behalten werden. Cleanup läuft täglich um 03:00 lokal. Standardwert 14 Tage.",

@@ -620,6 +620,7 @@
   "vision_rtsp_cred_hint": "Credentials go into the .env, never into settings.json. Leave blank when editing = unchanged.",
   "vision_rtsp_save": "Save",
   "vision_rtsp_cancel": "Cancel",
+  "vision_rtsp_name_taken": "A camera with this name exists already. Edit an existing one with the plug icon on its card.",
   "vision_settings_source_resolution_label": "Resolution:",
   "vision_settings_face_retention_label": "Retention (days)",
   "vision_settings_face_retention_help": "How long face crops, motion frames and DB events are kept. Cleanup runs daily at 03:00 local. Default 14 days.",

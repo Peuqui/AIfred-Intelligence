@@ -956,8 +956,10 @@ class VisionSettingsMixin(rx.State, mixin=True):
     @rx.event
     def save_rtsp_camera(self) -> None:
         """Formular validieren, in settings.json ``rtsp_cameras`` schreiben
-        (Update nach Name oder Append), Credentials in .env, Quellen neu
-        einlesen."""
+        (Ändern führt die Formularfelder in den bestehenden Eintrag, Anlegen
+        hängt an), Credentials in .env, Quellen neu einlesen."""
+        from ..lib.i18n import t
+
         f = self.rtsp_form
         editing = self.rtsp_form_editing
         host = str(f.get("host", "")).strip()
@@ -977,38 +979,43 @@ class VisionSettingsMixin(rx.State, mixin=True):
             except (TypeError, ValueError):
                 return default
 
-        entry: dict[str, Any] = {
-            "name": name, "host": host, "port": _int(f.get("port"), 554),
+        # Die Felder, die das Formular zeigt; ein leeres nimmt das Feld aus dem
+        # Eintrag. API-Port und Face-Channel zeigt es nur beim Profil ai_camera.
+        form_fields: dict[str, Any] = {
+            "host": host,
+            "port": _int(f.get("port"), 554),
+            "path": str(f.get("path", "")).strip().lstrip("/"),
+            "cred": str(f.get("cred", "")).strip(),
+            "profile": str(f.get("profile") or "webcam"),
         }
-        path = str(f.get("path", "")).strip().lstrip("/")
-        if path:
-            entry["path"] = path
-        cred = str(f.get("cred", "")).strip()
-        if cred:
-            entry["cred"] = cred
-        profile = str(f.get("profile") or "webcam")
-        entry["profile"] = profile
-        if profile == "ai_camera":
-            entry["api_port"] = _int(f.get("api_port"), 443)
+        if form_fields["profile"] == "ai_camera":
+            form_fields["api_port"] = _int(f.get("api_port"), 443)
             fc = str(f.get("face_channel", "")).strip()
-            if fc:
-                entry["face_channel"] = _int(fc, 1)
+            form_fields["face_channel"] = _int(fc, 1) if fc else ""
+        cred = form_fields["cred"]
 
         settings = load_vision_settings()
         cams = settings.get("rtsp_cameras")
         cams = cams if isinstance(cams, list) else []
-        target = self.rtsp_form_editing or name
-        new_list: list[Any] = []
-        replaced = False
-        for c in cams:
-            if isinstance(c, dict) and str(c.get("name")) == target:
-                new_list.append(entry)
-                replaced = True
+        existing = next(
+            (c for c in cams if isinstance(c, dict) and str(c.get("name")) == name),
+            None,
+        )
+        if existing is not None and not editing:
+            self.rtsp_form_error = t("vision_rtsp_name_taken", lang=self.ui_language)
+            return
+        # Alle anderen Felder eines bestehenden Eintrags bleiben (ptz,
+        # onvif_port, snap_channel): Das Formular kennt sie nicht, und der
+        # früher neu gebaute Eintrag verlor sie (07.11.2026 an der Reolink).
+        entry = existing if existing is not None else {"name": name}
+        for key, value in form_fields.items():
+            if value == "":
+                entry.pop(key, None)
             else:
-                new_list.append(c)
-        if not replaced:
-            new_list.append(entry)
-        settings["rtsp_cameras"] = new_list
+                entry[key] = value
+        if existing is None:
+            cams.append(entry)
+        settings["rtsp_cameras"] = cams
         save_vision_settings(settings)
 
         if cred:
