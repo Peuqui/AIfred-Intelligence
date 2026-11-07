@@ -917,7 +917,7 @@
   "doc_index_folder_not_found": "Ordner nicht gefunden",
   "doc_index_folder_empty": "Keine Dateien zum Indexieren gefunden",
   "doc_index_folder_progress": "({current}/{total}) Indexiere {name}…",
-  "doc_index_folder_done": "Fertig: {indexed}/{total} Dateien indexiert ({chunks} Chunks gesamt)",
+  "doc_index_folder_done": "Fertig: {indexed}/{total} Dateien indexiert ({chunks} Abschnitte gesamt)",
   "doc_index_folder_failed_suffix": ", {failed} fehlgeschlagen",
   "doc_delete_done": "🗑️ {filename}: {actions}",
   "doc_delete_confirm_title": "Datei löschen",

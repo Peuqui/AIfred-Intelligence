@@ -173,9 +173,17 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   (`data/documents/`): Ordner mit Pfadleiste, anlegen, umbenennen (der Index zieht mit), löschen von der
   Platte und/oder aus dem Index (einzeln, Ordner rekursiv, Auswahl; ein scheiternder Name hält den Rest
   nicht auf), Vorschau über den Parser des Index, Herunterladen, Pfad für AIfred kopieren. Dünne Endpunkte
-  über `lib/file_manager.py`. Offen: Hochladen und Indexieren mit Fortschritt (Teil 2), weitere Quellen
-  wie Nextcloud (Teil 3). **Die Testinstanz teilt ChromaDB mit der Produktion** (Sammlung
-  `aifred_documents`, relative Pfade): Indexieren dort erst mit einer eigenen Sammlung prüfen.
+  über `lib/file_manager.py`. Offen: weitere Quellen wie Nextcloud (Teil 3). Die Testinstanz teilt
+  ChromaDB mit der Produktion, indexiert aber in eigene Sammlungen (`serve_vue_test.py`,
+  `vuetest_documents`).
+- **Dokumente, Teil 2 (erledigt 07.11.2026):** Hochladen per Knopf oder auf die Seite gezogen
+  (`file_manager.save_upload`, auch für Reflex: Name ohne Verzeichnisteil, nur Typen des Index), jede
+  gespeicherte Datei wird indexiert. Indexieren je Datei, Auswahl oder ganzem Ordner (Unterordner mit),
+  Deindexieren je Datei. Der Server indexiert in einer Warteschlange eine Datei nach der anderen
+  (`lib/document_indexing.py`); die Seite fragt den Fortschritt ab, solange der Lauf läuft, auch wenn
+  ihn ein anderer Tab gestartet hat, und zeigt danach das Ergebnis mit den Gründen der Fehlschläge. Der
+  Indexier-Knopf erscheint nur an Dateien, die der Index lesen kann (`indexable`). Der Reflex-State
+  indexiert bis zum Wechsel weiter selbst (über `file_manager.index_file`).
 - **Einstellungen, Teil 2 (offen):** Backend-Wechsel, Kalibrierung, Neustarts von Backend und AIfred,
   Grundeinstellungen laden, Temperaturmodus. Neustarts treffen die gemeinsamen Dienste (llama-swap,
   Produktionsdienst): nur mit Peuqui abgestimmt testen.

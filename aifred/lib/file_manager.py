@@ -116,8 +116,10 @@ def list_directory(folder_rel: str = "") -> FileOpResult:
     """List files + subfolders of ``folder_rel`` (relative to documents/).
 
     Each item dict has: ``name, type ('file'|'folder'), size, created,
-    modified, indexed, chunks``. Hidden entries (leading dot) are excluded.
+    modified, indexed, chunks, indexable, file_count``. Hidden entries (leading dot) are excluded.
     """
+    from .document_store import PARSERS
+
     folder, err = safe_resolve(folder_rel) if folder_rel else (DOCUMENTS_DIR.resolve(), None)
     if err:
         return FileOpResult(False, err)
@@ -161,6 +163,7 @@ def list_directory(folder_rel: str = "") -> FileOpResult:
             "modified": format_stamp(d_stat.st_mtime),
             "indexed": False,
             "chunks": 0,
+            "indexable": False,
             "file_count": file_count,
         })
     for f in files:
@@ -175,6 +178,7 @@ def list_directory(folder_rel: str = "") -> FileOpResult:
             "modified": format_stamp(st.st_mtime),
             "indexed": chunk_count > 0,
             "chunks": chunk_count,
+            "indexable": f.suffix.lower() in PARSERS,
             "file_count": 0,  # only meaningful for folders, kept for schema consistency
         })
     return FileOpResult(True, f"{len(items)} items", {"items": items})
@@ -324,6 +328,51 @@ def write_file(rel_path: str, content: str) -> FileOpResult:
     path.write_text(content, encoding="utf-8")
     logger.info(f"write_file: {rel_path} ({len(content)} chars)")
     return FileOpResult(True, f"Wrote {len(content)} chars", {"path": rel_path})
+
+
+def save_upload(folder_rel: str, filename: str, content: bytes) -> FileOpResult:
+    """An uploaded file into ``folder_rel``, under its own name; one there already is replaced.
+
+    The name loses any directory part the client sent; only types the search index reads
+    (``DOCUMENT_ALLOWED_EXTENSIONS``) are taken. ``metadata["rel_path"]`` is where it went."""
+    from .config import DOCUMENT_ALLOWED_EXTENSIONS
+
+    name = Path(filename).name
+    if not _is_safe_name(name):
+        return FileOpResult(False, f"Invalid file name: {filename!r}")
+    suffix = Path(name).suffix.lower()
+    if suffix not in DOCUMENT_ALLOWED_EXTENSIONS:
+        allowed = ", ".join(sorted(DOCUMENT_ALLOWED_EXTENSIONS))
+        return FileOpResult(False, f"{name}: type {suffix or '(none)'} not allowed ({allowed})")
+    rel_path = f"{folder_rel}/{name}".lstrip("/")
+    path, err = safe_resolve(rel_path)
+    if err:
+        return FileOpResult(False, err)
+    assert path is not None
+    if not path.parent.is_dir():
+        return FileOpResult(False, f"Folder not found: {folder_rel}")
+    path.write_bytes(content)
+    logger.info(f"save_upload: {rel_path} ({len(content)} bytes)")
+    return FileOpResult(True, f"Saved {rel_path}", {"rel_path": rel_path})
+
+
+def files_to_index(folder_rel: str) -> FileOpResult:
+    """Every file below ``folder_rel`` (sub-folders too) that the search index has a parser for,
+    as paths relative to the documents folder. ``metadata["files"]``."""
+    from .document_store import PARSERS
+
+    base, err = safe_resolve(folder_rel)
+    if err:
+        return FileOpResult(False, err)
+    assert base is not None
+    if not base.is_dir():
+        return FileOpResult(False, f"Folder not found: {folder_rel}")
+    root = DOCUMENTS_DIR.resolve()
+    files = sorted(
+        str(path.relative_to(root)) for path in base.rglob("*")
+        if path.is_file() and path.suffix.lower() in PARSERS
+    )
+    return FileOpResult(True, f"{len(files)} files", {"files": files})
 
 
 async def delete_file(

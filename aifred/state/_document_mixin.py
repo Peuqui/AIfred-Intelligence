@@ -407,10 +407,8 @@ class DocumentMixin(rx.State, mixin=True):
         """Handle document file upload — save to current folder."""
         from pathlib import Path
 
-        from ..lib.config import (
-            DOCUMENT_ALLOWED_EXTENSIONS,
-            DOCUMENTS_DIR,
-        )
+        from ..lib import file_manager as fm
+        from ..lib.config import DOCUMENT_ALLOWED_EXTENSIONS
         from ..lib.i18n import t
 
         # POST /_upload reaches this handler with any client token, a fresh one gives a state
@@ -425,10 +423,6 @@ class DocumentMixin(rx.State, mixin=True):
 
         uploaded: list[str] = []
         try:
-            target_dir = DOCUMENTS_DIR / self.doc_current_folder
-            target_dir.mkdir(parents=True, exist_ok=True)
-            target_root = DOCUMENTS_DIR.resolve()
-
             for file in files:
                 raw_filename = file.filename or "unknown.txt"
                 # Strip any directory components the client may have sent
@@ -468,17 +462,12 @@ class DocumentMixin(rx.State, mixin=True):
                     yield  # type: ignore[misc]
                     continue
 
-                # Save to disk (in current folder). Defense-in-depth: resolve
-                # and reject if the final path escapes DOCUMENTS_DIR.
-                file_path = (target_dir / filename).resolve()
-                try:
-                    file_path.relative_to(target_root)
-                except ValueError:
-                    self.add_debug(f"⚠️ Document rejected (path escape): {raw_filename!r}")
+                saved = fm.save_upload(self.doc_current_folder, filename, content)
+                if not saved.success:
+                    self.add_debug(f"⚠️ Document rejected: {saved.detail}")
                     yield  # type: ignore[misc]
                     continue
-                file_path.write_bytes(content)
-                uploaded.append(f"{self.doc_current_folder}/{filename}".lstrip("/"))
+                uploaded.append(saved.metadata["rel_path"])
 
                 self.document_upload_status = t(
                     "doc_upload_saved", lang=self.ui_language,

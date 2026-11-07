@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // The local documents folder (data/documents/): browse, new folder, rename, delete from disk and/or the
-// search index, preview through the index's parser, download, the path a tool takes. Uploading and
-// indexing, and the further sources (Nextcloud …), follow.
+// search index, preview through the index's parser, download, the path a tool takes, upload (button or
+// dropped files; the server indexes them) and index files, a selection or the whole folder (a job of
+// the server, its progress shown here). The further sources (Nextcloud …) follow.
 import { computed, onMounted, ref } from "vue";
 import type { DocumentPreview, DocumentRow } from "../api/types";
 import ModalDialog from "../components/ModalDialog.vue";
@@ -9,7 +10,10 @@ import { t } from "../i18n";
 import { useDocuments } from "../stores/documents";
 
 const docs = useDocuments();
-onMounted(() => void docs.open(""));
+onMounted(async () => {
+  await docs.open("");
+  await docs.watchIndexing();
+});
 
 const folder = computed(() => docs.listing?.folder ?? "");
 // The folder as a trail of its parts, each a place to go back to.
@@ -75,10 +79,51 @@ async function show(row: DocumentRow): Promise<void> {
 async function copyPath(row: DocumentRow): Promise<void> {
   await navigator.clipboard.writeText(pathOf(row));
 }
+
+// Indexing: the files the index reads and every folder (with what is below it).
+function indexRows(rows: DocumentRow[]): Promise<void> {
+  return docs.index(
+    rows.filter((row) => row.type === "file" && row.indexable).map((row) => row.name),
+    rows.filter((row) => row.type === "folder").map((row) => row.name),
+  );
+}
+const indexSelected = (): Promise<void> => indexRows(docs.listing?.items.filter((row) => selected.value.includes(row.name)) ?? []);
+const indexFolder = (): Promise<void> => indexRows(docs.listing?.items ?? []);
+const deindex = (row: DocumentRow): Promise<unknown> => docs.remove([row.name], [], false, true);
+
+const picker = ref<HTMLInputElement | null>(null);
+async function picked(): Promise<void> {
+  const files = [...(picker.value?.files ?? [])];
+  if (picker.value) picker.value.value = "";
+  if (files.length) await docs.upload(files);
+}
+
+// Files dropped anywhere on the page go into the open folder.
+const dragging = ref(false);
+async function dropped(event: DragEvent): Promise<void> {
+  dragging.value = false;
+  const files = [...(event.dataTransfer?.files ?? [])];
+  if (files.length) await docs.upload(files);
+}
+
+const run = computed(() => docs.indexing);
+const runOutcome = computed(() => {
+  const progress = run.value;
+  if (!progress || progress.running || !progress.total) return "";
+  let outcome = t("doc_index_folder_done", { indexed: progress.indexed, total: progress.total, chunks: progress.chunks });
+  if (progress.failed.length) outcome += t("doc_index_folder_failed_suffix", { failed: progress.failed.length });
+  return outcome;
+});
 </script>
 
 <template>
-  <main class="documents">
+  <main
+    class="documents"
+    :class="{ dragging }"
+    @dragover.prevent="dragging = true"
+    @dragleave.self="dragging = false"
+    @drop.prevent="dropped"
+  >
     <header class="bar">
       <h2>{{ t("doc_manager_title") }}</h2>
       <nav class="trail">
@@ -91,13 +136,34 @@ async function copyPath(row: DocumentRow): Promise<void> {
       <div class="actions">
         <button v-if="folder" :title="t('doc_up_one_level')" @click="up">⬆</button>
         <button :title="t('doc_folder_create')" @click="naming = { old: null, name: '' }">📁＋</button>
+        <button :title="t('doc_hint')" @click="picker?.click()">⬆️ {{ t("upload_document") }}</button>
+        <input ref="picker" type="file" multiple hidden @change="picked" />
+        <button
+          v-if="docs.listing?.items.length"
+          :title="t('doc_index_folder_recursive')"
+          :disabled="run?.running"
+          @click="indexFolder"
+        >📚</button>
         <button :title="t('doc_refresh')" @click="go(folder)">🔄</button>
+        <button v-if="selected.length" :disabled="run?.running" @click="indexSelected">
+          📚 {{ t("doc_index") }} ({{ selected.length }})
+        </button>
         <button v-if="selected.length" class="danger" @click="askDelete(selected)">
           🗑️ {{ t("doc_delete_selected") }} ({{ selected.length }})
         </button>
       </div>
     </header>
     <p v-if="docs.notice" class="notice">⚠️ {{ docs.notice }}</p>
+    <p v-for="reason in docs.rejected" :key="reason" class="notice">⚠️ {{ reason }}</p>
+    <p v-if="run?.running" class="progress">
+      {{ t("doc_index_folder_progress", { current: Math.min(run.done + 1, run.total), total: run.total, name: run.current }) }}
+    </p>
+    <div v-else-if="runOutcome" class="outcome">
+      <span>📚 {{ runOutcome }}</span>
+      <button :title="t('dialog_close')" @click="docs.indexing = null">×</button>
+      <p v-for="failure in run?.failed" :key="failure.path" class="failure">⚠️ {{ failure.path }}: {{ failure.reason }}</p>
+    </div>
+    <p v-if="dragging" class="drop">{{ t("doc_drop_files") }}</p>
 
     <form v-if="naming" class="naming" @submit.prevent="named">
       <input v-model="naming.name" :placeholder="t('doc_folder_name')" autofocus />
@@ -128,6 +194,13 @@ async function copyPath(row: DocumentRow): Promise<void> {
           <td class="row-actions">
             <a v-if="row.type === 'file'" :href="docs.listing.download_prefix + encodeURIComponent(row.name)" :title="t('doc_download')" download>⬇</a>
             <button v-if="row.type === 'file'" :title="t('doc_copy_path')" @click="copyPath(row)">📋</button>
+            <button v-if="row.indexed" :title="t('doc_deindex')" @click="deindex(row)">📤</button>
+            <button
+              v-else-if="row.type === 'file' && row.indexable"
+              :title="t('doc_index')"
+              :disabled="run?.running"
+              @click="indexRows([row])"
+            >📚</button>
             <button :title="row.type === 'folder' ? t('doc_folder_rename') : t('doc_rename')" @click="naming = { old: row.name, name: row.name }">✏️</button>
             <button :title="row.type === 'folder' ? t('doc_folder_delete') : t('doc_delete')" @click="askDelete([row.name])">🗑️</button>
           </td>
@@ -170,6 +243,12 @@ button, input:not([type="checkbox"]) { background: var(--aifred-input-bg); color
 button:disabled { opacity: 0.5; cursor: default; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .notice { margin: 0; color: var(--aifred-accent-amber); }
+.progress { margin: 0; color: var(--aifred-accent-cyan); }
+.outcome { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--aifred-accent-cyan); }
+.outcome button { background: none; border: none; padding: 0 4px; }
+.failure { flex-basis: 100%; margin: 0; color: var(--aifred-accent-amber); overflow-wrap: anywhere; }
+.dragging { outline: 2px dashed var(--aifred-primary); outline-offset: -4px; }
+.drop { margin: 0; color: var(--aifred-primary); }
 .naming { display: flex; gap: 8px; flex-wrap: wrap; }
 .list { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .list th { text-align: left; font-weight: 500; font-size: 0.75rem; color: var(--aifred-text-muted); padding: 4px 6px; }

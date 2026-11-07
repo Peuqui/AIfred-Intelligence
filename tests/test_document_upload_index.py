@@ -364,7 +364,8 @@ class _Upload:
 
 
 def test_an_upload_starts_the_indexing_after_saving(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("aifred.lib.config.DOCUMENTS_DIR", tmp_path)
+    monkeypatch.setattr(fm, "DOCUMENTS_DIR", tmp_path)               # where save_upload puts it
+    (tmp_path / "ordner").mkdir()                                     # the open folder
     state = _FakeState()
     events = _run("handle_document_upload", state, [_Upload("a.txt", b"Text"), _Upload("b.exe", b"MZ")])
     assert (tmp_path / "ordner" / "a.txt").read_bytes() == b"Text"
@@ -372,13 +373,13 @@ def test_an_upload_starts_the_indexing_after_saving(tmp_path: Path, monkeypatch:
 
 
 def test_a_rejected_upload_starts_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("aifred.lib.config.DOCUMENTS_DIR", tmp_path)
+    monkeypatch.setattr(fm, "DOCUMENTS_DIR", tmp_path)
     events = _run("handle_document_upload", _FakeState(), [_Upload("b.exe", b"MZ")])
     assert not any(isinstance(event, tuple) for event in events)
 
 
 def test_an_upload_to_a_further_source_stays_out_of_the_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("aifred.lib.config.DOCUMENTS_DIR", tmp_path)
+    monkeypatch.setattr(fm, "DOCUMENTS_DIR", tmp_path)
     uploaded: list[str] = []
 
     class Source:

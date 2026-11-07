@@ -1,5 +1,6 @@
 """Documents: the local folder (data/documents/, lib.file_manager) for the Vue app's documents page,
-and the download of a file of a further source (lib.document_sources).
+uploading into it and indexing it (lib.document_indexing, a server job the page asks about), and the
+download of a file of a further source (lib.document_sources).
 
 The document manager links to a source's file here (e.g. Google Drive); it streams through as it
 comes, never through Reflex state. Login cookie required like every API path (app middleware).
@@ -8,10 +9,11 @@ import asyncio
 from typing import Literal
 from urllib.parse import quote
 
-from fastapi import HTTPException
+from fastapi import Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from .. import document_indexing
 from .. import file_manager as fm
 from ..document_sources import DocumentSourceError, get_document_source
 from ..logging_utils import log_exception, log_message
@@ -49,6 +51,7 @@ class DocumentRow(BaseModel):
     modified: str
     indexed: bool
     chunks: int = Field(description="Sections in the search index")
+    indexable: bool = Field(description="A file the search index has a parser for (false for a folder)")
     file_count: int = Field(description="Files below a folder (0 for a file)")
 
 
@@ -175,3 +178,91 @@ async def documents_preview(path: str) -> DocumentPreview:
         log_exception(f"Preview of {path} failed", error)
         raise HTTPException(status_code=422, detail=str(error)) from error
     return DocumentPreview(name=file.name, text=text)
+
+
+# ── Uploading and indexing ───────────────────────────────────────────────
+
+
+class DocumentIndexFailure(BaseModel):
+    path: str
+    reason: str
+
+
+class DocumentIndexProgress(BaseModel):
+    """The indexing run of the server: one file after the other, the rest goes on past a failure."""
+
+    running: bool
+    current: str = Field(description="The file being indexed, relative to the documents folder")
+    done: int = Field(description="Files of the run finished, indexed or failed")
+    total: int = Field(description="Files of the run; grows when more are queued while it runs")
+    indexed: int
+    chunks: int = Field(description="Sections the run put into the search index")
+    failed: list[DocumentIndexFailure]
+
+
+class DocumentUploadRejected(BaseModel):
+    name: str
+    reason: str
+
+
+class DocumentsUploaded(BaseModel):
+    saved: list[str] = Field(description="Paths of the saved files; they are queued for indexing")
+    rejected: list[DocumentUploadRejected]
+    listing: DocumentFolder
+    indexing: DocumentIndexProgress
+
+
+class DocumentIndexing(BaseModel):
+    """Files of one folder to index, and folders indexed with every readable file below them."""
+
+    model_config = ConfigDict(extra="forbid")
+    folder: str = ""
+    files: list[str] = Field(default_factory=list)
+    folders: list[str] = Field(default_factory=list)
+
+
+def _index_progress() -> DocumentIndexProgress:
+    progress = document_indexing.progress()
+    return DocumentIndexProgress(
+        running=progress.running, current=progress.current, done=progress.done, total=progress.total,
+        indexed=progress.indexed, chunks=progress.chunks,
+        failed=[DocumentIndexFailure(path=failure.path, reason=failure.reason) for failure in progress.failed],
+    )
+
+
+@api_app.post("/documents/local/upload", response_model=DocumentsUploaded, tags=["Documents"])
+async def documents_upload(files: list[UploadFile], folder: str = Form("")) -> DocumentsUploaded:
+    """Files into ``folder`` (one there under the same name is replaced). Every saved file is queued
+    for indexing, so the search finds it; one that is refused (type, name) does not stop the rest."""
+    saved: list[str] = []
+    rejected: list[DocumentUploadRejected] = []
+    for file in files:
+        name = file.filename or ""
+        result = await asyncio.to_thread(fm.save_upload, folder, name, await file.read())
+        if result.success:
+            saved.append(result.metadata["rel_path"])
+        else:
+            rejected.append(DocumentUploadRejected(name=name, reason=result.detail))
+    log_message(f"📄 Documents: {len(saved)} uploaded to {folder or '/'}, {len(rejected)} refused")
+    if saved:
+        document_indexing.queue_files(saved)
+    return DocumentsUploaded(saved=saved, rejected=rejected, listing=await _listing(folder), indexing=_index_progress())
+
+
+@api_app.post("/documents/local/index", response_model=DocumentIndexProgress, tags=["Documents"])
+async def documents_index(indexing: DocumentIndexing) -> DocumentIndexProgress:
+    """Queue files and folders for indexing; one already indexed is indexed anew (its sections are
+    replaced). Answers with the run's progress, ``GET /documents/index`` follows it."""
+    paths = [f"{indexing.folder}/{name}".lstrip("/") for name in indexing.files]
+    for name in indexing.folders:
+        below = _done(await asyncio.to_thread(fm.files_to_index, f"{indexing.folder}/{name}".lstrip("/")))
+        paths.extend(below.metadata["files"])
+    if paths:
+        document_indexing.queue_files(paths)
+    return _index_progress()
+
+
+@api_app.get("/documents/index", response_model=DocumentIndexProgress, tags=["Documents"])
+async def documents_index_progress() -> DocumentIndexProgress:
+    """How far the indexing run is (or how the last one ended)."""
+    return _index_progress()
