@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import type { DictationSettings, UploadedImage } from "../api/types";
+import type { Settings, SettingsUpdate, UploadedImage } from "../api/types";
 import { language, t } from "../i18n";
 import * as recorder from "../lib/recorder";
 import { speaking } from "../lib/speech";
@@ -13,7 +13,7 @@ const props = defineProps<{
   images: UploadedImage[];
   uploading: boolean;
   transcribing: boolean;
-  dictation: DictationSettings;
+  settings: Settings;
 }>();
 const emit = defineEmits<{
   send: [text: string];
@@ -23,7 +23,7 @@ const emit = defineEmits<{
   editImage: [index: number];
   dictate: [file: File, source: "mic" | "file"];
   heard: [text: string];
-  dictationSettings: [changes: Partial<DictationSettings>];
+  settings: [changes: SettingsUpdate];
 }>();
 // The input field's text lives in the chat store: a dictation in edit mode lands there.
 const text = defineModel<string>({ required: true });
@@ -67,7 +67,7 @@ async function toggleRecording(): Promise<void> {
     return;
   }
   try {
-    if (props.dictation.engine === "browser") {
+    if (props.settings.dictation_engine === "browser") {
       recorder.startBrowser(language.value, (text) => emit("heard", text), (error) => window.alert(`${t("dictation_browser_failed")} (${error})`));
     } else {
       await recorder.start((file) => emit("dictate", file, "mic"));
@@ -118,7 +118,7 @@ function audioPicked(event: Event): void {
       >
         <DictationBadge :phase="badgePhase" />
       </button>
-      <DictationMenu :settings="dictation" @change="(changes) => emit('dictationSettings', changes)" />
+      <DictationMenu :settings="settings" @change="(changes) => emit('settings', changes)" />
       <button class="tool" :title="t('audio_file_upload')" @click="audioPicker?.click()">🎵</button>
       <span v-if="transcribing" class="transcribing">{{ t("dictation_running") }}</span>
       <span v-if="queued" class="queued">{{ t("messages_waiting", { count: queued }) }}</span>

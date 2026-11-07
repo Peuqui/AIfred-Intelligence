@@ -179,6 +179,7 @@ def test_a_change_is_saved_and_answered_with_every_row(client: TestClient) -> No
     ("sokrates", {"speed": True}, 422),                     # on AIfred's Small: no speed variant
     ("sokrates", {"thinking": "max"}, 422),                 # Small offers off and on only
     ("automatik", {"personality": True}, 422),
+    ("aifred", {"temperature": 0.5}, 422),                  # no field of the quick choices
 ])
 def test_a_row_takes_only_what_it_offers(client: TestClient, agent: str, change: dict[str, object], status: int) -> None:
     before = settings.SETTINGS_FILE.read_text()

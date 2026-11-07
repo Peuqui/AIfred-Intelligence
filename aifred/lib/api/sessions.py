@@ -289,20 +289,6 @@ async def sessions_regenerate_speech(session_id: str, request: Request) -> Respo
     return Response(status_code=204)
 
 
-class SpeechSettingsOut(BaseModel):
-    enable_tts: bool = Field(description="Speech output is on")
-    tts_autoplay: bool = Field(description="A reply is read aloud while it is written")
-
-
-@api_app.get("/speech/settings", response_model=SpeechSettingsOut, tags=["Sessions"])
-async def speech_settings(request: Request) -> SpeechSettingsOut:
-    from ..runtime_settings import load_runtime_settings
-
-    current_user(request)
-    view = load_runtime_settings()
-    return SpeechSettingsOut(enable_tts=view.enable_tts, tts_autoplay=view.tts_autoplay)
-
-
 # ── Images for the next message ──────────────────────────────────────────
 
 
@@ -447,47 +433,6 @@ async def sessions_dictation_text(session_id: str, dictated: DictatedText, reque
         raise HTTPException(status_code=422, detail="Empty dictation")
     with session_scope(session_id):
         return DictatedTextResult(sent=hand_on(session_id, text))
-
-
-class DictationSettings(BaseModel):
-    engine: str = Field(description="Who recognizes a dictation: stt_suite or browser (config.DICTATION_ENGINES)")
-    show_transcription: bool = Field(description="A dictation goes into the input field first instead of to the AI")
-
-
-class DictationSettingsUpdate(BaseModel):
-    engine: str | None = None
-    show_transcription: bool | None = None
-
-
-def _dictation_settings() -> DictationSettings:
-    from ..settings import persisted_settings
-
-    settings = persisted_settings()
-    return DictationSettings(engine=settings["dictation_engine"], show_transcription=bool(settings["show_transcription"]))
-
-
-@api_app.get("/dictation/settings", response_model=DictationSettings, tags=["Sessions"])
-async def dictation_settings(request: Request) -> DictationSettings:
-    current_user(request)
-    return _dictation_settings()
-
-
-@api_app.patch("/dictation/settings", response_model=DictationSettings, tags=["Sessions"])
-async def dictation_settings_update(update: DictationSettingsUpdate, request: Request) -> DictationSettings:
-    from ..config import DICTATION_ENGINES
-    from ..settings import update_settings
-
-    current_user(request)
-    changes: dict[str, Any] = {}
-    if update.engine is not None:
-        if update.engine not in DICTATION_ENGINES:
-            raise HTTPException(status_code=422, detail=f"Unknown dictation engine: {update.engine}")
-        changes["dictation_engine"] = update.engine
-    if update.show_transcription is not None:
-        changes["show_transcription"] = update.show_transcription
-    if changes and not update_settings(changes):
-        raise HTTPException(status_code=500, detail="settings.json could not be written")
-    return _dictation_settings()
 
 
 @api_app.post("/sessions/{session_id}/stop", tags=["Sessions"])

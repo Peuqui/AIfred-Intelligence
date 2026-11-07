@@ -448,16 +448,18 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     @rx.event
     def increase_debate_rounds(self) -> None:
-        """Increase max debate rounds by 1 (max 10)."""
-        if self.max_debate_rounds < 10:
+        """Increase max debate rounds by 1 (up to DEBATE_ROUNDS_MAX)."""
+        from ..lib.config import DEBATE_ROUNDS_MAX
+        if self.max_debate_rounds < DEBATE_ROUNDS_MAX:
             self.max_debate_rounds += 1
             self._save_settings()
             self.add_debug(f"\U0001f504 Max debate rounds: {self.max_debate_rounds}")
 
     @rx.event
     def decrease_debate_rounds(self) -> None:
-        """Decrease max debate rounds by 1 (min 1)."""
-        if self.max_debate_rounds > 1:
+        """Decrease max debate rounds by 1 (down to DEBATE_ROUNDS_MIN)."""
+        from ..lib.config import DEBATE_ROUNDS_MIN
+        if self.max_debate_rounds > DEBATE_ROUNDS_MIN:
             self.max_debate_rounds -= 1
             self._save_settings()
             self.add_debug(f"\U0001f504 Max debate rounds: {self.max_debate_rounds}")

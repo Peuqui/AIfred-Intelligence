@@ -7,18 +7,17 @@ import AgentSelect from "../components/AgentSelect.vue";
 import ChatInput from "../components/ChatInput.vue";
 import DebugConsole from "../components/DebugConsole.vue";
 import ImageEditor from "../components/ImageEditor.vue";
-import LoginForm from "../components/LoginForm.vue";
 import MessageBubble from "../components/MessageBubble.vue";
 import SessionList from "../components/SessionList.vue";
-import { loadLanguage, t } from "../i18n";
+import { t } from "../i18n";
 import { renderMarkdown } from "../lib/markdown";
-import { useAuth } from "../stores/auth";
 import { useChat } from "../stores/chat";
 import { useSessions } from "../stores/sessions";
+import { useSettings } from "../stores/settings";
 
-const auth = useAuth();
 const sessions = useSessions();
 const chat = useChat();
+const settings = useSettings();
 const agents = ref<AgentSummary[]>([]);
 const messages = ref<HTMLElement | null>(null);
 const streamingHtml = computed(() => (chat.streaming ? renderMarkdown(chat.streaming.text) : ""));
@@ -52,8 +51,6 @@ async function cropImage(box: CropBox): Promise<void> {
 
 async function start(): Promise<void> {
   agents.value = await api<AgentSummary[]>("agents/summary");
-  await chat.loadDictationSettings();
-  await chat.loadSpeechSettings();
   await sessions.refresh();
   const latest = sessions.list[0];
   await chat.open(latest ? latest.session_id : await sessions.create());
@@ -71,11 +68,6 @@ async function remove(sessionId: string): Promise<void> {
   }
 }
 
-async function logout(): Promise<void> {
-  chat.close();
-  await auth.logout();
-}
-
 // The newest message stays in view while an answer streams.
 watch(
   () => [chat.history.length, chat.streaming?.text.length],
@@ -85,23 +77,12 @@ watch(
   },
 );
 
-watch(() => auth.user, (user) => user && void start());
-
-onMounted(async () => {
-  // AIfred's UI language, also for the login form (the shell serves it without a login).
-  await loadLanguage((await api<{ ui_language: string }>("app/ui-settings")).ui_language);
-  await auth.check();
-});
+// The shell shows this page only once logged in; kept alive, it opens a session once per login.
+onMounted(() => void start());
 </script>
 
 <template>
-  <LoginForm v-if="auth.checked && !auth.user" />
-  <div v-else-if="auth.user" class="layout">
-    <header class="top">
-      <strong>🎩 AIfred Intelligence</strong>
-      <span class="user">{{ auth.user }}</span>
-      <button class="logout" @click="logout">{{ t("logout") }}</button>
-    </header>
+  <div class="layout">
     <SessionList class="side" :current="chat.sessionId" @open="chat.open" @create="create" @remove="remove" />
     <main class="chat">
       <div class="toolbar">
@@ -109,7 +90,7 @@ onMounted(async () => {
         <div class="choices">
           <button class="agent-choices" :title="t('agent_choices_title')" @click="choicesOpen = true">🎛️</button>
           <button
-            v-if="chat.speechSettings.enable_tts && hasReplies"
+            v-if="settings.current?.enable_tts && hasReplies"
             class="regenerate"
             :disabled="chat.regenerating"
             @click="chat.regenerateAll"
@@ -132,7 +113,7 @@ onMounted(async () => {
           v-for="entry in chat.history"
           :key="entry.timestamp + entry.role"
           :entry="entry"
-          :speech-on="chat.speechSettings.enable_tts && entry.role === 'assistant'"
+          :speech-on="!!settings.current?.enable_tts && entry.role === 'assistant'"
           @read-again="chat.readAgain"
         />
         <article v-if="chat.streaming" class="streaming">
@@ -142,15 +123,17 @@ onMounted(async () => {
           <p v-if="chat.toolStatus" class="tool">{{ chat.toolStatus }}</p>
         </article>
         <p v-if="chat.notice" class="notice">⚠️ {{ chat.notice }}</p>
+        <p v-if="settings.notice" class="notice">⚠️ {{ settings.notice }}</p>
       </div>
       <ChatInput
+        v-if="settings.current"
         v-model="chat.draft"
         :running="chat.running"
         :queued="chat.queued.length"
         :images="chat.pendingImages"
         :uploading="chat.uploading"
         :transcribing="chat.dictations.length > 0"
-        :dictation="chat.dictationSettings"
+        :settings="settings.current"
         @send="chat.send"
         @stop="chat.stop"
         @upload="chat.uploadImages"
@@ -158,7 +141,7 @@ onMounted(async () => {
         @edit-image="(index) => (editing = index)"
         @dictate="chat.dictate"
         @heard="chat.dictated"
-        @dictation-settings="chat.changeDictationSettings"
+        @settings="settings.change"
       />
       <DebugConsole :lines="chat.debugLines" />
       <AgentChoicesModal v-if="choicesOpen" @close="choicesOpen = false" />
@@ -178,15 +161,9 @@ onMounted(async () => {
 .layout {
   display: grid;
   grid-template-columns: minmax(200px, 260px) 1fr;
-  grid-template-rows: auto 1fr;
-  height: 100vh;
+  grid-template-rows: minmax(0, 1fr);
   gap: 0 16px;
-  padding: 0 16px;
-  box-sizing: border-box;
 }
-.top { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--aifred-border); }
-.user { margin-left: auto; color: var(--aifred-text-secondary); }
-.logout { background: none; border: 1px solid var(--aifred-border); color: inherit; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 .side { padding-top: 12px; overflow: hidden; }
 .chat { display: flex; flex-direction: column; gap: 10px; min-height: 0; padding: 12px 0; }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -201,7 +178,7 @@ h2 { margin: 0; font-size: 1rem; }
 .tool { margin: 4px 0 0; font-size: 0.8rem; color: var(--aifred-accent-cyan); }
 .notice { color: var(--aifred-accent-amber); }
 @media (max-width: 760px) {
-  .layout { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; padding: 0 8px; }
+  .layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   .side { max-height: 30vh; }
 }
 </style>

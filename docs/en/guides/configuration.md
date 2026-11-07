@@ -38,7 +38,8 @@ and warns when a backend can only use some of the cards or none of them
 ## Settings
 
 Global settings live in `data/settings.json`, written by the UI, the REST API
-(`PATCH /api/settings`) and the Message Hub alike.
+(`PATCH /api/settings`, the agents' models and switches through `PATCH /api/agents/{id}/choices`)
+and the Message Hub alike.
 
 - **`backend_models`** is the single source of truth for every model role, per
   backend — switching backends restores that backend's models:

@@ -38,7 +38,8 @@ und warnt, wenn ein Backend nur einen Teil der Karten oder gar keine nutzen kann
 ## Einstellungen
 
 Globale Einstellungen liegen in `data/settings.json` und werden von der UI, der REST API
-(`PATCH /api/settings`) und dem Message Hub gleichermaßen geschrieben.
+(`PATCH /api/settings`, Modelle und Schalter der Agenten über `PATCH /api/agents/{id}/choices`) und
+dem Message Hub gleichermaßen geschrieben.
 
 - **`backend_models`** ist die Single Source of Truth für jede Modellrolle, pro
   Backend — beim Wechsel des Backends werden dessen Modelle wiederhergestellt:

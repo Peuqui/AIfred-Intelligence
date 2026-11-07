@@ -3,11 +3,11 @@
 // the browser's own recognition, which sends the speech out of the house in Chrome and Edge) and
 // whether a dictation goes into the input field first. Both live in settings.json (lib/dictation.py).
 import { ref } from "vue";
-import type { DictationSettings } from "../api/types";
+import type { Settings, SettingsUpdate } from "../api/types";
 import { t } from "../i18n";
 
-defineProps<{ settings: DictationSettings }>();
-const emit = defineEmits<{ change: [changes: Partial<DictationSettings>] }>();
+defineProps<{ settings: Settings }>();
+const emit = defineEmits<{ change: [changes: SettingsUpdate] }>();
 const open = ref(false);
 </script>
 
@@ -20,8 +20,8 @@ const open = ref(false);
         <input
           type="radio"
           name="dictation-engine"
-          :checked="settings.engine === 'stt_suite'"
-          @change="emit('change', { engine: 'stt_suite' })"
+          :checked="settings.dictation_engine === 'stt_suite'"
+          @change="emit('change', { dictation_engine: 'stt_suite' })"
         />
         {{ t("dictation_engine_stt_suite") }}
       </label>
@@ -29,8 +29,8 @@ const open = ref(false);
         <input
           type="radio"
           name="dictation-engine"
-          :checked="settings.engine === 'browser'"
-          @change="emit('change', { engine: 'browser' })"
+          :checked="settings.dictation_engine === 'browser'"
+          @change="emit('change', { dictation_engine: 'browser' })"
         />
         {{ t("dictation_engine_browser") }}
       </label>

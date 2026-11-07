@@ -76,10 +76,8 @@ AIfred ins Internet stellst (siehe [Einrichtungsanleitung → Auf die Web-UI zug
 | `/api/sessions/{id}/images/{name}/rotate` · `/crop` | POST / POST | Ein hochgeladenes Bild um 90° drehen (`{clockwise}`) / zuschneiden (`{x, y, width, height}` in Prozent des Bildes, von links oben) → `{name, url, size_kb}` unter neuem Namen, die alte Datei ist weg; ein Rahmen über das ganze Bild schneidet nichts (derselbe Name). 404 für fremde Bilder, 422 für einen Rahmen außerhalb des Bildes |
 | `/api/sessions/{id}/dictation` · `/dictation/{job}/answer` | POST / POST | Aufnahme (`source=mic`) oder Audio-Datei (`source=file`) als multipart `file` mit `job_id` (UUID vom Client) → 202; der Server transkribiert selbst, Rückfragen und Ergebnis kommen über den Ereignisstrom (`dictation_question`, `dictation_text`, `dictation_finished`) / `{yes}` beantwortet eine Rückfrage |
 | `/api/sessions/{id}/dictation/text` | POST | `{text}` — was die Spracherkennung des Browsers gehört hat; dieselbe Regel wie beim Diktat des Servers → `{sent}` (an die KI) oder ins Eingabefeld |
-| `/api/dictation/settings` | GET / PATCH | `engine` (`stt_suite` oder `browser`), `show_transcription` |
 | `/api/sessions/{id}/messages/speech` | POST | `{timestamp}` — eine fertige Antwort neu vorlesen: was gerade spielt, endet; die Lesung kommt über den Ereignisstrom, das Gesprochene ersetzt danach den Ton der Blase (`message_updated`; bricht der Dienst ab, bleibt der alte) → 204. 409 bei abgeschalteter Sprachausgabe, 404 ohne Antwort mit diesem Zeitstempel |
 | `/api/sessions/{id}/speech/regenerate` | POST | Alle Antworten der Session neu vertonen, ohne Wiedergabe: was gerade spielt, endet; jede Blase kommt mit ihrem neuen Ton als `message_updated`, der Lauf als `speech_regenerating` (`running`), ein Fehler des TTS-Dienstes als `notice` → 204. 409 bei abgeschalteter Sprachausgabe oder wenn schon einer läuft |
-| `/api/speech/settings` | GET | `enable_tts` (Sprachausgabe an), `tts_autoplay` (Antworten beim Schreiben vorlesen) |
 | `/api/sessions/{id}/stop` | POST | Laufenden Zug abbrechen (die gestreamte Teilantwort bleibt) und das Vorlesen beenden, in allen Tabs |
 | `/api/sessions/{id}/config` | PATCH | `active_agent`, `multi_agent_mode`, `symposion_agents` (nur bekannte Agenten und Modi), `incognito` (ohne Gedächtnis) |
 | `/api/sessions/{id}/events` | GET | Ereignisstrom (SSE) der Session: `turn_started`, `agent_started`, `token`, `tool_status`, `message_added`, `message_updated` (Blase mit dem Gesprochenen), `turn_finished`, `debug`, `notice`, Wiedergabeliste `tts` / `tts_pause` / `tts_speak` / `stop`, `speech_regenerating`, … — `?after=<id>` bzw. `Last-Event-ID` |
@@ -93,7 +91,7 @@ AIfred ins Internet stellst (siehe [Einrichtungsanleitung → Auf die Web-UI zug
 | Endpoint | Methode | Beschreibung |
 |---|---|---|
 | `/api/health` | GET | Health-Check mit Backend-Typ/-Status |
-| `/api/settings` | GET / PATCH | Globale Einstellungen (Backend, Modelle pro Rolle, TTS, Sprache, …) — PATCH ändert nur die mitgeschickten Felder |
+| `/api/settings` | GET / PATCH | Allgemeine Einstellungen: `ui_language`, `user_name`, `user_gender`, `enable_tts`, `tts_autoplay`, `dictation_engine`, `show_transcription`, `temperature_mode`, `max_debate_rounds`, `consensus_type`; GET dazu `backend_type` und den Bereich der Debattenrunden (`debate_rounds_min`/`_max`). PATCH ändert nur die mitgeschickten Felder, ein unbekanntes Feld oder ein unbekannter Wert gibt 422. Modelle und Schalter der Agenten: `/api/agents/choices` |
 | `/api/models` | GET | Verfügbare Modelle des aktiven Backends + die Vision-fähigen |
 | `/api/system/restart-aifred` | POST | AIfred-Dienst neu starten |
 | `/api/system/restart-ollama` | POST | Ollama neu starten |
@@ -141,8 +139,8 @@ Ergebnis eines Scheduler- oder Webhook-Auftrags mit `delivery: webhook`. Es komm
 
 ## Global vs. pro Session
 
-`/api/settings` enthält, was wirklich global ist (Backend, Modelle, TTS-Stimmen,
-Sprache, Sampling). Alles, was zu einer Unterhaltung gehört – Agent,
+`/api/settings` und `/api/agents/choices` enthalten, was wirklich global ist (Sprache, Name,
+Sprachausgabe, Modelle und Schalter der Agenten). Alles, was zu einer Unterhaltung gehört – Agent,
 Diskussionsmodus, Symposion-Teilnehmer – läuft über
 `/api/session/config` und wird in der Session-Datei
 (`data/sessions/<session_id>.json`) als Single Source of Truth gespeichert:
@@ -199,9 +197,9 @@ curl -s -b "$COOKIE" -X POST $API/session/config \
   -d '{"session_id": "<session_id>", "multi_agent_mode": "tribunal"}'
 
 # Change AIfred's model (global)
-curl -s -b "$COOKIE" -X PATCH $API/settings \
+curl -s -b "$COOKIE" -X PATCH $API/agents/aifred/choices \
   -H "Content-Type: application/json" \
-  -d '{"aifred_model": "<model id from /api/models>"}'
+  -d '{"model_id": "<model id from /api/agents/choices>"}'
 ```
 
 Der Browser muss geöffnet sein und pollen, damit injizierte Nachrichten aufgenommen werden.

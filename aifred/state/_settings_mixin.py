@@ -59,9 +59,9 @@ class SettingsMixin(rx.State, mixin=True):
         auto_refresh_enabled: rx.Field[bool]
         automatik_model: rx.Field[str]
         automatik_model_id: rx.Field[str]
-        automatik_rope_factor: rx.Field[float]
         available_backends_dict: rx.Field[dict[str, str]]
         available_models_dict: rx.Field[dict[str, str]]
+        available_vision_models_rich: rx.Field[list[dict[str, str]]]
         backend_id: rx.Field[str]
         backend_type: rx.Field[str]
         calibration_allow_hybrid: rx.Field[bool]
@@ -83,8 +83,11 @@ class SettingsMixin(rx.State, mixin=True):
         tts_list_revision: rx.Field[int]
         tts_pitch: rx.Field[str]
         tts_playback_rate: rx.Field[str]
+        vision_models_cache: rx.Field[list[str]]
         yarn_factor: rx.Field[float]
 
+        def _build_vision_rich(self, vision_model_ids: list[str]) -> list[dict[str, str]]: ...
+        def _label_for(self, agent: str, model_id: str) -> str: ...
         def _refresh_editor_tools(self) -> None: ...
         @rx.event
         def add_debug(self, message: str) -> None: ...
@@ -289,27 +292,10 @@ class SettingsMixin(rx.State, mixin=True):
         self.calibration_mode = settings.get("calibration_mode", "legacy")
         self.calibration_allow_hybrid = settings.get("calibration_allow_hybrid", False)
 
-        # NOTE: model ids live exclusively in backend_models (loaded at
-        # backend init) — no flat model keys in settings.json anymore.
-        from ..lib.agent_settings import set_agent_setting
-
-        # RoPE factors (agents: in the tuning dict; automatik: own field)
-        self.automatik_rope_factor = settings.get("automatik_rope_factor", self.automatik_rope_factor)
-
-        # Sampling params + personality (per-agent). Deliberately only this
-        # subset of PERSISTED_TUNING_FIELDS — reload serves API-driven
-        # changes; thinking/reasoning/speed stay untouched here
-        # (same behavior as before the loop-ification).
-        saved_tuning = settings.get("agent_tuning", {})
-        for agent, entry in saved_tuning.items():
-            if agent not in self.agent_tuning:
-                continue
-            for field in ("temperature", "top_k", "top_p", "min_p", "repeat_penalty", "rope_factor"):
-                if field in entry:
-                    set_agent_setting(self, agent, field, entry[field])
-
-            if "personality" in entry:
-                set_agent_setting(self, agent, "personality", entry["personality"])
+        # The agents' tuning and models as another writer left them (the Vue app's quick choices, the
+        # API): every persisted field, read like the server does (runtime_settings). Otherwise this
+        # session's next save would write its older values back over them.
+        self._reload_agent_choices(settings)
 
         # TTS settings
         self.enable_tts = settings.get("enable_tts", self.enable_tts)
@@ -325,11 +311,29 @@ class SettingsMixin(rx.State, mixin=True):
             from ..lib.formatting import set_ui_locale
             set_ui_locale(new_ui_lang)
 
-        # User name
+        # User name and salutation
         self.user_name = settings.get("user_name", self.user_name)
+        self.user_gender = settings.get("user_gender", self.user_gender)
 
         # Message Hub settings (per-channel toggles + security tiers)
         self._load_channel_settings(settings)
+
+    def _reload_agent_choices(self, settings: dict[str, Any]) -> None:
+        """Tuning and models from ``settings`` (rules: ``runtime_settings.apply_saved_tuning`` and
+        ``apply_saved_models``); a changed model gets its label and its properties from the caches,
+        a changed AIfred model the vision badges again (they depend on the chat model)."""
+        from ..lib.runtime_settings import apply_saved_models, apply_saved_tuning, load_agent_model_params
+        before = {agent: tuning.model_id for agent, tuning in self.agent_tuning.items()}
+        apply_saved_tuning(self, settings)
+        if not apply_saved_models(self, settings):
+            return
+        for agent, tuning in self.agent_tuning.items():
+            tuning.model = self._label_for(agent, tuning.model_id)
+            if tuning.model_id != before.get(agent):
+                load_agent_model_params(self, agent, tuning.model_id)
+        self.automatik_model = self._label_for("automatik", self.automatik_model_id)
+        if self.agent_tuning["aifred"].model_id != before.get("aifred") and self.vision_models_cache:
+            self.available_vision_models_rich = self._build_vision_rich(self.vision_models_cache)
 
     # ================================================================
     # UI LANGUAGE

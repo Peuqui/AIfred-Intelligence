@@ -201,21 +201,6 @@ def test_the_browsers_text_follows_the_same_rule_as_a_transcription(client: Test
     assert client.post(f"/sessions/{'e' * 32}/dictation/text", json={"text": "x"}).status_code == 404
 
 
-def test_the_dictation_settings_keep_every_other_key(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import json
-
-    settings_file = tmp_path / "settings.json"
-    settings_file.write_text(json.dumps({"ui_language": "de", "backend_type": "llamacpp"}), encoding="utf-8")
-    monkeypatch.setattr(settings, "SETTINGS_FILE", settings_file)
-    monkeypatch.setattr(settings, "SETTINGS_DIR", tmp_path)
-    monkeypatch.setattr(settings, "persisted_settings", lambda: {**settings.get_default_settings(), **json.loads(settings_file.read_text())})
-    assert client.get("/dictation/settings").json() == {"engine": "stt_suite", "show_transcription": False}
-    response = client.patch("/dictation/settings", json={"engine": "browser"})
-    assert response.json() == {"engine": "browser", "show_transcription": False}
-    assert json.loads(settings_file.read_text()) == {"ui_language": "de", "backend_type": "llamacpp", "dictation_engine": "browser"}
-    assert client.patch("/dictation/settings", json={"engine": "telepathie"}).status_code == 422
-
-
 def test_an_unreadable_settings_file_is_never_replaced_by_a_few_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     settings_file = tmp_path / "settings.json"
     settings_file.write_text("{ kaputt", encoding="utf-8")

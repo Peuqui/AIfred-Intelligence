@@ -9,11 +9,9 @@ import type {
   CropBox,
   DictatedTextResult,
   DictationAccepted,
-  DictationSettings,
   MessageAccepted,
   SessionConfig,
   SessionDetail,
-  SpeechSettings,
   UploadedImage,
 } from "../api/types";
 import * as speech from "../lib/speech";
@@ -46,10 +44,6 @@ export const useChat = defineStore("chat", () => {
   // Dictations this tab sent that are not finished yet: only this tab asks their questions and
   // takes their text into its input field.
   const dictations = ref<string[]>([]);
-  // Who recognizes a dictation and whether it goes into the input field first (settings.json).
-  const dictationSettings = ref<DictationSettings>({ engine: "stt_suite", show_transcription: false });
-  // Whether speech output is on (settings.json): a reply's button to read it aloud again shows then.
-  const speechSettings = ref<SpeechSettings>({ enable_tts: false, tts_autoplay: false });
   // Every reply of the session is being read into new audio (its button is off meanwhile).
   const regenerating = ref(false);
   let source: EventSource | null = null;
@@ -222,14 +216,6 @@ export const useChat = defineStore("chat", () => {
     if (!result.sent) draft.value = draft.value.trim() ? `${draft.value.trim()} ${text}` : text;
   }
 
-  async function loadDictationSettings(): Promise<void> {
-    dictationSettings.value = await api<DictationSettings>("dictation/settings");
-  }
-
-  async function loadSpeechSettings(): Promise<void> {
-    speechSettings.value = await api<SpeechSettings>("speech/settings");
-  }
-
   // A finished reply read aloud again; the reading arrives over the event stream like a new one.
   async function readAgain(timestamp: string): Promise<void> {
     if (!sessionId.value) return;
@@ -248,13 +234,6 @@ export const useChat = defineStore("chat", () => {
     } catch (error) {
       notice.value = error instanceof ApiError ? error.detail : String(error);
     }
-  }
-
-  async function changeDictationSettings(changes: Partial<DictationSettings>): Promise<void> {
-    dictationSettings.value = await api<DictationSettings>("dictation/settings", {
-      method: "PATCH",
-      body: JSON.stringify(changes),
-    });
   }
 
   async function answerDictation(jobId: string, question: string): Promise<void> {
@@ -313,8 +292,8 @@ export const useChat = defineStore("chat", () => {
 
   return {
     sessionId, title, history, debugLines, config, running, streaming, toolStatus, notice, queued,
-    pendingImages, uploading, draft, dictations, dictationSettings, open, close, send, stop, configure,
-    uploadImages, removeImage, dictate, dictated, loadDictationSettings, changeDictationSettings,
-    speechSettings, loadSpeechSettings, readAgain, regenerating, regenerateAll, rotateImage, cropImage,
+    pendingImages, uploading, draft, dictations, open, close, send, stop, configure,
+    uploadImages, removeImage, dictate, dictated,
+    readAgain, regenerating, regenerateAll, rotateImage, cropImage,
   };
 });

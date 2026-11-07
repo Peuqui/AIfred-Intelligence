@@ -76,10 +76,8 @@ expose AIfred to the internet (see [Deployment → Access the web UI](deployment
 | `/api/sessions/{id}/images/{name}/rotate` · `/crop` | POST / POST | Turn an uploaded image by 90° (`{clockwise}`) / cut it (`{x, y, width, height}` in percent of the image, from the top left) → `{name, url, size_kb}` under a new name, the old file is gone; a box over the whole image cuts nothing (same name). 404 for another session's image, 422 for a box outside the image |
 | `/api/sessions/{id}/dictation` · `/dictation/{job}/answer` | POST / POST | A recording (`source=mic`) or an audio file (`source=file`) as multipart `file` with `job_id` (a UUID from the client) → 202; the server transcribes it itself, questions and the result come over the event stream (`dictation_question`, `dictation_text`, `dictation_finished`) / `{yes}` answers a question |
 | `/api/sessions/{id}/dictation/text` | POST | `{text}` — what the browser's speech recognition heard; the same rule as a dictation of the server → `{sent}` (to the AI) or into the input field |
-| `/api/dictation/settings` | GET / PATCH | `engine` (`stt_suite` or `browser`), `show_transcription` |
 | `/api/sessions/{id}/messages/speech` | POST | `{timestamp}` — read a finished reply aloud again: what plays now stops; the reading comes over the event stream, and what was spoken then replaces the bubble's audio (`message_updated`; if the service breaks off, the old audio stays) → 204. 409 while speech output is off, 404 without a reply with this timestamp |
 | `/api/sessions/{id}/speech/regenerate` | POST | Read every reply of the session into new audio, without playing it: what plays now stops; each bubble comes with its new audio as `message_updated`, the run as `speech_regenerating` (`running`), a failure of the TTS service as `notice` → 204. 409 while speech output is off or while one runs already |
-| `/api/speech/settings` | GET | `enable_tts` (speech output on), `tts_autoplay` (replies are read aloud while they are written) |
 | `/api/sessions/{id}/stop` | POST | Cancel the running turn (the streamed partial answer stays) and end the reading aloud, in every tab |
 | `/api/sessions/{id}/config` | PATCH | `active_agent`, `multi_agent_mode`, `symposion_agents` (known agents and modes only), `incognito` (no memory) |
 | `/api/sessions/{id}/events` | GET | Event stream (SSE) of the session: `turn_started`, `agent_started`, `token`, `tool_status`, `message_added`, `message_updated` (bubble with what was spoken), `turn_finished`, `debug`, `notice`, playlist `tts` / `tts_pause` / `tts_speak` / `stop`, `speech_regenerating`, … — `?after=<id>` or `Last-Event-ID` |
@@ -93,7 +91,7 @@ expose AIfred to the internet (see [Deployment → Access the web UI](deployment
 | Endpoint | Method | Description |
 |---|---|---|
 | `/api/health` | GET | Health check with backend type/status |
-| `/api/settings` | GET / PATCH | Global settings (backend, models per role, TTS, language, …) — PATCH only changes the fields you send |
+| `/api/settings` | GET / PATCH | General settings: `ui_language`, `user_name`, `user_gender`, `enable_tts`, `tts_autoplay`, `dictation_engine`, `show_transcription`, `temperature_mode`, `max_debate_rounds`, `consensus_type`; GET also `backend_type` and the range of debate rounds (`debate_rounds_min`/`_max`). PATCH only changes the fields you send, an unknown field or value answers 422. The agents' models and switches: `/api/agents/choices` |
 | `/api/models` | GET | Available models of the active backend + vision-capable ones |
 | `/api/system/restart-aifred` | POST | Restart the AIfred service |
 | `/api/system/restart-ollama` | POST | Restart Ollama |
@@ -141,8 +139,8 @@ timeout, no redirects, private/local addresses are refused):
 
 ## Global vs. per-session
 
-`/api/settings` holds what is truly global (backend, models, TTS voices,
-language, sampling). Everything that belongs to one conversation — agent,
+`/api/settings` and `/api/agents/choices` hold what is truly global (language, name,
+speech output, the agents' models and switches). Everything that belongs to one conversation — agent,
 discussion mode, symposion participants — goes through
 `/api/session/config` and is stored in the session file
 (`data/sessions/<session_id>.json`) as the single source of truth:
@@ -199,9 +197,9 @@ curl -s -b "$COOKIE" -X POST $API/session/config \
   -d '{"session_id": "<session_id>", "multi_agent_mode": "tribunal"}'
 
 # Change AIfred's model (global)
-curl -s -b "$COOKIE" -X PATCH $API/settings \
+curl -s -b "$COOKIE" -X PATCH $API/agents/aifred/choices \
   -H "Content-Type: application/json" \
-  -d '{"aifred_model": "<model id from /api/models>"}'
+  -d '{"model_id": "<model id from /api/agents/choices>"}'
 ```
 
 The browser has to be open and polling for injected messages to be picked up.

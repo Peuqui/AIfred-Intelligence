@@ -1,13 +1,20 @@
 """Health, Settings and Models endpoints."""
 
-from fastapi import HTTPException
-from pydantic import BaseModel
+from typing import Literal
 
-from ..agent_settings import get_persisted_tuning as _tuning
-from ..config import DEFAULT_OLLAMA_URL, DEFAULT_TEMPERATURE
+from fastapi import HTTPException
+from pydantic import BaseModel, ConfigDict, Field
+
+from ..config import (
+    DEBATE_ROUNDS_MAX,
+    DEBATE_ROUNDS_MIN,
+    DEFAULT_OLLAMA_URL,
+    DICTATION_ENGINES,
+)
 from ..formatting import format_number
 from ..logging_utils import log_message
-from ..settings import get_default_settings, load_settings, save_settings
+from ..settings import load_settings, persisted_settings
+from ..settings import update_settings as write_settings
 from .app import API_VERSION, api_app, get_global_backend_state
 
 # ============================================================
@@ -22,79 +29,48 @@ class HealthResponse(BaseModel):
     backend_healthy: bool = False
 
 
+Language = Literal["de", "en"]
+Gender = Literal["male", "female"]
+TemperatureMode = Literal["auto", "manual"]
+ConsensusType = Literal["majority", "unanimous"]
+
+
 class SettingsResponse(BaseModel):
-    """Current settings response"""
-    # Backend
-    backend_type: str = "ollama"
-    backend_url: str = DEFAULT_OLLAMA_URL
+    """AIfred's general settings (settings.json). The agents' models and switches are their quick
+    choices (``/agents/choices``); the backend changes with its own switch (Reflex UI)."""
 
-    # Models
-    aifred_model: str = ""
-    sokrates_model: str = ""
-    salomo_model: str = ""
-    automatik_model: str = ""
-    vision_model: str = ""
-
-    # RoPE Factors
-    aifred_rope_factor: float = 1.0
-    sokrates_rope_factor: float = 1.0
-    salomo_rope_factor: float = 1.0
-    automatik_rope_factor: float = 1.0
-    vision_rope_factor: float = 1.0
-
-    # LLM Parameters
-    temperature: float = DEFAULT_TEMPERATURE  # AIfred's temperature (agent_tuning.aifred)
-    temperature_mode: str = "auto"
-    enable_thinking: bool = True
-
-    # Multi-Agent
-    multi_agent_mode: str = "standard"
-    max_debate_rounds: int = 3
-    consensus_type: str = "majority"
-
-    # TTS/STT
-    enable_tts: bool = False
-
-    # UI
-    ui_language: str = "de"
-    user_name: str = ""
+    backend_type: str
+    ui_language: Language
+    user_name: str
+    user_gender: Gender
+    enable_tts: bool = Field(description="Speech output is on")
+    tts_autoplay: bool = Field(description="A reply is read aloud while it is written")
+    dictation_engine: str = Field(description="Who recognizes a dictation: one of config.DICTATION_ENGINES")
+    show_transcription: bool = Field(description="A dictation goes into the input field first")
+    temperature_mode: TemperatureMode
+    max_debate_rounds: int
+    consensus_type: ConsensusType
+    # Not settings: what the interface may offer (config.py).
+    debate_rounds_min: int = DEBATE_ROUNDS_MIN
+    debate_rounds_max: int = DEBATE_ROUNDS_MAX
 
 
 class SettingsUpdate(BaseModel):
-    """Settings update request - all fields optional"""
-    # Backend
-    backend_type: str | None = None
+    """Only the fields sent change; every other key of settings.json stays as the file has it. A field
+    this endpoint does not know is refused (422), not ignored."""
 
-    # Models (by ID, not display name)
-    aifred_model: str | None = None
-    sokrates_model: str | None = None
-    salomo_model: str | None = None
-    automatik_model: str | None = None
-    vision_model: str | None = None
+    model_config = ConfigDict(extra="forbid")
 
-    # RoPE Factors
-    aifred_rope_factor: float | None = None
-    sokrates_rope_factor: float | None = None
-    salomo_rope_factor: float | None = None
-    automatik_rope_factor: float | None = None
-    vision_rope_factor: float | None = None
-
-    # LLM Parameters
-    temperature: float | None = None
-    temperature_mode: str | None = None
-    enable_thinking: bool | None = None
-
-    # Multi-Agent
-    multi_agent_mode: str | None = None
-    max_debate_rounds: int | None = None
-    consensus_type: str | None = None
-
-    # TTS/STT
-    enable_tts: bool | None = None
-
-    # UI
-    ui_language: str | None = None
+    ui_language: Language | None = None
     user_name: str | None = None
+    user_gender: Gender | None = None
+    enable_tts: bool | None = None
+    tts_autoplay: bool | None = None
+    dictation_engine: str | None = None
+    show_transcription: bool | None = None
+    temperature_mode: TemperatureMode | None = None
+    max_debate_rounds: int | None = Field(None, ge=DEBATE_ROUNDS_MIN, le=DEBATE_ROUNDS_MAX)
+    consensus_type: ConsensusType | None = None
 
 
 class ModelsResponse(BaseModel):
@@ -131,118 +107,28 @@ async def health_check():
 # ============================================================
 
 @api_app.get("/settings", response_model=SettingsResponse, tags=["Settings"])
-async def get_settings():
-    """
-    Get all current settings.
-
-    Returns the complete settings configuration including models,
-    multi-agent settings, TTS/STT config, etc.
-    """
-    settings = load_settings()
-    if not settings:
-        settings = get_default_settings()
-
-    global_state = get_global_backend_state()
-
-    # Extract models from backend_models if available
-    backend_type = settings.get("backend_type", "ollama")
-    backend_models = settings.get("backend_models", {}).get(backend_type, {})
-
-    # Get backend URL with proper fallback (global_state may have None values)
-    backend_url = global_state.get("backend_url") or DEFAULT_OLLAMA_URL
-
-    return SettingsResponse(
-        backend_type=backend_type,
-        backend_url=backend_url,
-        # backend_models is the single source of truth for model fields
-        aifred_model=backend_models.get("aifred", ""),
-        sokrates_model=backend_models.get("sokrates", ""),
-        salomo_model=backend_models.get("salomo", ""),
-        automatik_model=backend_models.get("automatik", ""),
-        vision_model=backend_models.get("vision", ""),
-        aifred_rope_factor=_tuning(settings, "aifred", "rope_factor", 1.0),
-        sokrates_rope_factor=_tuning(settings, "sokrates", "rope_factor", 1.0),
-        salomo_rope_factor=_tuning(settings, "salomo", "rope_factor", 1.0),
-        automatik_rope_factor=settings.get("automatik_rope_factor", 1.0),
-        vision_rope_factor=_tuning(settings, "vision", "rope_factor", 1.0),
-        temperature=_tuning(settings, "aifred", "temperature", DEFAULT_TEMPERATURE),
-        temperature_mode=settings.get("temperature_mode", "auto"),
-        enable_thinking=settings.get("enable_thinking", True),
-        multi_agent_mode=settings.get("multi_agent_mode", "standard"),
-        max_debate_rounds=settings.get("max_debate_rounds", 3),
-        consensus_type=settings.get("consensus_type", "majority"),
-        enable_tts=settings.get("enable_tts", False),
-        ui_language=settings.get("ui_language", "de"),
-        user_name=settings.get("user_name", "")
-    )
+async def get_settings() -> SettingsResponse:
+    """AIfred's general settings: settings.json over the defaults of config.py."""
+    saved = persisted_settings()
+    return SettingsResponse(backend_type=saved["backend_type"], **{key: saved[key] for key in SettingsUpdate.model_fields})
 
 
 @api_app.patch("/settings", response_model=SettingsResponse, tags=["Settings"])
-async def update_settings(update: SettingsUpdate):
-    """
-    Update settings.
+async def update_settings(update: SettingsUpdate) -> SettingsResponse:
+    """Change the fields sent and answer with every setting. The UI language also sets the number
+    format of the process (the Reflex UI's language switch does the same)."""
+    from ..formatting import set_ui_locale
 
-    Only provided fields are updated, others remain unchanged.
-    Changes are persisted to settings.json.
-
-    NOTE: Model changes may require backend restart to take effect.
-    Use /api/system/restart-ollama after changing models.
-    """
-    settings = load_settings()
-    if not settings:
-        settings = get_default_settings()
-
-    # Apply updates (only non-None values)
-    update_dict = update.model_dump(exclude_none=True)
-
-    # Model fields live in backend_models[<backend_type>] — the SAME
-    # structure the UI writes and the Message-Hub reads. A flat top-level
-    # write here used to create a second truth that the hub never saw.
-    # API field name -> backend_models key (agent id)
-    _MODEL_FIELDS = {
-        "aifred_model": "aifred", "sokrates_model": "sokrates",
-        "salomo_model": "salomo", "automatik_model": "automatik",
-        "vision_model": "vision",
-    }
-    # Per-agent tuning fields live in settings["agent_tuning"][<agent>]
-    # (automatik_rope_factor stays flat — the Automatik is not an agent).
-    _TUNING_FIELDS = {
-        "aifred_rope_factor": ("aifred", "rope_factor"),
-        "sokrates_rope_factor": ("sokrates", "rope_factor"),
-        "salomo_rope_factor": ("salomo", "rope_factor"),
-        "vision_rope_factor": ("vision", "rope_factor"),
-        # AIfred's temperature lives per-bucket like every other agent's
-        "temperature": ("aifred", "temperature"),
-    }
-    # Map API field names to settings.json field names (non-model fields)
-    field_mapping = {
-        "tts_voice": "voice",
-    }
-
-    target_backend = update_dict.get("backend_type") or settings.get("backend_type", "llamacpp")
-    for api_field, value in update_dict.items():
-        if api_field in _MODEL_FIELDS:
-            model_key = _MODEL_FIELDS[api_field]
-            settings.setdefault("backend_models", {}).setdefault(target_backend, {})[model_key] = value
-            log_message(f"📝 API: Updated backend_models.{target_backend}.{model_key} = {value}")
-            continue
-        if api_field in _TUNING_FIELDS:
-            agent, tuning_field = _TUNING_FIELDS[api_field]
-            settings.setdefault("agent_tuning", {}).setdefault(agent, {})[tuning_field] = value
-            log_message(f"📝 API: Updated agent_tuning.{agent}.{tuning_field} = {value}")
-            continue
-        settings_field = field_mapping.get(api_field, api_field)
-        settings[settings_field] = value
-        log_message(f"📝 API: Updated {settings_field} = {value}")
-
-    # Save to file
-    if not save_settings(settings):
-        raise HTTPException(status_code=500, detail="Failed to save settings")
-
-    log_message(f"✅ API: Settings saved ({len(update_dict)} fields updated)")
-    # Browser detects changes via settings.json mtime (no extra flag needed)
-
-    # Return updated settings
+    changes = update.model_dump(exclude_none=True)
+    if "user_name" in changes:
+        changes["user_name"] = changes["user_name"].strip()
+    if changes.get("dictation_engine", DICTATION_ENGINES[0]) not in DICTATION_ENGINES:
+        raise HTTPException(status_code=422, detail=f"Unknown dictation engine: {changes['dictation_engine']}")
+    if changes and not write_settings(changes):
+        raise HTTPException(status_code=500, detail="settings.json could not be read or written")
+    if "ui_language" in changes:
+        set_ui_locale(changes["ui_language"])
+    log_message(f"📝 API: settings changed: {sorted(changes)}")
     return await get_settings()
 
 

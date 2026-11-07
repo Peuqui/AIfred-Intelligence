@@ -146,10 +146,22 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   AIfred aller Agenten auf seinem Modell; Vision behält sein Sampling), Vision-Liste mit Plakette.
   Geschrieben wird schlüsselweise (`agent_tuning` der geänderten Agenten, `backend_models` des Backends).
   Nicht übernommen: RoPE-Wahl (nur Ollama, nicht gespeichert) und Modelllisten der Cloud-Backends.
-  **Grenze bis zum Wechsel:** Reflex schreibt `agent_tuning` und `backend_models` bei jedem Speichern
-  ganz aus seinem Speicher. Laufen beide Oberflächen gegen dieselbe `settings.json`, überschreibt der
-  nächste Klick in einem Reflex-Tab, was die Schnellwahl geschrieben hat, und offene Reflex-Tabs sehen
-  ihre Änderungen erst nach dem Neuladen.
+  **Nebeneinander mit Reflex:** Reflex schreibt `agent_tuning` und `backend_models` bei jedem Speichern
+  ganz aus seinem Speicher. Darum übernimmt ein Reflex-Tab beim Neuladen der Datei (alle 500 ms, nach
+  Änderungszeit) jetzt alles, was die Schnellwahl schreibt (`_reload_agent_choices`: Tuning und Modelle
+  nach den Regeln des Servers, vorher nur Sampling und Persona). Offen bleibt nur ein Speichern beider
+  Oberflächen innerhalb dieser 500 ms.
+- **Einstellungen, Teil 1 (erledigt 07.11.2026):** Kopfleiste mit Seiten (Chat, Einstellungen) in
+  `App.vue`, Anmeldung dort; die Chat-Seite bleibt beim Seitenwechsel am Leben (`KeepAlive`). Seite
+  `SettingsView.vue`: Sprache, Name, Anrede, Sprachausgabe (an, automatisch vorlesen), Debattenrunden,
+  Konsens. `GET/PATCH /api/settings` bereinigt: nur echte Schlüssel, Zusatzfelder geben 422 (vorher
+  Modelle fester Agenten, RoPE-Faktoren, `enable_thinking`, `multi_agent_mode` und `backend_type` ohne
+  Umschaltlogik); die eigenen Endpunkte für Sprachausgabe und Diktat sind darin aufgegangen (Store
+  `settings` als eine Quelle). Grenzen der Runden in `config.py` (`DEBATE_ROUNDS_MIN/_MAX`), auch für
+  Reflex. Ein Reflex-Tab übernimmt beim Neuladen nun auch die Anrede.
+- **Einstellungen, Teil 2 (offen):** Backend-Wechsel, Kalibrierung, Neustarts von Backend und AIfred,
+  Grundeinstellungen laden, Temperaturmodus. Neustarts treffen die gemeinsamen Dienste (llama-swap,
+  Produktionsdienst): nur mit Peuqui abgestimmt testen.
 - **Bilder drehen und zuschneiden (erledigt 07.11.2026):** ✂️ am Vorschaubild öffnet `ImageEditor.vue`
   (Rahmen mit Ecken und Kanten, Mindestseite 10 %, Rechnung in `lib/cropBox.ts`). Der Server
   (`turn_images.rotate_upload`, `crop_upload`) legt das Bild als neue Datei unter neuem Namen ab und
@@ -160,7 +172,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
 - **Browser-Erkennung** (Peuqui 07.11.2026): Im Diktat-Menü neben dem Mikrofon wählt man die
   Spracherkennung, STT-Suite (Standard) oder Browser (Web Speech API; Chrome und Edge schicken die
   Sprache an Google bzw. Microsoft, Firefox kann es nicht), dazu „erst ins Eingabefeld“.
-  `dictation_engine` und `show_transcription` in settings.json (`GET/PATCH /api/dictation/settings`,
+  `dictation_engine` und `show_transcription` in settings.json (`GET/PATCH /api/settings`,
   schlüsselweise über `settings.update_settings`). Kein Ausweichen von selbst, nur für Diktate. Was
   der Browser hört, geht an `POST /api/sessions/{id}/dictation/text`; dieselbe Regel wie beim Diktat
   des Servers (`dictation.hand_on`) schickt es an die KI oder ins Eingabefeld.
@@ -169,7 +181,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   (Peuqui 07.11.2026, Archiv-Tag `archive-vue-frontend-2026-11-07`): AIfred fragt immer mit `auto`.
 - **Sprachausgabe, Rest:** Musik oder Hörbuch vor einer Lesung anhalten (kommt mit der Audio-Seite).
 - **Blase neu vorlesen (erledigt 07.11.2026):** 🔄 an jeder Antwort, solange die Sprachausgabe an ist
-  (`GET /api/speech/settings`). `reply_speech.read_bubble` beendet, was gerade spielt, liest den Text
+  (`enable_tts` aus `GET /api/settings`). `reply_speech.read_bubble` beendet, was gerade spielt, liest den Text
   der Blase durch den Filter der Lesung (`tts_text_filter.strip_ui_only_content`, ohne Metrikzeile)
   über die Wiedergabeliste der Sitzung und ersetzt danach den Ton der Blase (`message_updated`). Bricht
   der Dienst nach dem ersten Ton ab, behält die Blase ihren alten Ton (`keep_partial`); eine neue

@@ -301,7 +301,6 @@ def test_reading_a_bubble_again_needs_speech_on_and_a_reply_with_text(session: l
     answer = client.post(url, json={"timestamp": entry["timestamp"]})
     assert answer.status_code == 204 and answer.content == b""
     assert read == [(SESSION, "Hallo Peuqui.")]
-    assert client.get("/speech/settings").json() == {"enable_tts": True, "tts_autoplay": True}
 
 
 # ── Every reply read into new audio ──────────────────────────────────────

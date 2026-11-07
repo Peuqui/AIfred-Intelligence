@@ -49,6 +49,7 @@
   "live_debug_output": "Live Debug-Output: LLM-Starts, Entscheidungen, Statistiken",
   "auto_scroll": "Auto-Scroll",
   "settings": "⚙️ Einstellungen",
+  "nav_chat": "Chat",
   "ui_language": "🌍 UI Sprache:",
   "backend": "Backend:",
   "cloud_api_provider": "☁️ Cloud-Anbieter:",

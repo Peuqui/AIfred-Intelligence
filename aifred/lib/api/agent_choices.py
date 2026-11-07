@@ -6,7 +6,7 @@ settings (settings.json), no choice of one session; a turn reads them when it st
 import asyncio
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .. import agent_choices as rules
 from ..agent_choices import QuickChoices
@@ -19,6 +19,10 @@ AUTOMATIK = "automatik"
 
 
 class ChoicesChange(BaseModel):
+    """A field this endpoint does not know is refused (422), not ignored."""
+
+    model_config = ConfigDict(extra="forbid")
+
     model_id: str | None = Field(None, description='The model; "" runs the agent on AIfred\'s (not for AIfred and Vision)')
     personality: bool | None = None
     reasoning: bool | None = None
