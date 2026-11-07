@@ -23,3 +23,8 @@ export function t(key: string, values: Record<string, string | number> = {}): st
 export function tCount(key: string, count: number, values: Record<string, string | number> = {}): string {
   return t(count === 1 ? key : `${key}_plural`, { ...values, count });
 }
+
+// A number as the language writes it (1.234,5 or 1,234.5); the browser's side of the server's format_number.
+export function formatNumber(value: number, digits = 0): string {
+  return value.toLocaleString(language.value, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}

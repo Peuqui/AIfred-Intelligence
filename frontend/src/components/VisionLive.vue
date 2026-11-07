@@ -174,7 +174,7 @@ const picked = (event: Event): string => (event.target as HTMLSelectElement).val
         </div>
       </article>
     </div>
-    <ImageLightbox v-if="opened" :images="opened.images" :start="opened.start" @close="opened = null" />
+    <ImageLightbox v-if="opened" :count="opened.images.length" :start="opened.start" :pictures="(at) => [opened?.images[at] ?? '']" @close="opened = null" />
   </section>
 </template>
 

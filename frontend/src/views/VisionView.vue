@@ -3,6 +3,7 @@
 // window of its own (a second screen) without code of its own.
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
+import VisionEvents from "../components/VisionEvents.vue";
 import VisionLive from "../components/VisionLive.vue";
 import VisionSettings from "../components/VisionSettings.vue";
 import { t } from "../i18n";
@@ -11,6 +12,7 @@ const route = useRoute();
 const tab = computed(() => String(route.params.tab ?? "live"));
 const tabs = [
   { id: "live", label: "vision_tab_live" },
+  { id: "events", label: "vision_tab_events" },
   { id: "settings", label: "vision_tab_settings" },
 ];
 </script>
@@ -21,6 +23,7 @@ const tabs = [
       <RouterLink v-for="entry in tabs" :key="entry.id" :to="`/vision/${entry.id}`" :class="{ on: tab === entry.id }">{{ t(entry.label) }}</RouterLink>
     </nav>
     <VisionLive v-if="tab === 'live'" />
+    <VisionEvents v-else-if="tab === 'events'" />
     <VisionSettings v-else-if="tab === 'settings'" />
   </main>
 </template>

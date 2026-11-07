@@ -16,24 +16,10 @@ from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 
+from ..lib.casus import TYPE_FILTERS, EventFilter
+from ..lib.config import VISION_CASUS_PAGE_SIZE as _CASUS_PAGE_SIZE
+
 logger = logging.getLogger(__name__)
-
-
-# Konstanten — page size & filter-types. Bewusst klein gehalten, weil
-# das Modal scrollbar ist und der User typischerweise filtert.
-_CASUS_PAGE_SIZE = 50
-
-# Filter-Type-Mapping: UI-String → event_types-Liste für die Query.
-# ``""`` (leer) heißt: alle event_types.
-_FILTER_TYPE_MAP: dict[str, list[str]] = {
-    "all": [],
-    "motion": ["motion"],
-    "face": ["face_known", "face_unsure", "face_unknown"],
-    "face_known": ["face_known"],
-    "face_unsure": ["face_unsure"],
-    "face_unknown": ["face_unknown"],
-    "vlm": ["vlm_analysis"],
-}
 
 
 class CasusMixin(rx.State, mixin=True):
@@ -43,6 +29,7 @@ class CasusMixin(rx.State, mixin=True):
         # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
+        ui_language: rx.Field[str]
         vlm_model_loaded: rx.Field[bool]
 
     casus_open: rx.Field[bool] = rx.field(False)
@@ -343,24 +330,12 @@ class CasusMixin(rx.State, mixin=True):
         self._casus_last_seen_event_id = latest
         self._refresh_events()
 
-    def _resolve_casus_filters(self) -> tuple[str | None, list[str], int | None, bool]:
-        """Aktive Filter-Vars in Store-Query-Parameter auflösen (SSOT für
-        Event-Liste und Bulk-Delete): (source_id, event_types, face_id,
-        unknown_only)."""
+    def _casus_filter(self) -> EventFilter:
+        """Die Filter der Oberfläche als ``lib.casus.EventFilter`` (SSOT für Liste und Löschen nach Filter);
+        die Quelle "all" der Auswahl heißt dort "" (Radix nimmt keinen leeren Wert)."""
         source = self.casus_filter_source
-        source_id = source if source and source != "all" else None
-        event_types = _FILTER_TYPE_MAP.get(self.casus_filter_type, [])
-        face_filter = self.casus_filter_face
-        face_id: int | None = None
-        unknown_only = False
-        if face_filter == "unknown":
-            unknown_only = True
-        elif face_filter and face_filter != "all":
-            try:
-                face_id = int(face_filter)
-            except (TypeError, ValueError):
-                face_id = None
-        return source_id, event_types, face_id, unknown_only
+        return EventFilter(source="" if source == "all" else source, type=self.casus_filter_type,
+                           face=self.casus_filter_face)
 
     @rx.event
     def casus_confirm_delete_all_now(self) -> None:
@@ -368,15 +343,8 @@ class CasusMixin(rx.State, mixin=True):
         die den aktuell aktiven Filtern entsprechen — wenn keine
         Filter gesetzt sind, also wirklich alle."""
         try:
-            from ..lib.vision_store import VisionStore
-            store = VisionStore()
-            source_id, event_types, face_id, unknown_only = self._resolve_casus_filters()
-            deleted = store.delete_events_filtered(
-                source_id=source_id,
-                event_types=event_types or None,
-                face_id=face_id,
-                unknown_only=unknown_only,
-            )
+            from ..lib.casus import delete_matching
+            deleted = delete_matching(self._casus_filter())
             self.casus_status = f"✓ {deleted} Ereignis(se) gelöscht"
         except (sqlite3.Error, OSError) as e:  # the events and their frames on disk
             logger.warning("casus bulk-delete failed: %s", e)
@@ -638,132 +606,51 @@ class CasusMixin(rx.State, mixin=True):
     # ── Internals ────────────────────────────────────────────────
 
     def _refresh_filter_options(self) -> None:
-        """Source- und Face-Dropdowns mit aktuellen DB-Inhalten füllen."""
+        """Quellen- und Personen-Auswahl aus ``lib.casus.choices`` (nur Quellen, für die Ereignisse vorliegen)."""
+        from ..lib.casus import FACE_ALL, FACE_UNCONFIRMED, choices
+        from ..lib.i18n import t
+
+        lang = self.ui_language
         try:
-            from ..lib.vision_store import VisionStore
-            store = VisionStore()
-            # Leere source_ids überspringen — z.B. vlm_analysis-Events aus
-            # einem Upload/manuellen Analyze ohne Kamera-Quelle. Ein leerer
-            # Wert würde sonst ein <Select.Item value=""> erzeugen, das Radix
-            # ablehnt ("must have a value prop that is not an empty string")
-            # und damit das ganze Casus-Modal am Rendern hindert.
-            sources = [s for s in store.list_event_source_ids() if str(s).strip()]
-            self.casus_source_options = (
-                [{"value": "all", "label": "Alle Quellen"}]
-                + [{"value": s, "label": s} for s in sources]
-            )
-            faces = store.list_faces()
-            face_opts: list[dict[str, str]] = [
-                {"value": "all", "label": "Alle Personen"},
-                {"value": "unknown", "label": "Nur unzugeordnete"},
-            ]
-            for f in faces:
-                face_opts.append({
-                    "value": str(int(f["id"])),
-                    "label": str(f["name"]),
-                })
-            self.casus_face_options = face_opts
+            offered = choices(lang)
         except sqlite3.Error as e:
             logger.warning("casus filter-options refresh failed: %s", e)
-            self.casus_source_options = [{"value": "all", "label": "Alle Quellen"}]
-            self.casus_face_options = [{"value": "all", "label": "Alle Personen"}]
+            self.casus_status = f"⚠️ {e}"
+            return
+        self.casus_source_options = [{"value": "all", "label": t("casus_source_all", lang=lang)}] + [
+            {"value": source, "label": label} for source, label in offered.sources
+        ]
+        self.casus_face_options = [
+            {"value": FACE_ALL, "label": t("casus_face_all", lang=lang)},
+            {"value": FACE_UNCONFIRMED, "label": t("casus_face_unconfirmed", lang=lang)},
+        ] + [{"value": str(face_id), "label": name} for face_id, name in offered.faces]
 
     def _refresh_events(self) -> None:
-        """Aktuelle Seite mit Filtern frisch aus dem Store holen.
-        Setzt ``casus_events`` + ``casus_total_count``.
+        """Aktuelle Seite mit Filtern frisch holen (``lib.casus.page``; gruppiert: eine Zeile je Vorkommnis,
+        gezählt in SQL). Setzt ``casus_events``, ``casus_total_count`` und ``casus_all_ids`` (flach: alle IDs der
+        Filtermenge für die Diaschau; gruppiert öffnet ein Klick den Film des Vorkommnisses)."""
+        from ..lib.casus import page
+        from ..lib.vision_store import VisionStore
 
-        Cluster-Mode (``casus_cluster_mode=True``): die Server-Seite
-        liefert eine größere Roh-Liste (5000 Events), Python gruppiert
-        per ``cluster_id`` — pro Cluster der jüngste Member als
-        Repräsentant + ``cluster_member_count`` als Badge-Zähler.
-        Solo-Events (cluster_id leer) bleiben unverändert.
-        """
+        events_filter = self._casus_filter()
         try:
-            from ..lib.vision_store import VisionStore
-            store = VisionStore()
-            source_id, event_types, face_id, unknown_only = self._resolve_casus_filters()
-
-            if self.casus_cluster_mode:
-                # Größere Liste holen + Python-side gruppieren.
-                raw = store.list_events_with_summary(
-                    source_id=source_id,
-                    event_types=event_types or None,
-                    face_id=face_id,
-                    unknown_only=unknown_only,
-                    limit=5000,
-                    offset=0,
-                )
-                from collections import OrderedDict
-                cluster_groups: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
-                solo_events: list[dict[str, Any]] = []
-                for e in raw:
-                    cid = str(e.get("cluster_id") or "")
-                    if cid:
-                        cluster_groups.setdefault(cid, []).append(e)
-                    else:
-                        solo_events.append(e)
-                # Repräsentant pro Cluster = erstes Element (= jüngster,
-                # weil DESC sortiert). Badge-Zahl = Mitglieder.
-                cluster_repr: list[dict[str, Any]] = []
-                for cid, members in cluster_groups.items():
-                    rep = dict(members[0])
-                    rep["cluster_member_count"] = len(members)
-                    cluster_repr.append(rep)
-                # Solos bekommen member_count=0 (UI: kein Badge).
-                for s in solo_events:
-                    s_copy = dict(s)
-                    s_copy["cluster_member_count"] = 0
-                    cluster_repr.append(s_copy)
-                # Wieder nach Timestamp DESC sortieren (Mischung von
-                # Cluster-Reps + Solos).
-                cluster_repr.sort(key=lambda x: x["timestamp"], reverse=True)
-                total = len(cluster_repr)
-                start = self.casus_page * _CASUS_PAGE_SIZE
-                end = start + _CASUS_PAGE_SIZE
-                self.casus_events = cluster_repr[start:end]
-                self.casus_total_count = total
-                # Slideshow läuft im Cluster-Modus über die Repräsentanten
-                # (eine ID pro Vorkommnis), passend zur Rasteransicht.
-                self.casus_all_ids = [int(r["id"]) for r in cluster_repr]
-            else:
-                offset = self.casus_page * _CASUS_PAGE_SIZE
-                events = store.list_events_with_summary(
-                    source_id=source_id,
-                    event_types=event_types or None,
-                    face_id=face_id,
-                    unknown_only=unknown_only,
-                    limit=_CASUS_PAGE_SIZE,
-                    offset=offset,
-                )
-                # Im flachen Modus: keine Cluster-Badge.
-                for e in events:
-                    e["cluster_member_count"] = 0
-                self.casus_events = events
-                self.casus_total_count = store.count_events(
-                    source_id=source_id,
-                    event_types=event_types or None,
-                    face_id=face_id,
-                    unknown_only=unknown_only,
-                )
-                # Volle ID-Liste (alle Seiten) für die Slideshow.
-                self.casus_all_ids = store.list_event_ids(
-                    source_id=source_id,
-                    event_types=event_types or None,
-                    face_id=face_id,
-                    unknown_only=unknown_only,
-                )
+            events, total = page(events_filter, grouped=self.casus_cluster_mode,
+                                 offset=self.casus_page * _CASUS_PAGE_SIZE, limit=_CASUS_PAGE_SIZE)
+            all_ids = ([int(event["id"]) for event in events] if self.casus_cluster_mode
+                       else VisionStore().list_event_ids(**events_filter.query()))
         except sqlite3.Error as e:
             logger.warning("casus events refresh failed: %s", e)
             self.casus_events = []
             self.casus_total_count = 0
             self.casus_all_ids = []
             self.casus_status = f"⚠️ {e}"
+            return
+        self.casus_events = events
+        self.casus_total_count = total
+        self.casus_all_ids = all_ids
 
     # Statische Type-Filter-Werte. Labels rendert die UI per rx.match
     # gegen t()-Keys — so bleibt die Liste sprachreaktiv, ohne dass
     # der Mixin t() aufrufen muss (t() liefert eine Var, die in einer
     # Klassenkonstante nicht serialisierbar ist).
-    casus_type_values: rx.Field[list[str]] = rx.field(default_factory=lambda: [
-        "all", "motion", "face", "face_known",
-        "face_unsure", "face_unknown", "vlm",
-    ])
+    casus_type_values: rx.Field[list[str]] = rx.field(default_factory=lambda: list(TYPE_FILTERS))

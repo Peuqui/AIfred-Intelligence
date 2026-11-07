@@ -376,6 +376,25 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   entladen und laden), die Seite folgt ihm wie der Indexierung. Geprüft: Zeilen, Verschieben und Schalten im Browser
   (Aragon war aus, seine Zeile mit Hinweis und Knopf über einen Eintrag der Test-Kopie), Vermessen nur im Test mit
   Stellvertreter (es entlädt auf dem Rechner alle Modelle).
+- **Vision, Ereignisse (Casus) ohne Bildmodell (erledigt 08.11.2026):** `VisionEvents.vue` (Reiter 🗂️,
+  `#/vision/events`): Liste neueste zuerst mit Filtern Quelle, Typ (jetzt mit Person, Fahrzeug, Tier), Person (alle,
+  unzugeordnet, eine bestimmte), „Gruppiert“ (eine Zeile je Vorkommnis mit „+N“), Seiten; je Zeile Gesichts-Ausschnitt
+  oder Weitwinkel und daneben das Tele, Typ, Quelle, zugeordnete oder vermutete Person, Beschreibung (aufklappbar),
+  Person zuordnen oder lösen (nur Gesichts-Ereignisse), Film des Vorkommnisses, Löschen; „Alle löschen“ nach Filter
+  mit Rückfrage und Anzahl. Die Diaschau blättert über alle Seiten, ohne die ID-Liste zum Browser zu schicken: Die
+  Bildanzeige (`ImageLightbox.vue`, auch für die Fotos der Live-Ansicht) fragt je Position nach ihren Bildern, Weitwinkel
+  und Tele nebeneinander; → ist neuer, sie hält an beiden Enden. Neue Ereignisse kommen über einen Strom
+  (`VisionStore.add_event` gibt ein Signal, das auch aus den Threads der Wächter in die Ereignisschleife reicht); die Liste
+  lädt neu, außer während ein Bild oder eine Zuordnung offen ist. `lib/casus.py` hält Typfilter, Filter, Seite, Auswahl,
+  Film, Zuordnen und Löschen, auch für den Reflex-Casus. In `VisionStore` steht der Filter an EINER Stelle
+  (`_event_filter`): Vorher zählte „Nur unzugeordnete“ die unsicheren Gesichter in der Liste mit, in Anzahl, Diaschau
+  und Löschen nicht. Gruppiert wird in SQL (Fensterfunktion, gezählt per `COUNT(DISTINCT …)`), vorher in Python über
+  höchstens 5000 Ereignisse, der Rest fiel still weg; die ID-Liste schnitt bei 10.000 ab. Gleiche Zeitstempel sortiert
+  die ID, damit Seiten sich weder überschneiden noch etwas auslassen. Geprüft gegen die Testinstanz mit einer Kopie der
+  2.325 echten Ereignisse und 4 Prüf-Ereignissen: Filter (Person 1.339), gruppiert 99 Vorkommnisse, Film 107 Bilder
+  wie „+106“ angibt, Diaschau über alle Seiten mit Tele, Zuordnen und Lösen, eine Zeile und „Alle löschen“ nach Filter
+  (nur die Prüf-Ereignisse; Bilder außerhalb des Test-Datenordners rührt das Löschen nicht an), danach 2.325 wie vorher.
+  Offen: Einzel- und Massenanalyse mit dem Bildmodell, der Weg ins Personarium (kommt mit dem Reiter Personen).
 - **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
 
 ## Schritte

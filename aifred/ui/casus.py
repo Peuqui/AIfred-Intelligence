@@ -35,7 +35,7 @@ def _event_type_badge(event: ObjectVar[dict[str, Any]]) -> rx.Component | rx.Var
         ("face_known", rx.badge(rx.text(t("casus_badge_face_known"), size="1"), color_scheme="green", variant="soft")),
         ("face_unsure", rx.badge(rx.text(t("casus_badge_face_unsure"), size="1"), color_scheme="amber", variant="soft")),
         ("face_unknown", rx.badge(rx.text(t("casus_badge_face_unknown"), size="1"), color_scheme="gray", variant="soft")),
-        ("vlm_analysis", rx.badge(rx.text(t("casus_badge_vlm"), size="1"), color_scheme="orange", variant="soft")),
+        ("vlm_analysis", rx.badge(rx.text(t("casus_badge_vlm_analysis"), size="1"), color_scheme="orange", variant="soft")),
         rx.badge(rx.text(et, size="1"), color_scheme="gray", variant="soft"),
     )
 
@@ -570,7 +570,10 @@ def _filter_bar() -> rx.Component:
                             v,
                             ("all", t("casus_type_all")),
                             ("motion", t("casus_type_motion")),
-                            ("face", t("casus_type_face_any")),
+                            ("person", t("casus_type_person")),
+                            ("vehicle", t("casus_type_vehicle")),
+                            ("animal", t("casus_type_animal")),
+                            ("face", t("casus_type_face")),
                             ("face_known", t("casus_type_face_known")),
                             ("face_unsure", t("casus_type_face_unsure")),
                             ("face_unknown", t("casus_type_face_unknown")),

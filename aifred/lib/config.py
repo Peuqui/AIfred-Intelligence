@@ -850,6 +850,8 @@ VISION_MIN_EVENT_INTERVAL_RANGE = (0.1, 60.0)   # what a camera's "min. event in
 VISION_EVENT_INTERVAL_CHOICES = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
 # The event types a camera can alert on (all of them unless the camera's alert_types says otherwise).
 VISION_ALERT_TYPES = ("person", "vehicle", "animal", "face")
+# How many events (or occurrences) one page of the Casus lists.
+VISION_CASUS_PAGE_SIZE = 50
 # A camera's quiet hours (no alerts; whole hours 0–23) and its active window (watched only then; "HH:MM")
 # while none was set.
 VISION_QUIET_HOURS_DEFAULT = (22, 6)

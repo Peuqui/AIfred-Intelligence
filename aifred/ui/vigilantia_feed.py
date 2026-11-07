@@ -71,7 +71,7 @@ def _feed_badge(event: ObjectVar[dict[str, Any]]) -> rx.Component | rx.Var:
         ("face_known", rx.badge(t("casus_badge_face_known"), color_scheme="green", variant="soft", size="1")),
         ("face_unsure", rx.badge(t("casus_badge_face_unsure"), color_scheme="amber", variant="soft", size="1")),
         ("face_unknown", rx.badge(t("casus_badge_face_unknown"), color_scheme="gray", variant="soft", size="1")),
-        ("vlm_analysis", rx.badge(t("casus_badge_vlm"), color_scheme="orange", variant="soft", size="1")),
+        ("vlm_analysis", rx.badge(t("casus_badge_vlm_analysis"), color_scheme="orange", variant="soft", size="1")),
         rx.badge(et, color_scheme="gray", variant="soft", size="1"),
     )
 

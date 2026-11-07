@@ -57,6 +57,7 @@ from . import jobs
 from . import speech
 from . import cameras
 from . import vigilantia
+from . import casus
 from . import app_shell  # last: its /app mount must follow every /app route
 
 from .browser_bus import browser_push, browser_queue_clear
