@@ -146,10 +146,15 @@ sieht die anderen nicht.
   Änderungen an Typen, Deklarationen oder Dekoratoren das Rendering jeder Seite
   vorher und nachher vergleichen: `scripts/render_pages.py` (06.11. fing das ein
   `.to(list)`, das den Elementtyp verwarf und die Seite beim Kompilieren gebrochen hätte).
-- Meldet mypy „Module not callable“ (meist `rx.icon`), **ohne Cache gegenprüfen**
-  (`--no-incremental`): Am 06.11. lieferte ein alter Cache 242 solche Fehler, auch beim
-  Lauf über `aifred/ tests/`; ohne Cache und mit frischem Cache (auch nach
-  Einzeldatei-Läufen) keine. Die Ursache ist nicht gefunden.
+- Meldet mypy „Module not callable“ (`rx.icon`, `rx.moment`), **ohne Cache gegenprüfen**
+  (`--no-incremental`). Ursache (07.11.): `reflex_components_lucide` und
+  `reflex_components_moment` haben ein Untermodul `icon` bzw. `moment` und binden den
+  Namen in `__init__.py` danach an `Icon.create` bzw. `Moment.create`; der inkrementelle
+  Lauf nimmt offenbar das Untermodul. Nachgestellt: eine Kommentarzeile in
+  `lib/formatting.py` oder in einem State-Mixin, und der Lauf mit Cache meldet 242 solche
+  Fehler (alle an diesen beiden Aufrufen); der Cache bleibt kaputt, bis ein Lauf ohne Cache
+  ihn neu schreibt. Sauber ist ein Lauf mit Cache nur ohne Änderung seit dem letzten
+  vollen Lauf (auch eine Änderung an `mypy.ini` baut alles neu). Verschwindet mit Reflex.
 - **Stellvertreter in Tests** (eine kleine Klasse statt des echten States oder
   Objekts) erben für mypy von der echten Klasse und zur Laufzeit von `object`:
   ```python
@@ -299,8 +304,9 @@ beobachtet; der Respawn-Code steht in `_serve_loop`, der nur OHNE Reload
 läuft. Zusätzlich meldet der Worker-Wächter bei
 `reload_ignore_worker_failure=True` den Absturz gar nicht weiter.
 
-- **Datei:** `venv/lib/python3.12/site-packages/reflex/utils/exec.py`, im
-  `Granian(...)`-Konstruktor in `run_granian_backend()` (~Zeile 545)
+- **Datei:** `venv/lib/python3.12/site-packages/reflex/utils/exec.py`, in
+  `run_granian_backend()`; seit Reflex 0.10 im Aufruf `ParentBoundGranian(...)` (~Zeile 930),
+  einer Unterklasse, die den Port im Master hält. `scripts/patch-reflex.py` (Patch 1) setzt ihn.
 - **Fix:** `reload=False` (die `reload_*`-Argumente entfallen) +
   `respawn_failed_workers=True` + `respawn_interval=3.5`. Kein Backend-Hot-Reload
   mehr — nach Code-Änderungen ohnehin Service-Restart.
@@ -308,7 +314,9 @@ läuft. Zusätzlich meldet der Worker-Wächter bei
   Absturz innerhalb 5,5 s nach einem Respawn (Crash-Schleife, z.B. Startfehler
   im Code) → Master beendet sich → systemd startet den Dienst neu.
 - **Abgenommen 2026-09-22:** `kill -SEGV <worker-pid>` → Backend nach 4 s
-  wieder da, Master + bun unverändert.
+  wieder da, Master + bun unverändert. **Erneut 2026-11-07 unter Reflex 0.10.1 und Granian 2.8.4:**
+  Backend nach 5,0 s wieder da, Master unverändert; der neue Worker durchläuft die
+  Lifespan-Tasks erneut (Message Hub startet alle Kanäle neu).
 
 **Bei Reflex-Update:** Patch erneut anwenden:
 ```python
