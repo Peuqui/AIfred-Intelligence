@@ -55,7 +55,9 @@ ein Tab offen ist. Mehrere Tabs oder Geräte sehen dieselbe Sitzung live.
   Inhaber). Fehlt der Agent eines Platzes, lehnt der Zug laut ab (`seat`). Der Temperaturaufschlag im
   Modus auto gehört dem Agenten (`temperature_offset`). Der Reflex-Weg (`lib/multi_agent.py`) spricht
   bis zum Wechsel weiter fest mit AIfred, Sokrates und Salomo (`debate_seats.REFLEX_SEATS`).
-  Abschalten und Löschen kommen mit der Agenten-Seite in Schritt 5.
+  In der Vue-Oberfläche stellt die Kopfleiste des Chats Modus, Plätze und die Teilnehmer des Symposions
+  ein (`DebateControls.vue`, `GET /api/debate/modes`). Abschalten und Löschen kommen mit der
+  Agenten-Seite in Schritt 5.
 - **Agenten-Übersicht** (Peuqui 07.11.2026): je Agent eine Karte mit Persona, Rechten und
   Einstellungen, oben rechts ein Schalter wie bei den Plugins. Jeder Agent ist zur Laufzeit
   ein- und ausschaltbar und löschbar, auch Sokrates und Salomo.

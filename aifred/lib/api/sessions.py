@@ -223,6 +223,19 @@ async def sessions_configure(session_id: str, update: SessionConfigUpdate, reque
     return public
 
 
+class DebateMode(BaseModel):
+    mode: str
+    seats: list[str] = Field(description="The seats a session chooses for this mode (critic, judge)")
+
+
+@api_app.get("/debate/modes", response_model=list[DebateMode], tags=["Sessions"])
+async def debate_modes() -> list[DebateMode]:
+    """The multi-agent modes a session can be in, each with the seats it chooses."""
+    from ..turn_debate import chosen_seats
+
+    return [DebateMode(mode=mode, seats=list(chosen_seats(mode))) for mode in MULTI_AGENT_MODES]
+
+
 # ── Send, stop ───────────────────────────────────────────────────────────
 
 

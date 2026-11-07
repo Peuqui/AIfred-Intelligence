@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
-import type { AgentSummary, CropBox } from "../api/types";
+import type { AgentSummary, CropBox, DebateMode } from "../api/types";
 import AgentChoicesModal from "../components/AgentChoicesModal.vue";
 import AgentSelect from "../components/AgentSelect.vue";
+import DebateControls from "../components/DebateControls.vue";
 import ChatInput from "../components/ChatInput.vue";
 import DebugConsole from "../components/DebugConsole.vue";
 import ImageEditor from "../components/ImageEditor.vue";
@@ -19,6 +20,7 @@ const sessions = useSessions();
 const chat = useChat();
 const settings = useSettings();
 const agents = ref<AgentSummary[]>([]);
+const modes = ref<DebateMode[]>([]);
 const messages = ref<HTMLElement | null>(null);
 const streamingHtml = computed(() => (chat.streaming ? renderMarkdown(chat.streaming.text) : ""));
 const hasReplies = computed(() => chat.history.some((entry) => entry.role === "assistant"));
@@ -51,6 +53,7 @@ async function cropImage(box: CropBox): Promise<void> {
 
 async function start(): Promise<void> {
   agents.value = await api<AgentSummary[]>("agents/summary");
+  modes.value = await api<DebateMode[]>("debate/modes");
   await sessions.refresh();
   const latest = sessions.list[0];
   await chat.open(latest ? latest.session_id : await sessions.create());
@@ -106,6 +109,7 @@ onMounted(() => void start());
             {{ chat.config.incognito ? "🔒" : "🔓" }}
           </button>
           <AgentSelect :agents="agents" :active="chat.config.active_agent" @choose="(agent) => chat.configure({ active_agent: agent })" />
+          <DebateControls :config="chat.config" :agents="agents" :modes="modes" @configure="chat.configure" />
         </div>
       </div>
       <div ref="messages" class="messages">

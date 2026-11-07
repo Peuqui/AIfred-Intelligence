@@ -81,6 +81,14 @@ def test_the_debate_seats_are_the_sessions_choice_over_the_default(client: TestC
     assert session_storage.get_session_config(MINE)["debate_seats"] == {"critic": "pater"}
 
 
+def test_every_mode_names_the_seats_a_session_chooses_for_it(client: TestClient) -> None:
+    modes = {entry["mode"]: entry["seats"] for entry in client.get("/debate/modes").json()}
+    assert modes == {
+        "standard": [], "critical_review": ["critic"], "auto_consensus": ["critic", "judge"],
+        "tribunal": ["critic", "judge"], "symposion": [],
+    }
+
+
 def test_the_config_model_names_every_field_of_a_session_config() -> None:
     from aifred.lib.api.sessions import SessionConfig
 

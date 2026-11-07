@@ -11,6 +11,7 @@ import type {
   DictationAccepted,
   MessageAccepted,
   SessionConfig,
+  SessionConfigUpdate,
   SessionDetail,
   UploadedImage,
 } from "../api/types";
@@ -30,7 +31,9 @@ export const useChat = defineStore("chat", () => {
   const title = ref<string | null>(null);
   const history = ref<ChatEntry[]>([]);
   const debugLines = ref<string[]>([]);
-  const config = ref<SessionConfig>({ active_agent: "aifred", multi_agent_mode: "standard", symposion_agents: [], incognito: false });
+  const config = ref<SessionConfig>({
+    active_agent: "aifred", multi_agent_mode: "standard", symposion_agents: [], incognito: false, debate_seats: {},
+  });
   const running = ref(false);
   const streaming = ref<Streaming | null>(null);
   const toolStatus = ref("");
@@ -282,12 +285,17 @@ export const useChat = defineStore("chat", () => {
     await api<{ cancelled: boolean }>(`sessions/${sessionId.value}/stop`, { method: "POST" });
   }
 
-  async function configure(changes: Partial<SessionConfig>): Promise<void> {
+  // A choice of this session (agent, mode, seats, incognito); a refused one shows why.
+  async function configure(changes: SessionConfigUpdate): Promise<void> {
     if (!sessionId.value) return;
-    config.value = await api<SessionConfig>(`sessions/${sessionId.value}/config`, {
-      method: "PATCH",
-      body: JSON.stringify(changes),
-    });
+    try {
+      config.value = await api<SessionConfig>(`sessions/${sessionId.value}/config`, {
+        method: "PATCH",
+        body: JSON.stringify(changes),
+      });
+    } catch (error) {
+      notice.value = error instanceof ApiError ? error.detail : String(error);
+    }
   }
 
   return {

@@ -65,6 +65,11 @@ _DEBATE_SEATS: dict[str, tuple[str, ...]] = {
     "tribunal": (SEAT_MAIN, SEAT_CRITIC, SEAT_JUDGE),
 }
 
+def chosen_seats(mode: str) -> tuple[str, ...]:
+    """The seats of ``mode`` a session chooses (critic, judge); standard and symposion have none."""
+    return tuple(seat for seat in _DEBATE_SEATS.get(mode, ()) if seat != SEAT_MAIN)
+
+
 # AIfred, the base agent: addressing him by name in a debate mode asks for his answer alone.
 _BASE_AGENT = "aifred"
 
