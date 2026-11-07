@@ -15,10 +15,11 @@ from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
 from ..backends.base import LLMOptions
+from .agent_settings import resolve_agent_temperature
 from .context_manager import (
     estimate_tokens,
     estimate_toolkit_tokens,
-    get_largest_compression_model,
+    largest_compression_model,
     strip_thinking_blocks,
     summarize_history_if_needed,
 )
@@ -42,23 +43,6 @@ from .prompt_loader import (
 
 if TYPE_CHECKING:
     from ..state import AIState
-
-
-
-def resolve_agent_temperature(state: 'AIState', agent: str) -> float:
-    """SSOT for the effective temperature of an agent inference.
-
-    Manual mode: every agent uses its own configured temperature from its
-    ``agent_tuning`` bucket. Auto mode: AIfred's temperature as base, with
-    Sokrates/Salomo adding their offset on top.
-    """
-    from .agent_settings import get_agent_setting
-    if state.temperature_mode == "manual":
-        return float(get_agent_setting(state, agent, "temperature"))
-    aifred_temp = float(get_agent_setting(state, "aifred", "temperature"))
-    if agent in ("sokrates", "salomo"):
-        return min(1.0, aifred_temp + float(get_agent_setting(state, agent, "temperature_offset")))
-    return aifred_temp
 
 
 def _estimate_prompt_tokens(prompt: str) -> int:
@@ -407,10 +391,8 @@ async def _check_compression_if_needed(
     """
     try:
         # Select largest model for compression (AIfred/Sokrates/Salomo)
-        compression_model = get_largest_compression_model(
-            aifred_model=state._effective_model_id("aifred"),
-            sokrates_model=state._effective_model_id("sokrates"),
-            salomo_model=state._effective_model_id("salomo")
+        compression_model = largest_compression_model(
+            state._effective_model_id(agent) for agent in ("aifred", "sokrates", "salomo")
         )
 
         # Run compression check (yields events if compression happens) - DUAL-HISTORY

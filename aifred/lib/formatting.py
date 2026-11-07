@@ -7,6 +7,7 @@ and thinking processes in the Reflex UI.
 
 import re
 import threading
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 from collections import OrderedDict
@@ -407,6 +408,26 @@ def performance_footer_text(metadata: dict) -> str:
     return METADATA_SEPARATOR.join(groups)
 
 
+def build_user_chat_entry(content: str, images: list[dict[str, str]] | None = None) -> dict:
+    """Build a chat_history dict for the user's own message (bubble on the right).
+
+    ``content`` is the display text (thumbnails already in front of it); ``images`` are the
+    attached images as ``{name, url}`` for export and replay.
+    """
+    return {
+        "role": "user",
+        "content": content,
+        "agent": "",
+        "metadata": {"images": images or []},
+        "timestamp": datetime.now().isoformat(),
+        "time_display": datetime.now().strftime("%d.%m. \u2014 %H:%M"),
+        "has_audio": False,
+        "audio_urls_json": "[]",
+        "browser_speech_json": "[]",
+        "tts_note": "",
+    }
+
+
 def build_assistant_chat_entry(
     content: str,
     agent: str = "aifred",
@@ -446,6 +467,57 @@ def build_assistant_chat_entry(
         "browser_speech_json": "[]",
         "tts_note": "",
     }
+
+
+def build_agent_panel_entry(
+    agent: str,
+    content: str,
+    *,
+    mode: str = "standard",
+    round_num: int | None = None,
+    metadata: dict | None = None,
+    marker: str = "",
+    lang: str = "de",
+) -> dict:
+    """chat_history entry of an agent's reply (browser and server build it here).
+
+    ``content`` is the formatted reply (thinking as collapsible, artifacts in turn order) without
+    marker and metrics; ``marker`` labels a multi-agent step (empty in standard mode). The
+    consensus tags become readable words, the metrics footer comes from ``metadata``.
+    """
+    import json
+
+    from .context_manager import strip_thinking_blocks
+    from .i18n import t
+
+    content = re.sub(r"\[LGTM\]", t("consensus_agreed", lang=lang), content, flags=re.IGNORECASE)
+    content = re.sub(r"\[WEITER\]", t("consensus_continue", lang=lang), content, flags=re.IGNORECASE)
+    clean = strip_thinking_blocks(content)
+    msg_metadata = dict(metadata or {})
+    footer = format_performance_footer(msg_metadata) if msg_metadata else ""
+    if marker:
+        final = f"{marker}{clean}\n\n{footer}"
+    else:
+        final = f"{clean}\n\n{footer}" if footer else clean
+    audio_urls = msg_metadata.get("audio_urls", [])
+    if audio_urls:
+        msg_metadata["playback_rate"] = "1.0x"  # speed is baked into the audio
+    entry = build_assistant_chat_entry(final, agent, msg_metadata)
+    entry["mode"] = mode
+    entry["round_num"] = round_num
+    entry["has_audio"] = bool(audio_urls)
+    entry["audio_urls_json"] = json.dumps(audio_urls) if audio_urls else "[]"
+    return entry
+
+
+def assistant_history_entry(agent: str, content: str, history_notes: Sequence[str] = ()) -> dict | None:
+    """llm_history entry of an agent's reply: speaker label, text without thinking, the tools'
+    notes for the next turn. None when nothing is left (a reply of thinking only)."""
+    from .context_manager import strip_thinking_blocks
+    from .message_builder import with_history_notes
+
+    clean = with_history_notes(strip_thinking_blocks(content), history_notes)
+    return {"role": "assistant", "content": f"[{agent.upper()}]: {clean}"} if clean else None
 
 
 def build_channel_chat_entry(content: str, channel: str, sender: str) -> dict:

@@ -224,11 +224,11 @@ class UIConfigMixin(rx.State, mixin=True):
         # ALL matrix agents so the preview is a real pre-flight check that
         # surfaces UI/engine divergence (e.g. a manual per-agent temperature
         # that silently does not take effect).
-        from ..lib.multi_agent import resolve_agent_temperature
+        from ..lib.agent_settings import resolve_agent_temperature
         self.add_debug(f"\U0001f39b️ Sampling ({self.temperature_mode}):")
         for entry in self._ui_agent_list():
             agent = entry["id"]
-            temp = resolve_agent_temperature(self, agent)  # type: ignore[arg-type]
+            temp = resolve_agent_temperature(self, agent)
             self.add_debug(
                 f"   {get_agent_label(agent)}: temp {format_number(temp, 2)}, "
                 f"top_k {int(get_agent_setting(self, agent, 'top_k', 40))}, "

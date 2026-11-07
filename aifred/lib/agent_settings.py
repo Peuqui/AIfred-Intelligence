@@ -23,6 +23,7 @@ __all__ = [
     "get_persisted_tuning",
     "model_owner",
     "persisted_thinking_mode",
+    "resolve_agent_temperature",
     "set_agent_setting",
     "set_thinking_mode",
     "settings_agent",
@@ -125,6 +126,21 @@ def get_agent_base_model_id(state: Any, agent: str) -> str:
         return own
     inherited: str = get_agent_setting(state, "aifred", "model_id", "")
     return inherited
+
+
+def resolve_agent_temperature(state: Any, agent: str) -> float:
+    """SSOT for the effective temperature of an agent inference.
+
+    Manual mode: every agent uses its own configured temperature from its
+    ``agent_tuning`` bucket. Auto mode: AIfred's temperature as base, with
+    Sokrates/Salomo adding their offset on top.
+    """
+    if state.temperature_mode == "manual":
+        return float(get_agent_setting(state, agent, "temperature"))
+    aifred_temp = float(get_agent_setting(state, "aifred", "temperature"))
+    if agent in ("sokrates", "salomo"):
+        return min(1.0, aifred_temp + float(get_agent_setting(state, agent, "temperature_offset")))
+    return aifred_temp
 
 
 def get_persisted_tuning(settings: dict, agent: str, field: str, default: Any) -> Any:

@@ -193,7 +193,7 @@ def resolve_run_params(agent_id: str, state: Any) -> RunParams:
     """Model, context and temperature for the sub-agent's inference."""
     if state is not None:
         from ....lib.agent_settings import get_agent_base_model_id
-        from ....lib.multi_agent import resolve_agent_temperature
+        from ....lib.agent_settings import resolve_agent_temperature
         from ....lib.research.context_utils import get_agent_num_ctx
         model = state._effective_model_id(agent_id) or state._effective_model_id("aifred")
         base_id = get_agent_base_model_id(state, agent_id)

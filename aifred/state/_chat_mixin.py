@@ -7,7 +7,6 @@ and chat clearing.
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 from collections.abc import AsyncGenerator, Sequence
 from datetime import datetime
@@ -17,7 +16,6 @@ import reflex as rx
 from reflex.event import EventSpec
 
 from ..lib.config import DEBUG_MESSAGES_MAX, LLAMASWAP_BACKENDS
-from ..lib.context_manager import strip_thinking_blocks
 from ..lib.logging_utils import log_exception, log_message
 
 if TYPE_CHECKING:
@@ -297,16 +295,11 @@ class ChatMixin(rx.State, mixin=True):
             history_notes: What the turn's tools left for the next turn
                 (PipelineResult.history_notes), appended after the answer
         """
-        from ..lib.message_builder import with_history_notes
-        label = agent.upper()
-        clean_content = with_history_notes(strip_thinking_blocks(content), history_notes)
-
-        if clean_content:
+        from ..lib.formatting import assistant_history_entry
+        entry = assistant_history_entry(agent, content, history_notes)
+        if entry:
             ch = self._chat_sub()
-            ch.llm_history = [
-                *ch.llm_history,
-                {"role": "assistant", "content": f"[{label}]: {clean_content}"},
-            ]
+            ch.llm_history = [*ch.llm_history, entry]
 
     # ── Central Agent Panel ──────────────────────────────────────────
 
@@ -341,64 +334,24 @@ class ChatMixin(rx.State, mixin=True):
             metadata: Optional dict with TTFT, inference_time, tokens_per_sec, source
             sync_llm_history: If True, syncs to llm_history (set False if caller already did)
         """
-        from ..lib.i18n import t
+        from ..lib.formatting import build_agent_panel_entry
         from ..lib.prompt_loader import get_language
 
-        # 1. Build marker (emoji + mode label + round number)
         marker = self._build_marker(agent, mode, round_num if round_num and round_num > 0 else None)
-
-        # 2. Format metadata footer — with the intent call's model load of
-        # this turn, if there was one (the first answer after it carries it,
-        # added to a load the answer's own call measured)
+        # The intent call's model load of this turn, if there was one: the first answer after it
+        # carries it, added to a load the answer's own call measured.
         msg_metadata = metadata.copy() if metadata else {}
         if self._pending_load_time and msg_metadata:
             msg_metadata["load_time"] = msg_metadata.get("load_time", 0.0) + self._pending_load_time
             self._pending_load_time = 0.0
-        meta_footer = self._format_panel_metadata(msg_metadata)
-
-        # 3. Translate consensus tags to natural language for UI display
-        # These are trigger words for the Multi-Agent system, already parsed by count_lgtm_votes()
-        # Now we make them human-readable in the UI (and TTS will speak what's displayed)
-        # Uses detected language (from Intent Detection) for correct localization
-        lang = self._last_detected_language or get_language()
-        content = re.sub(r'\[LGTM\]', t("consensus_agreed", lang=lang), content, flags=re.IGNORECASE)
-        content = re.sub(r'\[WEITER\]', t("consensus_continue", lang=lang), content, flags=re.IGNORECASE)
-
-        # 4. Remove thinking blocks from content before storing (for History/Token estimation)
-        clean_content = strip_thinking_blocks(content)
-
-        # 5. Assemble final content for display
-        if marker:
-            final_content = f"{marker}{clean_content}\n\n{meta_footer}"
-        else:
-            # Standard mode: no marker, just content + metadata
-            final_content = f"{clean_content}\n\n{meta_footer}" if meta_footer else clean_content
-
-        # 5. Create new message entry (dict-based format)
-        # Include audio URLs if streaming TTS generated them
         if self._pending_audio_urls:
             msg_metadata["audio_urls"] = self._pending_audio_urls.copy()
             log_message(f"🔊 _add_agent_panel: Stored {len(self._pending_audio_urls)} audio URLs in message metadata")
             self._pending_audio_urls: list[str] = []
-
-        # Store agent's playback rate for HTML export (browser speed setting, per-agent)
-        # Always set when audio_urls are present, regardless of source
-        audio_urls = msg_metadata.get("audio_urls", [])
-        if audio_urls:
-            msg_metadata["playback_rate"] = "1.0x"  # Speed is baked into audio via engine or ffmpeg
-        # SSOT: base dict from shared builder
-        from ..lib.formatting import build_assistant_chat_entry
-        new_message: dict[str, Any] = build_assistant_chat_entry(final_content, agent, msg_metadata)
-
-        # Browser-specific fields (mode, round, audio, sources)
-        new_message["mode"] = mode
-        new_message["round_num"] = round_num
-        new_message["used_sources"] = []
-        new_message["failed_sources"] = []
-        new_message["has_audio"] = bool(audio_urls)
-        new_message["audio_urls_json"] = json.dumps(audio_urls) if audio_urls else "[]"
-        new_message["browser_speech_json"] = "[]"
-        new_message["tts_note"] = ""
+        new_message = build_agent_panel_entry(
+            agent, content, mode=mode, round_num=round_num, metadata=msg_metadata, marker=marker,
+            lang=self._last_detected_language or get_language(),
+        )
 
         # 5. Append to chat_history (no more replace_last!).
         # Reassign instead of .append() so Reflex picks up the change.
@@ -676,7 +629,7 @@ class ChatMixin(rx.State, mixin=True):
             return
 
         from ..lib.context_manager import (
-            get_largest_compression_model,
+            largest_compression_model,
             summarize_history_if_needed,
         )
         from ..lib.prompt_loader import get_max_direct_prompt_tokens
@@ -707,10 +660,8 @@ class ChatMixin(rx.State, mixin=True):
             memory=self.agent_memory_enabled,
         )
 
-        compression_model = get_largest_compression_model(
-            aifred_model=self._effective_model_id("aifred"),
-            sokrates_model=self._effective_model_id("sokrates"),
-            salomo_model=self._effective_model_id("salomo"),
+        compression_model = largest_compression_model(
+            self._effective_model_id(agent) for agent in ("aifred", "sokrates", "salomo")
         )
 
         async for event in summarize_history_if_needed(

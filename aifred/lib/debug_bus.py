@@ -56,8 +56,8 @@ def debug(msg: str) -> None:
     """Emit a debug message.
 
     - Always: writes to log_message() (logfile + console queue)
-    - If session_scope active: writes immediately to session file
-      so the UI timer (1s polling) can pick it up in near-realtime.
+    - If session_scope active: writes immediately to session file (the Reflex UI picks it up
+      through its polling timer) and sends it as a ``debug`` event to the session's clients.
 
     Args:
         msg: The debug message (without timestamp — added automatically).
@@ -66,8 +66,10 @@ def debug(msg: str) -> None:
 
     sid = _current_session.get()
     if sid:
-        ts = datetime.now().strftime("%H:%M:%S")
-        _flush_to_session(sid, [f"{ts} | {msg}"])
+        line = f"{datetime.now().strftime('%H:%M:%S')} | {msg}"
+        _flush_to_session(sid, [line])
+        from . import session_events
+        session_events.publish(sid, "debug", {"line": line})
 
 
 

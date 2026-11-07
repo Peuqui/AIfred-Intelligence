@@ -8,7 +8,7 @@ Handles token estimation and history compression for LLMs:
 
 import json
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from typing import TYPE_CHECKING, Any
 
 from .config import (
@@ -82,48 +82,21 @@ def parse_model_size_from_name(model_name: str) -> float:
     return 0.0
 
 
-def get_largest_compression_model(
-    aifred_model: str,
-    sokrates_model: str,
-    salomo_model: str
-) -> str:
+def largest_compression_model(models: Iterable[str]) -> str:
+    """The largest of the given models (by parameter count in the name) for history compression.
+
+    Compression quality is critical, so the most capable model of the turn's agents compresses.
+    A model whose size the name does not tell counts only when no size is known at all; then
+    the first given model compresses. Empty ids are skipped.
     """
-    Select the largest model from AIfred, Sokrates, and Salomo for compression.
-
-    Compression quality is critical - use the most capable model available.
-    Falls back to aifred_model if sizes cannot be determined.
-
-    Args:
-        aifred_model: AIfred's model ID
-        sokrates_model: Sokrates' model ID
-        salomo_model: Salomo's model ID
-
-    Returns:
-        str: Model ID of the largest model (by parameter count)
-    """
-    candidates = [
-        (aifred_model, parse_model_size_from_name(aifred_model)),
-        (sokrates_model, parse_model_size_from_name(sokrates_model)),
-        (salomo_model, parse_model_size_from_name(salomo_model)),
-    ]
-
-    # Filter out empty models and sort by size (descending)
-    valid_candidates = [(m, s) for m, s in candidates if m and s > 0]
-
-    if not valid_candidates:
-        # Fallback: return first non-empty model
-        for model, _ in candidates:
-            if model:
-                return model
-        return aifred_model  # Ultimate fallback
-
-    # Sort by size descending, return largest
-    valid_candidates.sort(key=lambda x: x[1], reverse=True)
-    largest_model, largest_size = valid_candidates[0]
-
-    log_message(f"🗜️ Compression model: {largest_model} ({largest_size}B) - largest of AIfred/Sokrates/Salomo")
-
-    return largest_model
+    named = [model for model in models if model]
+    sized = [(model, parse_model_size_from_name(model)) for model in named]
+    known = [(model, size) for model, size in sized if size > 0]
+    if not known:
+        return named[0] if named else ""
+    largest, size = max(known, key=lambda entry: entry[1])
+    log_message(f"🗜️ Compression model: {largest} ({size}B) - largest of the turn's agents")
+    return largest
 
 
 def count_tokens_with_tokenizer(text: str) -> int:
