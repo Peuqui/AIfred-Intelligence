@@ -59,6 +59,10 @@ ein Tab offen ist. Mehrere Tabs oder Geräte sehen dieselbe Sitzung live.
   einzeln, auch im Direktchat (bis dahin dachte dort jeder Agent nach AIfreds Zeile).
 - **Titel** vom Modell des letzten Aufrufs im Zug, mit dessen Kontext: Das ist das gerade geladene,
   für den Titel wird nichts nachgeladen (vorher immer AIfreds Modell).
+- **Agenten-Schnellwahl als Modal** (Peuqui 07.11.2026): Die Liste vorne im Hauptschirm (je Agent
+  Modell, 🎩 Persona, 💭 Reasoning, 🧠 Denken, ⚡ Speed; dazu Automatik und Vision) wandert in ein
+  Modal hinter einem Knopf. Wirkt sofort wie heute, schreibt dieselben Felder wie die Agentenkarte
+  (eine Komponente für beide). Keine Einstellungen nur für eine Sitzung.
 
 ## Schritt 2 im Einzelnen: Zug-Dienst ohne State
 
