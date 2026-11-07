@@ -125,10 +125,11 @@ else
 fi
 echo ""
 
-# Reflex hat einen Routing-Bug bei frontend_path (siehe CLAUDE.md →
-# "Reflex Patch"). Wir patchen route.py idempotent — bei zukünftigem
-# Upstream-Fix wird das automatisch übersprungen.
-echo "🔧 Wende Reflex-Patch (frontend_path Route-Matching) an..."
+# Reflex-Patches (Typ-Marker und -Stubs für mypy, Upload-Kontext; Liste im
+# Docstring von patch-reflex.py, siehe CLAUDE.md → "Reflex Patch"). Idempotent:
+# Gepatchte Stellen werden übersprungen; fehlt der Originaltext (upstream
+# geändert), meldet das Skript es und lässt die Datei unverändert.
+echo "🔧 Wende Reflex-Patches an..."
 python "$SCRIPT_DIR/patch-reflex.py" || true
 
 echo ""

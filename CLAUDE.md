@@ -283,27 +283,6 @@ Raums laufen nacheinander). Aufrufer ist z. B. Agent-Orc.
 
 ---
 
-## ⚠️ Reflex Patch: frontend_path Route-Matching Bug
-
-**Reflex v0.8.24 hat einen Bug** im Route-Matching bei `frontend_path`:
-
-- **Datei:** `venv/lib/python3.12/site-packages/reflex/route.py`, Zeile 217
-- **Bug:** `path.removeprefix(config.frontend_path)` matcht nicht, weil der Browser-Pfad
-  mit `/` beginnt (`/aifred/`) aber `frontend_path` kein `/` hat (`aifred`)
-- **Fix:** `path.removeprefix("/" + config.frontend_path)`
-- **Auswirkung ohne Fix:** `on_load` feuert nie → App bleibt bei "wird initialisiert..." hängen
-
-**Bei Reflex-Update:** Prüfen ob der Bug upstream gefixt wurde. Falls nicht, Patch erneut anwenden:
-```python
-# route.py, Funktion get_route(), ca. Zeile 217
-# VORHER (Bug):
-path = path.removeprefix(config.frontend_path)
-# NACHHER (Fix):
-path = path.removeprefix("/" + config.frontend_path)
-```
-
----
-
 ## ⚠️ Reflex Patch: Worker-Respawn nach Crash
 
 **Problem:** `reflex run` startet granian programmatisch (`exec.py`,
@@ -368,6 +347,8 @@ Gefunden 06.11.2026: Ein Diktat „Direkt senden“ wird während des Aufnahme-U
 `scripts/patch-reflex.py` (Patch 9) setzt `self._root_context.fork(token=token)` ein: eigene
 txid, bleibt ein Wurzelereignis. `tests/test_reflex_upload_context.py` schlägt fehl, solange der
 Patch fehlt. **Bei Reflex-Update:** `patch-reflex.py` erneut laufen lassen.
+Upstream behoben mit PR #7357 (30.09.2026, frischer Kontext statt Kopie der Wurzel), enthalten ab
+v0.10.0; 0.9.12 und 0.9.13 haben den Fehler noch. Mit dem Wechsel auf 0.10 entfällt Patch 9.
 
 ---
 
