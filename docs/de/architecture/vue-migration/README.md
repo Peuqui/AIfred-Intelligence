@@ -133,6 +133,23 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
 - **Dateien unter `/_upload/`** (Ton, Bilder, Dokumente): die Tabelle der Ordner und wer sie ohne
   Anmeldung sehen darf, steht in `lib/upload_files.py` (`mount_upload_folders`); die Reflex-App ruft
   sie auf, der Server ohne Reflex muss es beim Wechsel ebenso tun.
+- **Agenten-Schnellwahl (erledigt 07.11.2026):** 🎛️ in der Kopfleiste des Chats öffnet
+  `AgentChoicesModal.vue`: jeder Agent mit Modell („(wie AIfred-LLM)“ außer bei AIfred), 🎩 (sein
+  Emoji), 💭, 🧠 mit den Optionen seines Modells und ⚡, wo es eine `-speed`-Variante gibt; dazu das
+  Automatik- und das Vision-Modell (mit Swap-Plakette). Eine Zeile `AgentChoicesRow.vue` dient später
+  auch der Agentenkarte. Gezeigt werden immer alle Agenten (Reflex blendete Sokrates und Salomo je nach
+  Modus der Sitzung aus; das Modal ist eine Einstellung von AIfred, nicht der Sitzung). Server:
+  `GET /api/agents/choices`, `PATCH /api/agents/{id}/choices` (`automatik` nur Modell). Die Regeln stehen
+  in `lib/agent_choices.py` und gelten auch für den Reflex-State: Denk-Optionen als Wert und
+  Beschriftung, Sampling eines Modells (llama-swap-Flags bzw. `generation_config.json`), Modellwahl mit
+  ihren Folgen (Eigenschaften aus den Caches, Speed aus ohne Variante, Sampling des Agenten und bei
+  AIfred aller Agenten auf seinem Modell; Vision behält sein Sampling), Vision-Liste mit Plakette.
+  Geschrieben wird schlüsselweise (`agent_tuning` der geänderten Agenten, `backend_models` des Backends).
+  Nicht übernommen: RoPE-Wahl (nur Ollama, nicht gespeichert) und Modelllisten der Cloud-Backends.
+  **Grenze bis zum Wechsel:** Reflex schreibt `agent_tuning` und `backend_models` bei jedem Speichern
+  ganz aus seinem Speicher. Laufen beide Oberflächen gegen dieselbe `settings.json`, überschreibt der
+  nächste Klick in einem Reflex-Tab, was die Schnellwahl geschrieben hat, und offene Reflex-Tabs sehen
+  ihre Änderungen erst nach dem Neuladen.
 - **Bilder drehen und zuschneiden (erledigt 07.11.2026):** ✂️ am Vorschaubild öffnet `ImageEditor.vue`
   (Rahmen mit Ecken und Kanten, Mindestseite 10 %, Rechnung in `lib/cropBox.ts`). Der Server
   (`turn_images.rotate_upload`, `crop_upload`) legt das Bild als neue Datei unter neuem Namen ab und

@@ -188,7 +188,7 @@ Timer/Polling: kein eigener Timer. Der Lauf pollt selbst (2 s Drain, 3 s GPU-Lee
 | `set_automatik_model` | Handler | Sentinel → leer, speichern, Info (BM:1580-1595) | – | `settings.json` |
 | `set_vision_model` | Handler | setzen, Parameter, Speed-Variante prüfen (BM:1597-1614) | `calibration.model_has_speed_variant` | `settings.json` |
 | `_load_agent_model_params`, `_load_all_agent_model_params` | intern | `rope_factor`, `max_context`, `is_hybrid`, `supports_thinking`, `has_speed_variant` je Agent aus Cache/YAML/Betriebspunkt (BM:271-342) | `model_vram_cache`, `operating_points.get_vllm_entry_context`, `calibration.model_has_speed_variant`, `agent_settings` | – |
-| `_detect_vision_models`, `_build_vision_rich`, `_vision_candidate_catalog` | intern | Vision-Kandidaten und Swap-Badges; unter vLLM zusätzlich GGUF-Sicht von llama-swap (BM:1187-1316) | `vision_utils`, `vision_routing.fitting_visiond/vision_swap_status`, `ollama_models`, `model_discovery` | `settings.json` (Auto-Wahl) |
+| `_detect_vision_models`, `_build_vision_rich`, `_vision_candidate_catalog` | intern | Vision-Kandidaten und Swap-Badges; unter vLLM zusätzlich GGUF-Sicht von llama-swap (BM:1187-1316) | seit 07.11.2026 `agent_choices.vision_candidates`/`vision_options`/`vision_catalog` | `settings.json` (Auto-Wahl) |
 | `_catalog_for`, `_label_for`, `_sync_agent_display_names` | intern | Label zur Modell-ID (BM:1120-1177) | – | – |
 | `_cleanup_old_backend` | intern | Ollama entladen bzw. llama-swap stoppen beim Verlassen der Familie (BM:1322-1352) | `LLMClient`, `process_utils` | – |
 | `_clear_models_state` | intern | Katalog leeren (BM:344-351) | – | – |

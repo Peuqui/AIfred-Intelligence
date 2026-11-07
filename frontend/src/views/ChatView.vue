@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { AgentSummary, CropBox } from "../api/types";
+import AgentChoicesModal from "../components/AgentChoicesModal.vue";
 import AgentSelect from "../components/AgentSelect.vue";
 import ChatInput from "../components/ChatInput.vue";
 import DebugConsole from "../components/DebugConsole.vue";
@@ -22,6 +23,9 @@ const agents = ref<AgentSummary[]>([]);
 const messages = ref<HTMLElement | null>(null);
 const streamingHtml = computed(() => (chat.streaming ? renderMarkdown(chat.streaming.text) : ""));
 const hasReplies = computed(() => chat.history.some((entry) => entry.role === "assistant"));
+
+// The agents' quick choices (models and switches) behind the 🎛️ button.
+const choicesOpen = ref(false);
 
 // The image of the next message in the crop dialog (its place in the list: turning gives it a new name).
 const editing = ref<number | null>(null);
@@ -103,6 +107,7 @@ onMounted(async () => {
       <div class="toolbar">
         <h2>{{ chat.title || t("untitled_chat") }}</h2>
         <div class="choices">
+          <button class="agent-choices" :title="t('agent_choices_title')" @click="choicesOpen = true">🎛️</button>
           <button
             v-if="chat.speechSettings.enable_tts && hasReplies"
             class="regenerate"
@@ -156,6 +161,7 @@ onMounted(async () => {
         @dictation-settings="chat.changeDictationSettings"
       />
       <DebugConsole :lines="chat.debugLines" />
+      <AgentChoicesModal v-if="choicesOpen" @close="choicesOpen = false" />
       <ImageEditor
         v-if="editingImage"
         :image="editingImage"
@@ -186,7 +192,7 @@ onMounted(async () => {
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 1rem; }
 .choices { display: flex; align-items: center; gap: 10px; }
-.incognito, .regenerate { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
+.incognito, .regenerate, .agent-choices { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
 .regenerate:disabled { opacity: 0.7; cursor: progress; }
 .incognito.on { border-color: var(--aifred-accent-amber); }
 .messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }

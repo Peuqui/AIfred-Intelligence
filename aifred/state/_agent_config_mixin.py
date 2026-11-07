@@ -23,24 +23,8 @@ from ..lib.agent_tuning import (
 )
 
 if TYPE_CHECKING:
-    from ..lib.gguf_utils import ReasoningInfo
+    from ..lib.agent_choices import Option
     from ..lib.vision_routing import Describer
-from ..lib.config import (
-    DEFAULT_MIN_P,
-    DEFAULT_REPEAT_PENALTY,
-    DEFAULT_TOP_K,
-    DEFAULT_TOP_P,
-    LLAMASERVER_DEFAULT_MIN_P,
-    LLAMASERVER_DEFAULT_REPEAT_PENALTY,
-    LLAMASERVER_DEFAULT_TEMPERATURE,
-    LLAMASERVER_DEFAULT_TOP_K,
-    LLAMASERVER_DEFAULT_TOP_P,
-    VISION_DEFAULT_MIN_P,
-    VISION_DEFAULT_REPEAT_PENALTY,
-    VISION_DEFAULT_TEMPERATURE,
-    VISION_DEFAULT_TOP_K,
-    VISION_DEFAULT_TOP_P,
-)
 
 # NOTE (mypy SCC): agent_tuning.py is dependency-free and safe to import at
 # module level. aifred.lib.agent_settings must still be imported lazily in
@@ -148,63 +132,31 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     # ── Thinking Mode (dropdown: off / on / effort level) ─────────
 
-    def _thinking_mode_labels(self) -> tuple[str, str, str]:
-        """(off_label, on_label, default_label) in the current UI language.
-        Effort levels stay raw — they are the template's proper names (e.g. "max")."""
-        from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"
-        return (
-            t("thinking_mode_off", lang=lang),
-            t("thinking_mode_on", lang=lang),
-            t("thinking_mode_default", lang=lang),
-        )
+    def _thinking_choices(self, agent: str) -> tuple[str, list[Option]]:
+        """The agent's thinking choice and the options of its model (rule: ``agent_choices.thinking_choices``)."""
+        from ..lib.agent_choices import thinking_choices
+        return thinking_choices(self, agent, self.ui_language if self.ui_language != "auto" else "de")
 
-    def _set_agent_thinking_mode(self, agent: str, mode: str) -> None:
-        """Dropdown label → the agent's thinking choice on the model it runs on.
-
-        off → thinking off; on → thinking on with template default;
-        any other value → thinking on + that effort level.
-        """
-        from ..lib.agent_settings import (
-            THINKING_OFF,
-            THINKING_ON,
-            get_agent_base_model_id,
-            set_thinking_mode,
-        )
-        off_label, on_label, _ = self._thinking_mode_labels()
-        if mode == off_label:
-            mode = THINKING_OFF
-        elif mode in (on_label, self._thinking_on_option(agent)):
-            # Plain label or default-annotated variant ("An (xhigh)") —
-            # both mean "on with template default", no stored effort.
-            mode = THINKING_ON
-        model_id = get_agent_base_model_id(self, agent)
-        set_thinking_mode(self, agent, model_id, mode)
+    def _set_agent_thinking_mode(self, agent: str, label: str) -> None:
+        """Dropdown label → the agent's thinking choice on the model it runs on. A label the menu
+        no longer offers (the model changed meanwhile) is stored as the level it names."""
+        from ..lib.agent_choices import choose_thinking
+        from ..lib.agent_settings import get_agent_base_model_id
+        _, options = self._thinking_choices(agent)
+        mode = next((option.value for option in options if option.label == label), label)
+        choose_thinking(self, agent, mode)
         emoji = _FEATURE_EMOJI["thinking"]
-        self.add_debug(f"{emoji} {agent.capitalize()} thinking on {model_id}: {mode}")
+        self.add_debug(f"{emoji} {agent.capitalize()} thinking on {get_agent_base_model_id(self, agent)}: {mode}")
         self._save_settings()
 
     def _agent_thinking_mode(self, agent: str) -> str:
         """Dropdown label of the agent's thinking choice on the model it runs on."""
-        from ..lib.agent_settings import (
-            THINKING_OFF,
-            THINKING_ON,
-            get_agent_base_model_id,
-            thinking_mode,
-        )
-        mode = thinking_mode(self, agent, get_agent_base_model_id(self, agent))
-        if mode == THINKING_OFF:
-            off_label, _, _ = self._thinking_mode_labels()
-            return off_label
-        # Ein explizit gespeichertes Level, das zufällig dem Template-Default
-        # entspricht (Qwen3.8: "xhigh"), zeigt "An (xhigh)" statt "xhigh" —
-        # als eigener Options-Eintrag existiert "xhigh" nicht mehr (siehe
-        # _agent_thinking_options), sonst hätte das Dropdown einen Wert
-        # gewählt, der in seiner eigenen Liste fehlt.
-        info = self._thinking_info(agent)
-        if mode == THINKING_ON or (info is not None and mode == info.default):
-            return self._thinking_on_option(agent)
-        return mode
+        mode, options = self._thinking_choices(agent)
+        return next((option.label for option in options if option.value == mode), mode)
+
+    def _agent_thinking_options(self, agent: str) -> list[str]:
+        """The labels of the thinking options of the agent's model."""
+        return [option.label for option in self._thinking_choices(agent)[1]]
 
     # AIfred/Vision keep dedicated vars — their rows are special-cased in
     # the UI (main-model select, vision badges), not part of the foreach.
@@ -215,62 +167,6 @@ class AgentConfigMixin(rx.State, mixin=True):
     @rx.var(deps=["agent_tuning", "ui_language"], auto_deps=False)
     def vision_thinking_mode(self) -> str:
         return self._agent_thinking_mode("vision")
-
-    def _thinking_info(self, agent: str) -> ReasoningInfo | None:
-        """What the chat template of the model this agent runs on lets it
-        choose (gguf_utils.resolve_reasoning_info SSOT); ``None`` = unknown.
-
-        Agenten ohne eigenes Modell ("(wie AIfred-LLM)") erben AIfreds LLM —
-        und damit dessen Stufen (get_agent_base_model_id), sodass ein
-        AIfred-Modellwechsel das Menü aller Erben mitzieht."""
-        from ..lib.agent_settings import get_agent_base_model_id
-        from ..lib.gguf_utils import resolve_reasoning_info
-        model_id = get_agent_base_model_id(self, agent)
-        return resolve_reasoning_info(model_id) if model_id else None
-
-    def _thinking_on_option(self, agent: str) -> str:
-        """Dropdown-Label für "Thinking an ohne Stufen-Vorgabe".
-
-        Trägt das Template seinen eigenen Default (Qwen3.8:
-        ``default('xhigh')``), zeigt das Label ihn an — "An (xhigh)" —
-        weil ein nacktes "An" sonst kontraintuitiv NEBEN den expliziten
-        Stufen steht, obwohl es einer davon entspricht. Lässt sich das
-        Denken gar nicht abschalten (GLM-5.3), hat "An" kein Gegenstück:
-        Der Eintrag heißt dann nach seiner Stufe — "max (Standard)" — und
-        steht an deren Platz (_agent_thinking_options). Ohne
-        Template-Default (DeepSeek) bleibt es schlicht "An"."""
-        _, on_label, default_label = self._thinking_mode_labels()
-        info = self._thinking_info(agent)
-        if info is None or not info.default:
-            return on_label
-        if not info.switchable:
-            return f"{info.default} ({default_label})"
-        return f"{on_label} ({info.default})"
-
-    def _agent_thinking_options(self, agent: str) -> list[str]:
-        """Only what the model's template can do: "Aus" where thinking can be
-        turned off, "An" and the levels where it thinks — a model without a
-        thinking phase offers nothing but "Aus". Unknown models (Ollama,
-        cloud) offer "Aus"/"An", what any request can send."""
-        off_label, _, _ = self._thinking_mode_labels()
-        info = self._thinking_info(agent)
-        on_option = self._thinking_on_option(agent)
-        if info is None:
-            return [off_label, on_option]
-        if not info.thinks:
-            return [off_label]
-        if not info.switchable:
-            # Immer denkend: nur Stufen, in der Reihenfolge der Vorlage — der
-            # Standard ("max (Standard)") steht an seinem eigenen Platz.
-            levels = [on_option if lv == info.default else lv for lv in info.levels]
-            return levels if info.default in info.levels else [on_option, *levels]
-        # "An (xhigh)" deckt bereits die Stufe ab, auf die das Template ohne
-        # explizite Vorgabe von selbst auflöst — sie zusätzlich als eigenen
-        # "xhigh"-Eintrag zu zeigen wäre dieselbe Redundanz wie "high" vs.
-        # "xhigh" (Template-Alias), nur zwischen implizitem und explizitem
-        # Wert statt zwischen zwei Strings.
-        levels = [lv for lv in info.levels if lv != info.default]
-        return [off_label, on_option, *levels]
 
     @rx.var(deps=["agent_tuning", "ui_language"], auto_deps=False)
     def aifred_thinking_options(self) -> list[str]:
@@ -307,94 +203,31 @@ class AgentConfigMixin(rx.State, mixin=True):
             pass
 
     def _reset_agent_sampling(self, agent: str, include_temperature: bool = True) -> None:
-        """Reset sampling parameters for an agent to model/backend defaults.
+        """Reset sampling parameters for an agent to its model's defaults (rule:
+        ``agent_choices.sampling_defaults``).
 
         Args:
             agent: any registered agent id
             include_temperature: If True, reset temperature too (model change / reset button).
                 If False, keep current temperature (app restart -- temperature is persisted).
         """
-        from ..lib.agent_settings import set_agent_setting
-        if agent == "vision":
-            defaults: dict[str, float] = {
-                "temperature": VISION_DEFAULT_TEMPERATURE,
-                "top_k": VISION_DEFAULT_TOP_K,
-                "top_p": VISION_DEFAULT_TOP_P,
-                "min_p": VISION_DEFAULT_MIN_P,
-                "repeat_penalty": VISION_DEFAULT_REPEAT_PENALTY,
-            }
-        else:
-            defaults = {
-                "temperature": LLAMASERVER_DEFAULT_TEMPERATURE,
-                "top_k": DEFAULT_TOP_K,
-                "top_p": DEFAULT_TOP_P,
-                "min_p": DEFAULT_MIN_P,
-                "repeat_penalty": DEFAULT_REPEAT_PENALTY,
-            }
+        from ..lib.agent_choices import reset_sampling, sampling_defaults
+        reset_sampling(self, agent, sampling_defaults(self, agent), include_temperature=include_temperature)
+        self._note_sampling_reset(agent, include_temperature)
 
-        if self.backend_type == "llamacpp":
-            # Try to get model-specific values from llama-swap YAML
-            # Agents with empty model_id inherit from AIfred
-            from ..lib.agent_settings import get_agent_base_model_id
-            model_id = get_agent_base_model_id(self, agent)
-            if model_id:
-                from ..lib.calibration import (
-                    parse_llamaswap_config,
-                    parse_sampling_from_cmd,
-                )
-                from ..lib.config import LLAMASWAP_CONFIG_PATH
-                config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-                if model_id in config:
-                    yaml_sampling = parse_sampling_from_cmd(config[model_id]["full_cmd"])
-                    defaults = {
-                        "temperature": yaml_sampling.get("temperature", LLAMASERVER_DEFAULT_TEMPERATURE),
-                        "top_k": yaml_sampling.get("top_k", LLAMASERVER_DEFAULT_TOP_K),
-                        "top_p": yaml_sampling.get("top_p", LLAMASERVER_DEFAULT_TOP_P),
-                        "min_p": yaml_sampling.get("min_p", LLAMASERVER_DEFAULT_MIN_P),
-                        "repeat_penalty": yaml_sampling.get("repeat_penalty", LLAMASERVER_DEFAULT_REPEAT_PENALTY),
-                    }
-
-        elif self.backend_type == "vllm":
-            # Modell-Defaults aus der generation_config.json des Checkpoints —
-            # das vLLM-Pendant zu den GGUF-Sampling-Flags im llama-swap-cmd.
-            from ..lib.agent_settings import get_agent_base_model_id
-            model_id = get_agent_base_model_id(self, agent)
-            if model_id:
-                from pathlib import Path
-
-                from ..lib.calibration import parse_llamaswap_config
-                from ..lib.calibration.vllm_probe import generation_defaults
-                from ..lib.config import LLAMASWAP_CONFIG_PATH
-                try:
-                    entry = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(model_id)
-                    if entry:
-                        # SSOT mit der Kalibration: dieselben Defaults, mit
-                        # denen der k-Sweep misst (vllm_probe.generation_defaults).
-                        defaults = generation_defaults(Path(entry["gguf_path"]))
-                except (OSError, ValueError, KeyError) as e:
-                    self.add_debug(f"⚠️ generation_config.json unreadable for {model_id}: {e}")
-
-        if include_temperature:
-            set_agent_setting(self, agent, "temperature", defaults["temperature"])
-        set_agent_setting(self, agent, "top_k", int(defaults["top_k"]))
-        set_agent_setting(self, agent, "top_p", defaults["top_p"])
-        set_agent_setting(self, agent, "min_p", defaults["min_p"])
-        set_agent_setting(self, agent, "repeat_penalty", defaults["repeat_penalty"])
-
-        # Debug log — use get_agent_label for emoji + display_name from config
+    def _note_sampling_reset(self, agent: str, include_temperature: bool) -> None:
+        """The reset in the debug console, and a new key: the sampling inputs mount again with the new values."""
         from ..lib.agent_config import get_agent_label
-        from ..lib.agent_settings import get_agent_base_model_id
-        reset_model = get_agent_base_model_id(self, agent)
-        model_info = f" → {reset_model} defaults" if reset_model else ""
-        temp_info = f"temp={defaults['temperature']}, " if include_temperature else ""
+        from ..lib.agent_settings import get_agent_base_model_id, get_agent_setting
+        model = get_agent_base_model_id(self, agent)
+        model_info = f" → {model} defaults" if model else ""
+        temp_info = f"temp={get_agent_setting(self, agent, 'temperature')}, " if include_temperature else ""
         self.add_debug(
             f"{get_agent_label(agent)} sampling reset{model_info}: "
-            f"{temp_info}top_k={int(defaults['top_k'])}, "
-            f"top_p={defaults['top_p']}, min_p={defaults['min_p']}, "
-            f"rep={defaults['repeat_penalty']}"
+            f"{temp_info}top_k={get_agent_setting(self, agent, 'top_k')}, "
+            f"top_p={get_agent_setting(self, agent, 'top_p')}, min_p={get_agent_setting(self, agent, 'min_p')}, "
+            f"rep={get_agent_setting(self, agent, 'repeat_penalty')}"
         )
-
-        # Increment key to force UI re-mount of input fields
         self.sampling_reset_key += 1
 
     # ================================================================
@@ -810,53 +643,21 @@ class AgentConfigMixin(rx.State, mixin=True):
     }
 
     def _set_secondary_agent_model(self, agent: str, model_id: str) -> None:
-        """Set Sokrates/Salomo LLM model for multi-agent debate (shared logic).
+        """Set the model of an agent other than AIfred (rule: ``agent_choices.choose_model``).
 
         Bekommt die MODELL-ID aus dem Select; das Label wird daraus abgeleitet.
         """
-        from ..lib.agent_settings import set_agent_setting
+        from ..lib.agent_choices import choose_model
+        from ..lib.agent_settings import get_agent_setting
         from ..state._backend_mixin import SAME_AS_AIFRED
         if model_id == SAME_AS_AIFRED:
             model_id = ""
-        set_agent_setting(self, agent, "model_id", model_id)
-        set_agent_setting(self, agent, "model", self._label_for(agent, model_id))
-
-        if not model_id:
-            # "(wie AIfred-LLM)" selected -- clear speed variant
-            set_agent_setting(self, agent, "has_speed_variant", False)
-            set_agent_setting(self, agent, "speed_mode", False)
-
-        # Load all model parameters from cache
-        if self.backend_id == "ollama" and model_id:
-            from ..lib.model_vram_cache import get_model_parameters
-            params = get_model_parameters(model_id)
-            set_agent_setting(self, agent, "rope_factor", params["rope_factor"])
-            set_agent_setting(self, agent, "max_context", params["max_context"])
-            set_agent_setting(self, agent, "is_hybrid", params["is_hybrid"])
-            set_agent_setting(self, agent, "supports_thinking", params["supports_thinking"])
-        elif self.backend_type == "llamacpp" and model_id:
-            from ..lib.calibration import model_has_speed_variant
-            from ..lib.model_vram_cache import (
-                get_llamacpp_calibration,
-                get_thinking_support_for_model,
-            )
-            set_agent_setting(self, agent, "rope_factor", 1.0)
-            set_agent_setting(self, agent, "max_context", get_llamacpp_calibration(model_id) or 0)
-            set_agent_setting(self, agent, "is_hybrid", False)
-            set_agent_setting(self, agent, "supports_thinking", get_thinking_support_for_model(model_id))
-            has_speed = model_has_speed_variant(model_id)
-            set_agent_setting(self, agent, "has_speed_variant", has_speed)
-            if not has_speed:
-                set_agent_setting(self, agent, "speed_mode", False)
-
-        # Reset sampling params to model defaults
-        self._reset_agent_sampling(agent)
-
+        for reset in choose_model(self, agent, model_id, self._label_for(agent, model_id)):
+            self._note_sampling_reset(reset, include_temperature=True)
         self._save_settings()
         emoji = self._SECONDARY_MODEL_EMOJI.get(agent, "\U0001f916")
         if model_id:
-            from ..lib.agent_settings import get_agent_setting as _get
-            self.add_debug(f"{emoji} {agent.capitalize()}-LLM: {_get(self, agent, 'model')}")
+            self.add_debug(f"{emoji} {agent.capitalize()}-LLM: {get_agent_setting(self, agent, 'model')}")
             self._show_model_calibration_info(model_id)
         else:
             self.add_debug(f"{emoji} {agent.capitalize()}-LLM: (same as Main-LLM)")

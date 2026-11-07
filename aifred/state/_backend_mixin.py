@@ -71,6 +71,7 @@ class BackendMixin(rx.State, mixin=True):
 
         def _effective_model_id(self, agent: str) -> str: ...
         def _load_channel_settings(self, settings: dict[str, Any]) -> None: ...
+        def _note_sampling_reset(self, agent: str, include_temperature: bool) -> None: ...
         def _refresh_vision_settings(self) -> None: ...
         def _reset_sampling_for_all_agents(
             self,
@@ -993,61 +994,22 @@ class BackendMixin(rx.State, mixin=True):
         ]
 
     def _vision_candidate_catalog(self) -> dict[str, str]:
-        """Katalog der Vision-Kandidaten (id → Anzeige-Label).
-
-        Unter dem vLLM-Backend: die -vllm-Eintraege selbst (ein Chat-LLM
-        mit eigenem Encoder beschreibt seine Bilder selbst) plus die
-        GGUF-Sicht des llama-swap-Katalogs fuer den Side-Channel-Describer;
-        sonst die Backend-Modellliste selbst.
-        """
-        if self.backend_type == "vllm":
-            from ..lib.model_discovery import discover_llamaswap_models
-            return {
-                **discover_llamaswap_models(self.backend_url, vllm_entries=False),
-                **self.available_models_dict,
-            }
-        return self.available_models_dict
+        """Katalog der Vision-Kandidaten (id → Anzeige-Label), Regel: ``agent_choices.vision_catalog``."""
+        from ..lib.agent_choices import vision_catalog
+        return vision_catalog(self, self.available_models_dict, self.backend_url)
 
     def _build_vision_rich(
         self, vision_model_ids: list[str]
     ) -> list[dict[str, str]]:
-        """Dropdown-Zeilen (Name + Swap-Badge + Farbe) für die Vision-Modelle.
-
-        Gleiche Logik wie die Laufzeitwahl (``vision_routing``):
-        ``🧠 Chat-LLM`` — das Modell IST das Hauptmodell und sieht selbst;
-        ``⚡ No Swap`` (grün) — eine seiner ``-visiond``-Platzierungen passt
-        gerade neben das Geladene (``fitting_visiond``) oder es läuft über den
-        Ollama-Seitenkanal; ``🔄 Swap`` (amber) — es verdrängt das
-        Chat-LLM. Die Ollama-VLM-Liste wird EINmal geholt.
-        """
-        from ..lib.ollama_models import list_ollama_vlm_models
-        from ..lib.vision_routing import (
-            fitting_visiond, same_model, vision_swap_status,
-        )
-        from ..lib.vision_utils import has_native_vision
-        try:
-            oll_names = [m.name for m in list_ollama_vlm_models()]
-        except (RuntimeError, OSError):
-            oll_names = []
-        aifred_base = self.agent_tuning["aifred"].model_id or ""
-
+        """Dropdown-Zeilen (Name + Swap-Badge + Farbe) für die Vision-Modelle (Regel:
+        ``agent_choices.vision_options``, dieselbe wie die Laufzeitwahl)."""
+        from ..lib.agent_choices import vision_options
         catalog = self._vision_candidate_catalog()
-        rows: list[dict[str, str]] = []
-        for mid in vision_model_ids:
-            if mid not in catalog:
-                continue
-            visiond, fit = fitting_visiond(mid)
-            if same_model(mid, aifred_base) and has_native_vision(aifred_base):
-                badge, color = "🧠 Chat-LLM", "green"
-            elif visiond is not None or (
-                fit is None
-                and vision_swap_status(mid, self.backend_id, ollama_names=oll_names)
-            ):
-                badge, color = "⚡ No Swap", "green"
-            else:
-                badge, color = "🔄 Swap", "orange"
-            rows.append({"id": mid, "label": catalog[mid], "badge": badge, "color": color})
-        return rows
+        candidates = {mid: catalog[mid] for mid in vision_model_ids if mid in catalog}
+        return [
+            {"id": option.id, "label": option.label, "badge": option.badge, "color": "green" if option.fits else "orange"}
+            for option in vision_options(self, candidates)
+        ]
 
     async def _detect_vision_models(self) -> None:
         """Detect vision-capable models using backend-specific metadata.
@@ -1059,35 +1021,15 @@ class BackendMixin(rx.State, mixin=True):
         nichts auswaehlbar; Peuqui 2026-08-29).
         """
         from . import _global_backend_state
-        from ..lib.vision_utils import is_vision_model, is_vision_model_sync
+        from ..lib.agent_choices import vision_candidates
 
-        vision_model_ids: list[str] = []
-        candidates: dict[str, str] = self.available_models_dict
-
-        if self.backend_type == "cloud_api":
-            for model_id in candidates:
-                if is_vision_model_sync(model_id):
-                    vision_model_ids.append(model_id)
-        elif self.backend_type == "vllm":
-            candidates = self._vision_candidate_catalog()
-            for model_id in candidates:
-                if is_vision_model_sync(model_id):
-                    vision_model_ids.append(model_id)
-        else:
-            for model_id in candidates:
-                try:
-                    if await is_vision_model(self, model_id):
-                        vision_model_ids.append(model_id)
-                except (RuntimeError, OSError) as e:
-                    log_message(f"⚠️ Vision detection failed for {model_id}: {e}")
+        candidates = await vision_candidates(self, self.available_models_dict, self.backend_url)
+        vision_model_ids = list(candidates)
 
         self.vision_models_cache = vision_model_ids
         _global_backend_state["vision_models_cache"] = vision_model_ids
 
-        self.available_vision_models_list = [
-            candidates.get(mid, mid) for mid in vision_model_ids
-            if mid in candidates
-        ]
+        self.available_vision_models_list = list(candidates.values())
         _global_backend_state["available_vision_models_list"] = self.available_vision_models_list
 
         # Swap-Status pro Modell einmal bestimmen (Ollama-VLM-Liste nur EINmal
@@ -1344,9 +1286,12 @@ class BackendMixin(rx.State, mixin=True):
         """Set selected model and restart backend if needed."""
         from ..lib.vision_utils import is_vision_model
 
-        # Der Select liefert die MODELL-ID (SSoT); das Label ist Ansicht.
-        self.agent_tuning["aifred"].model_id = model_id
-        self.agent_tuning["aifred"].model = self._label_for("aifred", model_id)
+        from ..lib.agent_choices import choose_model
+
+        # Der Select liefert die MODELL-ID (SSoT); das Label ist Ansicht. Eigenschaften, Speed und
+        # Sampling von AIfred und allen Agenten auf seinem Modell: agent_choices.choose_model.
+        for reset in choose_model(self, "aifred", model_id, self._label_for("aifred", model_id)):
+            self._note_sampling_reset(reset, include_temperature=True)
         self.add_debug(f"📝 AIfred-LLM: {self.agent_tuning["aifred"].model}")
 
         # Die Vision-Swap-Badges hängen vom Chat-LLM ab (welche -vlm-Profile
@@ -1361,13 +1306,6 @@ class BackendMixin(rx.State, mixin=True):
                 self.available_vision_models_rich
             )
 
-        # Load model parameters from cache
-        from ..lib.runtime_settings import load_agent_model_params
-        load_agent_model_params(self, "aifred", self.agent_tuning["aifred"].model_id)
-
-        if self.backend_type in LLAMASWAP_BACKENDS and not self.agent_tuning["aifred"].has_speed_variant:
-            self.agent_tuning["aifred"].speed_mode = False
-
         self._show_model_calibration_info(self.agent_tuning["aifred"].model_id)
 
         # Check if switching to non-vision model with pending images
@@ -1376,10 +1314,6 @@ class BackendMixin(rx.State, mixin=True):
                 self.image_upload_warning = "⚠️ Selected model doesn't support images. Images will be ignored when sending."
             else:
                 self.image_upload_warning = ""
-
-        # Reset sampling params to model defaults for all affected agents
-        # (AIfred + every agent inheriting its model, custom agents included)
-        self._reset_sampling_for_all_agents(inheriting_only=True, include_temperature=True)
 
         self._save_settings()
         # vLLM-Eintraege laufen ueber llama-swap: Modellwechsel = Swap beim
@@ -1405,22 +1339,12 @@ class BackendMixin(rx.State, mixin=True):
 
     @rx.event
     async def set_vision_model(self, model_id: str):
-        """Set vision model for OCR/image analysis."""
-        self.agent_tuning["vision"].model_id = model_id
-        self.agent_tuning["vision"].model = self._label_for("vision", model_id)
+        """Set vision model for OCR/image analysis (rule: ``agent_choices.choose_model``)."""
+        from ..lib.agent_choices import choose_model
+
+        choose_model(self, "vision", model_id, self._label_for("vision", model_id))
         self.add_debug(f"👁️ Vision-LLM: {self.agent_tuning["vision"].model}")
         self._show_model_calibration_info(self.agent_tuning["vision"].model_id)
-        # Like every agent (and like the start-up load in _load_all_agent_model_params).
-        if self.backend_type in LLAMASWAP_BACKENDS:
-            from ..lib.runtime_settings import load_agent_model_params
-            load_agent_model_params(self, "vision", model_id)
-
-        if self.backend_type == "llamacpp":
-            from ..lib.calibration import model_has_speed_variant
-            self.agent_tuning["vision"].has_speed_variant = model_has_speed_variant(self.agent_tuning["vision"].model_id)
-            if not self.agent_tuning["vision"].has_speed_variant:
-                self.agent_tuning["vision"].speed_mode = False
-
         self._save_settings()
 
     # ================================================================

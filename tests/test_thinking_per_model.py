@@ -57,9 +57,7 @@ class _State(_StateBase):
     backend_type = "vllm"
     ui_language = "de"
 
-    _thinking_mode_labels = AgentConfigMixin._thinking_mode_labels
-    _thinking_info = AgentConfigMixin._thinking_info
-    _thinking_on_option = AgentConfigMixin._thinking_on_option
+    _thinking_choices = AgentConfigMixin._thinking_choices
     _agent_thinking_options = AgentConfigMixin._agent_thinking_options
     _agent_thinking_mode = AgentConfigMixin._agent_thinking_mode
     _set_agent_thinking_mode = AgentConfigMixin._set_agent_thinking_mode

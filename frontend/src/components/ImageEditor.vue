@@ -5,6 +5,7 @@ import { computed, ref, watch } from "vue";
 import type { UploadedImage } from "../api/types";
 import { t } from "../i18n";
 import { GRIPS, WHOLE, pulled, type Box, type Grip } from "../lib/cropBox";
+import ModalDialog from "./ModalDialog.vue";
 
 const props = defineProps<{ image: UploadedImage; busy: boolean }>();
 const emit = defineEmits<{ rotate: [clockwise: boolean]; crop: [box: Box]; close: [] }>();
@@ -49,8 +50,8 @@ function release(): void {
 </script>
 
 <template>
-  <div class="backdrop" @click.self="emit('close')">
-    <div class="dialog">
+  <ModalDialog @close="emit('close')">
+    <div class="editor">
       <header>✂️ {{ t("crop_modal_title") }}</header>
       <div ref="frame" class="frame" @pointermove="move" @pointerup="release" @pointercancel="release">
         <img :src="image.url" :alt="image.name" draggable="false" />
@@ -66,12 +67,11 @@ function release(): void {
         <button class="apply" :disabled="busy" @click="emit('crop', box)">✓ {{ t("crop_apply") }}</button>
       </div>
     </div>
-  </div>
+  </ModalDialog>
 </template>
 
 <style scoped>
-.backdrop { position: fixed; inset: 0; background: var(--aifred-backdrop); display: flex; align-items: center; justify-content: center; z-index: 100; }
-.dialog { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 20px; max-width: 95vw; max-height: 90dvh; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border-light); border-radius: 12px; }
+.editor { display: flex; flex-direction: column; align-items: center; gap: 14px; }
 header { font-weight: 600; }
 .frame { position: relative; touch-action: none; user-select: none; }
 .frame img { display: block; max-width: 90vw; max-height: 60dvh; border-radius: 8px; }

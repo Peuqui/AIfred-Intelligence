@@ -58,6 +58,8 @@
   "main_llm": "AIfred-LLM:",
   "automatic_llm": "Automatik-LLM:",
   "vision_llm": "Vision-LLM:",
+  "agent_choices_title": "Agenten und Modelle",
+  "dialog_close": "Schließen",
   "message_hub_heading": "🔌 Plugin Manager",
   "message_hub_info": "Plugins verwalten: Channels und Tools ein-/ausschalten",
   "plugin_manager_title": "🔌 Plugin Manager",
