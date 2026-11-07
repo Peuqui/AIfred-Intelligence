@@ -4,6 +4,9 @@
 
 const API_ROOT = new URL("../", document.baseURI);
 
+// How often a page asks again about a run on the server it follows (indexing, a burn-in).
+export const PROGRESS_POLL_MS = 700;
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,

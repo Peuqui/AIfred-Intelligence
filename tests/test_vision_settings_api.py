@@ -1,8 +1,9 @@
 """The vision page's settings (lib/api/vigilantia.py, PATCH /vision/cameras): the eye armed and disarmed with every
 background watcher, arming refused without the plugin, mode and model with their consequences (live loads, a new
 model unloads the old Ollama one), the general settings checked; a camera's alerts, quiet hours, window and event
-interval checked and kept, its background switch and window applied at once. Cameras, vision.db, the plugin's
-settings.json, the watcher and the model backend are stand-ins."""
+interval checked and kept, its background switch and window applied at once; the alert rules, the RTSP cameras and
+the describer list with its burn-in. Cameras, vision.db, the plugin's settings.json, the watcher, the model backend
+and the other machine are stand-ins."""
 
 import asyncio
 import json
@@ -272,3 +273,77 @@ def test_taking_a_camera_out_forgets_secrets_no_other_camera_uses(rtsp: tuple[Te
     assert [camera["name"] for camera in client.delete("/vision/rtsp-cameras/Zoom").json()["cameras"]] == []
     assert "RTSP_REOLINK" not in env_file.read_text() and "RTSP_REOLINK_PASSWORD" not in os.environ
     assert client.delete("/vision/rtsp-cameras/Zoom").status_code == 404
+
+
+BOX = {"name": "Box", "llamaswap_url": "http://box.test:11435", "gpu_orc_url": "http://box.test:5070",
+       "gpu_orc_token_file": "/nonexistent/token"}
+BIG = "Big-VL-30B-visiond"
+
+
+@pytest.fixture
+def describers(world: tuple[TestClient, dict[str, Any], Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, Path]:
+    """The describer list read from the test's vision settings, one other machine that answers with one model that
+    sees (never measured), no burn-in before."""
+    from aifred.lib import describer_list, remote_describers, vlm_vram_cache
+    from aifred.lib.remote_describers import RemoteHost, RemoteModel
+
+    client, _state, settings_file = world
+    monkeypatch.setattr(describer_list, "_settings", vision_settings.load_vision_settings)
+    monkeypatch.setattr(describer_list, "_failed", {})
+    monkeypatch.setattr(remote_describers, "VISION_REMOTE_HOSTS", json.dumps([BOX]))
+    monkeypatch.setattr(remote_describers, "reachable", lambda host: True)
+
+    def seeing(host: RemoteHost) -> list[RemoteModel]:
+        return [RemoteModel(host, BIG, 24576, False)]
+
+    monkeypatch.setattr(remote_describers, "seeing_models", seeing)
+    monkeypatch.setattr(vlm_vram_cache, "_store", vlm_vram_cache.JsonPeakCache(tmp_path / "vlm.json", "test"))
+    return client, settings_file
+
+
+def test_the_describer_list_is_shown_moved_and_switched_and_kept_in_the_settings(describers: tuple[TestClient, Path]) -> None:
+    client, settings_file = describers
+    shown = client.get("/vision/describers").json()
+    assert shown["measuring"] == ""
+    assert [(row["source"], row["enabled"], row["remote"]) for row in shown["rows"]] == [
+        ("local", True, False), ("main", True, False), (f"Box/{BIG}", False, True)]
+    assert shown["rows"][0]["label"] == "qwen3-vl:4b-instruct-q8_0 · dieser Rechner"
+    assert shown["rows"][2]["warn"] is True and "24.576" in shown["rows"][2]["note"]      # not measured at its context
+
+    moved = client.post("/vision/describers/move", json={"index": 2, "delta": -1}).json()
+    assert [row["source"] for row in moved["rows"]] == ["local", f"Box/{BIG}", "main"]
+    client.post("/vision/describers/switch", json={"index": 1, "enabled": True})
+    assert json.loads(settings_file.read_text())["describers"] == [
+        {"source": "local", "enabled": True}, {"source": f"Box/{BIG}", "enabled": True}, {"source": "main", "enabled": True}]
+    assert client.post("/vision/describers/move", json={"index": 7, "delta": 1}).status_code == 422
+    assert client.post("/vision/describers/switch", json={"index": 7, "enabled": True}).status_code == 422
+
+
+def test_a_burn_in_runs_one_at_a_time_and_its_failure_shows_in_the_row(describers: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+    import time
+
+    from aifred.lib import vlm_stress_prewarm
+    from aifred.lib.remote_describers import RemoteHostError, RemoteModel
+
+    client, _settings_file = describers
+    release = threading.Event()
+    burnt: list[str] = []
+
+    async def stress(model: RemoteModel, *, timeout_s: float = 600.0) -> int:
+        burnt.append(model.qualified)
+        await asyncio.to_thread(release.wait, 5)
+        raise RemoteHostError("Box: the cards are held (a test)")
+
+    monkeypatch.setattr(vlm_stress_prewarm, "stress_prewarm_remote", stress)
+    started = client.post("/vision/describers/burn-in", json={"source": f"Box/{BIG}"})
+    assert started.status_code == 202 and started.json()["measuring"] == f"Box/{BIG}"
+    assert client.post("/vision/describers/burn-in", json={"source": f"Box/{BIG}"}).status_code == 409   # one at a time
+    release.set()
+    deadline = time.monotonic() + 5
+    while client.get("/vision/describers").json()["measuring"] and time.monotonic() < deadline:
+        time.sleep(0.02)
+    row = client.get("/vision/describers").json()["rows"][2]
+    assert burnt == [f"Box/{BIG}"]
+    assert row["warn"] is True and "the cards are held" in row["note"]
+    assert client.post("/vision/describers/burn-in", json={"source": "local"}).status_code == 422

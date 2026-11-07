@@ -5,7 +5,7 @@
 // folder again when it has ended. An upload into a source is not indexed: the user decides per file.
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import { ApiError, api } from "../api/client";
+import { ApiError, PROGRESS_POLL_MS, api } from "../api/client";
 import type {
   DocumentDeleted,
   DocumentFolder,
@@ -19,8 +19,6 @@ import type {
 } from "../api/types";
 
 export const LOCAL = "local";
-
-const PROGRESS_POLL_MS = 700;
 
 export const useDocuments = defineStore("documents", () => {
   const listing = ref<DocumentFolder | null>(null);

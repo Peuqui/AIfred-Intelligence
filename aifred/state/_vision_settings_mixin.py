@@ -172,107 +172,45 @@ class VisionSettingsMixin(rx.State, mixin=True):
         self._discover_vision_models()
         self._refresh_describer_list()
 
-    def _refresh_describer_list(self, failed: dict[str, str] | None = None) -> None:
-        """The describer list as it stands now (lib/describer_list.matched): stored order and
-        switches, what is new switched off at the end, each remote entry with what holds it back or its
-        measured need. ``failed``: source → error of a burn-in."""
-        from ..lib.describer_list import LOCAL, MAIN, matched, stored
-        from ..lib.formatting import format_number, format_stamp
-        from ..lib.i18n import t
-        from ..lib.remote_describers import overview, split
-        from ..lib.vlm_vram_cache import get_any, measured_at
+    def _refresh_describer_list(self) -> None:
+        """The describer list as it stands now (``describer_list.rows``) and the burn-in that runs."""
+        from dataclasses import asdict
 
-        lang = self.ui_language
-        machines = overview()
-        by_host = {m.host.name: m for m in machines}
-        rows: list[dict[str, Any]] = []
-        for index, entry in enumerate(matched(stored(), machines)):
-            note, warn, remote = "", False, False
-            if entry.source == LOCAL:
-                label = f"{self.vision_model_value or '—'} · {t('vision_describer_this_machine', lang=lang)}"
-            elif entry.source == MAIN:
-                label = t("vision_describer_main", lang=lang)
-            else:
-                remote = True
-                host, model_id = split(entry.source) or (None, entry.source)
-                machine = by_host.get(host.name) if host else None
-                label = f"{model_id} · {host.name if host else '?'}"
-                model = next((m for m in machine.models if m.model == model_id), None) if machine else None
-                if entry.source in (failed or {}):
-                    note, warn = t("vision_remote_measure_failed", lang=lang, error=(failed or {})[entry.source]), True
-                elif machine is None or not machine.reachable:
-                    note, warn = t("vision_remote_unreachable", lang=lang, host=host.name if host else "?"), True
-                elif machine.error:
-                    note, warn = t("vision_remote_list_error", lang=lang, host=host.name if host else "?",
-                                   error=machine.error), True
-                elif model is not None and model.context is None:
-                    note, warn = t("vision_remote_never_loaded", lang=lang), True
-                elif model is not None and model.context is not None:
-                    measured, when = get_any(model.qualified), measured_at(model.qualified)
-                    ctx = format_number(model.context, 0)
-                    if measured is None or when is None or measured[1] != model.context:
-                        note, warn = t("vision_remote_unmeasured", lang=lang, ctx=ctx), True
-                    else:
-                        note = t("vision_remote_measured", lang=lang, ctx=ctx, mib=format_number(measured[0], 0),
-                                 when=format_stamp(when.timestamp()))
-            rows.append({"index": index, "source": entry.source, "label": label, "enabled": entry.enabled,
-                         "note": note, "warn": warn, "remote": remote})
-        self.vision_describer_rows = rows
+        from ..lib.describer_list import measuring, rows
 
-    def _edit_describer_list(self, change: Any) -> None:
-        """Apply ``change`` to the list as it stands now (matched) and save the result."""
-        from ..lib.describer_list import matched, save, stored
-        from ..lib.remote_describers import overview
-        entries = matched(stored(), overview())
-        change(entries)
-        save(entries)
-        self._refresh_describer_list()
+        self.vision_describer_rows = [asdict(row) for row in rows(self.ui_language)]
+        self.vision_describer_measuring = measuring()
 
     @rx.event
     def move_describer(self, index: int, delta: int) -> None:
-        def change(entries: list[Any]) -> None:
-            target = index + delta
-            if 0 <= index < len(entries) and 0 <= target < len(entries):
-                entries[index], entries[target] = entries[target], entries[index]
-        self._edit_describer_list(change)
+        from ..lib.describer_list import move_entry
+
+        move_entry(index, delta)
+        self._refresh_describer_list()
 
     @rx.event
     def set_describer_enabled(self, index: int, enabled: bool) -> None:
-        from ..lib.describer_list import Entry
+        from ..lib.describer_list import enable_entry
 
-        def change(entries: list[Any]) -> None:
-            if 0 <= index < len(entries):
-                entries[index] = Entry(entries[index].source, bool(enabled))
-        self._edit_describer_list(change)
+        enable_entry(index, bool(enabled))
+        self._refresh_describer_list()
 
     @rx.event(background=True)
     async def measure_remote_describer(self, source: str):
-        """Burn-in of the describer ``<machine>/<model>`` there (vlm_stress_prewarm.stress_prewarm_remote)."""
-        import asyncio
-
-        import httpx
-
-        from ..lib.gpu_orc_client import GpuOrcError
-        from ..lib.logging_utils import log_message
-        from ..lib.remote_describers import RemoteHostError, remote_model
-        from ..lib.vlm_stress_prewarm import stress_prewarm_remote
+        """Burn-in of the describer ``<machine>/<model>`` there (``describer_list.start_burn_in``, one at a time
+        for every interface)."""
+        from ..lib.describer_list import BurnInRunning, start_burn_in
 
         async with self:
-            if self.vision_describer_measuring:
+            try:
+                run = start_burn_in(source)
+            except BurnInRunning:  # started here or on the Vue page: the rows show it
+                self._refresh_describer_list()
                 return
             self.vision_describer_measuring = source
-        failed: dict[str, str] = {}
-        try:
-            model = await asyncio.to_thread(remote_model, source)
-            log_message(f"🔥 Burn-in of {source} …")
-            need = await stress_prewarm_remote(model)
-            log_message(f"✅ Burn-in of {source}: {need} MiB")
-        except (RemoteHostError, GpuOrcError, httpx.HTTPError) as error:
-            log_message(f"⚠️ Burn-in of {source} failed: {error}", "warning")
-            failed[source] = str(error)
+        await run
         async with self:
-            self.vision_describer_measuring = ""
-            self._refresh_describer_list(failed)
+            self._refresh_describer_list()
 
     def _discover_vision_models(self) -> None:
         """VLM-Discovery für das Vigilantia-Dropdown (SSOT).

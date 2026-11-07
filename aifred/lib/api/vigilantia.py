@@ -1,6 +1,7 @@
 """The vision page's settings: the eye (armed or not), how the image model stays and which one, face and person
-detection, how long events are kept, the image model loaded or not. Thin over ``lib/vigilantia.py``; the cameras'
-own settings are ``PATCH /vision/cameras/{id}`` (``api/cameras.py``)."""
+detection, how long events are kept, the image model loaded or not (``lib/vigilantia.py``); the alert rules
+(``alert_bus``), the RTSP cameras (``lib/rtsp_cameras.py``) and the describer list (``lib/describer_list.py``). The
+cameras' own settings are ``PATCH /vision/cameras/{id}`` (``api/cameras.py``)."""
 
 import asyncio
 from dataclasses import asdict
@@ -285,3 +286,93 @@ async def vision_rtsp_camera_delete(name: str) -> RtspCameras:
         raise HTTPException(status_code=404, detail=f"no RTSP camera {name!r}") from error
     log_message(f"📷 RTSP camera {name!r} taken out")
     return await asyncio.to_thread(_rtsp)
+
+
+# ── The describer list: who describes images, in which order; the burn-in of another machine's describer ──
+
+
+class DescriberRow(BaseModel):
+    index: int
+    source: str = Field(description="'<machine>/<model>', 'local' (this machine's image model) or 'main' (the loaded model)")
+    label: str = Field(description="Model · place")
+    enabled: bool
+    note: str = Field(description="An entry of another machine: what holds it back, or what it needs as measured")
+    warn: bool = Field(description="The note says why the entry is skipped")
+    remote: bool = Field(description="A describer of another machine: it can be burnt in")
+
+
+class Describers(BaseModel):
+    rows: list[DescriberRow]
+    measuring: str = Field(description="The source being burnt in now (empty: none)")
+
+
+class DescriberMove(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    index: int
+    delta: int = Field(ge=-1, le=1)
+
+
+class DescriberSwitch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    index: int
+    enabled: bool
+
+
+class DescriberBurnIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: str
+
+
+def _describers() -> Describers:
+    from ..describer_list import measuring, rows
+    from ..prompt_loader import get_language
+
+    return Describers(rows=[DescriberRow(**asdict(row)) for row in rows(get_language())], measuring=measuring())
+
+
+@api_app.get("/vision/describers", response_model=Describers, tags=["Vision"])
+async def vision_describers() -> Describers:
+    """The list as it stands now (every configured machine asked) and the burn-in that runs."""
+    return await asyncio.to_thread(_describers)
+
+
+@api_app.post("/vision/describers/move", response_model=Describers, tags=["Vision"])
+async def vision_describer_move(move: DescriberMove) -> Describers:
+    """An entry one place up or down; 422 for a position the list no longer has."""
+    from ..describer_list import move_entry
+
+    try:
+        await asyncio.to_thread(move_entry, move.index, move.delta)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    log_message(f"🖼️ Describer list: entry {move.index} moved by {move.delta}")
+    return await asyncio.to_thread(_describers)
+
+
+@api_app.post("/vision/describers/switch", response_model=Describers, tags=["Vision"])
+async def vision_describer_switch(switch: DescriberSwitch) -> Describers:
+    """An entry on or off; 422 for a position the list no longer has."""
+    from ..describer_list import enable_entry
+
+    try:
+        await asyncio.to_thread(enable_entry, switch.index, switch.enabled)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    log_message(f"🖼️ Describer list: entry {switch.index} {'on' if switch.enabled else 'off'}")
+    return await asyncio.to_thread(_describers)
+
+
+@api_app.post("/vision/describers/burn-in", response_model=Describers, status_code=202, tags=["Vision"])
+async def vision_describer_burn_in(burn_in: DescriberBurnIn) -> Describers:
+    """Start the burn-in of a describer of another machine: it unloads every model there, loads this one with the
+    stress picture and keeps the peak of the cards minus what they held before. Answers at once; ``GET`` follows it
+    (``measuring``, then the row's note). 409 while another one runs, 422 for a source of no other machine."""
+    from ..describer_list import BurnInRunning, start_burn_in
+
+    try:
+        start_burn_in(burn_in.source)
+    except BurnInRunning as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return await asyncio.to_thread(_describers)

@@ -54,6 +54,7 @@ export type VigilantiaRow = Schemas["VigilantiaRow"];
 export type RtspCamera = Schemas["RtspCamera"];
 export type RtspCameras = Schemas["RtspCameras"];
 export type AlertRules = Schemas["AlertRules"];
+export type Describers = Schemas["Describers"];
 export type QuickChoices = Schemas["QuickChoices"];
 export type AgentChoices = Schemas["AgentChoices"];
 export type ModelOption = Schemas["ModelOption"];

@@ -369,8 +369,13 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   im `.env`-Schlüssel (jetzt nur `[a-z0-9_]`), verwaiste Zugangsdaten; der Datensatz in vision.db bleibt bewusst (die
   Ereignisse der Kamera). Reflex-Seiten vorher und nachher byteweise gleich. Geprüft gegen die Testinstanz mit Kopie der echten
   Kameras: Regel an/aus, Verbindungsformular der Reolink (Profil, PTZ, Passwortfeld leer), Prüfkamera angelegt und
-  entfernt, Regeln und Kameras danach wie vorher. Offen: die Liste der Beschreiber (gleiches Muster wie die Engines der
-  Sprach-Seite).
+  entfernt, Regeln und Kameras danach wie vorher. Die Beschreiber-Liste (`DescriberList.vue`, unter dem Bildmodell;
+  gleiches Muster wie die Engines der Sprach-Seite): Zeilen, Verschieben und Schalten in `lib/describer_list.py` (auch
+  für Reflex, vorher im State); das Vermessen eines Beschreibers auf einem anderen Rechner ist ein Lauf des Servers,
+  einer zur Zeit für alle Oberflächen (vorher je Browser-Sitzung, zwei Tabs konnten zugleich auf demselben Rechner
+  entladen und laden), die Seite folgt ihm wie der Indexierung. Geprüft: Zeilen, Verschieben und Schalten im Browser
+  (Aragon war aus, seine Zeile mit Hinweis und Knopf über einen Eintrag der Test-Kopie), Vermessen nur im Test mit
+  Stellvertreter (es entlädt auf dem Rechner alle Modelle).
 - **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
 
 ## Schritte
