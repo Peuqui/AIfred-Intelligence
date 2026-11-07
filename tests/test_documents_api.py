@@ -53,6 +53,7 @@ def documents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple
     monkeypatch.setattr(document_store, "get_document_store", lambda: index)
     monkeypatch.setattr(document_indexing, "_progress", document_indexing.IndexProgress())
     monkeypatch.setattr(document_indexing, "_waiting", [])
+    monkeypatch.setattr(document_indexing, "_current", None)
     monkeypatch.setattr(document_indexing, "_worker", None)
     yield folder, index
 

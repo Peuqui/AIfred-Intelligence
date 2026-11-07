@@ -173,9 +173,8 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   (`data/documents/`): Ordner mit Pfadleiste, anlegen, umbenennen (der Index zieht mit), löschen von der
   Platte und/oder aus dem Index (einzeln, Ordner rekursiv, Auswahl; ein scheiternder Name hält den Rest
   nicht auf), Vorschau über den Parser des Index, Herunterladen, Pfad für AIfred kopieren. Dünne Endpunkte
-  über `lib/file_manager.py`. Offen: weitere Quellen wie Nextcloud (Teil 3). Die Testinstanz teilt
-  ChromaDB mit der Produktion, indexiert aber in eigene Sammlungen (`serve_vue_test.py`,
-  `vuetest_documents`).
+  über `lib/file_manager.py`. Die Testinstanz teilt ChromaDB mit der Produktion, indexiert aber in
+  eigene Sammlungen (`serve_vue_test.py`, `vuetest_documents`).
 - **Dokumente, Teil 2 (erledigt 07.11.2026):** Hochladen per Knopf oder auf die Seite gezogen
   (`file_manager.save_upload`, auch für Reflex: Name ohne Verzeichnisteil, nur Typen des Index), jede
   gespeicherte Datei wird indexiert. Indexieren je Datei, Auswahl oder ganzem Ordner (Unterordner mit),
@@ -184,6 +183,15 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   ihn ein anderer Tab gestartet hat, und zeigt danach das Ergebnis mit den Gründen der Fehlschläge. Der
   Indexier-Knopf erscheint nur an Dateien, die der Index lesen kann (`indexable`). Der Reflex-State
   indexiert bis zum Wechsel weiter selbst (über `file_manager.index_file`).
+- **Dokumente, Teil 3 (erledigt 07.11.2026):** Weitere Quellen der eingeschalteten Plugins (Nextcloud,
+  Google Drive) in der Quellwahl der Seite (`SourceBrowser.vue`): Ordner über IDs, Suche über die ganze
+  Quelle, Download, Hochladen in beschreibbare Quellen **ohne** Indexieren (ihre Dateien liegen hinter
+  einer höheren Stufe als die Suche, Indexieren bleibt die Entscheidung je Datei), Indexieren je Datei,
+  Auswahl oder Ordner in dieselbe Warteschlange wie lokal (`document_indexing.IndexItem`), Deindexieren.
+  Der Download einer Datei mit Schrägstrich in der ID (Nextcloud: jede Datei in einem Unterordner) gab
+  404 (`file/{file_id}`, auch auf `main`); jetzt `{file_id:path}`. Die Testinstanz kann einen Ordner als
+  Prüfquelle anbieten (`AIFRED_TEST_SOURCE_DIR`). Offen: Fehlertexte nennen die Datei doppelt, weil der
+  Indexer sie für die Reflex-Hinweise selbst voranstellt — mit Reflex bereinigen.
 - **Einstellungen, Teil 2 (offen):** Backend-Wechsel, Kalibrierung, Neustarts von Backend und AIfred,
   Grundeinstellungen laden. Neustarts treffen die gemeinsamen Dienste (llama-swap,
   Produktionsdienst): nur mit Peuqui abgestimmt testen.

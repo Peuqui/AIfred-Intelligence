@@ -1,19 +1,23 @@
 <script setup lang="ts">
-// The local documents folder (data/documents/): browse, new folder, rename, delete from disk and/or the
-// search index, preview through the index's parser, download, the path a tool takes, upload (button or
-// dropped files; the server indexes them) and index files, a selection or the whole folder (a job of
-// the server, its progress shown here). The further sources (Nextcloud …) follow.
+// The documents page. The local documents folder (data/documents/): browse, new folder, rename, delete
+// from disk and/or the search index, preview through the index's parser, download, the path a tool takes,
+// upload (button or dropped files; the server indexes them) and index files, a selection or the whole
+// folder (a job of the server, its progress shown here). A further source the enabled plugins offer
+// (Nextcloud …) opens in SourceBrowser; the progress of an indexing run is shared by both.
 import { computed, onMounted, ref } from "vue";
 import type { DocumentPreview, DocumentRow } from "../api/types";
 import ModalDialog from "../components/ModalDialog.vue";
+import SourceBrowser from "../components/SourceBrowser.vue";
 import { t } from "../i18n";
-import { useDocuments } from "../stores/documents";
+import { LOCAL, useDocuments } from "../stores/documents";
 
 const docs = useDocuments();
 onMounted(async () => {
+  await docs.loadSources();
   await docs.open("");
   await docs.watchIndexing();
 });
+const local = computed(() => docs.source === LOCAL);
 
 const folder = computed(() => docs.listing?.folder ?? "");
 // The folder as a trail of its parts, each a place to go back to.
@@ -98,12 +102,14 @@ async function picked(): Promise<void> {
   if (files.length) await docs.upload(files);
 }
 
-// Files dropped anywhere on the page go into the open folder.
+// Files dropped anywhere on the page go into the open folder (of a source only when it takes uploads).
 const dragging = ref(false);
 async function dropped(event: DragEvent): Promise<void> {
   dragging.value = false;
   const files = [...(event.dataTransfer?.files ?? [])];
-  if (files.length) await docs.upload(files);
+  if (!files.length) return;
+  if (local.value) await docs.upload(files);
+  else if (docs.remote?.writable) await docs.uploadRemote(files);
 }
 
 const run = computed(() => docs.indexing);
@@ -126,32 +132,42 @@ const runOutcome = computed(() => {
   >
     <header class="bar">
       <h2>{{ t("doc_manager_title") }}</h2>
-      <nav class="trail">
-        <button :title="t('doc_to_root')" @click="go('')">{{ t("doc_source_local") }}</button>
-        <template v-for="part in trail" :key="part.path">
-          <span>/</span>
-          <button @click="go(part.path)">{{ part.name }}</button>
-        </template>
-      </nav>
-      <div class="actions">
-        <button v-if="folder" :title="t('doc_up_one_level')" @click="up">⬆</button>
-        <button :title="t('doc_folder_create')" @click="naming = { old: null, name: '' }">📁＋</button>
-        <button :title="t('doc_hint')" @click="picker?.click()">⬆️ {{ t("upload_document") }}</button>
-        <input ref="picker" type="file" multiple hidden @change="picked" />
-        <button
-          v-if="docs.listing?.items.length"
-          :title="t('doc_index_folder_recursive')"
-          :disabled="run?.running"
-          @click="indexFolder"
-        >📚</button>
-        <button :title="t('doc_refresh')" @click="go(folder)">🔄</button>
-        <button v-if="selected.length" :disabled="run?.running" @click="indexSelected">
-          📚 {{ t("doc_index") }} ({{ selected.length }})
-        </button>
-        <button v-if="selected.length" class="danger" @click="askDelete(selected)">
-          🗑️ {{ t("doc_delete_selected") }} ({{ selected.length }})
-        </button>
-      </div>
+      <select
+        v-if="docs.sources.length > 1"
+        class="sources"
+        :value="docs.source"
+        @change="docs.openSource(($event.target as HTMLSelectElement).value)"
+      >
+        <option v-for="option in docs.sources" :key="option.key" :value="option.key">{{ option.label }}</option>
+      </select>
+      <template v-if="local">
+        <nav class="trail">
+          <button :title="t('doc_to_root')" @click="go('')">{{ t("doc_source_local") }}</button>
+          <template v-for="part in trail" :key="part.path">
+            <span>/</span>
+            <button @click="go(part.path)">{{ part.name }}</button>
+          </template>
+        </nav>
+        <div class="actions">
+          <button v-if="folder" :title="t('doc_up_one_level')" @click="up">⬆</button>
+          <button :title="t('doc_folder_create')" @click="naming = { old: null, name: '' }">📁＋</button>
+          <button :title="t('doc_hint')" @click="picker?.click()">⬆️ {{ t("upload_document") }}</button>
+          <input ref="picker" type="file" multiple hidden @change="picked" />
+          <button
+            v-if="docs.listing?.items.length"
+            :title="t('doc_index_folder_recursive')"
+            :disabled="run?.running"
+            @click="indexFolder"
+          >📚</button>
+          <button :title="t('doc_refresh')" @click="go(folder)">🔄</button>
+          <button v-if="selected.length" :disabled="run?.running" @click="indexSelected">
+            📚 {{ t("doc_index") }} ({{ selected.length }})
+          </button>
+          <button v-if="selected.length" class="danger" @click="askDelete(selected)">
+            🗑️ {{ t("doc_delete_selected") }} ({{ selected.length }})
+          </button>
+        </div>
+      </template>
     </header>
     <p v-if="docs.notice" class="notice">⚠️ {{ docs.notice }}</p>
     <p v-for="reason in docs.rejected" :key="reason" class="notice">⚠️ {{ reason }}</p>
@@ -165,49 +181,52 @@ const runOutcome = computed(() => {
     </div>
     <p v-if="dragging" class="drop">{{ t("doc_drop_files") }}</p>
 
-    <form v-if="naming" class="naming" @submit.prevent="named">
-      <input v-model="naming.name" :placeholder="t('doc_folder_name')" autofocus />
-      <button type="submit">{{ naming.old === null ? t("doc_create") : t("doc_rename") }}</button>
-      <button type="button" @click="naming = null">{{ t("doc_cancel") }}</button>
-    </form>
+    <template v-if="local">
+      <form v-if="naming" class="naming" @submit.prevent="named">
+        <input v-model="naming.name" :placeholder="t('doc_folder_name')" autofocus />
+        <button type="submit">{{ naming.old === null ? t("doc_create") : t("doc_rename") }}</button>
+        <button type="button" @click="naming = null">{{ t("doc_cancel") }}</button>
+      </form>
 
-    <table v-if="docs.listing && docs.listing.items.length" class="list">
-      <thead>
-        <tr>
-          <th><input type="checkbox" :checked="allSelected" :title="t('doc_select_all')" @change="toggleAll" /></th>
-          <th class="name"></th>
-          <th>{{ t("doc_dates_hint") }}</th>
-          <th></th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="row in docs.listing.items" :key="row.name">
-          <td><input type="checkbox" :checked="selected.includes(row.name)" @change="toggle(row.name)" /></td>
-          <td class="name">
-            <button v-if="row.type === 'folder'" class="link" @click="go(pathOf(row))">📁 {{ row.name }}</button>
-            <button v-else class="link" :title="t('doc_preview')" @click="show(row)">📄 {{ row.name }}</button>
-            <span class="size">{{ row.type === "folder" ? `${row.file_count}${t("doc_files_suffix")}` : row.size }}</span>
-          </td>
-          <td class="dates">{{ row.created }}<br />{{ row.modified }}</td>
-          <td><span v-if="row.indexed" class="indexed">{{ t("doc_manager_chunks", { chunks: row.chunks }) }}</span></td>
-          <td class="row-actions">
-            <a v-if="row.type === 'file'" :href="docs.listing.download_prefix + encodeURIComponent(row.name)" :title="t('doc_download')" download>⬇</a>
-            <button v-if="row.type === 'file'" :title="t('doc_copy_path')" @click="copyPath(row)">📋</button>
-            <button v-if="row.indexed" :title="t('doc_deindex')" @click="deindex(row)">📤</button>
-            <button
-              v-else-if="row.type === 'file' && row.indexable"
-              :title="t('doc_index')"
-              :disabled="run?.running"
-              @click="indexRows([row])"
-            >📚</button>
-            <button :title="row.type === 'folder' ? t('doc_folder_rename') : t('doc_rename')" @click="naming = { old: row.name, name: row.name }">✏️</button>
-            <button :title="row.type === 'folder' ? t('doc_folder_delete') : t('doc_delete')" @click="askDelete([row.name])">🗑️</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-    <p v-else-if="docs.listing" class="empty">{{ folder ? t("doc_folder_empty") : t("doc_manager_empty") }}</p>
+      <table v-if="docs.listing && docs.listing.items.length" class="list">
+        <thead>
+          <tr>
+            <th><input type="checkbox" :checked="allSelected" :title="t('doc_select_all')" @change="toggleAll" /></th>
+            <th class="name"></th>
+            <th>{{ t("doc_dates_hint") }}</th>
+            <th></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in docs.listing.items" :key="row.name">
+            <td><input type="checkbox" :checked="selected.includes(row.name)" @change="toggle(row.name)" /></td>
+            <td class="name">
+              <button v-if="row.type === 'folder'" class="link" @click="go(pathOf(row))">📁 {{ row.name }}</button>
+              <button v-else class="link" :title="t('doc_preview')" @click="show(row)">📄 {{ row.name }}</button>
+              <span class="size">{{ row.type === "folder" ? `${row.file_count}${t("doc_files_suffix")}` : row.size }}</span>
+            </td>
+            <td class="dates">{{ row.created }}<br />{{ row.modified }}</td>
+            <td><span v-if="row.indexed" class="indexed">{{ t("doc_manager_chunks", { chunks: row.chunks }) }}</span></td>
+            <td class="row-actions">
+              <a v-if="row.type === 'file'" :href="docs.listing.download_prefix + encodeURIComponent(row.name)" :title="t('doc_download')" download>⬇</a>
+              <button v-if="row.type === 'file'" :title="t('doc_copy_path')" @click="copyPath(row)">📋</button>
+              <button v-if="row.indexed" :title="t('doc_deindex')" @click="deindex(row)">📤</button>
+              <button
+                v-else-if="row.type === 'file' && row.indexable"
+                :title="t('doc_index')"
+                :disabled="run?.running"
+                @click="indexRows([row])"
+              >📚</button>
+              <button :title="row.type === 'folder' ? t('doc_folder_rename') : t('doc_rename')" @click="naming = { old: row.name, name: row.name }">✏️</button>
+              <button :title="row.type === 'folder' ? t('doc_folder_delete') : t('doc_delete')" @click="askDelete([row.name])">🗑️</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-else-if="docs.listing" class="empty">{{ folder ? t("doc_folder_empty") : t("doc_manager_empty") }}</p>
+    </template>
+    <SourceBrowser v-else />
 
     <ModalDialog v-if="deleting" @close="deleting = null">
       <strong>{{ t("doc_delete_confirm_title") }}</strong>
@@ -234,6 +253,7 @@ const runOutcome = computed(() => {
 .documents { overflow-y: auto; padding: 12px 0; display: flex; flex-direction: column; gap: 10px; }
 .bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 1rem; }
+.sources { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
 .trail { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; color: var(--aifred-text-muted); }
 .actions { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
 button, input:not([type="checkbox"]) { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; }
