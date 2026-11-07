@@ -7,7 +7,7 @@ and the scheduler job editor.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import reflex as rx
 from reflex.event import EventSpec
@@ -697,17 +697,17 @@ class AgentEditorMixin(rx.State, mixin=True):
     # text in the UI language; a selected label maps back to its value in any
     # loaded language.
 
-    _SCHED_TYPE_OPTIONS: list[tuple[str, str]] = [
+    _SCHED_TYPE_OPTIONS: ClassVar[list[tuple[str, str]]] = [
         ("sched_type_cron", "cron"),
         ("sched_type_interval", "interval"),
         ("sched_type_once", "once"),
     ]
-    _SCHED_DELIVERY_OPTIONS: list[tuple[str, str]] = [
+    _SCHED_DELIVERY_OPTIONS: ClassVar[list[tuple[str, str]]] = [
         ("sched_delivery_review", "review"),
         ("sched_delivery_announce", "announce"),
         ("sched_delivery_webhook", "webhook"),
     ]
-    _SCHED_AUDIO_OPTIONS: list[tuple[str, str]] = [
+    _SCHED_AUDIO_OPTIONS: ClassVar[list[tuple[str, str]]] = [
         ("sched_audio_notification", "notification"),
         ("sched_audio_alarm", "alarm"),
     ]
@@ -827,7 +827,7 @@ class AgentEditorMixin(rx.State, mixin=True):
     # ── Cron presets ───────────────────────────────────────────
 
     # (i18n key, min, hour, dom, month, dow)
-    _CRON_PRESETS: list[tuple[str, str, str, str, str, str]] = [
+    _CRON_PRESETS: ClassVar[list[tuple[str, str, str, str, str, str]]] = [
         ("sched_preset_hourly", "0", "*", "*", "*", "*"),
         ("sched_preset_daily", "0", "8", "*", "*", "*"),
         ("sched_preset_weekdays", "0", "8", "*", "*", "1-5"),
@@ -853,7 +853,7 @@ class AgentEditorMixin(rx.State, mixin=True):
 
     # ── Weekday dropdown ──────────────────────────────────────
 
-    _DOW_OPTIONS: list[tuple[str, str]] = [
+    _DOW_OPTIONS: ClassVar[list[tuple[str, str]]] = [
         ("sched_dow_every_day", "*"),
         ("sched_dow_mon_fri", "1-5"),
         ("sched_dow_weekend", "6,0"),
@@ -880,7 +880,7 @@ class AgentEditorMixin(rx.State, mixin=True):
 
     # ── Month dropdown ────────────────────────────────────────
 
-    _MONTH_OPTIONS: list[tuple[str, str]] = [
+    _MONTH_OPTIONS: ClassVar[list[tuple[str, str]]] = [
         ("sched_month_every", "*"),
         ("sched_month_january", "1"),
         ("sched_month_february", "2"),
@@ -910,7 +910,7 @@ class AgentEditorMixin(rx.State, mixin=True):
 
     # ── Interval unit ──────────────────────────────────────────
 
-    _INTERVAL_UNIT_OPTIONS: list[tuple[str, str]] = [
+    _INTERVAL_UNIT_OPTIONS: ClassVar[list[tuple[str, str]]] = [
         ("sched_interval_minutes", "minutes"),
         ("sched_interval_hours", "hours"),
         ("sched_interval_days", "days"),

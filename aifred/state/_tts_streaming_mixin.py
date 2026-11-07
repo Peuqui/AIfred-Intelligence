@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import reflex as rx
 
@@ -162,7 +162,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
     # StreamingText component uses useEffect + DOM append for O(1) updates,
     # but each yield still triggers 363 React context re-renders.
     # At 40 tok/s and 50ms interval → ~2 tokens per batch (word-level).
-    _UI_YIELD_INTERVAL: float = 0.05  # 50ms — word-level batching
+    _UI_YIELD_INTERVAL: ClassVar[float] = 0.05  # 50ms — word-level batching
     _js_chunk_buffer: str = ""  # Accumulates chunks between yields
 
     @rx.event
