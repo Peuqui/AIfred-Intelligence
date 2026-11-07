@@ -6,6 +6,7 @@
 // the editor (persona, prompt texts, rights); ＋ makes a new agent from the template.
 import { computed, onMounted, ref } from "vue";
 import type { AgentCard } from "../api/types";
+import AgentBundles from "../components/AgentBundles.vue";
 import AgentChoicesRow from "../components/AgentChoicesRow.vue";
 import AgentEditor from "../components/AgentEditor.vue";
 import ModalDialog from "../components/ModalDialog.vue";
@@ -21,6 +22,7 @@ onMounted(() => void agents.load());
 const rows = computed(() => new Map((choices.choices?.agents ?? []).map((row) => [row.id, row])));
 
 const editing = ref<string | null>(null);
+const bundles = ref<"export" | "import" | null>(null);
 
 const creating = ref<{ id: string; display_name: string; emoji: string; description: string } | null>(null);
 async function create(): Promise<void> {
@@ -45,6 +47,8 @@ async function confirmDelete(): Promise<void> {
   <main class="agents">
     <header class="bar">
       <h2>{{ t("nav_agents") }}</h2>
+      <button :title="t('agent_editor_export_tooltip')" @click="bundles = 'export'">📦</button>
+      <button :title="t('agent_editor_import_tooltip')" @click="bundles = 'import'">📥</button>
       <button @click="creating = { id: '', display_name: '', emoji: '🤖', description: '' }">＋ {{ t("agent_editor_new") }}</button>
     </header>
     <form v-if="creating" class="creating" @submit.prevent="create">
@@ -99,6 +103,7 @@ async function confirmDelete(): Promise<void> {
     </section>
 
     <AgentEditor v-if="editing" :agent-id="editing" @close="editing = null" />
+    <AgentBundles v-if="bundles" :mode="bundles" :cards="agents.cards" @close="bundles = null" @imported="agents.load()" />
 
     <ModalDialog v-if="deleting" @close="deleting = null">
       <strong>{{ deleting.emoji }} {{ deleting.display_name }}: {{ t("agent_editor_delete_confirm") }}</strong>
@@ -114,7 +119,7 @@ async function confirmDelete(): Promise<void> {
 .agents { overflow-y: auto; padding: 12px 0; display: flex; flex-direction: column; gap: 12px; }
 h2 { margin: 0; font-size: 1rem; }
 .bar { display: flex; align-items: center; gap: 14px; }
-.bar button { margin-left: auto; }
+.bar button:first-of-type { margin-left: auto; }
 .creating { display: flex; gap: 8px; flex-wrap: wrap; }
 .creating input { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
 .creating .emoji { width: 4em; }

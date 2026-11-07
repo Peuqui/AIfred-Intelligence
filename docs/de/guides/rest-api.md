@@ -110,8 +110,8 @@ AIfred ins Internet stellst (siehe [Einrichtungsanleitung → Auf die Web-UI zug
 | Endpoint | Methode | Beschreibung |
 |---|---|---|
 | `/api/agent/trigger` | POST | Webhook: einen Agenten headless ausführen (`sender`, `message`, `agent`, `token`, `max_tier`, `delivery`: `review` / `announce` / `webhook`). Der Auftrag steht links als `🪝 Webhook · <sender>`; Webhook und Scheduler gelten immer als Besitzer-Auslöser, die Rechte begrenzt `max_tier` |
-| `/api/agents/export` | GET | Agenten-Definitionen exportieren |
-| `/api/agents/import/peek` · `/api/agents/import` | POST | Vorschau / Import eines Agenten-Exports (Multipart-Upload) |
+| `/api/agents/export` | GET | Agenten als ZIP-Bündel (`?ids=a,b`: Konfiguration, Prompts, Sampling, Stimmen) |
+| `/api/agents/import/peek` · `/api/agents/import` | POST | Vorschau `{format_version, exported_at (Unix-Zeit), agents: [{agent_id, display_name, description, exists_locally}]}` / Import (Multipart: `file`, `ids`, `conflict` = rename\|overwrite\|abort) → `{success, agent_ids, warnings}`; Stimmen kommen in den Stimmenordner der TTS-Suite, vorhandene werden nie überschrieben |
 | `/api/oauth/{provider}/auth-url` · `/status` · `/callback` | GET | OAuth-Flow (Google) — siehe [OAuth](plugins/oauth.md) |
 | `/api/oauth/{provider}` | DELETE | Tokens eines Providers widerrufen |
 

@@ -279,8 +279,11 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   der Zahl seiner Erinnerungen (auch Sammlungen gelöschter Agenten), rechts seine Einträge mit Typ-Filter,
   bearbeiten (über `AgentMemory.update` wie das Werkzeug der Agenten), einzeln oder alle löschen.
   `AgentMemory.counts()` und `entries()` sind jetzt öffentlich; ein Agent ohne Sammlung wird nicht gelesen
-  (das legte eine an). Index-Pflege (verwaiste Einträge) gehört auf die Dokumente-Seite, Export und Import
-  von Agenten-Bündeln auf die Agenten-Seite (API vorhanden) — beides offen.
+  (das legte eine an). Index-Pflege (verwaiste Einträge) gehört auf die Dokumente-Seite (offen).
+- **Agenten-Bündel (erledigt 07.11.2026):** 📦 und 📥 in der Kopfzeile der Agenten-Seite (`AgentBundles.vue`):
+  Export der gewählten Agenten als ZIP, Import mit Vorschau des Bündels, Auswahl und Konfliktregel
+  (umbenennen, überschreiben, abbrechen), danach die Warnungen. Die Antworten von Vorschau und Import sind
+  jetzt typisiert; `exported_at` ist eine Unix-Zeit (als Text typisiert gab die Vorschau 500).
 - **Aufträge-Seite (erledigt 07.11.2026):** `JobsView.vue` (⏰ in der Kopfleiste) mit `JobForm.vue`: Liste mit
   Schalter, Agent, Zeitplan, nächstem und letztem Lauf; anlegen, ändern, letzte Läufe, löschen. Der Zeitplan
   entsteht aus Feldern (Cron-Vorlage oder fünf Felder, Intervall mit Einheit, Datum und Uhrzeit;

@@ -110,8 +110,8 @@ expose AIfred to the internet (see [Deployment → Access the web UI](deployment
 | Endpoint | Method | Description |
 |---|---|---|
 | `/api/agent/trigger` | POST | Webhook: run an agent headless (`sender`, `message`, `agent`, `token`, `max_tier`, `delivery`: `review` / `announce` / `webhook`). The job shows on the left as `🪝 Webhook · <sender>`; webhook and scheduler are always owner-level triggers, `max_tier` limits the rights |
-| `/api/agents/export` | GET | Export agent definitions |
-| `/api/agents/import/peek` · `/api/agents/import` | POST | Preview / import an agent export (multipart upload) |
+| `/api/agents/export` | GET | Agents as a ZIP bundle (`?ids=a,b`: configuration, prompts, sampling, voices) |
+| `/api/agents/import/peek` · `/api/agents/import` | POST | Preview `{format_version, exported_at (Unix time), agents: [{agent_id, display_name, description, exists_locally}]}` / import (multipart: `file`, `ids`, `conflict` = rename\|overwrite\|abort) → `{success, agent_ids, warnings}`; voices go into the TTS-Suite's voices folder, an existing one is never overwritten |
 | `/api/oauth/{provider}/auth-url` · `/status` · `/callback` | GET | OAuth flow (Google) — see [OAuth](plugins/oauth.md) |
 | `/api/oauth/{provider}` | DELETE | Revoke a provider's tokens |
 

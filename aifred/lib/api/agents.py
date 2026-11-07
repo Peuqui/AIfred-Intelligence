@@ -504,7 +504,26 @@ async def export_agents_endpoint(ids: str) -> Response:
     )
 
 
-@api_app.post("/agents/import/peek", tags=["Agents"])
+class BundleAgent(BaseModel):
+    agent_id: str
+    display_name: str
+    description: str
+    exists_locally: bool
+
+
+class BundlePeek(BaseModel):
+    format_version: int
+    exported_at: int | None = Field(description="Unix time of the export")
+    agents: list[BundleAgent]
+
+
+class BundleImported(BaseModel):
+    success: bool
+    agent_ids: list[str] = Field(description="The ids the agents got (a renamed one has its new id)")
+    warnings: list[str]
+
+
+@api_app.post("/agents/import/peek", response_model=BundlePeek, tags=["Agents"])
 async def peek_agent_bundle(file: UploadFile = File(...)) -> dict:
     """Inspect a bundle without writing — returns the list of agents inside
     plus a flag per agent indicating whether it already exists locally.
@@ -518,7 +537,7 @@ async def peek_agent_bundle(file: UploadFile = File(...)) -> dict:
         raise HTTPException(status_code=400, detail=f"Bundle nicht lesbar: {exc}")
 
 
-@api_app.post("/agents/import", tags=["Agents"])
+@api_app.post("/agents/import", response_model=BundleImported, tags=["Agents"])
 async def import_agents_endpoint(
     file: UploadFile = File(...),
     ids: str = Form(""),
