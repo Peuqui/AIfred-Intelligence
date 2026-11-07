@@ -24,6 +24,9 @@ class UploadFolder(NamedTuple):
     needs_login: bool
 
 
+# The URL of the local documents (data/documents/): a file's URL is this + its path in the folder.
+DOCUMENTS_URL = "/_upload/documents"
+
 UPLOAD_FOLDERS = (
     # Uploads of the user (mobile camera, file picker).
     UploadFolder("/_upload/images", "upload/images", "uploaded_images", True),
@@ -41,7 +44,7 @@ UPLOAD_FOLDERS = (
     # One crop per identity for the "recognized persons" box of the live preview.
     UploadFolder("/_upload/face_crops", "vision/faces", "face_crops", True),
     # Documents of the document search (the most sensitive content).
-    UploadFolder("/_upload/documents", "documents", "uploaded_documents", True),
+    UploadFolder(DOCUMENTS_URL, "documents", "uploaded_documents", True),
 )
 
 

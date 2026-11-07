@@ -159,6 +159,13 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Umschaltlogik); die eigenen Endpunkte für Sprachausgabe und Diktat sind darin aufgegangen (Store
   `settings` als eine Quelle). Grenzen der Runden in `config.py` (`DEBATE_ROUNDS_MIN/_MAX`), auch für
   Reflex. Ein Reflex-Tab übernimmt beim Neuladen nun auch die Anrede.
+- **Dokumente, Teil 1 (erledigt 07.11.2026):** Seite `DocumentsView.vue` auf dem lokalen Ordner
+  (`data/documents/`): Ordner mit Pfadleiste, anlegen, umbenennen (der Index zieht mit), löschen von der
+  Platte und/oder aus dem Index (einzeln, Ordner rekursiv, Auswahl; ein scheiternder Name hält den Rest
+  nicht auf), Vorschau über den Parser des Index, Herunterladen, Pfad für AIfred kopieren. Dünne Endpunkte
+  über `lib/file_manager.py`. Offen: Hochladen und Indexieren mit Fortschritt (Teil 2), weitere Quellen
+  wie Nextcloud (Teil 3). **Die Testinstanz teilt ChromaDB mit der Produktion** (Sammlung
+  `aifred_documents`, relative Pfade): Indexieren dort erst mit einer eigenen Sammlung prüfen.
 - **Einstellungen, Teil 2 (offen):** Backend-Wechsel, Kalibrierung, Neustarts von Backend und AIfred,
   Grundeinstellungen laden, Temperaturmodus. Neustarts treffen die gemeinsamen Dienste (llama-swap,
   Produktionsdienst): nur mit Peuqui abgestimmt testen.
