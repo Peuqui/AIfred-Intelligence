@@ -99,3 +99,22 @@ def test_login_sets_the_cookie_of_the_reflex_login(monkeypatch: pytest.MonkeyPat
     cookie = response.headers["set-cookie"]
     assert cookie.startswith(f"{USERNAME_COOKIE_NAME}=") and "HttpOnly" not in cookie and "SameSite=lax" in cookie
     assert anonymous.get("/auth/me").json() == {"user": "ki"}
+
+
+def test_the_agent_list_holds_the_agents_a_chat_can_address(client: TestClient) -> None:
+    from aifred.lib.agent_config import load_agents
+
+    listed = {entry["id"] for entry in client.get("/agents/summary").json()}
+    assert listed == {agent_id for agent_id, config in load_agents().items() if config.role != "system"}
+    assert "aifred" in listed
+
+
+def test_the_shell_tells_the_ui_language_before_the_login() -> None:
+    response = TestClient(api_app).get("/app/ui-settings")
+    assert response.status_code == 200 and response.json()["ui_language"] in ("de", "en")
+
+
+def test_an_entry_of_an_older_session_file_opens_with_its_fields(client: TestClient) -> None:
+    session_storage.update_chat_data(MINE, chat_history=[{"role": "user", "content": "alt", "used_sources": []}])
+    (entry,) = client.get(f"/sessions/{MINE}").json()["chat_history"]
+    assert (entry["content"], entry["agent"], entry["used_sources"]) == ("alt", "", [])

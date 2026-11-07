@@ -1007,5 +1007,13 @@
   "service_control_busy": "{name} is working right now and stays loaded.",
   "service_control_failed": "{name} could not be unloaded: {error}",
   "chat_font_smaller": "Smaller text",
-  "chat_font_larger": "Larger text"
+  "chat_font_larger": "Larger text",
+  "login_title": "Log in to AIfred",
+  "login_username": "User name",
+  "login_password": "Password",
+  "login_submit": "Log in",
+  "login_failed": "Wrong user name or password",
+  "delete_chat": "Delete chat",
+  "stop_turn": "Stop",
+  "messages_waiting": "{count} waiting"
 }

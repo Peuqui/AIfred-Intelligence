@@ -1007,5 +1007,13 @@
   "service_control_busy": "{name} arbeitet gerade und bleibt geladen.",
   "service_control_failed": "{name} ließ sich nicht entladen: {error}",
   "chat_font_smaller": "Schrift kleiner",
-  "chat_font_larger": "Schrift größer"
+  "chat_font_larger": "Schrift größer",
+  "login_title": "Anmelden bei AIfred",
+  "login_username": "Benutzername",
+  "login_password": "Passwort",
+  "login_submit": "Anmelden",
+  "login_failed": "Benutzername oder Passwort falsch",
+  "delete_chat": "Chat löschen",
+  "stop_turn": "Stopp",
+  "messages_waiting": "{count} wartend"
 }

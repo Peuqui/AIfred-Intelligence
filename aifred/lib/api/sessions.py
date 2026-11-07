@@ -11,7 +11,7 @@ from typing import Any
 
 from fastapi import HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .. import session_events
 from ..config import MULTI_AGENT_MODES
@@ -58,11 +58,28 @@ class SessionSummary(BaseModel):
     channel: str
 
 
+class ChatEntry(BaseModel):
+    """One message of a session's chat history (lib/formatting.py builds them). Older session
+    files lack some fields; fields the client does not read pass through."""
+
+    model_config = ConfigDict(extra="allow")
+
+    role: str
+    content: str
+    agent: str = ""
+    agent_display_name: str = ""
+    agent_emoji: str = ""
+    mode: str = ""
+    timestamp: str = ""
+    time_display: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class SessionDetail(BaseModel):
     session_id: str
     title: str | None
     config: dict[str, Any]
-    chat_history: list[dict[str, Any]]
+    chat_history: list[ChatEntry]
     debug_messages: list[str]
     running: bool
     last_event_id: int = Field(description="Open the event stream after this id: nothing is missed")
@@ -185,12 +202,15 @@ def _sse(event: session_events.SessionEvent) -> str:
 
 
 @api_app.get("/sessions/{session_id}/events", tags=["Sessions"])
-async def sessions_events(session_id: str, request: Request) -> StreamingResponse:
-    """Server-Sent Events of the session. Each event is named by its kind and carries its id; on a
-    reconnect the browser sends Last-Event-ID and gets the buffered events after it."""
+async def sessions_events(session_id: str, request: Request, after: int = 0) -> StreamingResponse:
+    """Server-Sent Events of the session. Each event is named by its kind and carries its id.
+
+    ``after``: the first connection starts behind the id the session's detail reported (an
+    EventSource cannot set headers); on a reconnect the browser's Last-Event-ID wins.
+    """
     owned_session(request, session_id)
-    last_event_id = request.headers.get("last-event-id", "0")
-    after_id = int(last_event_id) if last_event_id.isdigit() else 0
+    last_event_id = request.headers.get("last-event-id", "")
+    after_id = int(last_event_id) if last_event_id.isdigit() else after
 
     async def stream():
         async with session_events.subscribe(session_id, after_id) as (missed, queue):

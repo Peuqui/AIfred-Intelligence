@@ -23,6 +23,14 @@ async def app_theme() -> Response:
     return Response(css_variables(), media_type="text/css")
 
 
+@api_app.get("/app/ui-settings", tags=["App"])
+async def app_ui_settings() -> dict[str, str]:
+    """What the shell needs before the login: the UI language of the settings."""
+    from ..settings import get_default_settings, load_settings
+
+    return {"ui_language": (load_settings() or get_default_settings())["ui_language"]}
+
+
 @api_app.get("/app/i18n/{lang}", tags=["App"])
 async def app_texts(lang: str) -> JSONResponse:
     texts = TranslationManager._translations.get(lang)

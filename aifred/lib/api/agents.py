@@ -196,6 +196,25 @@ async def oauth_disconnect(provider: str) -> dict:
 # ============================================================
 
 
+class AgentSummary(BaseModel):
+    id: str
+    display_name: str
+    emoji: str
+    role: str
+
+
+@api_app.get("/agents/summary", response_model=list[AgentSummary], tags=["Agents"])
+async def agents_summary() -> list[AgentSummary]:
+    """The agents a chat can address (every role except "system")."""
+    from ..agent_config import load_agents
+
+    return [
+        AgentSummary(id=agent_id, display_name=config.display_name, emoji=config.emoji, role=config.role)
+        for agent_id, config in load_agents().items()
+        if config.role != "system"
+    ]
+
+
 @api_app.get("/agents/export", tags=["Agents"])
 async def export_agents_endpoint(ids: str) -> Response:
     """Download a ZIP bundle containing one or more agents.
