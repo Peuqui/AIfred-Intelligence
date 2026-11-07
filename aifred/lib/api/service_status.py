@@ -18,6 +18,7 @@ from fastapi import HTTPException, Query
 from pydantic import BaseModel
 
 from ...backends.base import BackendError
+from .. import session_events
 from ..i18n import t
 from ..logging_utils import log_message
 from ..service_control import (
@@ -31,14 +32,14 @@ from ..service_control import (
 )
 from ..service_status import ServiceSnapshot, get_monitor
 from .app import api_app
-from .browser_bus import _browser_sse_queues, browser_push
+from .browser_bus import browser_push
 
 SERVICE_STATUS_KIND = "service_status"
 
 
 def _push_to_connected_pages(snapshot: ServiceSnapshot) -> None:
     payload = json.dumps(snapshot.as_json())
-    for session_id in list(_browser_sse_queues):
+    for session_id in session_events.sessions_with_subscribers():
         browser_push(session_id, SERVICE_STATUS_KIND, payload)
 
 

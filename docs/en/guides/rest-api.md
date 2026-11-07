@@ -118,7 +118,7 @@ timeout, no redirects, private/local addresses are refused):
 |---|---|
 | `/api/vision/*` | snapshots, MJPEG streams, event frames, face enrollment/list/rename, zone masks, zone editor |
 | `/api/audio/*` | audio files, test tone, playback position |
-| `/api/browser/queue/{session_id}` · `/api/browser/stream/{session_id}` | server→browser push bus (see [Browser Push Bus](../../de/architecture/browser-push-bus.md), German) |
+| `/api/browser/stream/{session_id}` | server→browser push bus (see [Browser Push Bus](../../de/architecture/browser-push-bus.md), German) |
 
 ---
 

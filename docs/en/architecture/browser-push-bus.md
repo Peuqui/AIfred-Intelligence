@@ -45,7 +45,7 @@ its result over an already open SSE connection. The browser
 (`custom.js`) consumes the event and writes the DOM directly.
 
 ```
-Background task ──browser_push(kind,…)──▶ _browser_event_storage + SSE queue
+Background task ──browser_push(kind,…)──▶ session_events (hub per session)
                                                        │
                                           GET /api/browser/stream/{sid}
                                                        │
@@ -63,12 +63,10 @@ spare ourselves that.
 
 | Building block | Purpose |
 |---|---|
-| `browser_push(session_id, kind, url, **meta)` | Put an event into storage + SSE queue |
-| `_browser_event_storage` | Per session: `{queue, version, playback_rate}` |
-| `_browser_sse_queues` | Per session: `asyncio.Queue` for the open SSE listener |
+| `browser_push(session_id, kind, url, **meta)` | Hand an event to the session's event hub |
+| `aifred/lib/session_events.py` | Hub per session: id counter, buffer for reconnects, one queue per open tab (since 2026-11-07; before, one per session, and a second tab took the stream from the first) |
 | `GET /api/browser/stream/{session_id}` | SSE endpoint, reconnect-safe via `Last-Event-ID` |
-| `GET /api/browser/queue/{session_id}` | Polling fallback in case SSE is not available |
-| `browser_queue_clear(session_id)` | Clear the queue (the version counter stays!) |
+| `browser_queue_clear(session_id)` | Clear the buffer (the version counter stays!) |
 
 The **version** is strictly monotonic per session — it never decreases, not even
 after `browser_queue_clear`. The client deduplicates SSE events via the

@@ -118,7 +118,7 @@ Ergebnis eines Scheduler- oder Webhook-Auftrags mit `delivery: webhook`. Es komm
 |---|---|
 | `/api/vision/*` | Snapshots, MJPEG-Streams, Event-Frames, Gesichter registrieren/auflisten/umbenennen, Zonen-Masken, Zonen-Editor |
 | `/api/audio/*` | Audiodateien, Testton, Wiedergabeposition |
-| `/api/browser/queue/{session_id}` · `/api/browser/stream/{session_id}` | Push-Bus Server→Browser (siehe [Browser Push Bus](../architecture/browser-push-bus.md)) |
+| `/api/browser/stream/{session_id}` | Push-Bus Server→Browser (siehe [Browser Push Bus](../architecture/browser-push-bus.md)) |
 
 ---
 
