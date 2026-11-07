@@ -9,7 +9,6 @@ from aifred.lib import stt_client
 from aifred.lib.stt_client import (
     STTClient,
     STTError,
-    STTGPUUnavailableError,
     STTTimeoutError,
     STTUnreachableError,
 )
@@ -90,21 +89,12 @@ def test_transcribe_success_sends_all_parameters(client, calls, tmp_path):
     assert kwargs["files"]["file"][0] == "clip.wav"
 
 
-def test_transcribe_503_means_gpu_unavailable_with_service_reason(client, calls, tmp_path):
-    audio = tmp_path / "clip.wav"
-    audio.write_bytes(b"RIFF")
-    calls.answer = _response(503, {"error": "gpu_unavailable", "detail": "no GPU with enough VRAM"})
-    with pytest.raises(STTGPUUnavailableError, match="no GPU with enough VRAM"):
-        client.transcribe(str(audio), "de", "cuda", False)
-
-
 def test_transcribe_other_service_error_names_the_device(client, calls, tmp_path):
     audio = tmp_path / "clip.wav"
     audio.write_bytes(b"RIFF")
     calls.answer = _response(500, b"boom")
-    with pytest.raises(STTError, match=r"Whisper \(cpu\): boom") as excinfo:
+    with pytest.raises(STTError, match=r"Whisper \(cpu\): boom"):
         client.transcribe(str(audio), "de", "cpu", False)
-    assert not isinstance(excinfo.value, STTGPUUnavailableError)
 
 
 def test_timeout_is_both_stt_error_and_timeout_error(client, calls):
@@ -209,17 +199,15 @@ class _Recorder:
         return {"text": "hallo", "time": 0.1, "device": self.device_used}
 
 
-@pytest.mark.parametrize("preference, small_file, asked", [
-    ("auto", True, "auto"), ("auto", False, "cpu"), ("cpu", False, "cpu"), ("cuda", True, "cuda"), ("cuda", False, "cuda"),
-])
-def test_the_service_gets_the_preferred_device_as_it_is_only_a_long_file_goes_to_the_cpu_with_auto(monkeypatch, tmp_path, preference, small_file, asked):
-    from aifred.lib import audio_processing, settings
+@pytest.mark.parametrize("small_file, asked", [(True, "auto"), (False, "cpu")])
+def test_the_service_picks_the_device_only_a_long_file_goes_to_the_cpu(monkeypatch, tmp_path, small_file, asked):
+    """Peuqui 07.11.2026: AIfred asks with auto; no device preference of its own any more."""
+    from aifred.lib import audio_processing
 
     wav = tmp_path / "a.wav"
     wav.write_bytes(b"0" * (1024 if small_file else 11 * 1024 * 1024))
     recorder = _Recorder()
     monkeypatch.setattr(stt_client, "get_default_client", lambda: recorder)
-    monkeypatch.setattr(settings, "persisted_settings", lambda: {"stt_device": preference})
     text, _seconds, device_used = audio_processing.transcribe_audio_auto(str(wav))
     assert (text, recorder.calls, device_used) == ("hallo", [asked], "cpu")
 

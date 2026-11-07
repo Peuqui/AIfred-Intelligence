@@ -385,9 +385,8 @@ class AIState(
     # AUDIO UPLOAD HANDLER (STT)
     # ============================================================
 
-    # Parked upload context while a confirm dialog is open (backend-only
-    # vars, never synced to the client). stt_confirm_result() and
-    # stt_unload_confirm_result() consume them.
+    # Parked upload context while the confirm dialog of a long transcription is open
+    # (backend-only vars, never synced to the client). stt_confirm_result() consumes them.
     _stt_pending_path: str = ""
     _stt_pending_source: str = ""
     _stt_pending_filename: str = ""
@@ -574,50 +573,10 @@ class AIState(
         async for event in self._run_transcription(tmp_path, filename, source, size_display):
             yield event
 
-    @rx.event
-    async def stt_unload_confirm_result(self, confirmed: bool):
-        """Resume a big-file transcription parked on the 'unload LLM?'
-        question: unload the chat backend, then retry the GPU engine once."""
-        tmp_path, source, filename, size_display = self._consume_stt_pending()
-
-        if not tmp_path:
-            return
-        if not confirmed:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            from ..lib.i18n import t as _t
-            self.add_debug("🎤 Transcription cancelled by user (GPU busy, no LLM unload)")
-            yield rx.toast.info(
-                _t("stt_cancelled", lang=self.ui_language),
-                duration=5000, position="top-center",
-            )
-            return
-
-        self.add_debug(f"🎤 Unloading LLM backend ({self.backend_type}) for GPU transcription...")
-        yield
-        await self._unload_llm_for_stt()
-
-        async for event in self._run_transcription(
-            tmp_path, filename, source, size_display, allow_unload_prompt=False
-        ):
-            yield event
-
-    async def _unload_llm_for_stt(self) -> None:
-        """Unload the chat backend's models so the Whisper GPU worker fits (``dictation.unload_chat_models``)."""
-        from ..lib.debug_bus import session_scope
-        from ..lib.dictation import unload_chat_models
-        with session_scope(self.session_id):
-            await unload_chat_models(self.backend_type)
-
     async def _run_transcription(
         self, tmp_path: str, filename: str, source: str, size_display: str,
-        allow_unload_prompt: bool = True,
     ):
-        """Whisper call + result handling; deletes tmp_path when done
-        (unless the context gets parked for an unload-confirm dialog)."""
-        parked = False
+        """Whisper call + result handling; deletes tmp_path when done."""
         try:
             from ..lib.audio_processing import transcribe_audio_auto
             from ..lib.formatting import format_number
@@ -646,59 +605,23 @@ class AIState(
             # makes Whisper translate on the fly, which is worse than a proper
             # second-step translation (translate_file → DeepL). Mic dictations
             # keep the UI language (fast, and the assumption is correct).
-            from ..lib.stt_client import STTError, STTGPUUnavailableError
+            from ..lib.stt_client import STTError
             stt_language = "auto" if source == "file" else self.ui_language
             loop = asyncio.get_running_loop()
             try:
-                try:
-                    # GPU-first + small-file CPU fallback live in the helper
-                    # (SSOT with the FreeEcho.2 channel); only the big-file
-                    # case (STTGPUUnavailableError) surfaces here.
-                    # Speaker labels only for uploaded files: those are
-                    # recordings (interviews, meetings) where knowing who
-                    # speaks carries the meaning. A mic dictation has one
-                    # speaker and would only pay the extra model load.
-                    want_diarize = source == "file"
-                    user_text, stt_time, stt_device = await loop.run_in_executor(
-                        None,
-                        lambda: transcribe_audio_auto(
-                            tmp_path, language=stt_language, diarize=want_diarize,
-                        ),
-                    )
-                    if stt_device == "cpu":
-                        self.add_debug("⚠️ Transcribed on the CPU engine (slower)")
-                except STTGPUUnavailableError:
-                    # Big file, all GPUs occupied (e.g. big LLM loaded) —
-                    # CPU would take >30 min, offer to unload the LLM instead.
-                    from ..lib.i18n import t as _t
-                    if allow_unload_prompt and self.backend_type in ("llamacpp", "vllm", "ollama"):
-                        # Park context and ask: unload the LLM to free VRAM?
-                        # stt_unload_confirm_result() resumes or cleans up.
-                        import json as _json
-                        self._stt_pending_path = tmp_path
-                        self._stt_pending_source = source
-                        self._stt_pending_filename = filename
-                        self._stt_pending_size = size_display
-                        parked = True
-                        question = _t(
-                            "stt_gpu_busy_unload_confirm", lang=self.ui_language,
-                            filename=filename, size=size_display,
-                        )
-                        self.add_debug("⚠️ No GPU with free VRAM — asking to unload the LLM")
-                        yield rx.call_script(
-                            f"window.confirm({_json.dumps(question)})",
-                            callback=AIState.stt_unload_confirm_result,
-                        )
-                        return
-                    else:
-                        # Non-unloadable backend (vLLM/cloud) or the retry
-                        # after an unload — CPU is no option at this size.
-                        self.add_debug("⚠️ No GPU with free VRAM — transcription aborted (file too big for CPU)")
-                        yield rx.toast.error(
-                            _t("stt_gpu_busy_aborted", lang=self.ui_language),
-                            duration=10000, position="top-center",
-                        )
-                        return
+                # The device is the service's choice (transcribe_audio_auto, SSOT with the
+                # FreeEcho.2 channel). Speaker labels only for uploaded files: those are
+                # recordings (interviews, meetings) where knowing who speaks carries the
+                # meaning. A mic dictation has one speaker and would only pay the extra load.
+                want_diarize = source == "file"
+                user_text, stt_time, stt_device = await loop.run_in_executor(
+                    None,
+                    lambda: transcribe_audio_auto(
+                        tmp_path, language=stt_language, diarize=want_diarize,
+                    ),
+                )
+                if stt_device == "cpu":
+                    self.add_debug("⚠️ Transcribed on the CPU engine (slower)")
             except TimeoutError as e:
                 self.add_debug(f"⚠️ {e}")
                 yield rx.toast.error(f"⚠️ {e}", duration=10000, position="top-center")
@@ -846,10 +769,7 @@ class AIState(
             log_message(f"❌ Audio transcription error: {e}")
             yield rx.toast.error(f"❌ Transkription fehlgeschlagen: {e}", duration=8000, position="top-center")
         finally:
-            # Clean up temporary file — unless the context was parked for the
-            # unload-confirm dialog (stt_unload_confirm_result cleans up then).
-            if not parked:
-                Path(tmp_path).unlink(missing_ok=True)
+            Path(tmp_path).unlink(missing_ok=True)
 
     @rx.event
     def toggle_yarn(self):

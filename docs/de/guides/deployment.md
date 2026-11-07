@@ -721,10 +721,11 @@ Repository neben AIfred (oder `STT_SUITE_DIR` aus der `.env`) und startet es mit
 `docker-compose.cpu.yml`: Die Basisdatei reserviert eine GPU, was Docker dort ablehnt. AIfred macht
 dasselbe, wenn es den Container selbst startet (`STTClient.start_container`).
 
-- **Was AIfred einstellt:** nur das bevorzugte Gerät (STT-Tab im Agent-Editor): *Automatik*
-  (die STT-Suite entscheidet nach freiem Grafikspeicher), *Nur CPU* oder *Nur GPU* (ohne Platz ein
-  Fehler, kein Ausweichen). Das Gerät liegt als `stt_device` in `settings.json`. Lange Aufnahmen
-  (über `WHISPER_GPU_MIN_FILE_MB`, 10 MB) gehen bei Automatik immer auf die CPU.
+- **Was AIfred einstellt:** nichts am Gerät. AIfred fragt immer mit `device=auto`: Die STT-Suite
+  nimmt eine Karte nur, wenn dort Platz ist, sonst die CPU. Lange Aufnahmen (über
+  `WHISPER_GPU_MIN_FILE_MB`, 10 MB) schickt AIfred auf die CPU. Wer die Karten nie anfassen lassen
+  will, stellt das in der Automatik-Liste der STT-Suite ein. Der STT-Tab im Agent-Editor zeigt nur,
+  ob der Dienst erreichbar ist.
 - **Was die STT-Suite einstellt** (ihre Oberfläche unter `/ui/`, am Proxy `/stt-suite/ui/`): Engine,
   Modell und Genauigkeit je Gerät, die Reihenfolge der Automatik, der Speicherpuffer und die
   Messung des Speicherbedarfs.

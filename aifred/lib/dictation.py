@@ -3,7 +3,8 @@ brought it (a locked phone or a closed tab ends nothing).
 
 ``accept`` checks the upload and starts a job on the server's loop. The job estimates the time,
 asks the user when it will take long (``dictation_question``, answered with ``answer``), transcribes
-through the STT service and hands the text on as the browser's dictation did:
+through the STT service (device ``auto``: the service picks) and hands the text on as the browser's
+dictation did:
 
 - a long transcript → a file in the documents and a bubble with its link,
 - an audio file → a bubble with the transcript,
@@ -197,39 +198,20 @@ async def _transcription(job: DictationJob) -> str | None:
             job, "stt_bubble_started", filename=job.filename, size=job.size_display, engine="GPU",
         ), job.lang, in_history=False)
     debug(f"🎤 Transcribing audio: {job.filename} ({job.size_display}, GPU engine)...")
-    return await _transcribe(job, may_unload=True)
+    return await _transcribe(job)
 
 
-async def _transcribe(job: DictationJob, *, may_unload: bool) -> str | None:
-    """Transcribe on the device the settings prefer. An audio file keeps its own language (forcing the
-    interface's makes Whisper translate on the fly) and gets speaker labels (a recording of several
-    people); a dictation is in the interface's language, one speaker."""
+async def _transcribe(job: DictationJob) -> str | None:
+    """Transcribe (``transcribe_audio_auto``: the service picks the device). An audio file keeps its
+    own language (forcing the interface's makes Whisper translate on the fly) and gets speaker labels
+    (a recording of several people); a dictation is in the interface's language, one speaker."""
     from .audio_processing import transcribe_audio_auto
     from .formatting import format_number
-    from .runtime_settings import load_runtime_settings
-    from .stt_client import STTGPUUnavailableError
 
     language = "auto" if job.source == "file" else job.lang
-    try:
-        text, seconds, device = await asyncio.to_thread(
-            transcribe_audio_auto, str(job.path), language=language, diarize=job.source == "file",
-        )
-    except STTGPUUnavailableError:
-        # A big file and no card with room (the STT service on "GPU only"): the CPU would take too
-        # long, unloading the LLM makes room. It reloads with the next chat.
-        backend = load_runtime_settings().backend_type
-        if not (may_unload and backend in ("llamacpp", "vllm", "ollama")):
-            debug("⚠️ No GPU with free VRAM — transcription aborted (file too big for CPU)")
-            _notice(job, "error", _t(job, "stt_gpu_busy_aborted"))
-            return None
-        debug("⚠️ No GPU with free VRAM — asking to unload the LLM")
-        if not await _ask(job, "unload", _t(job, "stt_gpu_busy_unload_confirm", filename=job.filename, size=job.size_display)):
-            debug("🎤 Transcription cancelled by user (GPU busy, no LLM unload)")
-            _notice(job, "info", _t(job, "stt_cancelled"))
-            return None
-        debug(f"🎤 Unloading LLM backend ({backend}) for GPU transcription...")
-        await unload_chat_models(backend)
-        return await _transcribe(job, may_unload=False)
+    text, seconds, device = await asyncio.to_thread(
+        transcribe_audio_auto, str(job.path), language=language, diarize=job.source == "file",
+    )
     if device == "cpu":
         debug("⚠️ Transcribed on the CPU engine (slower)")
     if not text:
@@ -287,32 +269,3 @@ def _save_long_transcript(job: DictationJob, text: str) -> None:
     key = "stt_bubble_saved_speakers" if "[SPEAKER_" in text else "stt_bubble_saved"
     post_bubble(job.session_id, "aifred", _t(job, key, transcript_link=link, filename=name, chars=chars), job.lang, in_history=True)
     _notice(job, "success", _t(job, "stt_transcript_saved", filename=name))
-
-
-async def unload_chat_models(backend_type: str) -> None:
-    """Unload the chat backend's models so the STT service's GPU worker fits; the LLM reloads with the
-    next chat request. llama-swap: ``POST /unload`` stops every running instance (vLLM included)."""
-    import httpx
-
-    from ..backends.ollama import wait_for_vram_stable
-    from .config import BACKEND_URLS, LLAMASWAP_BACKENDS
-    from .formatting import format_number
-
-    if backend_type in LLAMASWAP_BACKENDS:
-        base = BACKEND_URLS["llamacpp"].removesuffix("/v1")
-        async with httpx.AsyncClient(timeout=30) as client:
-            (await client.post(f"{base}/unload")).raise_for_status()
-        stabilized, wait_s, free_mb = await wait_for_vram_stable()
-        debug(
-            f"🎤 llama-swap unloaded — {format_number(free_mb)} MiB VRAM free after "
-            f"{format_number(wait_s, 1)}s{'' if stabilized else ' (still settling)'}"
-        )
-    elif backend_type == "ollama":
-        from ..backends import BackendFactory
-
-        backend = BackendFactory.create("ollama")
-        try:
-            _success, unloaded = await backend.unload_all_models(wait_for_stability=True)
-            debug(f"🎤 Ollama unloaded: {', '.join(unloaded) if unloaded else 'nothing loaded'}")
-        finally:
-            await backend.client.aclose()

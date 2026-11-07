@@ -717,10 +717,11 @@ NVIDIA GPU** (`nvidia-smi` shows none) the installer adds `docker-compose.cpu.ym
 reserves a GPU, which Docker refuses there. AIfred does the same when it starts the container itself
 (`STTClient.start_container`).
 
-- **What AIfred sets:** only the preferred device (STT tab of the Agent Editor): *Automatic* (the
-  STT-Suite decides by free graphics memory), *CPU only* or *GPU only* (an error without room, no
-  fallback). The device is kept as `stt_device` in `settings.json`. Long recordings (over
-  `WHISPER_GPU_MIN_FILE_MB`, 10 MB) always go to the CPU with Automatic.
+- **What AIfred sets:** nothing about the device. AIfred always asks with `device=auto`: the
+  STT-Suite takes a card only when there is room on it, else the CPU. Long recordings (over
+  `WHISPER_GPU_MIN_FILE_MB`, 10 MB) AIfred sends to the CPU. Whoever wants the cards never touched
+  sets that in the STT-Suite's automatic list. The STT tab of the Agent Editor only shows whether
+  the service answers.
 - **What the STT-Suite sets** (its page at `/ui/`, `/stt-suite/ui/` behind the proxy): engine, model and
   quality per device, the order of the automatic mode, the memory margin and the measurement of the
   memory need.

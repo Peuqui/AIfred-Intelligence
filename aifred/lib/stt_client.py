@@ -46,10 +46,6 @@ class STTTimeoutError(STTError, TimeoutError):
     """Der Dienst hat nicht innerhalb des Timeouts geantwortet."""
 
 
-class STTGPUUnavailableError(STTError):
-    """HTTP 503: keine GPU mit genug freiem VRAM — der Aufrufer darf auf die CPU ausweichen."""
-
-
 class STTClient:
     def __init__(self, base_url: str, compose_path: str) -> None:
         self.base_url = base_url
@@ -87,8 +83,6 @@ class STTClient:
         except ValueError:
             reason = resp.text[:200]
         message = f"{error_label}: {reason}" if error_label else f"{resp.status_code} {reason}"
-        if resp.status_code == 503:
-            raise STTGPUUnavailableError(message)
         raise STTError(message)
 
     # ---- Schnittstelle des Dienstes -------------------------------------
@@ -143,7 +137,6 @@ class STTClient:
         """Datei transkribieren und die Antwort des Dienstes unverändert liefern.
 
         Raises:
-            STTGPUUnavailableError: 503, kein VRAM für ``device="cuda"``.
             STTTimeoutError: länger als WHISPER_TRANSCRIBE_TIMEOUT_S.
             STTUnreachableError: Dienst nicht erreichbar.
             STTError: jeder andere Fehler des Dienstes.

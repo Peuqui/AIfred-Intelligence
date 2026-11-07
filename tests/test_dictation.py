@@ -20,7 +20,6 @@ from aifred.lib import (
     config,
     dictation,
     file_manager,
-    runtime_settings,
     session_events,
     session_storage,
     settings,
@@ -39,8 +38,8 @@ def stt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, A
     session_storage.save_session(SESSION, {"data": {"chat_history": [], "llm_history": []}}, owner="ki")
     session_events._channels.pop(SESSION, None)
     world: dict[str, Any] = {
-        "text": "Wie wird das Wetter morgen?", "duration": 5.0, "gpu_busy": 0, "settings": {},
-        "sent": [], "unloaded": [], "transcribed": [], "written": {},
+        "text": "Wie wird das Wetter morgen?", "duration": 5.0, "settings": {},
+        "sent": [], "transcribed": [], "written": {},
     }
 
     class _Service:
@@ -49,13 +48,7 @@ def stt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, A
 
     def transcribe(path: str, language: str, diarize: bool) -> tuple[str, float, str]:
         world["transcribed"].append((language, diarize, Path(path).exists()))
-        if world["gpu_busy"]:
-            world["gpu_busy"] -= 1
-            raise stt_client.STTGPUUnavailableError("503 no GPU with room")
         return world["text"], 1.2, "cuda"
-
-    async def unload(backend: str) -> None:
-        world["unloaded"].append(backend)
 
     def write_file(name: str, text: str) -> Any:
         world["written"][name] = text
@@ -64,10 +57,8 @@ def stt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, A
     monkeypatch.setattr(stt_client, "get_default_client", lambda: _Service())
     monkeypatch.setattr(audio_processing, "get_audio_duration", lambda path: world["duration"])
     monkeypatch.setattr(audio_processing, "transcribe_audio_auto", transcribe)
-    monkeypatch.setattr(dictation, "unload_chat_models", unload)
     monkeypatch.setattr(file_manager, "write_file", write_file)
     monkeypatch.setattr(settings, "persisted_settings", lambda: world["settings"])
-    monkeypatch.setattr(runtime_settings, "load_runtime_settings", lambda: SimpleNamespace(backend_type="llamacpp"))
     def submit(request: turn_service.TurnRequest) -> bool:
         world["sent"].append(request)
         return False
@@ -154,14 +145,6 @@ def test_a_transcription_above_the_time_limit_does_not_start(stt: dict[str, Any]
     stt["duration"] = (config.WHISPER_TRANSCRIBE_TIMEOUT_S + 60) / config.WHISPER_RTF_GPU
     _dictate()
     assert stt["transcribed"] == [] and _events("notice")[0]["level"] == "error"
-
-
-def test_no_room_on_the_gpu_asks_to_unload_the_llm_and_tries_once_more(stt: dict[str, Any]) -> None:
-    stt["gpu_busy"] = 2                                          # also the second attempt finds no room
-    _dictate(answers=(True,))
-    assert stt["unloaded"] == ["llamacpp"] and len(stt["transcribed"]) == 2
-    assert [q["kind"] for q in _events("dictation_question")] == ["unload"]   # asked once
-    assert _events("notice")[-1]["level"] == "error" and stt["sent"] == []
 
 
 def test_an_unknown_format_is_refused_before_anything_is_stored(stt: dict[str, Any]) -> None:

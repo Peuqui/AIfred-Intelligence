@@ -1314,12 +1314,10 @@ AUDIO_UPLOAD_MAX_MB = env_int("AUDIO_UPLOAD_MAX_MB", 2048)
 # 10-20x realtime → 2 h audio ≈ 6-12 min.
 WHISPER_TRANSCRIBE_TIMEOUT_S = 1800
 
-# All transcriptions go GPU-first (the STT-Suite service checks free VRAM
-# itself and answers 503 when nothing fits). This threshold only decides what
-# happens THEN: files up to this size silently retry on the permanent CPU
-# model (fast enough there); bigger files (meetings) would take >30 min on
-# CPU, so the user is asked whether to unload the LLM instead. A 2-minute
-# voice memo is ~1-2 MB; meeting recordings are tens of MB.
+# AIfred asks the STT-Suite with device "auto" (it takes a card only when there is room, else the
+# CPU); a recording above this size goes to the CPU: the service's memory table is measured for
+# dictations of about a minute (audio_processing.transcribe_audio_auto). A 2-minute voice memo is
+# ~1-2 MB; meeting recordings are tens of MB.
 WHISPER_GPU_MIN_FILE_MB = 10
 
 # Duration estimation: processing time ≈ audio duration × realtime factor.

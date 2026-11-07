@@ -1074,25 +1074,23 @@ def transcribe_audio_auto(
     audio_path: str, language: str = "de", log_result: bool = True,
     diarize: bool = False,
 ) -> tuple[str, float, str]:
-    """Transcription on the device the user prefers — SSOT for what the service is asked.
+    """Transcription as AIfred asks the service for it — SSOT for every caller (browser, Echo, files).
 
-    The preference (``stt_device`` in settings.json) goes to the service as it is: ``auto`` (the
-    service walks its own list and takes the first entry that fits), ``cpu`` or ``cuda`` (GPU only;
-    no room is an error, STTGPUUnavailableError, not a silent change to the CPU). Engine, model and
-    quality are never sent: they are the service's business. One exception: a long recording
-    (bigger than WHISPER_GPU_MIN_FILE_MB) always goes to the CPU, also with ``auto`` — the service's
-    memory table is measured for dictations of about a minute, a long file needs far more on a card.
+    The device is ``auto``: the service walks its own list and takes the first entry that fits, a card
+    only when there is room on it, else the CPU (Peuqui 07.11.2026: unloading the LLM for a dictation
+    and loading it again afterwards is not worth it; who wants the cards never touched sets that in
+    the service's list). Engine, model and quality are never sent: they are the service's business.
+    One exception: a long recording (bigger than WHISPER_GPU_MIN_FILE_MB) goes to the CPU — the
+    service's memory table is measured for dictations of about a minute, a long file needs far more
+    on a card.
 
     Returns:
         tuple: (transcribed_text, time_in_seconds, device_used) — device_used is ``cpu`` or
         ``cuda`` as the service reports it.
     """
     from .config import WHISPER_GPU_MIN_FILE_MB
-    from .settings import persisted_settings
 
-    device = persisted_settings().get("stt_device", "auto")
-    if device == "auto" and os.path.getsize(audio_path) / (1024 * 1024) > WHISPER_GPU_MIN_FILE_MB:
-        device = "cpu"
+    device = "cpu" if os.path.getsize(audio_path) / (1024 * 1024) > WHISPER_GPU_MIN_FILE_MB else "auto"
     return transcribe_audio(audio_path, language=language, device=device, log_result=log_result, diarize=diarize)
 
 

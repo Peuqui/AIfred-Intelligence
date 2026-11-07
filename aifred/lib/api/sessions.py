@@ -312,7 +312,7 @@ async def sessions_dictation(
 
 @api_app.post("/sessions/{session_id}/dictation/{job_id}/answer", status_code=204, tags=["Sessions"])
 async def sessions_dictation_answer(session_id: str, job_id: str, reply: DictationAnswer, request: Request) -> Response:
-    """The user's answer to a dictation's question (long transcription, unload the LLM)."""
+    """The user's answer to a dictation's question (a long transcription)."""
     from ..dictation import answer
 
     owned_session(request, session_id)
