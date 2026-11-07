@@ -23,7 +23,7 @@ from .base import (
 
 logger = logging.getLogger(__name__)
 
-# Kumulative vLLM-Zaehler aus /metrics:
+# Kumulative vLLM-Zähler aus /metrics:
 # (prefill_token, prefill_s, anfragen, gen_token, decode_s)
 _Counters = tuple[float, float, float, float, float]
 
@@ -35,23 +35,23 @@ class vLLMBackend(OpenAICompatibleBackend):
     # --reasoning-parser: vLLM liefert den Denkteil im Feld ``reasoning``
     # (DeltaMessage/ChatMessage), NICHT ``reasoning_content``.
     REASONING_FIELD = "reasoning"
-    # 900 s wie llama.cpp: Der erste Request stoesst bei llama-swap den
-    # Ladevorgang an und muss ihn ueberleben. Mit 300 s gab der Client beim
+    # 900 s wie llama.cpp: Der erste Request stößt bei llama-swap den
+    # Ladevorgang an und muss ihn überleben. Mit 300 s gab der Client beim
     # Flash-Next (127 GB, 6,5 min Ladezeit) auf, bevor das Modell fertig war
     # — es bediente dann NIE eine Anfrage, weshalb llama-swap seine
-    # TTL-Uhr nie zuruecksetzte und direkt nach dem Laden wieder entlud
-    # (2026-08-30). Grosse Modelle ueber langsame Anbindung brauchen laenger.
+    # TTL-Uhr nie zurücksetzte und direkt nach dem Laden wieder entlud
+    # (2026-08-30). Große Modelle über langsame Anbindung brauchen länger.
     DEFAULT_TIMEOUT = 900.0
 
     def __init__(self, base_url: str = "http://localhost:11435/v1", api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
         self._metrics_port: int | None = None
-        # (Port, Zaehlerstand) direkt vor der laufenden Serveranfrage; das
+        # (Port, Zählerstand) direkt vor der laufenden Serveranfrage; das
         # Delta bis nach ihrem Ende ist genau diese eine Anfrage.
         self._request_baseline: tuple[int, _Counters] | None = None
 
     # ------------------------------------------------------------------
-    # Echte Prefill-Rate aus vLLMs eigenen Zaehlern
+    # Echte Prefill-Rate aus vLLMs eigenen Zählern
     # ------------------------------------------------------------------
 
     async def _pre_request_check(self, model: str) -> float:
@@ -80,9 +80,9 @@ class vLLMBackend(OpenAICompatibleBackend):
         return None
 
     def _read_counters(self) -> tuple[int, _Counters] | None:
-        """(Port, Zaehlerstand) des laufenden vLLM-Servers; None = nicht lesbar.
+        """(Port, Zählerstand) des laufenden vLLM-Servers; None = nicht lesbar.
 
-        Vier kumulative Groessen, alle aus einem einzigen Abruf:
+        Vier kumulative Größen, alle aus einem einzigen Abruf:
 
         * ``request_prefill_time_seconds``  — reine PREFILL-Phase, ohne
           Warteschlange und ohne den ersten Decode-Schritt
@@ -123,10 +123,10 @@ class vLLMBackend(OpenAICompatibleBackend):
                 werte["vllm:request_decode_time_seconds_sum"],
             )
         except KeyError:
-            return None  # aeltere vLLM-Version ohne diese Histogramme
+            return None  # ältere vLLM-Version ohne diese Histogramme
 
     def _before_stream_request(self) -> None:
-        """Zaehlerstand direkt vor der Anfrage merken — auch vor jeder Tool-Runde."""
+        """Zählerstand direkt vor der Anfrage merken — auch vor jeder Tool-Runde."""
         self._request_baseline = self._read_counters()
 
     def _request_work(
@@ -180,7 +180,7 @@ class vLLMBackend(OpenAICompatibleBackend):
         jedes Zitat aus dem Prompt abgestraft — Namen, Dateiinhalte,
         Tool-JSON. Die Einstellung muss in jedem Backend dasselbe
         bewirken (Peuqui, 2026-09-06); eine Umrechnung in die additive,
-        ausgabebezogene presence_penalty gibt es nicht, also faellt der
+        ausgabebezogene presence_penalty gibt es nicht, also fällt der
         Wert hier weg und wird einmal sichtbar geloggt.
         """
         extra_body = super()._build_extra_body(options, model)
@@ -194,18 +194,18 @@ class vLLMBackend(OpenAICompatibleBackend):
         return extra_body
 
     def _extract_server_timings(self, response_or_chunk: Any) -> dict[str, Any]:
-        """Rueckfallebene: wie viel vom Prompt aus dem Praefix-Cache kam.
+        """Rückfallebene: wie viel vom Prompt aus dem Präfix-Cache kam.
 
         Seit ``_request_work()`` holen wir die Prefill-Rate
         bevorzugt aus vLLMs eigenen Histogrammen. Diese Zahl hier greift,
         wenn das nicht eindeutig ist (fremde Anfrage parallel, Server
-        waehrend der Anfrage geswappt, aeltere vLLM-Version).
+        während der Anfrage geswappt, ältere vLLM-Version).
 
         Ohne diese Zahl bliebe als Prefill-Rate nur ``prompt_tokens / ttft``,
-        und die zaehlt zwischengespeicherte Token mit, die nie gerechnet
+        und die zählt zwischengespeicherte Token mit, die nie gerechnet
         wurden. Gemessen am 2026-09-01: Ein Turn, dessen 9.728 Token langer
-        System-Prompt vollstaendig aus dem Cache kam, wies so 1.587 tok/s
-        "Prefill" aus, waehrend llama.cpp im selben Vergleich ehrliche
+        System-Prompt vollständig aus dem Cache kam, wies so 1.587 tok/s
+        "Prefill" aus, während llama.cpp im selben Vergleich ehrliche
         468 tok/s meldete — der Wert stieg also mit dem Cache-Treffer statt
         mit der Rechenleistung. Fehlt das Feld, geben wir GAR KEINE Rate aus,
         statt eine falsche.
@@ -217,20 +217,20 @@ class vLLMBackend(OpenAICompatibleBackend):
         cached = getattr(details, "cached_tokens", None) if details else None
         if cached is not None:
             return {"prompt_tokens_cached": int(cached)}
-        # Feld fehlt — zwei sehr verschiedene Gruende, die man trennen muss:
+        # Feld fehlt — zwei sehr verschiedene Gründe, die man trennen muss:
         # Ohne den Schalter --enable-prompt-tokens-details fehlt es immer; dann
-        # wissen wir gar nichts und duerfen keine Rate ausgeben. Mit dem Schalter
-        # setzen aeltere vLLM-Baeume es NUR, wenn etwas aus dem Cache kam
+        # wissen wir gar nichts und dürfen keine Rate ausgeben. Mit dem Schalter
+        # setzen ältere vLLM-Bäume es NUR, wenn etwas aus dem Cache kam
         # ("if enable_prompt_tokens_details and num_cached_tokens"): Beim ersten
         # Turn fehlt es, der ganze Prompt wurde gerechnet, die Rate stimmt. Ab
         # 1Cat-vLLM-v6f kommt es mit dem Schalter immer, auch als 0 (serving.py:
         # "... and num_cached_tokens is not None"); dann fehlt es nur noch ohne
-        # Schalter. Stand 07.11.2026 laeuft Qwen3.8-27B noch auf v5d — sobald kein
-        # Eintrag mehr einen aelteren Baum nutzt, faellt dieser Zweig weg.
+        # Schalter. Stand 07.11.2026 läuft Qwen3.8-27B noch auf v5d — sobald kein
+        # Eintrag mehr einen älteren Baum nutzt, fällt dieser Zweig weg.
         return {"prompt_tokens_cached": 0} if self._reports_cached_tokens() else {}
 
     def _reports_cached_tokens(self) -> bool:
-        """Traegt der llama-swap-Eintrag ``--enable-prompt-tokens-details``?"""
+        """Trägt der llama-swap-Eintrag ``--enable-prompt-tokens-details``?"""
         from ..lib.calibration.llamaswap_io import parse_llamaswap_config
         from ..lib.config import LLAMASWAP_CONFIG_PATH
         try:
