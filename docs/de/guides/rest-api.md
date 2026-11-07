@@ -71,7 +71,8 @@ AIfred ins Internet stellst (siehe [Einrichtungsanleitung → Auf die Web-UI zug
 | `/api/chat/clear` | POST | History einer Session leeren (`session_id`) |
 | `/api/sessions` | GET / POST | Die eigenen Sessions (`session_id`, `title`, `last_message_at`, `message_count`, `channel`) / neue anlegen |
 | `/api/sessions/{id}` | GET / DELETE | Eine eigene Session öffnen (`chat_history`, `config`, `debug_messages`, `running`, `last_event_id`) / löschen. Fremde oder ungültige IDs antworten 404 |
-| `/api/sessions/{id}/messages` | POST | `{text}` — der Server führt den Zug selbst, auch ohne offenen Tab; läuft schon einer, wartet die Nachricht (`queued: true`) |
+| `/api/sessions/{id}/messages` | POST | `{text, images}` — der Server führt den Zug selbst, auch ohne offenen Tab; läuft schon einer, wartet die Nachricht samt Bildern (`queued: true`). `images` = URLs aus dem Bild-Upload, nur eigene Uploads der Session |
+| `/api/sessions/{id}/images` · `/images/{name}` | POST / DELETE | Bilder für die nächste Nachricht hochladen (multipart `files`, geprüft und verkleinert, → `[{name, url, size_kb}]`) / ein hochgeladenes wieder entfernen |
 | `/api/sessions/{id}/stop` | POST | Laufenden Zug abbrechen (die gestreamte Teilantwort bleibt) und das Vorlesen beenden, in allen Tabs |
 | `/api/sessions/{id}/config` | PATCH | `active_agent`, `multi_agent_mode`, `symposion_agents` (nur bekannte Agenten und Modi) |
 | `/api/sessions/{id}/events` | GET | Ereignisstrom (SSE) der Session: `turn_started`, `agent_started`, `token`, `tool_status`, `message_added`, `message_updated` (Blase mit dem Gesprochenen), `turn_finished`, `debug`, `notice`, Wiedergabeliste `tts` / `tts_pause` / `tts_speak` / `stop`, … — `?after=<id>` bzw. `Last-Event-ID` |

@@ -71,7 +71,8 @@ expose AIfred to the internet (see [Deployment → Access the web UI](deployment
 | `/api/chat/clear` | POST | Clear a session's history (`session_id`) |
 | `/api/sessions` | GET / POST | Your own sessions (`session_id`, `title`, `last_message_at`, `message_count`, `channel`) / create one |
 | `/api/sessions/{id}` | GET / DELETE | Open one of your sessions (`chat_history`, `config`, `debug_messages`, `running`, `last_event_id`) / delete it. A foreign or invalid id answers 404 |
-| `/api/sessions/{id}/messages` | POST | `{text}` — the server runs the turn itself, also without an open tab; while one runs, the message waits (`queued: true`) |
+| `/api/sessions/{id}/messages` | POST | `{text, images}` — the server runs the turn itself, also without an open tab; while one runs, the message waits with its images (`queued: true`). `images` = URLs from the image upload, only the session's own uploads |
+| `/api/sessions/{id}/images` · `/images/{name}` | POST / DELETE | Upload images for the next message (multipart `files`, checked and made smaller, → `[{name, url, size_kb}]`) / take an uploaded one off again |
 | `/api/sessions/{id}/stop` | POST | Cancel the running turn (the streamed partial answer stays) and end the reading aloud, in every tab |
 | `/api/sessions/{id}/config` | PATCH | `active_agent`, `multi_agent_mode`, `symposion_agents` (known agents and modes only) |
 | `/api/sessions/{id}/events` | GET | Event stream (SSE) of the session: `turn_started`, `agent_started`, `token`, `tool_status`, `message_added`, `message_updated` (bubble with what was spoken), `turn_finished`, `debug`, `notice`, playlist `tts` / `tts_pause` / `tts_speak` / `stop`, … — `?after=<id>` or `Last-Event-ID` |

@@ -2,9 +2,9 @@
 // this store only follows its event stream (src/api/events.ts) and sends commands.
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import { api } from "../api/client";
+import { ApiError, api } from "../api/client";
 import { followSession } from "../api/events";
-import type { ChatEntry, MessageAccepted, SessionDetail } from "../api/types";
+import type { ChatEntry, MessageAccepted, SessionDetail, UploadedImage } from "../api/types";
 import * as speech from "../lib/speech";
 import { useSessions } from "./sessions";
 
@@ -32,6 +32,9 @@ export const useChat = defineStore("chat", () => {
   const toolStatus = ref("");
   const notice = ref("");
   const queued = ref<string[]>([]);
+  // Images uploaded for the next message (they sit in the session's upload folder until it is sent).
+  const pendingImages = ref<UploadedImage[]>([]);
+  const uploading = ref(false);
   let source: EventSource | null = null;
 
   async function open(id: string): Promise<void> {
@@ -48,6 +51,7 @@ export const useChat = defineStore("chat", () => {
     toolStatus.value = "";
     notice.value = "";
     queued.value = [];
+    pendingImages.value = [];
     source = followSession(id, detail.last_event_id, handle);
   }
 
@@ -132,10 +136,33 @@ export const useChat = defineStore("chat", () => {
 
   async function send(text: string): Promise<void> {
     if (!sessionId.value) return;
+    const images = pendingImages.value.map((image) => image.url);
     await api<MessageAccepted>(`sessions/${sessionId.value}/messages`, {
       method: "POST",
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, images }),
     });
+    pendingImages.value = [];
+  }
+
+  async function uploadImages(files: File[]): Promise<void> {
+    if (!sessionId.value || files.length === 0) return;
+    const form = new FormData();
+    for (const file of files) form.append("files", file, file.name);
+    uploading.value = true;
+    try {
+      const stored = await api<UploadedImage[]>(`sessions/${sessionId.value}/images`, { method: "POST", body: form });
+      pendingImages.value = [...pendingImages.value, ...stored];
+    } catch (error) {
+      notice.value = error instanceof ApiError ? error.detail : String(error);
+    } finally {
+      uploading.value = false;
+    }
+  }
+
+  async function removeImage(name: string): Promise<void> {
+    if (!sessionId.value) return;
+    await api<void>(`sessions/${sessionId.value}/images/${encodeURIComponent(name)}`, { method: "DELETE" });
+    pendingImages.value = pendingImages.value.filter((image) => image.name !== name);
   }
 
   // Ends the turn and the reading aloud, in every tab of the session (the server sends "stop").
@@ -155,6 +182,6 @@ export const useChat = defineStore("chat", () => {
 
   return {
     sessionId, title, history, debugLines, config, running, streaming, toolStatus, notice, queued,
-    open, close, send, stop, configure,
+    pendingImages, uploading, open, close, send, stop, configure, uploadImages, removeImage,
   };
 });

@@ -1,4 +1,4 @@
-"""Sessions for the Vue app: list, open, create, delete, configure, send, stop, follow.
+"""Sessions for the Vue app: list, open, create, delete, configure, send (with images), stop, follow.
 
 Every endpoint works on the logged-in user's own sessions: a session of another account answers
 404 as if it did not exist. A message to a session with a running turn waits in the session's
@@ -9,7 +9,7 @@ import asyncio
 import json
 from typing import Any
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -195,6 +195,7 @@ async def sessions_configure(session_id: str, update: SessionConfigUpdate, reque
 
 class MessageIn(BaseModel):
     text: str
+    images: list[str] = Field(default_factory=list, description="URLs of images uploaded for this message (POST …/images)")
 
 
 class MessageAccepted(BaseModel):
@@ -203,12 +204,63 @@ class MessageAccepted(BaseModel):
 
 @api_app.post("/sessions/{session_id}/messages", response_model=MessageAccepted, status_code=202, tags=["Sessions"])
 async def sessions_send(session_id: str, message: MessageIn, request: Request) -> MessageAccepted:
+    from ..config import MAX_IMAGES_PER_MESSAGE
+    from ..turn_images import session_images
     from ..turn_service import TurnRequest, submit_turn
 
     owned_session(request, session_id)
-    if not message.text.strip():
+    if not message.text.strip() and not message.images:
         raise HTTPException(status_code=422, detail="Empty message")
-    return MessageAccepted(queued=submit_turn(TurnRequest(session_id, message.text)))
+    if len(message.images) > MAX_IMAGES_PER_MESSAGE:
+        raise HTTPException(status_code=422, detail=f"At most {MAX_IMAGES_PER_MESSAGE} images per message")
+    try:
+        session_images(session_id, message.images)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return MessageAccepted(queued=submit_turn(TurnRequest(session_id, message.text, images=tuple(message.images))))
+
+
+# ── Images for the next message ──────────────────────────────────────────
+
+
+class UploadedImage(BaseModel):
+    name: str
+    url: str
+    size_kb: int
+
+
+@api_app.post("/sessions/{session_id}/images", response_model=list[UploadedImage], tags=["Sessions"])
+async def sessions_upload_images(session_id: str, files: list[UploadFile], request: Request) -> list[UploadedImage]:
+    """Images for the next message: checked, made smaller like every upload, kept in the session's
+    upload folder (deleted with the session). The message names them by URL."""
+    from ..vision_utils import get_image_url, save_session_upload, validate_image_file
+
+    owned_session(request, session_id)
+    uploads = [(file.filename or "image.jpg", await file.read()) for file in files]
+    for filename, content in uploads:
+        valid, error = validate_image_file(filename, len(content))
+        if not valid:
+            raise HTTPException(status_code=422, detail=error)
+    stored = []
+    for filename, content in uploads:
+        stem, _, ext = filename.rpartition(".")
+        path = await asyncio.to_thread(save_session_upload, content, session_id, stem, ext.lower())
+        stored.append(UploadedImage(name=path.name, url=get_image_url(path), size_kb=path.stat().st_size // 1024))
+    return stored
+
+
+@api_app.delete("/sessions/{session_id}/images/{name}", status_code=204, tags=["Sessions"])
+async def sessions_delete_image(session_id: str, name: str, request: Request) -> Response:
+    """An uploaded image the user took off the next message."""
+    from ..turn_images import session_images
+
+    owned_session(request, session_id)
+    try:
+        image = session_images(session_id, [f"/_upload/images/{session_id}/{name}"])[0]
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    image.path.unlink()
+    return Response(status_code=204)
 
 
 @api_app.post("/sessions/{session_id}/stop", tags=["Sessions"])

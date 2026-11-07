@@ -269,10 +269,11 @@ class AIState(
         # the oldest one, once nothing is generating
         if self.session_id and not self.is_generating:
             from ..lib.session_storage import pop_pending_message
-            pending_msg = pop_pending_message(self.session_id)
-            if pending_msg:
-                self.current_user_input = pending_msg
-                self.add_debug(f"📨 Pending message picked up ({len(pending_msg)} chars)")
+            pending = pop_pending_message(self.session_id)
+            if pending is not None:
+                # The browser queues text only (dictation, injection); images come with the server turn.
+                self.current_user_input = pending.text
+                self.add_debug(f"📨 Pending message picked up ({len(pending.text)} chars)")
                 yield  # Update UI with debug message and input field
                 # Trigger send_message as next event in chain
                 return AIState.send_message

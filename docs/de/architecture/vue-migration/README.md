@@ -89,19 +89,32 @@ der neue Dienst entsteht daneben und ersetzt beim Wechsel beide alten Pfade.
 - **`lib/turn_debate.py`**: Kritische Prüfung, Auto-Konsens, Tribunal, Symposion über die Rollen
   main, critic, judge aus `agents.json` (`agent_config.agent_for_role`, `role_prompt`); fehlt eine
   Rolle oder ihr Prompt, lehnt der Zug mit Grund ab.
-- Danach in dieser Reihenfolge: Bilder, Diktat, Inkognito als Sitzungsschalter; dann übernehmen
-  Kanäle und Scheduler denselben Dienst.
+- **Bilder** (`lib/turn_images.py`, im Zug `_look_at_images`): Die Oberfläche lädt sie vorab hoch
+  (`POST /api/sessions/{id}/images`, geprüft und verkleinert wie jeder Upload, im Upload-Ordner der
+  Sitzung), die Nachricht nennt sie per URL; eine Nachricht, die hinter einem laufenden Zug wartet,
+  behält ihre Bilder (`session_storage.PendingMessage`). Wer hinsieht, entscheidet weiter
+  `vision_routing.chat_describer`: Antwortet EIN Agent ohne Debatte und sieht sein Modell selbst,
+  bekommt er die Bilder in seine Anfrage (die Frage läuft durch denselben Aufbau wie jede andere,
+  mit der Stil-Erinnerung der Persona). Jeder andere Zug (Debatte, Symposion, Modell ohne Augen)
+  bekommt EINE Beschreibung im Nutzer-Turn, alle Agenten arbeiten von derselben Grundlage. Die
+  Historie behält nur die URL (`image_marker`). Anders als im Reflex-Zug laufen Absichtserkennung
+  und Adressat auch bei Text mit Bild (vorher übersprungen); im Reflex-Zug endete eine Antwort mit
+  Bild ohne Debatte, jetzt debattieren die Agenten über die Beschreibung.
+- Danach in dieser Reihenfolge: Diktat, Inkognito als Sitzungsschalter; dann übernehmen Kanäle und
+  Scheduler denselben Dienst.
 
 ### Stand und offene Punkte (07.11.2026, vormittags)
 
 Erledigt: Ereignis-Hub, App-Hülle, Einstellungssicht, Zug-Dienst mit allen Modi, Sitzungs-API mit
 Besitzerprüfung, Anmeldung, Agentenliste, Vue-Oberfläche mit Chat (Live-Strom, Warteschlange,
 Stopp, Agentenwahl, Debug-Konsole), gesprochene Antwort im Browser (Wiedergabeliste, Knopf zum
-erneuten Abspielen an der Blase, Sprecher-Vermerk). Offen:
+erneuten Abspielen an der Blase, Sprecher-Vermerk), Bilder (hochladen, einfügen, ziehen,
+entfernen; gesehen oder einmal beschrieben). Offen:
 
 - **Dateien unter `/_upload/`** (Ton, Bilder, Dokumente): die Tabelle der Ordner und wer sie ohne
   Anmeldung sehen darf, steht in `lib/upload_files.py` (`mount_upload_folders`); die Reflex-App ruft
   sie auf, der Server ohne Reflex muss es beim Wechsel ebenso tun.
+- **Bilder, Rest:** drehen und zuschneiden vor dem Senden (heute Zuschneide-Dialog im State).
 - **Sprachausgabe, Rest:** Musik oder Hörbuch vor einer Lesung anhalten (kommt mit der Audio-Seite);
   eine Blase neu vorlesen lassen (Knopf „neu erzeugen“, heute `resynthesize_bubble_tts` im State).
 

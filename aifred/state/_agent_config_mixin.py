@@ -24,6 +24,7 @@ from ..lib.agent_tuning import (
 
 if TYPE_CHECKING:
     from ..lib.gguf_utils import ReasoningInfo
+    from ..lib.vision_routing import Describer
 from ..lib.config import (
     DEFAULT_MIN_P,
     DEFAULT_REPEAT_PENALTY,
@@ -405,28 +406,12 @@ class AgentConfigMixin(rx.State, mixin=True):
         from ..lib.runtime_settings import effective_model_id
         return effective_model_id(self, agent)
 
-    def _image_describer(self) -> tuple[str, str, bool]:
-        """SSOT model choice for uploaded images.
-
-        Rule A (:func:`aifred.lib.vision_routing.chat_describer`): the
-        loaded main (AIfred) profile handles images itself when it can
-        see; otherwise the vision LLM describes them — in parallel via its
-        ``-visiond`` profile when it fits, else it evicts the chat model —
-        and the main model answers from that description.
-
-        Returns ``(model_id, settings_bucket, evicts_chat_model)``; the
-        bucket ("aifred" or "vision") names the agent_tuning row whose
-        model won — sampling settings follow the model that actually looks
-        at the image. Raises ``NoVisionModelError`` when nothing can see.
-        """
+    def _image_describer(self) -> Describer:
+        """Who looks at uploaded images (rule A, ``vision_routing.chat_describer``): the main
+        (AIfred) model when it can see, else a describer. Raises ``NoVisionModelError`` when
+        nothing can see."""
         from ..lib.vision_routing import chat_describer
-        describer = chat_describer(self._effective_model_id("aifred"))
-        return describer.model, self._image_tuning_bucket(describer.model), describer.evicts_chat_model
-
-    def _image_tuning_bucket(self, model_id: str) -> str:
-        """The agent_tuning row whose sampling settings apply when ``model_id`` looks at an uploaded
-        image: the main model's own ("aifred") or the vision LLM's ("vision")."""
-        return "aifred" if model_id == self._effective_model_id("aifred") else "vision"
+        return chat_describer(self._effective_model_id("aifred"))
 
     # ================================================================
     # SPEED MODE TOGGLES (llamacpp only)

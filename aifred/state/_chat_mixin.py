@@ -20,6 +20,7 @@ from ..lib.logging_utils import log_exception, log_message
 
 if TYPE_CHECKING:
     from ..lib.agent_tuning import AgentTuning
+    from ..lib.vision_routing import Describer
 
 
 class ChatMixin(rx.State, mixin=True):
@@ -36,6 +37,7 @@ class ChatMixin(rx.State, mixin=True):
         agent_memory_enabled: rx.Field[bool]
         agent_tuning: rx.Field[dict[str, AgentTuning]]
         all_sources: rx.Field[list[dict[str, Any]]]
+        automatik_model_id: rx.Field[str]
         backend_type: rx.Field[str]
         backend_url: rx.Field[str]
         cloud_api_provider: rx.Field[str]
@@ -57,8 +59,7 @@ class ChatMixin(rx.State, mixin=True):
         def _effective_model_id(self, agent: str) -> str: ...
         async def _ensure_backend_initialized(self) -> None: ...
         async def _generate_session_title(self, title_model_override: str = "") -> None: ...
-        def _image_describer(self) -> tuple[str, str, bool]: ...
-        def _image_tuning_bucket(self, model_id: str) -> str: ...
+        def _image_describer(self) -> Describer: ...
         def _init_streaming_tts(self, agent: str = "aifred") -> None: ...
         def _persist_session_config(self) -> None: ...
         def _save_current_session(self): ...
@@ -411,80 +412,6 @@ class ChatMixin(rx.State, mixin=True):
 
     # ── VL Inference Helper ──────────────────────────────────────────
 
-    async def _describe_images(
-        self,
-        local_images: list,
-        user_question: str,
-        detected_language: str,
-        model_id: str,
-        settings_bucket: str,
-    ) -> str:
-        """Describe uploaded images ONCE for agents that answer without seeing them.
-
-        Two cases share this step: a main model that cannot see (the vision
-        LLM describes, the main model answers as the agent with its full
-        prompt, tools and history), and Symposion with >=2 agents (one
-        neutral description all agents discuss from the same basis — one
-        VL call instead of N, and no agents arguing from subtly different
-        descriptions of the same image). The caller appends the result to
-        the user turn and continues with the normal text pipeline.
-        """
-        from pathlib import Path
-
-        from ..backends.base import LLMOptions
-        from ..lib.llm_client import LLMClient
-        from ..lib.prompt_loader import load_prompt
-        from ..lib.vision_utils import load_image_as_base64
-
-        content: list[dict] = []
-        for img in local_images:
-            base64_data = load_image_as_base64(Path(img["path"]))
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"},
-            })
-        # SSOT vision perception, same body as VL Direct — only the
-        # follow-up instruction differs: a neutral hand-off, focused on the
-        # user's question when there is one (the describer must capture
-        # what the answering agent needs — it cannot look again itself).
-        task_instruction = (
-            load_prompt("vision/task_instruction_handoff_question", lang=detected_language, question=user_question)
-            if user_question
-            else load_prompt("vision/task_instruction_handoff", lang=detected_language)
-        )
-        content.append({
-            "type": "text",
-            "text": load_prompt("vision/task_adaptive", lang=detected_language, task_instruction=task_instruction),
-        })
-
-        # A description is the vision agent's task: it thinks as the vision row
-        # says for the model that describes (agent_settings SSOT).
-        from ..lib.agent_settings import thinking_fields, thinking_mode
-        enable_thinking, reasoning_effort = thinking_fields(thinking_mode(self, "vision", model_id))
-
-        # A describer of another machine answers from that machine's llama-swap, under its id there.
-        from ..lib.remote_describers import BACKEND_TYPE, endpoint
-        remote = endpoint(model_id)
-        if remote is not None:
-            llm_client = LLMClient(backend_type=BACKEND_TYPE, base_url=remote[0])
-            model_id = remote[1]
-        else:
-            llm_client = LLMClient(backend_type=self.backend_type, base_url=self.backend_url)
-        try:
-            response = await llm_client.chat(
-                model=model_id,
-                messages=[{"role": "user", "content": content}],
-                options=LLMOptions(
-                    temperature=self.agent_tuning[settings_bucket].temperature,
-                    num_ctx=self.agent_tuning[settings_bucket].max_context or None,
-                    enable_thinking=enable_thinking,
-                    reasoning_effort=reasoning_effort,
-                ),
-            )
-        finally:
-            await llm_client.close()
-        return response.text.strip()
-
     async def _process_vision_request(
         self,
         user_msg: str,
@@ -507,7 +434,7 @@ class ChatMixin(rx.State, mixin=True):
 
         Only runs when the main model can see (see ``_image_describer``);
         otherwise the vision LLM describes the image and the normal text
-        pipeline answers (``_describe_images``).
+        pipeline answers (``turn_images.describe_images``).
         """
         from ..lib.llm_engine import call_llm
 
@@ -640,15 +567,15 @@ class ChatMixin(rx.State, mixin=True):
         # BASE model_id, not the already-resolved _effective_model_id, or
         # we get a double-suffix lookup that misses the YAML entry.
         context_limits: list[int] = []
-        aifred_ctx, _ = get_agent_num_ctx("aifred", self, self.agent_tuning["aifred"].model_id)  # type: ignore[arg-type]
+        aifred_ctx, _ = get_agent_num_ctx("aifred", self, self.agent_tuning["aifred"].model_id)
         context_limits.append(aifred_ctx)
 
         if self.multi_agent_mode != "standard":
             if self.agent_tuning["sokrates"].model_id:
-                sokrates_ctx, _ = get_agent_num_ctx("sokrates", self, self.agent_tuning["sokrates"].model_id)  # type: ignore[arg-type]
+                sokrates_ctx, _ = get_agent_num_ctx("sokrates", self, self.agent_tuning["sokrates"].model_id)
                 context_limits.append(sokrates_ctx)
             if self.agent_tuning["salomo"].model_id:
-                salomo_ctx, _ = get_agent_num_ctx("salomo", self, self.agent_tuning["salomo"].model_id)  # type: ignore[arg-type]
+                salomo_ctx, _ = get_agent_num_ctx("salomo", self, self.agent_tuning["salomo"].model_id)
                 context_limits.append(salomo_ctx)
 
         context_limit = min(context_limits) if context_limits else 4096
@@ -800,23 +727,12 @@ class ChatMixin(rx.State, mixin=True):
             self.failed_sources: list[dict[str, str]] = []
             self.all_sources: list[dict[str, Any]] = []
 
-            display_user_msg = user_msg
-            if has_pending_images:
-                from ..lib.formatting import build_thumbnail_row
-                image_html = build_thumbnail_row(
-                    [img.get("url", "") for img in self.pending_images if img.get("url")]
-                )
+            from pathlib import Path
 
-                if not user_msg or user_msg.strip() == "":
-                    # Image-only upload
-                    if len(self.pending_images) == 1:
-                        display_user_msg = f"{image_html}\n\n📷 {self.pending_images[0].get('name', 'Image')}"
-                    else:
-                        img_names = ", ".join([img.get("name", "unknown") for img in self.pending_images])
-                        display_user_msg = f"{image_html}\n\n📷 {len(self.pending_images)} images: {img_names}"
-                else:
-                    # Text + images
-                    display_user_msg = f"{image_html}\n\n{user_msg}" if image_html else user_msg
+            from ..lib import turn_images
+            from ..lib.prompt_loader import get_language
+            images = [turn_images.TurnImage(img["name"], img["url"], Path(img["path"])) for img in self.pending_images]
+            display_user_msg = turn_images.bubble_text(user_msg, images, get_language())
 
             ch = self._chat_sub()
             ch.chat_history = [
@@ -827,9 +743,7 @@ class ChatMixin(rx.State, mixin=True):
                     "agent": "",
                     "mode": "",
                     "round_num": 0,
-                    "metadata": {
-                        "images": [{"name": img.get("name", ""), "url": img.get("url", "")} for img in self.pending_images] if has_pending_images else []
-                    },
+                    "metadata": {"images": turn_images.bubble_images(images)},
                     "timestamp": datetime.now().isoformat(),
                     "time_display": datetime.now().strftime("%d.%m. \u2014 %H:%M"),
                     "used_sources": [],
@@ -846,13 +760,7 @@ class ChatMixin(rx.State, mixin=True):
             # image ever existed and falsely accuses itself of hallucinating. With
             # the /_upload/ URL it can re-examine the image via vision_analyze (on
             # the big model when that is vision-capable).
-            llm_user_content = user_msg
-            if has_pending_images:
-                _img_urls = [img.get("url", "") for img in self.pending_images if img.get("url")]
-                if _img_urls:
-                    from ..lib.message_builder import image_marker
-                    _marker = image_marker(_img_urls)
-                    llm_user_content = f"{user_msg}\n\n{_marker}" if user_msg.strip() else _marker
+            llm_user_content = turn_images.history_text(user_msg, images)
             # Stempel EINMAL je Turn: derselbe Text geht live ans Modell und
             # in llm_history — das Modell kennt Datum und Uhrzeit damit schon
             # im ersten Turn, und der History-Eintrag ist byte-gleich zum
@@ -905,20 +813,18 @@ class ChatMixin(rx.State, mixin=True):
             #   full prompt, tools and history; Symposion likewise.
             # ============================================================
             if has_pending_images:
-                import copy
-                local_images = copy.deepcopy(self.pending_images)
                 self.clear_pending_images()
 
                 # Use UI language (no Intent Detection)
-                from ..lib.prompt_loader import get_language, load_prompt
                 detected_language = get_language()
                 self._last_detected_language = detected_language
 
                 from ..lib.vision_routing import NoVisionModelError, eviction_notice
                 try:
-                    _eff_vl, _vl_bucket, _vl_evicts = self._image_describer()
+                    _describer = self._image_describer()
+                    _eff_vl, _vl_evicts = _describer.model, _describer.evicts_chat_model
                 except NoVisionModelError as exc:
-                    _eff_vl, _vl_bucket, _vl_evicts = "", "", False
+                    _eff_vl, _vl_evicts = "", False
                     self.add_debug(f"⚠️ Vision: {exc} — the image goes on without a description")
                     yield
                 if _vl_evicts:
@@ -940,68 +846,19 @@ class ChatMixin(rx.State, mixin=True):
                         self.add_debug(f"🔄 VL Model Cold Start ({_eff_vl}) — loading...")
                         yield
 
-                img_count = len(local_images)
+                img_count = len(images)
                 _symposion = self.multi_agent_mode == "symposion" and len(self.symposion_agents) >= 2
                 if _eff_vl == self._effective_model_id("aifred") and not _symposion:
                     self.add_debug(f"📷 VL Direct ({img_count} image(s)) → {_eff_vl}")
                     yield
 
-                    # Build multimodal content (images + text) for call_llm()
-                    from pathlib import Path
-
-                    from ..lib.vision_utils import load_image_as_base64
-
-                    content_parts: list[dict] = []
-
-                    # Qwen3-VL respects /no_think prefix (Ollama ignores API think param for VL).
                     # Same agent and model as the request below (_process_vision_request).
                     from ..lib.agent_settings import THINKING_OFF, thinking_mode
-                    if thinking_mode(self, self.active_agent or "aifred", _eff_vl) == THINKING_OFF:
-                        content_parts.append({"type": "text", "text": "/no_think"})
-
-                    # Images first (VL models handle it best this way)
-                    for img in local_images:
-                        img_path = Path(img["path"])
-                        base64_data = load_image_as_base64(img_path)
-                        content_parts.append({
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"},
-                        })
-
-                    # User text after images (default question if empty)
-                    # Task-adaptive prompt: user text → Q&A, no text → OCR
-                    has_user_text = bool(user_msg.strip())
-                    prompt_text = stamp_user_turn(
-                        user_msg.strip() if has_user_text
-                        else load_prompt("vision/default_question", lang=detected_language),
-                        turn_stamp,
+                    content_parts = turn_images.seeing_content(
+                        images, turn_images.seeing_question(images, user_msg, turn_stamp, detected_language),
+                        no_think=thinking_mode(self, self.active_agent or "aifred", _eff_vl) == THINKING_OFF,
                     )
-                    # File-URL reference for the CURRENT turn: the image itself is
-                    # only base64 in this call — without its /_upload/ URL the
-                    # model cannot hand the file to a tool (e.g. telegram_send
-                    # attachment). Follow-up turns get the URL via the llm_history
-                    # anchor; this line is the first-turn equivalent. MERGED into
-                    # the single text part — a SECOND text part in the multimodal
-                    # content breaks the VL chat-template/mmproj alignment (the
-                    # model then only thinks and stops without tool calls).
-                    _img_urls = [img.get("url", "") for img in local_images if img.get("url")]
-                    if _img_urls:
-                        _ref = load_prompt("vision/image_url_reference", lang=detected_language, urls=", ".join(_img_urls))
-                        prompt_text = f"{prompt_text}\n\n{_ref}"
-                    content_parts.append({"type": "text", "text": prompt_text})
-
-                    # SSOT vision perception (vision/task_adaptive.txt): same
-                    # "look at the image thoroughly" body regardless of image
-                    # type; only the follow-up instruction differs by whether
-                    # the user asked something specific.
-                    task_instruction = (
-                        load_prompt("vision/task_instruction_question", lang=detected_language, question=user_msg.strip())
-                        if has_user_text
-                        else load_prompt("vision/task_instruction_default", lang=detected_language)
-                    )
-                    vision_task_addon = load_prompt(
-                        "vision/task_adaptive", lang=detected_language, task_instruction=task_instruction,
-                    )
+                    vision_task_addon = turn_images.seeing_task(user_msg, detected_language)
 
                     async for _ in self._process_vision_request(
                         user_msg, content_parts, "GEMISCHT", detected_language, vision_task_addon,
@@ -1015,20 +872,16 @@ class ChatMixin(rx.State, mixin=True):
                     from ..lib.vision_routing import Describer, describe_with_second_attempt
 
                     def _choose_again() -> Describer:
-                        model, _bucket, evicts = self._image_describer()
-                        if evicts:
-                            self.add_debug(eviction_notice(model))
-                        return Describer(model, evicts)
+                        describer = self._image_describer()
+                        if describer.evicts_chat_model:
+                            self.add_debug(eviction_notice(describer.model))
+                        return describer
 
                     description = await describe_with_second_attempt(
                         Describer(_eff_vl, _vl_evicts), _choose_again,
-                        lambda d: self._describe_images(
-                            local_images, user_msg.strip(), detected_language, d.model,
-                            self._image_tuning_bucket(d.model),
-                        ),
+                        lambda d: turn_images.describe_images(images, user_msg.strip(), detected_language, d.model, self),
                     )
-                    _block = load_prompt("vision/image_description_block", lang=detected_language, description=description)
-                    llm_user_content = f"{llm_user_content}\n\n{_block}"
+                    llm_user_content = f"{llm_user_content}\n\n{turn_images.description_block(description, detected_language)}"
                     ch = self._chat_sub()
                     ch.llm_history = [*ch.llm_history[:-1], {"role": "user", "content": llm_user_content}]
                     yield

@@ -10,7 +10,16 @@ import pytest
 
 from fake_reading import FakeReading
 
-from aifred.lib import audio_processing, reply_speech, session_events, session_storage, turn_service
+from aifred.lib import (
+    audio_processing,
+    reply_speech,
+    session_events,
+    session_storage,
+    turn_images,
+    turn_service,
+    vision_routing,
+    vision_utils,
+)
 from aifred.lib.agent_tuning import default_agent_tuning
 from aifred.lib.llm_pipeline import PipelineResult
 from aifred.lib.runtime_settings import RuntimeSettings
@@ -43,7 +52,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     )
     view.agent_tuning["aifred"].model_id = "qwen3:8b"
     world: dict[str, Any] = {"chunks": [{"type": "content", "text": "Hallo "}, {"type": "content", "text": "Peuqui."}],
-                             "titles": [], "block": None, "view": view}
+                             "titles": [], "block": None, "view": view, "requests": [], "options": []}
 
     async def intent(_view: Any, _client: Any, _text: str) -> turn_service._Intent:
         return world.get("intent") or turn_service._Intent("FAKTISCH", None, "de", {}, False, 0.0)
@@ -54,7 +63,9 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     async def toolkit(*_args: Any, **_kwargs: Any) -> tuple[str, None]:
         return "", None
 
-    async def stream(*_args: Any, **_kwargs: Any) -> AsyncIterator[dict[str, Any]]:
+    async def stream(*args: Any, **_kwargs: Any) -> AsyncIterator[dict[str, Any]]:
+        world["requests"].append(args[2])     # the messages of the call
+        world["options"].append(args[3])
         text = ""
         for chunk in world["chunks"]:
             text += chunk["text"]
@@ -235,3 +246,92 @@ def test_a_cancelled_reply_is_not_read_to_its_end(speaking: dict[str, Any]) -> N
     reading = FakeReading.made[0]
     assert reading.aborted and not reading.finished
     assert not _data()["chat_history"][-1]["has_audio"]          # the interrupted bubble keeps no audio
+
+
+# ── Images ───────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def picture(world: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """An image uploaded for the next message; the description is a stand-in."""
+    directory = tmp_path / "upload" / "images"
+    monkeypatch.setattr(vision_utils, "UPLOAD_IMAGES_DIR", directory)
+    (directory / SESSION).mkdir(parents=True)
+    (directory / SESSION / "hund.jpg").write_bytes(b"\xff\xd8bild")
+    world["described"] = []
+
+    async def describe(images: Any, question: str, lang: str, model: str, _settings: Any) -> str:
+        world["described"].append((model, question))
+        return "Ein brauner Hund auf einer Wiese."
+
+    monkeypatch.setattr(turn_images, "describe_images", describe)
+    return f"/_upload/images/{SESSION}/hund.jpg"
+
+
+def _seeing(monkeypatch: pytest.MonkeyPatch, model: str | None) -> None:
+    """``model`` describes the images; None: the model that answers sees them itself."""
+    monkeypatch.setattr(
+        vision_routing, "chat_describer", lambda main: vision_routing.Describer(model or main, evicts_chat_model=False),
+    )
+
+
+def _image_turn(text: str, url: str) -> None:
+    async def scenario() -> None:
+        await turn_service.run_turn(turn_service.TurnRequest(SESSION, text, images=(url,)))
+        await asyncio.sleep(0)
+
+    asyncio.run(scenario())
+
+
+def test_an_agent_that_sees_gets_the_image_in_its_request_and_the_history_only_its_url(
+    picture: str, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seeing(monkeypatch, None)
+    _image_turn("Was ist das?", picture)
+    question = world["requests"][0][-1]["content"]
+    assert [part["type"] for part in question] == ["image_url", "text"]
+    assert "Was ist das?" in question[1]["text"] and picture in question[1]["text"]
+    assert world["described"] == []
+    user, reply = _data()["llm_history"]
+    assert picture in user["content"] and "base64" not in user["content"]
+    assert reply["content"] == "[AIFRED]: Hallo Peuqui."
+    assert '<img src="' + picture in _data()["chat_history"][0]["content"]
+    assert _data()["chat_history"][0]["metadata"]["images"] == [{"name": "hund.jpg", "url": picture}]
+
+
+def test_a_model_that_cannot_see_answers_from_a_description_in_the_user_turn(
+    picture: str, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seeing(monkeypatch, "qwen3-vl:8b")
+    _image_turn("Was ist das?", picture)
+    assert world["described"] == [("qwen3-vl:8b", "Was ist das?")]
+    question = world["requests"][0][-1]["content"]
+    assert isinstance(question, str) and "Ein brauner Hund auf einer Wiese." in question
+    assert "Ein brauner Hund auf einer Wiese." in _data()["llm_history"][0]["content"]   # later turns know it too
+
+
+def test_a_debate_works_from_one_description_even_when_the_answering_model_sees(
+    picture: str, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seeing(monkeypatch, None)
+    session_storage.update_session_config(SESSION, multi_agent_mode="critical_review")
+    _image_turn("Was ist das?", picture)
+    assert len(world["described"]) == 1
+    assert all(isinstance(request[-1]["content"], str) for request in world["requests"])
+
+
+def test_without_a_model_that_can_see_the_message_goes_on_and_the_user_is_told(
+    picture: str, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def nobody(_main: str) -> vision_routing.Describer:
+        raise vision_routing.NoVisionModelError("no vision LLM is configured")
+
+    monkeypatch.setattr(vision_routing, "chat_describer", nobody)
+    _image_turn("", picture)
+    assert "notice" in _kinds() and "message_added" in _kinds()
+    assert picture in _data()["llm_history"][0]["content"]
+
+
+def test_an_image_of_another_session_is_refused(picture: str, world: dict[str, Any]) -> None:
+    _image_turn("Was ist das?", f"/_upload/images/{'f' * 32}/fremd.jpg")
+    assert _kinds() == ["turn_rejected", "turn_finished"]

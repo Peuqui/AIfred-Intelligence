@@ -87,7 +87,16 @@ onMounted(async () => {
         </article>
         <p v-if="chat.notice" class="notice">⚠️ {{ chat.notice }}</p>
       </div>
-      <ChatInput :running="chat.running" :queued="chat.queued.length" @send="chat.send" @stop="chat.stop" />
+      <ChatInput
+        :running="chat.running"
+        :queued="chat.queued.length"
+        :images="chat.pendingImages"
+        :uploading="chat.uploading"
+        @send="chat.send"
+        @stop="chat.stop"
+        @upload="chat.uploadImages"
+        @remove-image="chat.removeImage"
+      />
       <DebugConsole :lines="chat.debugLines" />
     </main>
   </div>

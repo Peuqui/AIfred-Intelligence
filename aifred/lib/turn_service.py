@@ -17,8 +17,9 @@ come after ``turn_finished``.
 
 Covered so far: the direct answer of one agent with tools and memory, intent and language,
 mode switch, history compression, sticky addressing, title, the multi-agent modes
-(``lib/turn_debate.py``), the spoken reply in the browser (``lib/reply_speech.py``). Images and
-dictation follow (docs/de/architecture/vue-migration/README.md).
+(``lib/turn_debate.py``), the spoken reply in the browser (``lib/reply_speech.py``), images
+(seen by the answering agent or described once, ``_look_at_images``). Dictation follows
+(docs/de/architecture/vue-migration/README.md).
 
 Every model call of a turn runs through the same three steps, for the direct answer here and for
 each speaker of a debate: build (``AgentCall``), stream (``stream_call``), finish (``finish_call``).
@@ -48,6 +49,8 @@ if TYPE_CHECKING:
     from .agent_config import AgentConfig
     from .llm_pipeline import PipelineResult
     from .reply_speech import ReplySpeech
+    from .turn_debate import TurnPlan
+    from .turn_images import TurnImage
 
 
 class TurnRejected(Exception):
@@ -64,6 +67,7 @@ class TurnRequest:
     session_id: str
     text: str
     source: str = "browser"
+    images: tuple[str, ...] = ()   # URLs of the images uploaded for this message (lib/turn_images.py)
 
 
 def submit_turn(request: TurnRequest) -> bool:
@@ -76,8 +80,8 @@ def submit_turn(request: TurnRequest) -> bool:
     from .session_storage import queue_pending_message
 
     if is_pipeline_running(request.session_id):
-        queue_pending_message(request.session_id, request.text)
-        session_events.publish(request.session_id, "message_queued", {"text": request.text})
+        queue_pending_message(request.session_id, request.text, request.images)
+        session_events.publish(request.session_id, "message_queued", {"text": request.text, "images": list(request.images)})
         return True
     start_turn(request)
     return False
@@ -122,9 +126,9 @@ def _start_next(session_id: str, source: str) -> None:
     """The next message waiting in the session's queue becomes the next turn."""
     from .session_storage import pop_pending_message
 
-    text = pop_pending_message(session_id)
-    if text:
-        start_turn(TurnRequest(session_id, text, source))
+    pending = pop_pending_message(session_id)
+    if pending is not None:
+        start_turn(TurnRequest(session_id, pending.text, source, pending.images))
 
 
 # ── The turn ─────────────────────────────────────────────────────────────
@@ -142,6 +146,10 @@ class TurnContext:
     intent: _Intent
     source: str
     mode: str             # the session's multi-agent mode (after a switch): labels the bubbles
+    stamp: str            # the turn's time stamp (message_builder.user_turn_stamp)
+    # The images the answering agent sees itself in its request; empty when the turn has none or a
+    # description of them joined the user turn (_look_at_images).
+    seen_images: tuple[TurnImage, ...] = ()
 
 
 async def _run(request: TurnRequest, turn_id: str) -> None:
@@ -152,10 +160,15 @@ async def _run(request: TurnRequest, turn_id: str) -> None:
     from .message_builder import stamp_user_turn, user_turn_stamp
     from .runtime_settings import load_runtime_settings
     from .session_storage import get_session_config
+    from .turn_images import bubble_images, bubble_text, history_text, session_images
 
     session_id = request.session_id
     user_text = request.text.strip()
-    if not user_text:
+    try:
+        images = session_images(session_id, list(request.images))
+    except ValueError as error:
+        raise TurnRejected("images", str(error)) from error
+    if not user_text and not images:
         raise TurnRejected("empty", "Nothing to send")
     if is_calibration_active():
         raise TurnRejected("calibration", "Inference blocked: calibration in progress")
@@ -164,8 +177,9 @@ async def _run(request: TurnRequest, turn_id: str) -> None:
         raise TurnRejected("no_model", "No model selected — pick one in the settings")
 
     session_events.clear_replay(session_id, keep=frozenset({"service_status"}))
-    entry = build_user_chat_entry(user_text)
-    llm_user_text = stamp_user_turn(user_text, user_turn_stamp())
+    entry = build_user_chat_entry(bubble_text(user_text, images, view.ui_language), bubble_images(images))
+    stamp = user_turn_stamp()
+    llm_user_text = stamp_user_turn(history_text(user_text, images), stamp)
     _append(session_id, chat=[entry], llm=[{"role": "user", "content": llm_user_text}])
     session_events.publish(session_id, "turn_started", {"turn_id": turn_id, "user_entry": entry})
     debug("📨 User request received")
@@ -180,11 +194,14 @@ async def _run(request: TurnRequest, turn_id: str) -> None:
                 _confirm_mode_switch(session_id, config, intent)
                 return
         agent = _route(session_id, config, intent.addressed_to)
+        mode = config["multi_agent_mode"]
+        plan = turn_debate.plan_turn(mode, agent, intent.addressed_to, config["symposion_agents"])
+        seen: tuple[TurnImage, ...] = ()
+        if images:
+            seen, llm_user_text = await _look_at_images(session_id, view, plan, images, user_text, llm_user_text, intent.language)
         ctx = TurnContext(
-            session_id, view, llm_client, user_text, llm_user_text, intent, request.source,
-            config["multi_agent_mode"],
+            session_id, view, llm_client, user_text, llm_user_text, intent, request.source, mode, stamp, seen,
         )
-        plan = turn_debate.plan_turn(ctx.mode, agent, intent.addressed_to, config["symposion_agents"])
         await _compress(ctx, plan.agents)
         if plan.responder is None:
             await turn_debate.run_symposion(ctx, plan)
@@ -214,7 +231,7 @@ class _Intent:
 async def _detect_intent(view: RuntimeSettings, llm_client: Any, user_text: str) -> _Intent:
     """Intent, addressee, language and a requested mode switch in one Automatik call.
 
-    A URL-only message skips the call: the UI language applies.
+    A URL-only message and one of images only skip the call: the UI language applies.
     """
     from .config import AUTOMATIK_LLM_NUM_CTX
     from .intent_detector import (
@@ -223,8 +240,8 @@ async def _detect_intent(view: RuntimeSettings, llm_client: Any, user_text: str)
         format_mode_switch_summary,
     )
 
-    if re.fullmatch(r"https?://\S+", user_text):
-        debug(f"🎯 Intent: FAKTISCH (URL-only), Lang: {view.ui_language.upper()} (UI)")
+    if not user_text or re.fullmatch(r"https?://\S+", user_text):
+        debug(f"🎯 Intent: FAKTISCH ({'URL' if user_text else 'image'}-only), Lang: {view.ui_language.upper()} (UI)")
         return _Intent("FAKTISCH", None, view.ui_language, {}, False, 0.0)
 
     automatik = effective_automatik_id(view)
@@ -303,6 +320,64 @@ def _route(session_id: str, config: dict[str, Any], addressed_to: str | None) ->
 
 def _public_config(config: dict[str, Any]) -> dict[str, Any]:
     return {key: config[key] for key in ("active_agent", "multi_agent_mode", "symposion_agents")}
+
+
+# ── Images ───────────────────────────────────────────────────────────────
+
+
+async def _look_at_images(
+    session_id: str,
+    view: RuntimeSettings,
+    plan: TurnPlan,
+    images: list[TurnImage],
+    user_text: str,
+    llm_user_text: str,
+    lang: str,
+) -> tuple[tuple[TurnImage, ...], str]:
+    """Who looks at the turn's images (rule A, ``vision_routing.chat_describer``).
+
+    When one agent answers alone and its model can see, it gets the images in its request. Every
+    other turn (a debate, the symposion, a model that cannot see) gets ONE description in the user
+    turn, so all its agents work from the same basis. Returns the images the answering agent sees
+    itself and the user turn as the history keeps it.
+    """
+    from .i18n import t
+    from .remote_describers import endpoint
+    from .turn_images import describe_images, description_block
+    from .vision_routing import (
+        Describer,
+        NoVisionModelError,
+        chat_describer,
+        describe_with_second_attempt,
+        eviction_notice,
+    )
+
+    main_model = agent_model(view, plan.responder or "aifred")
+
+    def choose() -> Describer:
+        describer = chat_describer(main_model)
+        if describer.evicts_chat_model:
+            debug(eviction_notice(describer.model))
+        return describer
+
+    try:
+        describer = choose()
+    except NoVisionModelError as error:
+        debug(f"⚠️ Vision: {error} — the image goes on without a description")
+        session_events.publish(session_id, "notice", {"level": "warning", "text": t("vision_no_describer", lang=view.ui_language)})
+        return (), llm_user_text
+    if plan.responder is not None and not plan.debate and describer.model == main_model:
+        debug(f"📷 VL Direct ({len(images)} image(s)) → {main_model}")
+        return tuple(images), llm_user_text
+    if endpoint(describer.model) is None:   # a describer of another machine loads there
+        await _announce_cold_start(view, describer.model)
+    debug(f"📷 Image description ({len(images)} image(s)) → {describer.model}")
+    description = await describe_with_second_attempt(
+        describer, choose, lambda chosen: describe_images(images, user_text, lang, chosen.model, view),
+    )
+    llm_user_text = f"{llm_user_text}\n\n{description_block(description, lang)}"
+    _rewrite_user_turn(session_id, llm_user_text)
+    return (), llm_user_text
 
 
 # ── History compression ──────────────────────────────────────────────────
@@ -428,9 +503,10 @@ async def _respond(ctx: TurnContext, agent: str) -> PipelineResult | None:
 
 async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
     """The direct answer's call: the agent's direct prompt, the history from its perspective, the
-    memories right before the question."""
+    memories right before the question; the turn's images in the question when the agent sees them."""
     from .agent_memory import prepare_agent_toolkit
     from .agent_settings import (
+        THINKING_OFF,
         resolve_agent_temperature,
         thinking_fields,
         thinking_mode,
@@ -441,6 +517,7 @@ async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
     from .message_builder import build_messages_from_llm_history, inject_before_question
     from .prompt_loader import get_agent_direct_prompt
     from .tool_output_cap import compute_budget
+    from .turn_images import seeing_content, seeing_question, seeing_task
 
     view, lang = ctx.view, ctx.intent.language
     config = agent_identity(agent)
@@ -453,10 +530,19 @@ async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
         agent, ctx.user_text, lang=lang, memory_enabled=True, research_tools_enabled=True,
         session_id=ctx.session_id, source=ctx.source,
     )
+    # The direct chat thinks as AIfred's row says for the model the answering agent runs on.
+    thinking = thinking_mode(view, "aifred", model)
     system_prompt = get_agent_direct_prompt(agent, lang=lang, memory=True)
-    messages: list[dict[str, Any]] = build_messages_from_llm_history(
-        session_llm_history(ctx.session_id)[:-1], ctx.llm_user_text, perspective=agent, detected_language=lang,
-    )
+    seen = list(ctx.seen_images)
+    question = seeing_question(seen, ctx.user_text, ctx.stamp, lang) if seen else ctx.llm_user_text
+    messages: list[dict[str, Any]] = [*build_messages_from_llm_history(
+        session_llm_history(ctx.session_id)[:-1], question, perspective=agent, detected_language=lang,
+    )]
+    if seen:
+        # The agent sees the images itself: they go into its request (in front of the question as
+        # the history builder left it, with the persona's reminder), never into the history.
+        system_prompt = f"{system_prompt}\n\n{seeing_task(ctx.user_text, lang)}"
+        messages[-1] = {"role": "user", "content": seeing_content(seen, messages[-1]["content"], no_think=thinking == THINKING_OFF)}
     messages.insert(0, {"role": "system", "content": system_prompt})
     memory_tokens = 0
     if memory_ctx:
@@ -473,8 +559,7 @@ async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
         f"History {format_number(history_tokens)} = {format_number(total)} / {format_number(num_ctx)} tok"
     )
     debug(f"🌡️ Temperature: {format_number(temperature, 1)}")
-    # The direct chat thinks as AIfred's row says for the model the answering agent runs on.
-    enable_thinking, reasoning_effort = thinking_fields(thinking_mode(view, "aifred", model))
+    enable_thinking, reasoning_effort = thinking_fields(thinking)
     options = replace(
         build_llm_options(view, agent, model, temperature, num_ctx),
         enable_thinking=enable_thinking, reasoning_effort=reasoning_effort,
@@ -708,6 +793,23 @@ def _save_partial(session_id: str, agent: str, text: str, lang: str) -> None:
 
 
 # ── Session file and title ───────────────────────────────────────────────
+
+
+def _rewrite_user_turn(session_id: str, content: str) -> None:
+    """The turn's user entry of the llm history gets ``content`` (the description of its images)."""
+    from .session_storage import load_session, session_rmw_lock, update_chat_data
+
+    with session_rmw_lock:
+        data = (load_session(session_id) or {}).get("data", {})
+        llm_history = list(data.get("llm_history", []))
+        assert llm_history and llm_history[-1]["role"] == "user", "the turn's user entry is the last one"
+        llm_history[-1] = {"role": "user", "content": content}
+        update_chat_data(
+            session_id=session_id,
+            chat_history=data.get("chat_history", []),
+            llm_history=llm_history,
+            debug_messages=data.get("debug_messages", []),
+        )
 
 
 def _append(session_id: str, *, chat: list[dict[str, Any]], llm: list[dict[str, Any]]) -> None:

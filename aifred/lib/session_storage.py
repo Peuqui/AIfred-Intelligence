@@ -19,7 +19,8 @@ import os
 import re
 import secrets
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -1117,13 +1118,23 @@ def get_session_title(session_id: str) -> str | None:
 # that queued it (the recording's POST /_upload ends with the connection). A queue, not a
 # slot: a dictation while AIfred still answers waits, and a second one must not replace it.
 # The ``.pending`` flag file spares the poll from reading the session file every 500 ms.
+# The server turn (lib/turn_service.py) uses the same queue for a message that waits behind the
+# running turn; such a message keeps the images uploaded for it.
+
+
+@dataclass(frozen=True)
+class PendingMessage:
+    text: str
+    images: tuple[str, ...] = ()   # /_upload/images/<session>/… URLs of the images sent with it
+
 
 def _pending_flag_path(session_id: str) -> Path:
     return SESSION_DIR / f"{_sanitize_session_id(session_id)}.pending"
 
 
-def queue_pending_message(session_id: str, message: str) -> bool:
-    """Append ``message`` to the session's pending messages (creates the session if missing).
+def queue_pending_message(session_id: str, message: str, images: Sequence[str] = ()) -> bool:
+    """Append ``message`` (with the URLs of its images) to the session's pending messages
+    (creates the session if missing).
 
     Returns:
         True on success
@@ -1139,7 +1150,7 @@ def queue_pending_message(session_id: str, message: str) -> bool:
                 session = {"session_id": session_id, "data": {}}
                 _stamp_new_session(session, datetime.now().isoformat())
             data = session.setdefault("data", {})
-            data["pending_messages"] = [*data.get("pending_messages", []), message]
+            data["pending_messages"] = [*data.get("pending_messages", []), {"text": message, "images": list(images)}]
             if not _write_session_file(session_path, session):
                 return False
             _pending_flag_path(session_id).touch()
@@ -1148,7 +1159,7 @@ def queue_pending_message(session_id: str, message: str) -> bool:
         return False
 
 
-def pop_pending_message(session_id: str) -> str | None:
+def pop_pending_message(session_id: str) -> PendingMessage | None:
     """The oldest pending message of the session, removed from it; None if there is none."""
     _ensure_session_dir()
     try:
@@ -1161,13 +1172,12 @@ def pop_pending_message(session_id: str) -> str | None:
             if session is None or not queued:
                 flag_path.unlink(missing_ok=True)
                 return None
-            message, rest = queued[0], queued[1:]
+            entry, rest = queued[0], queued[1:]
             session["data"]["pending_messages"] = rest
             if not _write_session_file(get_session_path(session_id), session):
                 return None
             if not rest:
                 flag_path.unlink(missing_ok=True)
-        result: str = message
-        return result
+        return PendingMessage(entry["text"], tuple(entry["images"]))
     except (OSError, ValueError):
         return None
