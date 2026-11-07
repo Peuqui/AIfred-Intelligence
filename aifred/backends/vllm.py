@@ -218,12 +218,15 @@ class vLLMBackend(OpenAICompatibleBackend):
         if cached is not None:
             return {"prompt_tokens_cached": int(cached)}
         # Feld fehlt — zwei sehr verschiedene Gruende, die man trennen muss:
-        # vLLM setzt es NUR, wenn wirklich etwas aus dem Cache kam
-        # (chat_completion/serving.py: "if enable_prompt_tokens_details and
-        # num_cached_tokens"). Beim ersten Turn ist der Cache leer, das Feld
-        # fehlt also — dann wurde der ganze Prompt gerechnet und die Rate
-        # stimmt. Laeuft der Server dagegen OHNE den Schalter, wissen wir
-        # gar nichts und duerfen keine Rate ausgeben.
+        # Ohne den Schalter --enable-prompt-tokens-details fehlt es immer; dann
+        # wissen wir gar nichts und duerfen keine Rate ausgeben. Mit dem Schalter
+        # setzen aeltere vLLM-Baeume es NUR, wenn etwas aus dem Cache kam
+        # ("if enable_prompt_tokens_details and num_cached_tokens"): Beim ersten
+        # Turn fehlt es, der ganze Prompt wurde gerechnet, die Rate stimmt. Ab
+        # 1Cat-vLLM-v6f kommt es mit dem Schalter immer, auch als 0 (serving.py:
+        # "... and num_cached_tokens is not None"); dann fehlt es nur noch ohne
+        # Schalter. Stand 07.11.2026 laeuft Qwen3.8-27B noch auf v5d — sobald kein
+        # Eintrag mehr einen aelteren Baum nutzt, faellt dieser Zweig weg.
         return {"prompt_tokens_cached": 0} if self._reports_cached_tokens() else {}
 
     def _reports_cached_tokens(self) -> bool:
