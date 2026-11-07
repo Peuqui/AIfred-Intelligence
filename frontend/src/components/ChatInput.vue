@@ -4,6 +4,7 @@ import type { UploadedImage } from "../api/types";
 import { t } from "../i18n";
 import * as recorder from "../lib/recorder";
 import { speaking } from "../lib/speech";
+import DictationBadge, { type BadgePhase } from "./DictationBadge.vue";
 
 const props = defineProps<{
   running: boolean;
@@ -24,6 +25,7 @@ const text = defineModel<string>({ required: true });
 const picker = ref<HTMLInputElement | null>(null);
 const audioPicker = ref<HTMLInputElement | null>(null);
 const recording = recorder.recording;
+const badgePhase = computed<BadgePhase>(() => (recording.value ? "listening" : props.transcribing ? "transcribing" : "ready"));
 const canSend = computed(() => text.value.trim() !== "" || props.images.length > 0);
 
 function send(): void {
@@ -92,8 +94,14 @@ function audioPicked(event: Event): void {
       <input ref="picker" type="file" accept="image/*" multiple hidden @change="picked" />
       <input ref="audioPicker" type="file" accept="audio/*,.webm" hidden @change="audioPicked" />
       <button class="tool" :title="t('upload_image')" @click="picker?.click()">🖼️</button>
-      <button class="tool" :class="{ recording }" :title="recording ? t('dictation_stop') : t('dictation_record')" @click="toggleRecording">
-        {{ recording ? "⏺" : "🎤" }}
+      <button
+        class="mic"
+        :disabled="transcribing && !recording"
+        :aria-label="recording ? t('dictation_stop') : t('dictation_record')"
+        :title="recording ? t('dictation_stop') : t('dictation_record')"
+        @click="toggleRecording"
+      >
+        <DictationBadge :phase="badgePhase" />
       </button>
       <button class="tool" :title="t('audio_file_upload')" @click="audioPicker?.click()">🎵</button>
       <span v-if="transcribing" class="transcribing">{{ t("dictation_running") }}</span>
@@ -139,7 +147,9 @@ figure img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; b
 .queued { color: var(--aifred-accent-amber); margin-right: 0; }
 button { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font: inherit; }
 .tool { background: none; border: 1px solid var(--aifred-border); padding: 4px 10px; }
-.tool.recording { border-color: var(--aifred-danger); color: var(--aifred-danger); }
+.mic { background: none; border: none; padding: 0; width: 40px; height: 40px; display: inline-flex; }
+.mic svg { width: 100%; height: 100%; }
+.mic:disabled { cursor: default; }
 .transcribing { font-size: 0.75rem; color: var(--aifred-accent-cyan); }
 .send { background: var(--aifred-primary); color: var(--aifred-text-on-accent); }
 .send:disabled { opacity: 0.5; cursor: default; }
