@@ -25,6 +25,7 @@ export const SESSION_EVENT_KINDS = [
   "tts_pause",
   "tts_speak",
   "stop",
+  "speech_regenerating",
   "dictation_question",
   "dictation_text",
   "dictation_finished",

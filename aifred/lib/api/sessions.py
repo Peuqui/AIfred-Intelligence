@@ -121,6 +121,7 @@ class SessionDetail(BaseModel):
     chat_history: list[ChatEntry]
     debug_messages: list[str]
     running: bool
+    speech_regenerating: bool = Field(description="Every reply is being read into new audio")
     last_event_id: int = Field(description="Open the event stream after this id: nothing is missed")
 
 
@@ -146,6 +147,7 @@ async def sessions_create(request: Request) -> SessionCreated:
 
 @api_app.get("/sessions/{session_id}", response_model=SessionDetail, tags=["Sessions"])
 async def sessions_open(session_id: str, request: Request) -> SessionDetail:
+    from .. import reply_speech
     from ..pipeline_registry import is_pipeline_running
     from ..session_storage import touch_session
 
@@ -159,6 +161,7 @@ async def sessions_open(session_id: str, request: Request) -> SessionDetail:
         chat_history=data.get("chat_history", []),
         debug_messages=data.get("debug_messages", []),
         running=is_pipeline_running(session_id),
+        speech_regenerating=reply_speech.regenerating(session_id),
         last_event_id=session_events.last_event_id(session_id),
     )
 
@@ -248,9 +251,8 @@ async def sessions_read_bubble(session_id: str, bubble: BubbleRef, request: Requ
     """Read a finished bubble aloud again: what plays now stops, the reading comes over the event stream
     (``tts``, …), and what was spoken replaces the bubble's audio (``message_updated``)."""
     from ..debug_bus import session_scope
-    from ..reply_speech import read_bubble
+    from ..reply_speech import bubble_reading_text, read_bubble
     from ..runtime_settings import load_runtime_settings
-    from ..tts_text_filter import strip_ui_only_content
 
     session = owned_session(request, session_id)
     entry = next((m for m in session.get("data", {}).get("chat_history", []) if m.get("timestamp") == bubble.timestamp), None)
@@ -259,11 +261,30 @@ async def sessions_read_bubble(session_id: str, bubble: BubbleRef, request: Requ
     view = load_runtime_settings()
     if not view.enable_tts:
         raise HTTPException(status_code=409, detail="Speech output is off")
-    text = strip_ui_only_content(entry.get("content", ""))
-    if len(text) < 5:
+    text = bubble_reading_text(entry)
+    if not text:
         raise HTTPException(status_code=422, detail="Nothing to read in this reply")
     with session_scope(session_id):
         await read_bubble(session_id, entry, text, view, view.ui_language)
+    return Response(status_code=204)
+
+
+@api_app.post("/sessions/{session_id}/speech/regenerate", status_code=204, tags=["Sessions"])
+async def sessions_regenerate_speech(session_id: str, request: Request) -> Response:
+    """Read every reply of the session into new audio, without playing it: what plays now stops, each
+    bubble gets its audio as soon as it is made (``message_updated``), the run is announced by
+    ``speech_regenerating`` (``running``), a failure of the TTS service by ``notice``."""
+    from .. import reply_speech
+    from ..debug_bus import session_scope
+    from ..runtime_settings import load_runtime_settings
+
+    owned_session(request, session_id)
+    view = load_runtime_settings()
+    if not view.enable_tts:
+        raise HTTPException(status_code=409, detail="Speech output is off")
+    with session_scope(session_id):
+        if not reply_speech.regenerate_all(session_id, view, view.ui_language):
+            raise HTTPException(status_code=409, detail="Every reply is being read again already")
     return Response(status_code=204)
 
 

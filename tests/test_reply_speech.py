@@ -8,14 +8,18 @@ import asyncio
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fake_reading import FakeReading
+from starlette.testclient import TestClient
 
 from aifred.backends.base import LLMOptions
 from aifred.lib import audio_processing, reply_speech, session_events, session_storage
 from aifred.lib.formatting import build_assistant_chat_entry
+from aifred.lib.speech_synthesis import SpokenReading
+from aifred.lib.tts_client import TTSSuiteError
 from aifred.lib.turn_service import AgentCall
 
 SESSION = "e" * 32
@@ -262,21 +266,27 @@ def test_a_bubble_read_again_keeps_its_audio_when_the_service_breaks_off(session
     assert "message_updated" not in _kinds()
 
 
-def test_reading_a_bubble_again_needs_speech_on_and_a_reply_with_text(session: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
-    from types import SimpleNamespace
-
-    from starlette.testclient import TestClient
-
+def _api(monkeypatch: pytest.MonkeyPatch, view: SimpleNamespace) -> TestClient:
+    """The API as the session's owner, with ``view`` as the runtime settings."""
     from aifred.lib import runtime_settings
     from aifred.lib.api.app import api_app
     from aifred.lib.auth import sign_username
     from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
 
-    entry = _bubble()
-    view = SimpleNamespace(enable_tts=False, tts_autoplay=True, tts_agents={}, ui_language="de")
     monkeypatch.setattr(runtime_settings, "load_runtime_settings", lambda: view)
     client = TestClient(api_app)
     client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))
+    return client
+
+
+def _speech_off() -> SimpleNamespace:
+    return SimpleNamespace(enable_tts=False, tts_autoplay=True, tts_agents={}, ui_language="de")
+
+
+def test_reading_a_bubble_again_needs_speech_on_and_a_reply_with_text(session: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    entry = _bubble()
+    view = _speech_off()
+    client = _api(monkeypatch, view)
     url = f"/sessions/{SESSION}/messages/speech"
     assert client.post(url, json={"timestamp": entry["timestamp"]}).status_code == 409
     view.enable_tts = True
@@ -292,3 +302,140 @@ def test_reading_a_bubble_again_needs_speech_on_and_a_reply_with_text(session: l
     assert answer.status_code == 204 and answer.content == b""
     assert read == [(SESSION, "Hallo Peuqui.")]
     assert client.get("/speech/settings").json() == {"enable_tts": True, "tts_autoplay": True}
+
+
+# ── Every reply read into new audio ──────────────────────────────────────
+
+
+def _replies(*texts: str) -> list[dict[str, Any]]:
+    """A question and one reply bubble per text (distinct timestamps), in the session file."""
+    entries = []
+    for number, text in enumerate(texts):
+        entry = build_assistant_chat_entry(text, "aifred")
+        entry["timestamp"] = f"2026-11-07T10:00:0{number}"
+        entries.append(entry)
+    with session_storage.session_rmw_lock:
+        saved = session_storage.load_session(SESSION)
+        assert saved is not None
+        saved["data"]["chat_history"] = [{"role": "user", "content": "Frage", "timestamp": "2026-11-07T09:59:59"}, *entries]
+        session_storage.save_session(SESSION, saved)
+    return entries
+
+
+def _speak_to_files(monkeypatch: pytest.MonkeyPatch, spoken: list[str], fails_on: str = "") -> None:
+    """The TTS service as a stand-in: each text becomes one audio file, ``fails_on`` a service error."""
+    from aifred.lib import speech_synthesis
+
+    async def speak(text: str, *, language: str, agent: str) -> SpokenReading:
+        spoken.append(text)
+        if text == fails_on:
+            raise TTSSuiteError("Dienst weg")
+        return SpokenReading(audio_urls=[f"/_upload/tts_audio/{agent}-{len(spoken)}.wav"])
+
+    monkeypatch.setattr(speech_synthesis, "speak_to_files", speak)
+
+
+def _metadata(timestamp: str) -> dict[str, Any]:
+    saved = session_storage.load_session(SESSION)
+    assert saved is not None
+    metadata: dict[str, Any] = next(m for m in saved["data"]["chat_history"] if m["timestamp"] == timestamp)["metadata"]
+    return metadata
+
+
+def test_every_reply_gets_new_audio_and_loses_what_the_browser_spoke(
+    session: list[list[str]], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first, short, last = _replies("Erste Antwort.", "Hi", "Letzte Antwort.")
+    session_storage.keep_reply_audio(SESSION, first["timestamp"], [], [{"text": "Erste Antwort."}], "Browser · Gerät")
+    spoken: list[str] = []
+    _speak_to_files(monkeypatch, spoken)
+
+    async def scenario() -> None:
+        assert reply_speech.regenerate_all(SESSION, Settings(), "de")
+        assert reply_speech.regenerating(SESSION)
+        assert not reply_speech.regenerate_all(SESSION, Settings(), "de")    # one run per session
+        await reply_speech._regenerations[SESSION]
+
+    asyncio.run(scenario())
+    assert spoken == ["Erste Antwort.", "Letzte Antwort."]                  # too little to read in "Hi"
+    assert session == [["/_upload/tts_audio/aifred-1.wav"], ["/_upload/tts_audio/aifred-2.wav"]]
+    for reply in (first, last):
+        assert _metadata(reply["timestamp"])["audio_urls"] == [f"/_upload/audio/{SESSION}/reply.wav"]
+        assert _metadata(reply["timestamp"])["browser_speech"] == []
+    assert not _metadata(short["timestamp"]).get("audio_urls")
+    assert not reply_speech.regenerating(SESSION)
+    assert _kinds() == ["stop", "message_updated", "message_updated", "speech_regenerating"]
+    last_state = [e.data for e in session_events.replay_after(SESSION, 0) if e.kind == "speech_regenerating"]
+    assert last_state == [{"running": False}]                               # a late client sees only the end
+
+
+def test_a_service_error_ends_the_run_and_what_was_made_stays(
+    session: list[list[str]], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first, failing, never = _replies("Eins klappt.", "Zwei bricht.", "Drei kommt nie dran.")
+    spoken: list[str] = []
+    _speak_to_files(monkeypatch, spoken, fails_on="Zwei bricht.")
+
+    async def scenario() -> None:
+        assert reply_speech.regenerate_all(SESSION, Settings(), "de")
+        await reply_speech._regenerations[SESSION]
+
+    asyncio.run(scenario())
+    assert spoken == ["Eins klappt.", "Zwei bricht."]
+    assert _metadata(first["timestamp"])["audio_urls"] == [f"/_upload/audio/{SESSION}/reply.wav"]
+    for reply in (failing, never):
+        assert not _metadata(reply["timestamp"]).get("audio_urls")
+    notices = [e.data for e in session_events.replay_after(SESSION, 0) if e.kind == "notice"]
+    assert len(notices) == 1 and notices[0]["level"] == "error" and "Dienst weg" in notices[0]["text"]
+    assert not reply_speech.regenerating(SESSION)
+
+
+def test_deleting_the_session_ends_the_run(session: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    from aifred.lib import speech_synthesis
+
+    (reply,) = _replies("Eine lange Antwort.")
+    started = asyncio.Event()
+
+    async def speak(text: str, *, language: str, agent: str) -> SpokenReading:
+        started.set()
+        await asyncio.Event().wait()                                        # the service takes its time
+        raise AssertionError("not reached")
+
+    monkeypatch.setattr(speech_synthesis, "speak_to_files", speak)
+
+    async def scenario() -> asyncio.Task[None]:
+        assert reply_speech.regenerate_all(SESSION, Settings(), "de")
+        task = reply_speech._regenerations[SESSION]
+        await started.wait()
+        reply_speech.discard(SESSION)
+        await asyncio.wait({task})
+        return task
+
+    assert asyncio.run(scenario()).cancelled()
+    assert not _metadata(reply["timestamp"]).get("audio_urls")
+    assert not reply_speech.regenerating(SESSION)
+
+
+def test_regenerating_needs_speech_on_and_shows_in_the_session(session: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    view = _speech_off()
+    client = _api(monkeypatch, view)
+    url = f"/sessions/{SESSION}/speech/regenerate"
+    assert client.post(url).status_code == 409
+    view.enable_tts = True
+    started: list[str] = []
+    running = {"now": False}
+
+    def regenerate_all(session_id: str, _settings: Any, ui_language: str) -> bool:
+        if running["now"]:
+            return False
+        started.append(ui_language)
+        running["now"] = True
+        return True
+
+    monkeypatch.setattr(reply_speech, "regenerate_all", regenerate_all)
+    monkeypatch.setattr(reply_speech, "regenerating", lambda _session_id: running["now"])
+    answer = client.post(url)
+    assert answer.status_code == 204 and answer.content == b""
+    assert client.post(url).status_code == 409                              # it runs already
+    assert started == ["de"]
+    assert client.get(f"/sessions/{SESSION}").json()["speech_regenerating"] is True

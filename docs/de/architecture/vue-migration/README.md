@@ -126,7 +126,7 @@ der neue Dienst entsteht daneben und ersetzt beim Wechsel beide alten Pfade.
 Erledigt: Ereignis-Hub, App-Hülle, Einstellungssicht, Zug-Dienst mit allen Modi, Sitzungs-API mit
 Besitzerprüfung, Anmeldung, Agentenliste, Vue-Oberfläche mit Chat (Live-Strom, Warteschlange,
 Stopp, Agentenwahl, Debug-Konsole), gesprochene Antwort im Browser (Wiedergabeliste, Knopf zum
-erneuten Abspielen an der Blase, Sprecher-Vermerk, Blase neu vorlesen), Bilder (hochladen, einfügen, ziehen,
+erneuten Abspielen an der Blase, Sprecher-Vermerk, Blase neu vorlesen, alle Antworten neu vertonen), Bilder (hochladen, einfügen, ziehen,
 entfernen; gesehen oder einmal beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
 
 - **Dateien unter `/_upload/`** (Ton, Bilder, Dokumente): die Tabelle der Ordner und wer sie ohne
@@ -143,14 +143,20 @@ entfernen; gesehen oder einmal beschrieben), Diktat und Audio-Dateien, Inkognito
 - **Diktat, Rest:** Die Schätzung der Dauer nimmt immer die GPU an, auch wenn die Aufnahme auf die CPU
   geht (Bestandsaufnahme). Die Gerätewahl in AIfred und die Rückfrage „LLM entladen?“ sind entfallen
   (Peuqui 07.11.2026, Archiv-Tag `archive-vue-frontend-2026-11-07`): AIfred fragt immer mit `auto`.
-- **Sprachausgabe, Rest:** Musik oder Hörbuch vor einer Lesung anhalten (kommt mit der Audio-Seite);
-  alle Blasen einer Sitzung neu vorlesen (heute `resynthesize_all_tts` im State).
+- **Sprachausgabe, Rest:** Musik oder Hörbuch vor einer Lesung anhalten (kommt mit der Audio-Seite).
 - **Blase neu vorlesen (erledigt 07.11.2026):** 🔄 an jeder Antwort, solange die Sprachausgabe an ist
   (`GET /api/speech/settings`). `reply_speech.read_bubble` beendet, was gerade spielt, liest den Text
   der Blase durch den Filter der Lesung (`tts_text_filter.strip_ui_only_content`, ohne Metrikzeile)
   über die Wiedergabeliste der Sitzung und ersetzt danach den Ton der Blase (`message_updated`). Bricht
   der Dienst nach dem ersten Ton ab, behält die Blase ihren alten Ton (`keep_partial`); eine neue
-  Antwort behält auch eine abgebrochene Lesung, weil sie sonst keinen hätte.
+  Antwort behält auch eine abgebrochene Lesung, weil sie sonst keinen hätte. Welcher Text einer Blase
+  gelesen wird, sagt `reply_speech.bubble_reading_text` (auch für den Reflex-State).
+- **Alle neu vertonen (erledigt 07.11.2026):** „Alles neu generieren“ in der Kopfleiste des Chats
+  (bei Reflex im Audio-Player-Kasten, der mit der Audio-Seite kommt). `reply_speech.regenerate_all`
+  liest jede Antwort ohne Wiedergabe in Dateien (`speak_to_files`), jede Blase bekommt ihren Ton,
+  sobald er fertig ist (`message_updated`), was der Browser vorher gesprochen hat, entfällt. Einer je
+  Sitzung (`speech_regenerating`, auch in den Sitzungsdetails für neu geöffnete Tabs); ein Fehler des
+  Dienstes beendet den Lauf mit Hinweis, Fertiges bleibt; Löschen der Sitzung bricht ihn ab.
 
 - **Rollentausch vollständig (erledigt 07.11.2026):** Die Perspektive in
   `message_builder.build_messages_from_llm_history` gilt für jeden Agenten: eigene Antworten sind

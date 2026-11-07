@@ -20,6 +20,7 @@ const chat = useChat();
 const agents = ref<AgentSummary[]>([]);
 const messages = ref<HTMLElement | null>(null);
 const streamingHtml = computed(() => (chat.streaming ? renderMarkdown(chat.streaming.text) : ""));
+const hasReplies = computed(() => chat.history.some((entry) => entry.role === "assistant"));
 
 async function start(): Promise<void> {
   agents.value = await api<AgentSummary[]>("agents/summary");
@@ -78,6 +79,14 @@ onMounted(async () => {
       <div class="toolbar">
         <h2>{{ chat.title || t("untitled_chat") }}</h2>
         <div class="choices">
+          <button
+            v-if="chat.speechSettings.enable_tts && hasReplies"
+            class="regenerate"
+            :disabled="chat.regenerating"
+            @click="chat.regenerateAll"
+          >
+            {{ t("tts_regenerate_all") }}
+          </button>
           <button
             class="incognito"
             :class="{ on: chat.config.incognito }"
@@ -144,7 +153,8 @@ onMounted(async () => {
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 1rem; }
 .choices { display: flex; align-items: center; gap: 10px; }
-.incognito { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; }
+.incognito, .regenerate { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
+.regenerate:disabled { opacity: 0.7; cursor: progress; }
 .incognito.on { border-color: var(--aifred-accent-amber); }
 .messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
 .streaming { align-self: flex-start; max-width: min(860px, 92%); padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light); }

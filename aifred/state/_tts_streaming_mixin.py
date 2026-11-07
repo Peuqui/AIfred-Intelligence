@@ -19,7 +19,7 @@ import reflex as rx
 
 from ..lib.browser_reading import BrowserReading
 from ..lib.logging_utils import log_message
-from ..lib.reply_speech import speech_language, speech_wanted
+from ..lib.reply_speech import bubble_reading_text, speech_language, speech_wanted
 from ..lib.tts_client import TTSSuiteError
 from ._tts_config_mixin import _lang
 
@@ -415,20 +415,14 @@ class TTSStreamingMixin(rx.State, mixin=True):
         self`` aufrufen): Text und Sprache als reine Werte einsammeln.
         ``None`` wenn die Bubble nichts Synthetisierbares hergibt.
 
-        Gelesen wird die Blase, wie sie im Chat steht, durch denselben Filter wie die laufende
-        Lesung einer Antwort (``strip_ui_only_content``). Nicht ``llm_history``: Das ist der
-        Verlauf für das Modell, mit der Werkzeug-Notiz am Ende und nur dem Text der letzten
-        Runde (04.11.2026: der Knopf las die Notiz vor und ließ den Absatz vor dem
-        Werkzeugaufruf weg)."""
-        from ..lib.tts_text_filter import strip_ui_only_content
-
+        Gelesen wird die Blase, wie sie im Chat steht (Regel: ``reply_speech.bubble_reading_text``)."""
         _ch = self._chat_sub()
         msg = _ch.chat_history[bubble_index]
         agent = msg.get("agent", "aifred")
         tts_language = self._resolve_tts_language(agent)
-        text = strip_ui_only_content(msg.get("content", ""))
+        text = bubble_reading_text(msg)
 
-        if len(text) < 5:
+        if not text:
             log_message(f"⚠️ TTS Re-Synth: Bubble {bubble_index} text too short after cleanup")
             return None
 

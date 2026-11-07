@@ -70,17 +70,18 @@ expose AIfred to the internet (see [Deployment → Access the web UI](deployment
 | `/api/chat/history` | GET | `?session_id=` — `chat_history` + `llm_history` (latest session if omitted) |
 | `/api/chat/clear` | POST | Clear a session's history (`session_id`) |
 | `/api/sessions` | GET / POST | Your own sessions (`session_id`, `title`, `last_message_at`, `message_count`, `channel`) / create one |
-| `/api/sessions/{id}` | GET / DELETE | Open one of your sessions (`chat_history`, `config`, `debug_messages`, `running`, `last_event_id`) / delete it. A foreign or invalid id answers 404 |
+| `/api/sessions/{id}` | GET / DELETE | Open one of your sessions (`chat_history`, `config`, `debug_messages`, `running`, `speech_regenerating`, `last_event_id`) / delete it. A foreign or invalid id answers 404 |
 | `/api/sessions/{id}/messages` | POST | `{text, images}` — the server runs the turn itself, also without an open tab; while one runs, the message waits with its images (`queued: true`). `images` = URLs from the image upload, only the session's own uploads |
 | `/api/sessions/{id}/images` · `/images/{name}` | POST / DELETE | Upload images for the next message (multipart `files`, checked and made smaller, → `[{name, url, size_kb}]`) / take an uploaded one off again |
 | `/api/sessions/{id}/dictation` · `/dictation/{job}/answer` | POST / POST | A recording (`source=mic`) or an audio file (`source=file`) as multipart `file` with `job_id` (a UUID from the client) → 202; the server transcribes it itself, questions and the result come over the event stream (`dictation_question`, `dictation_text`, `dictation_finished`) / `{yes}` answers a question |
 | `/api/sessions/{id}/dictation/text` | POST | `{text}` — what the browser's speech recognition heard; the same rule as a dictation of the server → `{sent}` (to the AI) or into the input field |
 | `/api/dictation/settings` | GET / PATCH | `engine` (`stt_suite` or `browser`), `show_transcription` |
 | `/api/sessions/{id}/messages/speech` | POST | `{timestamp}` — read a finished reply aloud again: what plays now stops; the reading comes over the event stream, and what was spoken then replaces the bubble's audio (`message_updated`; if the service breaks off, the old audio stays) → 204. 409 while speech output is off, 404 without a reply with this timestamp |
+| `/api/sessions/{id}/speech/regenerate` | POST | Read every reply of the session into new audio, without playing it: what plays now stops; each bubble comes with its new audio as `message_updated`, the run as `speech_regenerating` (`running`), a failure of the TTS service as `notice` → 204. 409 while speech output is off or while one runs already |
 | `/api/speech/settings` | GET | `enable_tts` (speech output on), `tts_autoplay` (replies are read aloud while they are written) |
 | `/api/sessions/{id}/stop` | POST | Cancel the running turn (the streamed partial answer stays) and end the reading aloud, in every tab |
 | `/api/sessions/{id}/config` | PATCH | `active_agent`, `multi_agent_mode`, `symposion_agents` (known agents and modes only), `incognito` (no memory) |
-| `/api/sessions/{id}/events` | GET | Event stream (SSE) of the session: `turn_started`, `agent_started`, `token`, `tool_status`, `message_added`, `message_updated` (bubble with what was spoken), `turn_finished`, `debug`, `notice`, playlist `tts` / `tts_pause` / `tts_speak` / `stop`, … — `?after=<id>` or `Last-Event-ID` |
+| `/api/sessions/{id}/events` | GET | Event stream (SSE) of the session: `turn_started`, `agent_started`, `token`, `tool_status`, `message_added`, `message_updated` (bubble with what was spoken), `turn_finished`, `debug`, `notice`, playlist `tts` / `tts_pause` / `tts_speak` / `stop`, `speech_regenerating`, … — `?after=<id>` or `Last-Event-ID` |
 | `/api/agents/summary` | GET | The agents a chat can address (`id`, `display_name`, `emoji`, `role`) |
 | `/api/auth/login` · `/me` · `/logout` | POST / GET / POST | Login of the Vue UI (sets the same login cookie as the Reflex login) |
 | `/api/session/config` | POST | Per-session config: `active_agent`, `multi_agent_mode`, `symposion_agents` |

@@ -49,6 +49,8 @@ export const useChat = defineStore("chat", () => {
   const dictationSettings = ref<DictationSettings>({ engine: "stt_suite", show_transcription: false });
   // Whether speech output is on (settings.json): a reply's button to read it aloud again shows then.
   const speechSettings = ref<SpeechSettings>({ enable_tts: false, tts_autoplay: false });
+  // Every reply of the session is being read into new audio (its button is off meanwhile).
+  const regenerating = ref(false);
   let source: EventSource | null = null;
 
   async function open(id: string): Promise<void> {
@@ -61,6 +63,7 @@ export const useChat = defineStore("chat", () => {
     debugLines.value = detail.debug_messages;
     config.value = detail.config;
     running.value = detail.running;
+    regenerating.value = detail.speech_regenerating;
     streaming.value = null;
     toolStatus.value = "";
     notice.value = "";
@@ -137,6 +140,9 @@ export const useChat = defineStore("chat", () => {
         break;
       case "stop":
         speech.stop();
+        break;
+      case "speech_regenerating":
+        regenerating.value = Boolean(data.running);
         break;
       case "dictation_question":
         if (dictations.value.includes(String(data.job_id))) void answerDictation(String(data.job_id), String(data.text));
@@ -233,6 +239,16 @@ export const useChat = defineStore("chat", () => {
     }
   }
 
+  // Every reply read into new audio, without playing it; each bubble comes back as message_updated.
+  async function regenerateAll(): Promise<void> {
+    if (!sessionId.value) return;
+    try {
+      await api<void>(`sessions/${sessionId.value}/speech/regenerate`, { method: "POST" });
+    } catch (error) {
+      notice.value = error instanceof ApiError ? error.detail : String(error);
+    }
+  }
+
   async function changeDictationSettings(changes: Partial<DictationSettings>): Promise<void> {
     dictationSettings.value = await api<DictationSettings>("dictation/settings", {
       method: "PATCH",
@@ -273,6 +289,6 @@ export const useChat = defineStore("chat", () => {
     sessionId, title, history, debugLines, config, running, streaming, toolStatus, notice, queued,
     pendingImages, uploading, draft, dictations, dictationSettings, open, close, send, stop, configure,
     uploadImages, removeImage, dictate, dictated, loadDictationSettings, changeDictationSettings,
-    speechSettings, loadSpeechSettings, readAgain,
+    speechSettings, loadSpeechSettings, readAgain, regenerating, regenerateAll,
   };
 });
