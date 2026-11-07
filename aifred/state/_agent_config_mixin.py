@@ -96,8 +96,6 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     # ── Multi-Agent Runtime State ─────────────────────────────────
     sokrates_critique: rx.Field[str] = rx.field("")
-    sokrates_pro_args: rx.Field[str] = rx.field("")
-    sokrates_contra_args: rx.Field[str] = rx.field("")
     show_sokrates_panel: rx.Field[bool] = rx.field(False)
     salomo_synthesis: rx.Field[str] = rx.field("")
     show_salomo_panel: rx.Field[bool] = rx.field(False)
@@ -422,8 +420,6 @@ class AgentConfigMixin(rx.State, mixin=True):
         # Reset Sokrates panel when switching modes
         self.show_sokrates_panel = False
         self.sokrates_critique = ""
-        self.sokrates_pro_args = ""
-        self.sokrates_contra_args = ""
         self.debate_round = 0
 
         # Enforce agent selection rules per mode
@@ -597,8 +593,6 @@ class AgentConfigMixin(rx.State, mixin=True):
     def reset_sokrates_state(self) -> None:
         """Reset all Sokrates-related runtime state."""
         self.sokrates_critique = ""
-        self.sokrates_pro_args = ""
-        self.sokrates_contra_args = ""
         self.show_sokrates_panel = False
         self.debate_round = 0
         self.debate_user_interjection = ""

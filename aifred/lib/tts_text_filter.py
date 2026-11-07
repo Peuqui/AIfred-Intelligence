@@ -21,7 +21,7 @@ HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 # ("PP: ... (5.685 tok)"), so it must go as a whole, before the timing filter cuts at its first ")".
 PERFORMANCE_FOOTER = re.compile(r"\*\(\s[\s\S]*?\s\)\*")
 ROUND_LABEL = re.compile(
-    r"\[(Auto-Konsens|Tribunal|Devils? Advocate|Auto-Consensus):[^\]]+R\d+\]", re.IGNORECASE,
+    r"\[(Auto-Konsens|Tribunal|Auto-Consensus):[^\]]+R\d+\]", re.IGNORECASE,
 )
 TIMING_PARENTHESES = re.compile(
     r"\s*\([^)]*\b(STT|TTFT|Inference|Inferenz|Agent|Cache-Hit|Decision|Entscheidung|TTS|tok/s|Source)[^)]*\)",

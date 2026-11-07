@@ -320,7 +320,7 @@ per Voice oder Multi-Agent-Diskussionen in nicht-Browser-Kanälen wollen.
 1. Lädt Session-Config (SSOT)
 2. Je nach `multi_agent_mode`:
    - `standard` → Single-Agent (`active_agent` aus Config)
-   - `critical_review` / `devils_advocate` → AIfred + Sokrates
+   - `critical_review` → AIfred + Sokrates
    - `auto_consensus` → mehrrundige Diskussion (respektiert `max_debate_rounds`)
    - `tribunal` → AIfred + Sokrates + Salomo
    - `symposion` → alle Agenten aus `symposion_agents`

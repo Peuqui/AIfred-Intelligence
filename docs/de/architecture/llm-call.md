@@ -195,10 +195,6 @@ run_tribunal()
     |-- SALOMO (Richter): get_salomo_judge_prompt()
 ```
 
-#### Advocatus Diaboli
-
-Läuft wie Auto-Konsens über `run_sokrates_analysis()`, aber mit nur einer Runde, und Sokrates verwendet `get_sokrates_devils_advocate_prompt()`. Die Antwort wird über `parse_pro_contra()` in PRO- und CONTRA-Abschnitte zerlegt.
-
 #### Symposion
 
 ```
@@ -378,7 +374,6 @@ zu vermeiden.
 | Direkter Agent | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Agentenspezifische Perspektive |
 | Auto-Konsens | `run_sokrates_analysis` | `_stream_agent_to_history` -> `run_llm_stream` | Mehrere Runden, Abstimmung |
 | Tribunal | `run_tribunal` | `_stream_agent_to_history` -> `run_llm_stream` | 3 Agenten, Salomo richtet |
-| Advocatus Diaboli | `run_sokrates_analysis` | `_stream_agent_to_history` -> `run_llm_stream` | Pro/Contra-Parsing |
 | Symposion | `run_symposion` | `_stream_agent_to_history` -> `run_llm_stream` | N Agenten nacheinander |
 | Message Hub | `process_inbound` | `call_llm` -> `run_llm_stream` | Zustandslos, Auto-Reply |
 | Titel-Generierung | `generate_session_title` | **Nein** — `client.chat()` | Nicht streamend, 300 s Timeout |

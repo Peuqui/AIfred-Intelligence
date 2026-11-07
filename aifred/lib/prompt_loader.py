@@ -671,19 +671,6 @@ def get_sokrates_critic_prompt(round_num: int = 1, lang: str | None = None) -> s
     return load_prompt('debate/critic', lang=lang, round_num=round_num, **seat_names(REFLEX_SEATS))
 
 
-def get_sokrates_devils_advocate_prompt(lang: str | None = None) -> str:
-    """
-    Load Sokrates Devil's Advocate prompt for Pro/Contra analysis.
-
-    Args:
-        lang: Language code (de/en), defaults to current language
-
-    Returns:
-        Sokrates devil's advocate system prompt with timestamp prefix
-    """
-    return load_prompt('sokrates/devils_advocate', lang=lang)
-
-
 def get_aifred_refinement_prompt(
     critique: str,
     user_interjection: str = "",
@@ -869,7 +856,7 @@ def get_max_direct_prompt_tokens(
         )
         return max(aifred_tokens, sokrates_tokens, salomo_tokens)
 
-    # critical_review, devils_advocate
+    # critical_review
     return max(aifred_tokens, sokrates_tokens)
 
 def get_subagent_system_prompt(

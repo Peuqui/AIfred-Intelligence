@@ -5,7 +5,6 @@ AIfred (Main) + Sokrates (Critic)
 Implements multi-agent debate patterns for improved answer quality:
 - User-as-Judge: AIfred answers, Sokrates critiques, user decides
 - Auto-Consensus: Iterative refinement until LGTM or max rounds
-- Devil's Advocate: Pro and Contra arguments for balanced analysis
 
 This module contains the core Multi-Agent logic extracted from state.py.
 The functions work with async generators for streaming UI updates.
@@ -38,7 +37,6 @@ from .prompt_loader import (
     get_salomo_judge_prompt,
     get_salomo_mediator_prompt,
     get_sokrates_critic_prompt,
-    get_sokrates_devils_advocate_prompt,
     get_sokrates_tribunal_prompt,
 )
 
@@ -117,51 +115,6 @@ def format_votes_debug(votes: dict, round_num: int) -> str:
     salomo_vote = "✅" if votes.get("salomo", False) else "❌"
 
     return f"🗳️ Votes R{format_number(round_num)}: AIfred {alfred_vote}, Sokrates {sokrates_vote}, Salomo {salomo_vote} ({format_number(lgtm_count)}/3)"
-
-
-def parse_pro_contra(analysis: str) -> tuple[str, str]:
-    """Parse Pro and Contra sections from Sokrates' analysis.
-
-    Standalone function that can be imported and used directly.
-    """
-    pro_args = ""
-    contra_args = ""
-
-    lower_analysis = analysis.lower()
-
-    # Find Pro section
-    pro_markers = ["## pro", "**pro", "pro:", "pro-argumente:", "pro arguments:"]
-    contra_markers = ["## contra", "**contra", "contra:", "contra-argumente:", "contra arguments:"]
-
-    pro_start = -1
-    contra_start = -1
-
-    for marker in pro_markers:
-        idx = lower_analysis.find(marker)
-        if idx != -1 and (pro_start == -1 or idx < pro_start):
-            pro_start = idx
-
-    for marker in contra_markers:
-        idx = lower_analysis.find(marker)
-        if idx != -1 and (contra_start == -1 or idx < contra_start):
-            contra_start = idx
-
-    if pro_start != -1 and contra_start != -1:
-        if pro_start < contra_start:
-            pro_args = analysis[pro_start:contra_start].strip()
-            contra_args = analysis[contra_start:].strip()
-        else:
-            contra_args = analysis[contra_start:pro_start].strip()
-            pro_args = analysis[pro_start:].strip()
-    elif pro_start != -1:
-        pro_args = analysis[pro_start:].strip()
-    elif contra_start != -1:
-        contra_args = analysis[contra_start:].strip()
-    else:
-        # No clear sections - return full analysis as pro
-        pro_args = analysis.strip()
-
-    return pro_args, contra_args
 
 
 # ============================================================
@@ -940,12 +893,8 @@ async def run_sokrates_analysis(
             # === SOKRATES CRITIQUE ===
             # Get system prompts: minimal (base personality) + mode-specific
             sokrates_minimal = get_agent_system_prompt("sokrates", "task",lang=detected_lang, seats=REFLEX_SEATS, memory=memory_enabled)
-            if state.multi_agent_mode == "devils_advocate":
-                mode_prompt = get_sokrates_devils_advocate_prompt(lang=detected_lang)
-            else:
-                # Critic prompt for all other modes (Sokrates never says LGTM)
-                # round_num prevents hallucinating "progress" in round 1
-                mode_prompt = get_sokrates_critic_prompt(round_num=round_num, lang=detected_lang)
+            # Critic prompt (Sokrates never says LGTM); round_num prevents hallucinating "progress" in round 1
+            mode_prompt = get_sokrates_critic_prompt(round_num=round_num, lang=detected_lang)
 
             # Combine: minimal first, then mode-specific, then memory
             system_prompt = f"{sokrates_minimal}\n\n{mode_prompt}"
@@ -982,19 +931,13 @@ async def run_sokrates_analysis(
             if result is None:
                 break
 
-            sokrates_mode = "advocatus_diaboli" if state.multi_agent_mode == "devils_advocate" else "critical_review"
             sokrates_response_text = _add_agent_result_panel(
-                state, "sokrates", result, "Sokrates", sokrates_model, sokrates_mode, round_num,
+                state, "sokrates", result, "Sokrates", sokrates_model, "critical_review", round_num,
             )
             state.sokrates_critique = sokrates_response_text
             yield
 
             state._save_current_session()
-
-            # Parse Pro/Contra for devils_advocate
-            if state.multi_agent_mode == "devils_advocate":
-                state.sokrates_pro_args, state.sokrates_contra_args = parse_pro_contra(sokrates_response_text)
-                break  # Devils advocate is always one round
 
             # For critical_review: only one round (user decides)
             if state.multi_agent_mode == "critical_review":

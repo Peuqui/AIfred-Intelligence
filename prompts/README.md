@@ -50,7 +50,6 @@ Each agent uses a layered prompt architecture:
 | `personality.txt` | Socratic questioning style |
 | `system_minimal.txt` | Minimal system prompt |
 | `critic.txt` | Critique task for debate modes |
-| `devils_advocate.txt` | Devil's advocate perspective |
 | `direct.txt` | Direct response task |
 
 ### Salomo (Judge Agent)

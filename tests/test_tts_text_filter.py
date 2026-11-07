@@ -47,7 +47,7 @@ class TestFooterAndLabels:
         assert "Erster Teil" in spoken and "Zweiter Teil folgt hier" in spoken and "TTFT" not in spoken
 
     @pytest.mark.parametrize("label", [
-        "[Auto-Konsens: Synthese R1]", "[Tribunal: Kritische Prüfung R2]", "[Devils Advocate: Test R3]",
+        "[Auto-Konsens: Synthese R1]", "[Tribunal: Kritische Prüfung R2]",
         "[Auto-Consensus: Synthesis R1]",
     ])
     def test_round_labels_go(self, label):

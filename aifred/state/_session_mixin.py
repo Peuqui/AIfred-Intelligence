@@ -53,9 +53,7 @@ class SessionMixin(rx.State, mixin=True):
         multi_agent_mode: rx.Field[str]
         pending_images: rx.Field[list[dict[str, str]]]
         show_sokrates_panel: rx.Field[bool]
-        sokrates_contra_args: rx.Field[str]
         sokrates_critique: rx.Field[str]
-        sokrates_pro_args: rx.Field[str]
         symposion_agents: rx.Field[list[str]]
         used_sources: rx.Field[list[dict[str, Any]]]
 
@@ -661,8 +659,6 @@ class SessionMixin(rx.State, mixin=True):
 
         # Clear Sokrates Multi-Agent state
         self.sokrates_critique = ""
-        self.sokrates_pro_args = ""
-        self.sokrates_contra_args = ""
         self.show_sokrates_panel = False
         self.debate_round = 0
         self.debate_user_interjection = ""

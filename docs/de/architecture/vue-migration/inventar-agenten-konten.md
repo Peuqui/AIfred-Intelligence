@@ -60,7 +60,7 @@ Privat: keine eigenen; benutzt `_session_initialized` aus `_session_mixin.py:74`
 | `active_agent`, `multi_agent_mode`, `symposion_agents` | str, str, list[str] | je Sitzung, in der Sitzungsdatei (102, 106, 108) |
 | `agent_memory_enabled` | bool | Inkognito-Schalter, nur im Tab (103) |
 | `max_debate_rounds`, `consensus_type` | int, str | global in `settings.json` (107, 109) |
-| `sokrates_critique`, `sokrates_pro_args`, `sokrates_contra_args`, `show_sokrates_panel`, `salomo_synthesis`, `show_salomo_panel`, `debate_round`, `debate_user_interjection`, `debate_in_progress` | str/bool/int | Laufzeit der Diskussionsmodi (112–120) |
+| `sokrates_critique`, `show_sokrates_panel`, `salomo_synthesis`, `show_salomo_panel`, `debate_round`, `debate_user_interjection`, `debate_in_progress` | str/bool/int | Laufzeit der Diskussionsmodi (112–120) |
 
 Berechnete Vars: `aifred_/vision_thinking_mode`, `…_thinking_options` (209–279), `rope_factor_display`,
 `automatik_rope_display`, `vision_rope_display` (608–621), `is_unanimous_consensus`,
