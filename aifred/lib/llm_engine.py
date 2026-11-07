@@ -18,7 +18,6 @@ from typing import Any, cast
 
 from .context_manager import estimate_tokens
 from .formatting import build_inference_metadata, format_number
-from .intent_detector import get_temperature_for_intent, get_temperature_label
 from .llm_client import LLMClient, build_llm_options
 from .logging_utils import log_message
 from .prompt_loader import get_agent_system_prompt
@@ -30,9 +29,7 @@ async def call_llm(
     model_choice: str,
     history: list,  # chat_history - will be updated and returned in result
     llm_history: list[dict[str, str]],
-    detected_intent: str,
     detected_language: str,
-    temperature_mode: str,
     temperature: float,
     backend_type: str,
     backend_url: str | None,
@@ -59,10 +56,8 @@ async def call_llm(
         model_choice: Model ID (z.B. "qwen3:4b")
         history: Chat History (wird aktualisiert und im Result zurückgegeben)
         llm_history: LLM History (Liste von {"role": ..., "content": ...})
-        detected_intent: Intent für Temperature-Bestimmung (z.B. "FAKTISCH")
         detected_language: Sprache für Prompts ("de" oder "en")
-        temperature_mode: "auto" oder "manual"
-        temperature: Temperature-Wert (nur bei manual relevant)
+        temperature: Temperatur des antwortenden Agenten (agent_tuning)
         backend_type: Backend-Typ ("ollama", "vllm", "llamacpp", "cloud_api")
         backend_url: Backend-URL
         state: AIState Objekt für num_ctx Lookup (optional)
@@ -170,14 +165,7 @@ async def call_llm(
     llm_client = LLMClient(backend_type=backend_type, base_url=backend_url, provider=provider)
 
     try:
-        # Temperature decision
-        if temperature_mode == 'manual':
-            final_temperature = temperature
-            yield {"type": "debug", "message": f"🌡️ Temperature: {format_number(final_temperature, 1)} (manual)"}
-        else:
-            final_temperature = get_temperature_for_intent(detected_intent)
-            temp_label = get_temperature_label(detected_intent)
-            yield {"type": "debug", "message": f"🌡️ Temperature: {format_number(final_temperature, 1)} (auto, {temp_label})"}
+        yield {"type": "debug", "message": f"🌡️ Temperature: {format_number(temperature, 1)}"}
 
         # Calculate num_ctx
         if num_ctx_manual_enabled and num_ctx_manual_value:
@@ -202,7 +190,7 @@ async def call_llm(
         yield {"type": "debug", "message": f"📊 {agent_label}: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})"}
 
         # Build LLM options via central builder (all sampling params from state).
-        llm_options = build_llm_options(state, agent, model_choice, final_temperature, final_num_ctx)
+        llm_options = build_llm_options(state, agent, model_choice, temperature, final_num_ctx)
 
         # Console: LLM starts (with MoE/Dense architecture + calibration info)
         from .gpu_utils import is_moe_model

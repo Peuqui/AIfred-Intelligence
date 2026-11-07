@@ -95,8 +95,8 @@ Jeder Agent bekommt seinen vollen Werkzeugsatz und entscheidet selbst, ob er Wer
 ```
 _chat_mixin.py: send_message()
   |-- Intent-Erkennung (detect_query_intent_and_addressee)
-  |     Liefert: intent, addressee, detected_language,
-  |              mode_switch_updates, is_pure_command, raw_response
+  |     Liefert: addressee, detected_language, mode_switch_updates,
+  |              is_pure_command, raw_response, load_time
   |-- History-Kompression (bei >70 % Context-Auslastung)
   |-- run_generic_agent_direct_response("aifred")
   |
@@ -111,7 +111,7 @@ multi_agent.py: _run_agent_direct_response()
   |        execute_code, Dokument-Tools, …); abgerufene Erinnerungen kommen
   |        als Kontext vor die Frage
   |-- Messages (build_messages_from_llm_history mit Perspektive)
-  |-- Temperatur (automatisch aus dem Intent oder manuell)
+  |-- Temperatur des Agenten (resolve_agent_temperature, eigene je Agent)
   |-- LLM-Optionen (build_llm_options)
   |
   v
@@ -143,7 +143,7 @@ _chat_mixin.py: _process_vision_request()
   |            external_toolkit=..., vision_task_addon=...)
   |     |-- System-Prompt: get_agent_system_prompt(agent, "task")
   |     |     + vision_task_addon
-  |     |-- temperature_mode="manual", Temperatur aus dem AIfred-Bucket
+  |     |-- Temperatur aus dem AIfred-Bucket
   |     |-- LLM-Optionen: build_llm_options(state, agent, ...)
   |     v
   |     run_llm_stream()  <-- PIPELINE
@@ -235,7 +235,7 @@ message_processor.py: dispatch_inbound() -> process_inbound(InboundMessage)
   |       Erkennung, damit session_scope für die LLM-Calls aktiv ist
   |       hub_notification_scope: Toast "received" im Browser
   |-- 2. detect_target_agent_via_llm(text)
-  |       -> (agent_id, intent, detected_language, mode_switch_updates)
+  |       -> (agent_id, detected_language, mode_switch_updates, load_time)
   |       Kapselt detect_query_intent_and_addressee() (Automatik-Modell);
   |       danach Routing-Priorität: metadata["wake_agent"] > Adressat
   |       > active_agent der Session > "aifred"
@@ -290,9 +290,8 @@ intent_detector.py: detect_query_intent_and_addressee()
   |-- Context: AUTOMATIK_LLM_NUM_CTX (12288), wenn sich das Automatik-Modell
   |     von AIfreds unterscheidet; beim selben Modell AIfreds max_context (kein Reload)
   |-- Optionen: temperature=0.2, enable_thinking=False
-  |-- Liefert: (intent, addressee, detected_language,
-  |            mode_switch_updates, is_pure_command, raw_response)
-  |     intent aus: FAKTISCH, KREATIV, GEMISCHT
+  |-- Liefert: (addressee, detected_language, mode_switch_updates,
+  |            is_pure_command, raw_response, load_time)
   |     addressee aus: None, aifred, sokrates, salomo
   |     language aus: de, en
   |     mode_switch_updates: gewünschte Konfigurationsänderung ({} wenn keine)
@@ -393,5 +392,5 @@ zu vermeiden.
 | `aifred/lib/message_builder.py` | `build_messages_from_llm_history()` — Perspektiv-Transformation |
 | `aifred/lib/agent_memory.py` | `prepare_agent_toolkit()` — Memory- + Plugin-Tools |
 | `aifred/lib/agent_config.py` | Agenten-Konfiguration (Anzeigenamen, Emojis, Modelle) |
-| `aifred/lib/intent_detector.py` | Erkennung von Intent/Sprache/Adressat |
+| `aifred/lib/intent_detector.py` | Erkennung von Sprache, Adressat und Moduswechsel |
 | `aifred/state/_chat_mixin.py` | UI-Einstiegspunkt (`send_message`, `_process_vision_request`) |

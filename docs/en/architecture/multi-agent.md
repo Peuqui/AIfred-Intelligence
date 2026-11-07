@@ -220,10 +220,8 @@ inference time.
 
 ## Temperature and sampling
 
-- **Auto mode:** the intent detection picks the base temperature
-  (FACTUAL 0.2, MIXED 0.5, CREATIVE 1.0); Sokrates and Salomo get an offset
-  on top (defaults +0.2 and +0.3, capped at 1.0; `config.py`).
-- **Manual mode:** per-agent temperature in the sampling table.
+- Every agent answers with its own temperature from the sampling table; there
+  is no automatic temperature (since 2026-11-07).
 - Top-K, Top-P, Min-P and repeat penalty come from the model's llama-swap YAML
   entry and are reset to it when the backend starts or the model changes;
   temperature survives a restart. The ↺ button resets everything to the YAML

@@ -40,7 +40,6 @@ class TuningTarget(Protocol):
 class RuntimeSettings:
     backend_type: str
     backend_url: str
-    temperature_mode: str
     ui_language: str
     enable_tts: bool
     automatik_model_id: str
@@ -64,7 +63,6 @@ def load_runtime_settings() -> RuntimeSettings:
     view = RuntimeSettings(
         backend_type=backend_type,
         backend_url=BACKEND_URLS[backend_type],
-        temperature_mode=saved["temperature_mode"],
         ui_language=saved["ui_language"],
         enable_tts=bool(saved["enable_tts"]),
         automatik_model_id="",

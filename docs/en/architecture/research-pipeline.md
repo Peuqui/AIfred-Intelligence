@@ -30,11 +30,10 @@ anyway.
 Intent + addressee detection
 ├─ One combined call to the Automatik-LLM
 ├─ Prompt: automatik/intent_detection
-├─ Response: "INTENT|ADDRESSEE|LANGUAGE|MODE_SWITCH|IS_PURE_COMMAND"
-│  └─ e.g. "FACTUAL||DE||FALSE" or "MIXED|sokrates|DE||FALSE"
-├─ Temperature:
-│  ├─ Auto mode: FACTUAL=0.2, MIXED=0.5, CREATIVE=1.0
-│  └─ Manual mode: intent ignored, manual value used
+├─ Response: JSON object {language, addressee, mode_switch, pure_command},
+│  │  read field by field (one garbled field does not cost the others)
+│  └─ e.g. {"language": "DE", "addressee": "sokrates", "mode_switch": "", "pure_command": false}
+├─ Language: DE or EN (prompts and the spoken reply follow it)
 ├─ Addressee: direct agent addressing (sokrates/aifred/salomo/…)
 └─ Mode switch: spoken/typed config changes ("start a tribunal")
 ```
@@ -167,4 +166,4 @@ main model without extra VRAM.
   tools (`read_memory`, `store_memory`, `update_memory`, `delete_memory`)
 - `aifred/lib/tool_output_cap.py` — token budget for tool results (75 % input
   ratio, JSON-aware truncation)
-- `aifred/lib/intent_detector.py` — intent, addressee, temperature, mode switch
+- `aifred/lib/intent_detector.py` — language, addressee, mode switch

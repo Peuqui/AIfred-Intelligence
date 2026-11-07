@@ -77,7 +77,6 @@ class SettingsMixin(rx.State, mixin=True):
         narrator_voices: rx.Field[dict[str, str]]
         show_transcription: rx.Field[bool]
         symposion_agents: rx.Field[list[str]]
-        temperature_mode: rx.Field[str]
         tts_agents: rx.Field[dict[str, dict[str, Any]]]
         tts_autoplay: rx.Field[bool]
         tts_list_revision: rx.Field[int]
@@ -182,7 +181,6 @@ class SettingsMixin(rx.State, mixin=True):
             # NOTE: multi_agent_mode is per-session now (session_storage.DEFAULT_SESSION_CONFIG)
             # NOTE: per-agent tuning (temperature, sampling, thinking,
             # personality, speed) is appended below as "agent_tuning"
-            "temperature_mode": self.temperature_mode,
             "ui_language": self.ui_language,  # UI language (de/en)
             "user_name": self.user_name,  # User's name for personalized responses
             "user_gender": self.user_gender,  # Gender for salutation (male/female)
@@ -276,9 +274,6 @@ class SettingsMixin(rx.State, mixin=True):
         settings = load_settings()
         if not settings:
             return
-
-        # Core settings
-        self.temperature_mode = settings.get("temperature_mode", self.temperature_mode)
 
         # NOTE: multi_agent_mode, active_agent, symposion_agents
         # are now per-session config, NOT global settings. They are loaded from
@@ -415,7 +410,6 @@ class SettingsMixin(rx.State, mixin=True):
                 self.active_agent = DEFAULT_SESSION_CONFIG["active_agent"]
                 self.symposion_agents = list(DEFAULT_SESSION_CONFIG["symposion_agents"])
 
-                self.temperature_mode = saved_settings["temperature_mode"]
                 self.enable_tts = saved_settings["enable_tts"]
                 self.enable_yarn = saved_settings["enable_yarn"]
                 self.yarn_factor = saved_settings["yarn_factor"]

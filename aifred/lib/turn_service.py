@@ -15,7 +15,7 @@ adds ``tts``, ``tts_pause`` and ``tts_speak`` (the playlist), ``notice`` (a mess
 and, once the reading is over, ``message_updated`` (the bubble with what was spoken); these may
 come after ``turn_finished``.
 
-Covered so far: the direct answer of one agent with tools and memory, intent and language,
+Covered so far: the direct answer of one agent with tools and memory, addressee and language,
 mode switch, history compression, sticky addressing, title, the multi-agent modes
 (``lib/turn_debate.py``), the spoken reply in the browser (``lib/reply_speech.py``), images
 (seen by the answering agent or described once, ``_look_at_images``). Dictation follows
@@ -228,7 +228,6 @@ async def _run(request: TurnRequest, turn_id: str) -> None:
 
 @dataclass(frozen=True)
 class _Intent:
-    intent: str
     addressed_to: str | None
     language: str
     mode_switch: dict[str, Any]
@@ -237,7 +236,7 @@ class _Intent:
 
 
 async def _detect_intent(view: RuntimeSettings, llm_client: Any, user_text: str) -> _Intent:
-    """Intent, addressee, language and a requested mode switch in one Automatik call.
+    """Addressee, language and a requested mode switch in one Automatik call.
 
     A URL-only message and one of images only skip the call: the UI language applies.
     """
@@ -249,20 +248,20 @@ async def _detect_intent(view: RuntimeSettings, llm_client: Any, user_text: str)
     )
 
     if not user_text or re.fullmatch(r"https?://\S+", user_text):
-        debug(f"🎯 Intent: FAKTISCH ({'URL' if user_text else 'image'}-only), Lang: {view.ui_language.upper()} (UI)")
-        return _Intent("FAKTISCH", None, view.ui_language, {}, False, 0.0)
+        debug(f"🎯 Intent skipped ({'URL' if user_text else 'image'}-only), Lang: {view.ui_language.upper()} (UI)")
+        return _Intent(None, view.ui_language, {}, False, 0.0)
 
     automatik = effective_automatik_id(view)
     # Same model as AIfred: the same context as its preload, or the backend reloads it twice.
     same_model = automatik == effective_model_id(view, "aifred")
     num_ctx = (view.agent_tuning["aifred"].max_context or None) if same_model else AUTOMATIK_LLM_NUM_CTX
     await _announce_cold_start(view, automatik)
-    intent, addressed_to, language, mode_switch, pure, _raw, load_time = await detect_query_intent_and_addressee(
+    addressed_to, language, mode_switch, pure, _raw, load_time = await detect_query_intent_and_addressee(
         user_text, automatik, llm_client, automatik_num_ctx=num_ctx,
     )
     switch = format_mode_switch_summary(mode_switch) if mode_switch else "–"
-    debug(f"🎯 {format_intent_result(intent, addressed_to, language)}, Switch: {switch}, PureCmd: {'yes' if pure else 'no'}")
-    return _Intent(intent, addressed_to, language, mode_switch, pure, load_time)
+    debug(f"🎯 {format_intent_result(addressed_to, language)}, Switch: {switch}, PureCmd: {'yes' if pure else 'no'}")
+    return _Intent(addressed_to, language, mode_switch, pure, load_time)
 
 
 async def _announce_cold_start(view: RuntimeSettings, model: str) -> None:

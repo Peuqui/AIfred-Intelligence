@@ -415,7 +415,6 @@ class ChatMixin(rx.State, mixin=True):
         self,
         user_msg: str,
         content_parts: list[dict],
-        detected_intent: str,
         detected_language: str,
         vision_task_addon: str = "",
     ) -> AsyncGenerator[None, None]:
@@ -474,9 +473,7 @@ class ChatMixin(rx.State, mixin=True):
             model_choice=effective_vision_id,
             history=self._chat_sub().chat_history,
             llm_history=self._chat_sub().llm_history[:-1],
-            detected_intent=detected_intent,
             detected_language=detected_language,
-            temperature_mode="manual",
             temperature=self.agent_tuning["aifred"].temperature,
             backend_type=self.backend_type,
             backend_url=self.backend_url,
@@ -860,7 +857,7 @@ class ChatMixin(rx.State, mixin=True):
                     vision_task_addon = turn_images.seeing_task(user_msg, detected_language)
 
                     async for _ in self._process_vision_request(
-                        user_msg, content_parts, "GEMISCHT", detected_language, vision_task_addon,
+                        user_msg, content_parts, detected_language, vision_task_addon,
                     ):
                         yield
                     return  # VL Direct complete
@@ -964,13 +961,12 @@ class ChatMixin(rx.State, mixin=True):
             _is_url_only = bool(_msg_stripped) and bool(re.match(r'^https?://\S+$', _msg_stripped))
             if not _msg_stripped or _is_url_only:
                 from ..lib.prompt_loader import get_language
-                detected_intent = "FAKTISCH"
                 addressed_to = None
                 detected_language = get_language()
                 mode_switch_updates: dict = {}
                 is_pure_command = False
                 _reason = "URL-only" if _is_url_only else "image-only"
-                self.add_debug(f"🎯 Intent: {detected_intent} ({_reason}), Lang: {detected_language.upper()} (UI)")
+                self.add_debug(f"🎯 Intent skipped ({_reason}), Lang: {detected_language.upper()} (UI)")
                 self._last_detected_language = detected_language
             else:
                 # Beim Cold Start laedt das Backend das Modell fuer diesen
@@ -979,7 +975,6 @@ class ChatMixin(rx.State, mixin=True):
                 # ohne Intent-Aufruf laden im Hauptaufruf, dort misst die
                 # Pipeline dieselbe Zeit.
                 (
-                    detected_intent,
                     addressed_to,
                     detected_language,
                     mode_switch_updates,
@@ -1000,7 +995,7 @@ class ChatMixin(rx.State, mixin=True):
                 switch_str = format_mode_switch_summary(mode_switch_updates) if mode_switch_updates else "–"
                 pure_str = "yes" if is_pure_command else "no"
                 self.add_debug(
-                    f"🎯 {format_intent_result(detected_intent, addressed_to, detected_language)}"
+                    f"🎯 {format_intent_result(addressed_to, detected_language)}"
                     f", Switch: {switch_str}, PureCmd: {pure_str}"
                 )
                 self._last_detected_language = detected_language
@@ -1172,7 +1167,6 @@ class ChatMixin(rx.State, mixin=True):
                     responding_agent,
                     user_msg,
                     detected_language,
-                    detected_intent=detected_intent,
                     llm_user_text=llm_user_content,
                 ):
                     yield

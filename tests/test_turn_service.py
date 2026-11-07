@@ -46,7 +46,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     session_events._channels.pop(SESSION, None)
 
     view = RuntimeSettings(
-        backend_type="ollama", backend_url="http://x", temperature_mode="auto", ui_language="de",
+        backend_type="ollama", backend_url="http://x", ui_language="de",
         enable_tts=False, automatik_model_id="", agent_tuning=default_agent_tuning(),
         tts_autoplay=False, tts_agents={}, max_debate_rounds=3, consensus_type="majority",
     )
@@ -56,7 +56,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
                              "memory": []}
 
     async def intent(_view: Any, _client: Any, _text: str) -> turn_service._Intent:
-        return world.get("intent") or turn_service._Intent("FAKTISCH", None, "de", {}, False, 0.0)
+        return world.get("intent") or turn_service._Intent(None, "de", {}, False, 0.0)
 
     async def no_compression(*_args: Any) -> None:
         return None
@@ -142,7 +142,7 @@ def test_the_first_exchange_gets_a_title(world: dict[str, Any]) -> None:
 
 def test_the_title_comes_from_the_model_that_just_answered(world: dict[str, Any]) -> None:
     world["view"].agent_tuning["sokrates"].model_id = "qwen3:4b"
-    world["intent"] = turn_service._Intent("FAKTISCH", "sokrates", "de", {}, False, 0.0)
+    world["intent"] = turn_service._Intent("sokrates", "de", {}, False, 0.0)
     asyncio.run(_turn("Sokrates, hallo"))
     assert world["title_calls"] == [("qwen3:4b", 32768)]        # loaded already, nothing reloads
 
@@ -151,9 +151,9 @@ def test_each_agent_thinks_as_its_own_row_says(world: dict[str, Any]) -> None:
     # Peuqui 07.11.2026: AIfred's thinking choice does not apply to the other agents.
     world["view"].agent_tuning["aifred"].thinking_by_model = {"qwen3:8b": "on"}
     world["view"].agent_tuning["sokrates"].thinking_by_model = {"qwen3:8b": "off"}
-    world["intent"] = turn_service._Intent("FAKTISCH", "sokrates", "de", {}, False, 0.0)
+    world["intent"] = turn_service._Intent("sokrates", "de", {}, False, 0.0)
     asyncio.run(_turn("Sokrates, was meinst du?"))
-    world["intent"] = turn_service._Intent("FAKTISCH", "aifred", "de", {}, False, 0.0)
+    world["intent"] = turn_service._Intent("aifred", "de", {}, False, 0.0)
     asyncio.run(_turn("AIfred, und du?"))
     assert [options.enable_thinking for options in world["options"]] == [False, True]
 
@@ -185,7 +185,7 @@ def test_a_mode_the_server_does_not_offer_is_refused(world: dict[str, Any]) -> N
 
 
 def test_an_address_sticks_to_the_session(world: dict[str, Any]) -> None:
-    world["intent"] = turn_service._Intent("FAKTISCH", "sokrates", "de", {}, False, 0.0)
+    world["intent"] = turn_service._Intent("sokrates", "de", {}, False, 0.0)
     asyncio.run(_turn("Sokrates, was meinst du?"))
     assert session_storage.get_session_config(SESSION)["active_agent"] == "sokrates"
     assert _data()["llm_history"][1]["content"].startswith("[SOKRATES]: ")
@@ -193,7 +193,7 @@ def test_an_address_sticks_to_the_session(world: dict[str, Any]) -> None:
 
 
 def test_a_pure_mode_switch_is_confirmed_without_an_answer(world: dict[str, Any]) -> None:
-    world["intent"] = turn_service._Intent("FAKTISCH", None, "de", {"active_agent": "salomo"}, True, 0.0)
+    world["intent"] = turn_service._Intent(None, "de", {"active_agent": "salomo"}, True, 0.0)
     asyncio.run(_turn("Wechsle zu Salomo"))
     entry = _data()["chat_history"][-1]
     assert (entry["agent"], entry["mode"]) == ("system", "mode_switch")

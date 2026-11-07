@@ -29,10 +29,6 @@ class UIConfigMixin(rx.State, mixin=True):
         @rx.event
         def add_debug(self, message: str) -> None: ...
 
-    # ── Temperature ───────────────────────────────────────────────
-    # Per-agent temperature lives in agent_tuning (SSOT) — no global var.
-    temperature_mode: rx.Field[str] = rx.field("auto")  # "auto" (Intent-Detection) | "manual" (user slider)
-
     # ── Context Window Control ────────────────────────────────────
     # Per-agent manual values + toggles live in agent_tuning
     # (num_ctx_manual / num_ctx_manual_enabled) — persisted for vision only.
@@ -57,22 +53,6 @@ class UIConfigMixin(rx.State, mixin=True):
         """Toggle auto-scroll for all areas (Debug Console, Chat History, AI Response)."""
         self.auto_refresh_enabled = not self.auto_refresh_enabled
         self._save_settings()
-
-    # ================================================================
-    # TEMPERATURE
-    # ================================================================
-
-    @rx.event
-    def set_temperature_mode(self, checked: bool) -> None:
-        """Set temperature mode from toggle switch.
-
-        Args:
-            checked: True = manual mode (user slider), False = auto mode (Intent-Detection)
-        """
-        self.temperature_mode = "manual" if checked else "auto"
-        self._save_settings()
-        mode_label = "Manual" if checked else "Auto"
-        self.add_debug(f"\U0001f321\ufe0f Temperature Mode: {mode_label}")
 
     # ================================================================
     # CONTEXT WINDOW CONTROL
@@ -225,7 +205,7 @@ class UIConfigMixin(rx.State, mixin=True):
         # surfaces UI/engine divergence (e.g. a manual per-agent temperature
         # that silently does not take effect).
         from ..lib.agent_settings import resolve_agent_temperature
-        self.add_debug(f"\U0001f39b️ Sampling ({self.temperature_mode}):")
+        self.add_debug("\U0001f39b️ Sampling:")
         for entry in self._ui_agent_list():
             agent = entry["id"]
             temp = resolve_agent_temperature(self, agent)

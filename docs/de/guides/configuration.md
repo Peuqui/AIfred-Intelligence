@@ -172,7 +172,7 @@ Zwei voneinander unabhängige Schalter pro Agent in den LLM-Einstellungen:
   Rechners oder das Hauptmodell. Ein Chat-Bild, das das Hauptmodell selbst beantwortet
   (VL Direct), folgt der Zeile des Agenten, der antwortet.
 - Die Reasoning-Ausgabe erscheint als Collapsible mit Modellname und Inferenzzeit.
-- Die Temperatur ist unabhängig vom Reasoning (Intent-Erkennung oder manueller Wert).
+- Die Temperatur ist unabhängig vom Reasoning (eigener Wert je Agent in der Sampling-Tabelle).
 - Das Automatik-LLM läuft immer mit ausgeschaltetem Thinking — seine Entscheidungen sind schnell und
   strukturiert.
 - Tool-Ketten mit Vision: Schalte **Thinking für das Vision-LLM aus** — Reasoning-Modelle
@@ -293,13 +293,6 @@ Wichtige Plugin-Einstellungen:
 ## Weitere Stellschrauben in `config.py`
 
 ```python
-# Intent-based temperature (auto mode)
-INTENT_TEMPERATURE_FAKTISCH = 0.2    # factual
-INTENT_TEMPERATURE_GEMISCHT = 0.5    # mixed
-INTENT_TEMPERATURE_KREATIV = 1.0     # creative
-SOKRATES_TEMPERATURE_OFFSET = 0.2    # added to AIfred's temperature
-SALOMO_TEMPERATURE_OFFSET = 0.3
-
 # Security
 SECURITY_MAX_TOOL_CHAIN_DEPTH = 100  # tool calls per request
 

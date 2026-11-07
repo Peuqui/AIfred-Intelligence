@@ -33,7 +33,7 @@ def _view() -> RuntimeSettings:
     tuning["aifred"].model_id = SMALL
     tuning["vision"].model_id = EYES
     return RuntimeSettings(
-        backend_type="llamacpp", backend_url="http://llama-swap", temperature_mode="auto", ui_language="de",
+        backend_type="llamacpp", backend_url="http://llama-swap", ui_language="de",
         enable_tts=False, automatik_model_id="", agent_tuning=tuning, tts_autoplay=False, tts_agents={},
         max_debate_rounds=3, consensus_type="majority",
     )

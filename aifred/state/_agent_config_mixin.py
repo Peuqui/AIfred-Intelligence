@@ -60,7 +60,6 @@ class AgentConfigMixin(rx.State, mixin=True):
         backend_id: rx.Field[str]
         backend_type: rx.Field[str]
         enable_tts: rx.Field[bool]
-        temperature_mode: rx.Field[str]
         ui_language: rx.Field[str]
 
         @property
@@ -737,7 +736,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         return rows
 
     @rx.var(
-        deps=["agent_tuning", "temperature_mode", "_agent_dropdown_items"],
+        deps=["agent_tuning", "_agent_dropdown_items"],
         auto_deps=False,
     )
     def sampling_rows(self) -> list[SamplingRow]:
@@ -751,8 +750,6 @@ class AgentConfigMixin(rx.State, mixin=True):
                 emoji=entry["emoji"],
                 label=entry["display_name"],
                 temp=str(get_agent_setting(self, agent, "temperature")),
-                # Vision always uses manual temperature (no Auto mode)
-                temp_disabled=(agent != "vision" and self.temperature_mode == "auto"),
                 top_k=str(get_agent_setting(self, agent, "top_k")),
                 top_p=str(get_agent_setting(self, agent, "top_p")),
                 min_p=str(get_agent_setting(self, agent, "min_p")),

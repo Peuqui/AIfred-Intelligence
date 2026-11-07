@@ -406,7 +406,7 @@ Sitzung. Sie gehen wie `service_status` an alle Sitzungen mit Zuhörern
 | Calibration | `_save_current_session`, `session_id` | Session | CM:187, 1641 |
 | Backend | `agent_tuning`, `multi_agent_mode`, `max_debate_rounds`, `consensus_type`, `_effective_model_id`, `_reset_sampling_for_all_agents` | AgentConfig | BM:50-80 |
 | Backend | `enable_tts`, `tts_*`, `narrator_voices` | TTSConfig | BM:54-67 |
-| Backend | `temperature_mode`, `enter_sends_message`, `show_transcription` | UIConfig | BM:55, 62-63 |
+| Backend | `enter_sends_message`, `show_transcription` | UIConfig | BM:55, 62-63 |
 | Backend | `image_upload_warning`, `pending_images` | Image | BM:56, 60 |
 | Backend | `session_id`, `_session_initialized`, `refresh_session_list` | Session | BM:49, 61, 85-86 |
 | Backend | `_refresh_vision_settings` | VisionSettings | BM:74 |
@@ -420,7 +420,7 @@ Sitzung. Sie gehen wie `service_status` an alle Sitzungen mit Zuhörern
 | Settings | `_refresh_editor_tools` | AgentEditor | SM:88 |
 | Settings | `force_disarm_vigilantia` | VisionSettings | SM:91-92 |
 | UI dieses Bereichs | `ctx_rows`, `sampling_rows`, `agent_model_rows`, Setter `*_for` | AgentConfig | ACM:925-1042 |
-| UI dieses Bereichs | `set_agent_num_ctx_manual`, `calculate_manual_context`, `set_temperature_mode` | UIConfig | `_ui_config_mixin.py:66-217` |
+| UI dieses Bereichs | `set_agent_num_ctx_manual`, `calculate_manual_context` | UIConfig | `_ui_config_mixin.py:66-217` |
 | UI dieses Bereichs | `open_reasoning_thinking_help`, `open_model_lifecycle_help`, `is_mobile` | Image | `_image_mixin.py:63, 264-278` |
 | UI dieses Bereichs | `open_tts_settings`, `set_enable_tts`, `toggle_tts_autoplay` | AgentEditor, TTSConfig | `_agent_editor_mixin.py:285`, `_tts_config_mixin.py:142-148` |
 

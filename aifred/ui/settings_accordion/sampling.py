@@ -13,7 +13,7 @@ from reflex_components_lucide.icon import Icon
 from ...lib.agent_tuning import SamplingRow
 from ...state import AIState
 from ...theme import COLORS
-from ..helpers import agent_emoji_var, clickable_tip, t
+from ..helpers import agent_emoji_var, t
 
 
 def _sampling_input(row: ObjectVar[SamplingRow], param: str, value: rx.Var, width: str = "55px") -> rx.Component:
@@ -30,7 +30,7 @@ def _sampling_input(row: ObjectVar[SamplingRow], param: str, value: rx.Var, widt
 
 
 def _temp_input(row: ObjectVar[SamplingRow], width: str = "50px") -> rx.Component:
-    """Helper: Temperature input (disabled in Auto mode, except Vision)."""
+    """Helper: Temperature input of one agent."""
     return rx.input(
         default_value=row.temp,
         on_blur=lambda v: AIState.set_agent_temperature_for(row.id, v),
@@ -39,8 +39,6 @@ def _temp_input(row: ObjectVar[SamplingRow], width: str = "50px") -> rx.Componen
         width=width,
         size="1",
         height="28px",
-        disabled=row.temp_disabled,
-        opacity=rx.cond(row.temp_disabled, "0.5", "1.0"),
     )
 
 
@@ -77,44 +75,9 @@ def _sampling_agent_row(row: ObjectVar[SamplingRow]) -> rx.Component:
 
 
 def sampling_control_section() -> rx.Component:
-    """Sampling parameters with Auto/Manual toggle and per-agent controls."""
+    """Sampling parameters per agent."""
     return rx.vstack(
-        # Title row with Auto/Manual toggle
-        rx.hstack(
-            rx.text(t("sampling_section_label"), font_weight="bold", font_size="12px"),
-            rx.spacer(),
-            rx.hstack(
-                rx.text(t("sampling_temp_label"), font_size="10px", font_weight="bold",
-                        color=COLORS["text_primary"]),
-                rx.text("Auto", font_size="10px", color=COLORS["text_secondary"]),
-                rx.switch(
-                    checked=AIState.temperature_mode == "manual",
-                    on_change=AIState.set_temperature_mode,
-                    size="1",
-                ),
-                rx.text("Manual", font_size="10px", color=COLORS["text_secondary"]),
-                # Erklaerung per Klick statt Hover-Tooltip: der Tooltip am Schalter ging
-                # beim Oeffnen des Modals auf (Fokus landet auf dem Schalter) und verdeckte
-                # die Tabelle.
-                clickable_tip(
-                    Icon.create(
-                        "lightbulb",
-                        size=14,
-                        color=COLORS["accent_gold"],
-                        cursor="pointer",
-                        style={
-                            "transition": "transform 0.2s ease",
-                            "&:hover": {"transform": "scale(1.15)"},
-                        },
-                    ),
-                    rx.text(t("sampling_temp_toggle_tooltip"), font_size="12px", color=COLORS["text_primary"]),
-                ),
-                spacing="1",
-                align="center",
-            ),
-            width="100%",
-            align="center",
-        ),
+        rx.text(t("sampling_section_label"), font_weight="bold", font_size="12px"),
         # Header row: label + param columns
         rx.hstack(
             rx.text("", width="75px"),

@@ -24,7 +24,8 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     """A session on disk, the default agents in a test agents.json, every model call replaced.
 
     ``world["replies"][label]`` lists what the speaker with that log label says, call by call (an
-    unscripted call says "<label> spricht."); ``world["calls"]`` records ``(label, messages)``.
+    unscripted call says "<label> spricht."); ``world["calls"]`` records ``(label, messages)``,
+    ``world["temperatures"]`` ``(label, temperature)``.
     """
     from aifred.lib import (
         agent_memory,
@@ -45,18 +46,18 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     agents_file.write_text(json.dumps({"agents": agent_config._default_agents()}), encoding="utf-8")
 
     view = RuntimeSettings(
-        backend_type="ollama", backend_url="http://x", temperature_mode="auto", ui_language="de",
+        backend_type="ollama", backend_url="http://x", ui_language="de",
         enable_tts=False, automatik_model_id="", agent_tuning=default_agent_tuning(),
         tts_autoplay=False, tts_agents={}, max_debate_rounds=3, consensus_type="majority",
     )
     view.agent_tuning["aifred"].model_id = "qwen3:8b"
     world: dict[str, Any] = {
-        "view": view, "replies": {}, "calls": [], "compressed_for": [], "block_label": None,
+        "view": view, "replies": {}, "calls": [], "temperatures": [], "compressed_for": [], "block_label": None,
         "agents_file": agents_file, "memory": [],
     }
 
     async def intent(_view: Any, _client: Any, _text: str) -> turn_service._Intent:
-        return world.get("intent") or turn_service._Intent("FAKTISCH", None, "de", {}, False, 0.0)
+        return world.get("intent") or turn_service._Intent(None, "de", {}, False, 0.0)
 
     async def compression(_ctx: Any, agents: list[str]) -> None:
         world["compressed_for"].append(agents)
@@ -65,9 +66,10 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
         world["memory"].append(kwargs["memory_enabled"])
         return "", None
 
-    async def stream(_client: Any, _model: str, messages: list[dict[str, Any]], _options: Any, label: str,
+    async def stream(_client: Any, _model: str, messages: list[dict[str, Any]], options: Any, label: str,
                      **_kwargs: Any) -> AsyncIterator[dict[str, Any]]:
         world["calls"].append((label, messages))
+        world["temperatures"].append((label, options.temperature))
         scripted = world["replies"].get(label) or []
         text = scripted.pop(0) if scripted else f"{label} spricht."
         yield {"type": "content", "text": text}
@@ -165,7 +167,7 @@ def test_an_incognito_debate_recalls_no_memory_for_any_speaker(world: dict[str, 
 
 def test_addressing_the_main_agent_asks_for_its_answer_alone(world: dict[str, Any]) -> None:
     _mode("critical_review")
-    world["intent"] = turn_service._Intent("FAKTISCH", "aifred", "de", {}, False, 0.0)
+    world["intent"] = turn_service._Intent("aifred", "de", {}, False, 0.0)
     _turn("AIfred, ist Kaffee gesund?")
     assert _bubbles() == [("aifred", "direct", None)]
 
@@ -307,16 +309,16 @@ def test_the_author_of_the_answer_defends_it_not_aifred(world: dict[str, Any], n
     assert "Autorin" in _system_prompt(world, "Sokrates")                    # the critic knows whom it attacks
 
 
-def test_the_temperature_offset_belongs_to_the_agent(world: dict[str, Any]) -> None:
-    from aifred.lib.agent_settings import resolve_agent_temperature
-
-    view = world["view"]
-    view.agent_tuning["aifred"].temperature = 0.5
-    view.agent_tuning["sokrates"].temperature_offset = 0.2
-    assert resolve_agent_temperature(view, "sokrates") == pytest.approx(0.7)
-    assert resolve_agent_temperature(view, "salomo") == pytest.approx(0.5 + view.agent_tuning["salomo"].temperature_offset)
-    view.temperature_mode = "manual"
-    assert resolve_agent_temperature(view, "sokrates") == view.agent_tuning["sokrates"].temperature
+def test_every_speaker_answers_with_its_own_temperature(world: dict[str, Any]) -> None:
+    # None inherits AIfred's or adds to it (07.11.2026: no automatic temperature).
+    _mode("tribunal")
+    world["view"].max_debate_rounds = 2
+    for agent, temperature in (("aifred", 0.4), ("sokrates", 0.9), ("salomo", 0.1)):
+        world["view"].agent_tuning[agent].temperature = temperature
+    _turn()
+    assert world["temperatures"] == [
+        ("AIfred", 0.4), ("Sokrates", 0.9), ("AIfred Defense", 0.4), ("Sokrates", 0.9), ("Salomo", 0.1),
+    ]
 
 
 # ── symposion ────────────────────────────────────────────────────────────

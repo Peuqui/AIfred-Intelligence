@@ -94,7 +94,7 @@ AIfred ins Internet stellst (siehe [Einrichtungsanleitung → Auf die Web-UI zug
 | Endpoint | Methode | Beschreibung |
 |---|---|---|
 | `/api/health` | GET | Health-Check mit Backend-Typ/-Status |
-| `/api/settings` | GET / PATCH | Allgemeine Einstellungen: `ui_language`, `user_name`, `user_gender`, `enable_tts`, `tts_autoplay`, `dictation_engine`, `show_transcription`, `temperature_mode`, `max_debate_rounds`, `consensus_type`; GET dazu `backend_type` und den Bereich der Debattenrunden (`debate_rounds_min`/`_max`). PATCH ändert nur die mitgeschickten Felder, ein unbekanntes Feld oder ein unbekannter Wert gibt 422. Modelle und Schalter der Agenten: `/api/agents/choices` |
+| `/api/settings` | GET / PATCH | Allgemeine Einstellungen: `ui_language`, `user_name`, `user_gender`, `enable_tts`, `tts_autoplay`, `dictation_engine`, `show_transcription`, `max_debate_rounds`, `consensus_type`; GET dazu `backend_type` und den Bereich der Debattenrunden (`debate_rounds_min`/`_max`). PATCH ändert nur die mitgeschickten Felder, ein unbekanntes Feld oder ein unbekannter Wert gibt 422. Modelle und Schalter der Agenten: `/api/agents/choices` |
 | `/api/models` | GET | Verfügbare Modelle des aktiven Backends + die Vision-fähigen |
 | `/api/system/restart-aifred` | POST | AIfred-Dienst neu starten |
 | `/api/system/restart-ollama` | POST | Ollama neu starten |

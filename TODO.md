@@ -416,8 +416,8 @@ Diese Methoden in zwei Kategorien teilen:
   Ggf. pro Kanal konfigurierbar machen (Channel-Setting: `allow_multi_agent: true/false`).
 - **Tool-Streaming-Events**: Research-Tools emittieren aktuell viele Debug-Messages
   über den Bus. Bei Hub muss gefiltert werden (nicht alles soll als Notification raus).
-- **Settings vs. Session-Config**: Manche Settings sind global (`temperature_mode`,
-  `backend_type`), andere per Session (`active_agent`). SSOT-Regel klar halten:
+- **Settings vs. Session-Config**: Manche Settings sind global (`backend_type`),
+  andere per Session (`active_agent`). SSOT-Regel klar halten:
   - Global in `settings.json` → `load_settings()`
   - Per Session in Session-File → `get_session_config(session_id)`
 
@@ -448,12 +448,12 @@ via Tool-Calls. Das entspricht dem Industriestandard (ChatGPT, Claude, Qwen3.6-A
 ### Warum
 
 **Aktuell:** Pro User-Eingabe läuft ein Automatik-LLM-Call VOR der eigentlichen
-Haupt-Inferenz und entscheidet: Addressee, Intent, Language, MODE_SWITCH. Das
+Haupt-Inferenz und entscheidet: Addressee, Language, MODE_SWITCH. Das
 bedeutet:
 - Zwei Modelle im VRAM (oder Swap-Kosten zwischen beiden)
 - Immer Extra-Latenz, auch wenn nichts zu entscheiden ist
-- String-Parsing-Format (`INTENT|ADDRESSEE|LANG|MODE_SWITCH|REMAINING`) ist
-  fragiler als Tool-Use-JSON
+- Eigenes Antwortformat (JSON-Objekt, `intent_detector.parse_intent_response`)
+  neben dem Tool-Use-Weg
 - Doppelte Logik-Pfade (Intent-Parser + Tool-Path)
 
 **Ziel-Architektur:**
@@ -479,30 +479,8 @@ abgehandelt.
 - **Prompt-Template-Auswahl**: Einige Templates werden heute VOR der Haupt-
   Inferenz anhand der erkannten Sprache gewählt (`prompts/de/` vs `prompts/en/`).
   Wenn die Sprache erst aus der Antwort der Haupt-LLM kommt, ist es zu spät.
-- **Sampling-Wechsel mid-generation nicht möglich** *(vom User betont)*:
-  Sampling-Parameter (temperature, top_p, top_k, repeat_penalty, …) sind
-  **pro Request** frei setzbar — kein Model-Reload nötig. Einschränkung ist
-  also nicht der Reload, sondern: Innerhalb **einer laufenden Generation**
-  kann der Sampler nicht umgeschaltet werden.
-  - **Automatik-LLM heute**: Intent ist VOR der Haupt-Inferenz bekannt →
-    Haupt-LLM kann direkt mit intent-spezifischem Preset aufgerufen werden
-    (z. B. low-temp für `FAKTISCH`, high-temp für `KREATIV`). Das Feature
-    ist verfügbar, wird in der Praxis aber kaum genutzt.
-  - **Tool-Call-first**: Intent wird erst *während* der Inferenz entdeckt
-    (via Tool-Call der Haupt-LLM). Der aktuelle Turn läuft mit dem
-    Default-Preset zu Ende. Ein Preset-Wechsel kann erst beim **nächsten**
-    User-Turn greifen.
-  - **Mögliche Mitigation A**: Mini-Intent-Call bleibt erhalten (nur Temperatur-
-    Klasse, keine Addressee/Mode-Logik) — sehr kurzer Prompt, geringe Latenz,
-    entkoppelt vom großen Routing-Entscheid.
-  - **Mögliche Mitigation B**: Tool `switch_mode(mode="creative")` ändert neben
-    der Session-Config auch das aktive Sampling-Preset für den nächsten
-    User-Turn.
-  - **Mögliche Mitigation C**: Sampling-Preset als User-Voice-Command
-    (`"antworte kreativ"` → Tool-Call → Preset-Wechsel beim nächsten Turn).
-    Verlagert Kontrolle zum User, aber robust.
-  - Entscheidung vor Phase T2: Welcher Ansatz (A/B/C oder keine Mitigation,
-    falls Feature bewusst gestrichen wird)?
+- **Sampling-Wechsel mid-generation**: entfällt. Die Temperatur nach erkannter
+  Absicht ist gestrichen (Peuqui 07.11.2026: Temperatur nur manuell, je Agent).
 
 ### Umsetzungsplan (nach SSOT-Refactor)
 

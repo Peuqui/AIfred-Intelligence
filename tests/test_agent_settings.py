@@ -63,12 +63,6 @@ def test_vision_defaults_differ():
     assert vision.num_ctx_manual == 32768
 
 
-def test_secondary_agents_have_temperature_offsets():
-    assert default_tuning("sokrates").temperature_offset != 0.0
-    assert default_tuning("salomo").temperature_offset != 0.0
-    assert default_tuning("aifred").temperature_offset == 0.0
-
-
 # ── get/set ──────────────────────────────────────────────────────
 
 

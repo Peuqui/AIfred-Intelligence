@@ -31,7 +31,6 @@ class HealthResponse(BaseModel):
 
 Language = Literal["de", "en"]
 Gender = Literal["male", "female"]
-TemperatureMode = Literal["auto", "manual"]
 ConsensusType = Literal["majority", "unanimous"]
 
 
@@ -47,7 +46,6 @@ class SettingsResponse(BaseModel):
     tts_autoplay: bool = Field(description="A reply is read aloud while it is written")
     dictation_engine: str = Field(description="Who recognizes a dictation: one of config.DICTATION_ENGINES")
     show_transcription: bool = Field(description="A dictation goes into the input field first")
-    temperature_mode: TemperatureMode
     max_debate_rounds: int
     consensus_type: ConsensusType
     # Not settings: what the interface may offer (config.py).
@@ -68,7 +66,6 @@ class SettingsUpdate(BaseModel):
     tts_autoplay: bool | None = None
     dictation_engine: str | None = None
     show_transcription: bool | None = None
-    temperature_mode: TemperatureMode | None = None
     max_debate_rounds: int | None = Field(None, ge=DEBATE_ROUNDS_MIN, le=DEBATE_ROUNDS_MAX)
     consensus_type: ConsensusType | None = None
 

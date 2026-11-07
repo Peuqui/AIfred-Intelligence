@@ -52,8 +52,8 @@ ein Tab offen ist. Mehrere Tabs oder Geräte sehen dieselbe Sitzung live.
   und Richter, **je Sitzung wählbar** (`config.debate_seats`), Vorgabe Sokrates und Salomo aus
   `settings.json`. Jeder Agent kann einen Platz einnehmen und spricht dort mit seiner Persona; die
   Aufgabe gehört dem Platz (`prompts/<lang>/debate/`, je Datei einmal, vorher Kopien in den Ordnern der
-  Inhaber). Fehlt der Agent eines Platzes, lehnt der Zug laut ab (`seat`). Der Temperaturaufschlag im
-  Modus auto gehört dem Agenten (`temperature_offset`). Der Reflex-Weg (`lib/multi_agent.py`) spricht
+  Inhaber). Fehlt der Agent eines Platzes, lehnt der Zug laut ab (`seat`). Jeder Agent spricht mit seiner
+  eigenen Temperatur, eine automatische gibt es nicht mehr. Der Reflex-Weg (`lib/multi_agent.py`) spricht
   bis zum Wechsel weiter fest mit AIfred, Sokrates und Salomo (`debate_seats.REFLEX_SEATS`).
   In der Vue-Oberfläche stellt die Kopfleiste des Chats Modus, Plätze und die Teilnehmer des Symposions
   ein (`DebateControls.vue`, `GET /api/debate/modes`). Abschalten und Löschen kommen mit der
@@ -83,7 +83,7 @@ Multi-Agent, keine Bilder) und weicht ab. Reflex bleibt im Zweig unverändert, b
 der neue Dienst entsteht daneben und ersetzt beim Wechsel beide alten Pfade.
 
 - **`lib/runtime_settings.py`**: Sicht auf `settings.json` mit den Feldern, die Modellwahl, Kontext,
-  Sampling und Denken lesen (`agent_tuning`, `backend_type`, `backend_url`, `temperature_mode`,
+  Sampling und Denken lesen (`agent_tuning`, `backend_type`, `backend_url`,
   `ui_language`, `enable_tts`, `tts_autoplay`, `tts_agents`, `agent_memory_enabled`). Die vorhandenen Funktionen
   (`get_agent_setting`, `get_agent_num_ctx`, `build_llm_options`, `thinking_mode`, …) brauchen nur
   ein Objekt mit diesen Feldern. Der Aufbau von `agent_tuning` aus `settings.json` (heute im
@@ -185,8 +185,20 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Indexier-Knopf erscheint nur an Dateien, die der Index lesen kann (`indexable`). Der Reflex-State
   indexiert bis zum Wechsel weiter selbst (über `file_manager.index_file`).
 - **Einstellungen, Teil 2 (offen):** Backend-Wechsel, Kalibrierung, Neustarts von Backend und AIfred,
-  Grundeinstellungen laden, Temperaturmodus. Neustarts treffen die gemeinsamen Dienste (llama-swap,
+  Grundeinstellungen laden. Neustarts treffen die gemeinsamen Dienste (llama-swap,
   Produktionsdienst): nur mit Peuqui abgestimmt testen.
+- **Temperatur nur noch von Hand (erledigt 07.11.2026, Peuqui):** Jeder Agent antwortet mit seiner
+  eigenen Temperatur (`agent_settings.resolve_agent_temperature`); der Modus auto, die Temperaturen je
+  Absicht (`INTENT_TEMPERATURE_*`) und der Aufschlag für Sokrates und Salomo (`temperature_offset`) sind
+  weg, ebenso der Schalter in der Reflex-Sampling-Tabelle und `temperature_mode` in `/api/settings`.
+  Die Absichtserkennung bleibt ein Aufruf des Automatik-Modells, aber ohne Kategorie: Sprache,
+  Anrede, Moduswechsel, „nur Befehl“. Die Antwort ist jetzt ein JSON-Objekt mit benannten Feldern,
+  feldweise gelesen (`intent_detector.parse_intent_response`); am echten Automatik-Modell (Qwen3VL-30B-A3B,
+  je Satz fünf Durchläufe) 55/60 statt 28/60 richtig, bei sechs frischen Sätzen 26/30 statt 15/30
+  (Skript `~/.cache/aifred-e2e/vue/intent_live_check.py`). Ein Pipe-Format ohne Namen lieferte 40/60
+  und ordnete beim Tribunal mit Thema stets Sokrates als Adressaten zu. Der Message Hub antwortete im Modus auto bisher
+  immer mit 0,2, weil er keine Absicht kannte. Alte Schlüssel in `settings.json` liest niemand mehr;
+  Reflex schreibt sie beim nächsten Speichern nicht mehr mit.
 - **Bilder drehen und zuschneiden (erledigt 07.11.2026):** ✂️ am Vorschaubild öffnet `ImageEditor.vue`
   (Rahmen mit Ecken und Kanten, Mindestseite 10 %, Rechnung in `lib/cropBox.ts`). Der Server
   (`turn_images.rotate_upload`, `crop_upload`) legt das Bild als neue Datei unter neuem Namen ab und

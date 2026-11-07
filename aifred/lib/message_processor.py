@@ -209,8 +209,8 @@ def message_from_user(channel: str, channel_id: str, sender: str) -> bool:
     return _mapped_user_name(channel, channel_id, sender) is not None
 
 
-async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict, float]:
-    """Detect target agent, intent, language and mode-switch via LLM.
+async def detect_target_agent_via_llm(text: str) -> tuple[str, str, dict, float]:
+    """Detect target agent, language and mode-switch via LLM.
 
     Uses detect_query_intent_and_addressee() — single source of truth, same
     pipeline as the browser. Model is resolved via
@@ -220,7 +220,7 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict, f
     insufficient VRAM.
 
     Returns:
-        (agent_id, intent, detected_language, mode_switch_updates, load_time)
+        (agent_id, detected_language, mode_switch_updates, load_time)
 
         mode_switch_updates is a dict with optional keys ``active_agent``,
         ``multi_agent_mode``, ``symposion_agents`` —
@@ -243,11 +243,11 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict, f
 
     if not automatik_model:
         log_message("Message Processor: no model for intent detection, defaulting to aifred")
-        return "aifred", "FAKTISCH", "de", {}, 0.0
+        return "aifred", "de", {}, 0.0
 
     client = LLMClient(backend_type)
 
-    intent, addressee, lang, mode_switch, _is_pure_cmd, _raw, load_time = await detect_query_intent_and_addressee(
+    addressee, lang, mode_switch, _is_pure_cmd, _raw, load_time = await detect_query_intent_and_addressee(
         user_query=text,
         automatik_model=automatik_model,
         llm_client=client,
@@ -255,8 +255,8 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict, f
     )
     from .intent_detector import format_intent_result
     agent = addressee or "aifred"
-    log_message(f"🎯 {format_intent_result(intent, addressee, lang)}")
-    return agent, intent, lang, mode_switch, load_time
+    log_message(f"🎯 {format_intent_result(addressee, lang)}")
+    return agent, lang, mode_switch, load_time
 
 
 async def dispatch_inbound(message: InboundMessage, channel_label: str) -> None:
@@ -394,7 +394,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
 
         # ── Phase 1: Detect target agent via LLM ─────────────
         try:
-            agent, intent, detected_lang, mode_switch_updates, intent_load_time = (
+            agent, detected_lang, mode_switch_updates, intent_load_time = (
                 await detect_target_agent_via_llm(message.text)
             )
         except Exception as e:
@@ -462,7 +462,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         _cfg = _get_agent_cfg(message.target_agent)
         agent_display_name = _cfg.display_name if _cfg else message.target_agent.capitalize()
 
-        debug(f"🎯 {format_intent_result(intent, agent if agent != 'aifred' else None, detected_lang)}")
+        debug(f"🎯 {format_intent_result(agent if agent != 'aifred' else None, detected_lang)}")
 
         # Save incoming message to session (chat + llm history)
         if not user_saved:
@@ -600,7 +600,6 @@ async def _call_engine(
     # Load current settings
     settings = load_settings() or {}
     backend_type = settings.get("backend_type", DEFAULT_SETTINGS["backend_type"])
-    temperature_mode = settings.get("temperature_mode", "auto")
     temperature = get_persisted_tuning(settings, agent, "temperature", DEFAULT_TEMPERATURE)
 
     # Get effective model for the agent (respects TTS/speed variants)
@@ -664,9 +663,7 @@ async def _call_engine(
             model_choice=model,
             history=[],
             llm_history=llm_history,
-            detected_intent="ALLGEMEIN",
             detected_language=lang,
-            temperature_mode=temperature_mode,
             temperature=temperature,
             backend_type=backend_type,
             backend_url=backend_url,

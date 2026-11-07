@@ -45,7 +45,6 @@ Privat: keine eigenen; benutzt `_session_initialized` aus `_session_mixin.py:74`
 
 | Feld | Typ | Zweck |
 |---|---|---|
-| `temperature_mode` | str | `auto` (Intent) / `manual`, global in `settings.json` (34) |
 | `num_ctx` | int | ungenutzt (39), siehe 7.2 |
 | `show_transcription` | bool | Diktat erst ins Eingabefeld (42) |
 | `enter_sends_message` | bool | Enter sendet, Umschalt+Enter = Zeilenumbruch (49) |
@@ -135,7 +134,7 @@ Rückruf `handle_username_loaded`.
 
 | Handler (Zeile) | Was | lib | Speichert |
 |---|---|---|---|
-| `toggle_auto_refresh` (55), `set_temperature_mode` (65), `toggle_show_transcription` (244), `toggle_enter_sends_message` (252) | Schalter | – | `settings.json` (global) |
+| `toggle_auto_refresh` (55), `toggle_show_transcription` (244), `toggle_enter_sends_message` (252) | Schalter | – | `settings.json` (global) |
 | `set_agent_num_ctx_manual` (108) → `_set_num_ctx_manual` (81) | Zahl säubern, klammern (Vision ≥ 1024, ≤ `NUM_CTX_MANUAL_MAX`) | `agent_settings.set_agent_setting` | nur Vision in `settings.json` |
 | `toggle_agent_num_ctx_manual` (127) → `_toggle_num_ctx_manual` (119) | an/aus | dito | nur Vision |
 | `_auto_ctx_for_agent` (134) | kalibrierter Kontext je Backend | `calibration.parse_llamaswap_config`, `model_vram_cache`, `operating_points.get_vllm_entry_context` | – |
@@ -360,8 +359,8 @@ Strom je Sitzung reicht deshalb nicht; Vorschlag: zusätzlich `GET /api/events` 
 | Mixin | benutzt aus | wird benutzt von |
 |---|---|---|
 | AU | Session (`_session_initialized`, `available_sessions`, `session_id`, `_clear_chat_internal`, `_load_latest_session`, `new_session`, `refresh_session_list`), Base (`add_debug`, `debug_messages`), `_audio_player_mixin.discard_audio_runtime_state`, `_tts_streaming_mixin.discard_tts_backend_state` | Backend `on_load` (`_backend_mixin.py:758-767`); `logged_in_user` liest Session, Chat, Image, Document, Base |
-| UC | Base (`auto_refresh_enabled`), Backend (`backend_type`), AC (`_effective_model_id`, `_ui_agent_list`), Settings (`_save_settings`), Kontext (`_log_history_utilization`, `_min_agent_context_limit`) | Chat, `multi_agent` (`temperature_mode`) |
-| AC | Backend (`available_models_dict`, `backend_id`, `backend_type`, `_effective_automatik_id`, `_label_for`, `_show_model_calibration_info`, `SAME_AS_AIFRED`), TTS (`enable_tts`), UC (`temperature_mode`), Settings (`ui_language`, `_save_settings`), Session (`_persist_session_config`), AE (`_agent_dropdown_items` als Abhängigkeit) | Chat, Session, `lib/multi_agent.py`, `lib/llm_engine.py` (State-Felder direkt), Settings (`_save_settings` liest `agent_tuning`) |
+| UC | Base (`auto_refresh_enabled`), Backend (`backend_type`), AC (`_effective_model_id`, `_ui_agent_list`), Settings (`_save_settings`), Kontext (`_log_history_utilization`, `_min_agent_context_limit`) | Chat |
+| AC | Backend (`available_models_dict`, `backend_id`, `backend_type`, `_effective_automatik_id`, `_label_for`, `_show_model_calibration_info`, `SAME_AS_AIFRED`), TTS (`enable_tts`), Settings (`ui_language`, `_save_settings`), Session (`_persist_session_config`), AE (`_agent_dropdown_items` als Abhängigkeit) | Chat, Session, `lib/multi_agent.py`, `lib/llm_engine.py` (State-Felder direkt), Settings (`_save_settings` liest `agent_tuning`) |
 | AE | Calibration (`_agents_json_revision`), Settings (`audit_log_entries`, `channel_allowlists`, `channel_security_tiers`, `tool_plugin_toggles`, `ui_language`), MB (`db_clear_confirm`, `db_load_documents`, `open_memory_browser`), TTS-Config (`editor_tts_engine`, `tts_list_revision`, `_load_editor_tts_settings`, `check_tts_status`), Storage (`load_storage_files`), STT-Settings (`load_stt_settings`) | Settings (`toggle_tool_plugin` → `_refresh_editor_tools`, `SM:1002`), MB |
 | MB | AE (`agent_editor_mode`, `editor_agent_id`, `_refresh_agent_dropdown`) | AE |
 | PE | – (Oberfläche ruft `open_multipose`, `_multipose_mixin.py:99`) | – |

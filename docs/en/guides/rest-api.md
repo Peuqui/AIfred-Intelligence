@@ -94,7 +94,7 @@ expose AIfred to the internet (see [Deployment → Access the web UI](deployment
 | Endpoint | Method | Description |
 |---|---|---|
 | `/api/health` | GET | Health check with backend type/status |
-| `/api/settings` | GET / PATCH | General settings: `ui_language`, `user_name`, `user_gender`, `enable_tts`, `tts_autoplay`, `dictation_engine`, `show_transcription`, `temperature_mode`, `max_debate_rounds`, `consensus_type`; GET also `backend_type` and the range of debate rounds (`debate_rounds_min`/`_max`). PATCH only changes the fields you send, an unknown field or value answers 422. The agents' models and switches: `/api/agents/choices` |
+| `/api/settings` | GET / PATCH | General settings: `ui_language`, `user_name`, `user_gender`, `enable_tts`, `tts_autoplay`, `dictation_engine`, `show_transcription`, `max_debate_rounds`, `consensus_type`; GET also `backend_type` and the range of debate rounds (`debate_rounds_min`/`_max`). PATCH only changes the fields you send, an unknown field or value answers 422. The agents' models and switches: `/api/agents/choices` |
 | `/api/models` | GET | Available models of the active backend + vision-capable ones |
 | `/api/system/restart-aifred` | POST | Restart the AIfred service |
 | `/api/system/restart-ollama` | POST | Restart Ollama |

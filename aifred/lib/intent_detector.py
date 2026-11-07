@@ -1,18 +1,15 @@
 """
-Intent Detector - Query Intent Classification
+Intent Detector - what the user wants from this message, in one Automatik call:
 
-Classifies user queries for adaptive temperature selection:
-- FAKTISCH: Factual queries (low temperature)
-- KREATIV: Creative queries (high temperature)
-- GEMISCHT: Mixed queries (medium temperature)
+- the language of the message (prompts and the spoken reply follow it)
+- the addressee: the agent the user speaks to by name, or None
+- a mode switch the user asks for ("Start tribunal", "Bleib bei Pater Tuck")
+- whether the message is only that command
 
-Also detects dialog addressing (who is being spoken to):
-- aifred: User is directly addressing AIfred
-- sokrates: User is directly addressing Sokrates
-- salomo: User is directly addressing Salomo
-- None: No specific addressee
+The temperature is not its business: every agent answers with its own (agent_tuning).
 """
 
+import re
 from typing import Any
 
 from .config import MULTI_AGENT_MODES
@@ -136,8 +133,8 @@ def format_mode_switch_summary(updates: dict[str, Any], lang: str = "de") -> str
     return " · ".join(parts)
 
 
-def format_intent_result(intent: str, addressee: str | None, language: str) -> str:
-    """Format intent detection result as debug string (single source of truth).
+def format_intent_result(addressee: str | None, language: str) -> str:
+    """Format the detection result as debug string (single source of truth).
 
     Used by browser (add_debug), message_processor (debug), and log output.
     Resolves agent ID to display name (e.g. "pater" → "Pater Tuck").
@@ -148,135 +145,85 @@ def format_intent_result(intent: str, addressee: str | None, language: str) -> s
         addr_display = cfg.display_name if cfg else addressee.capitalize()
     else:
         addr_display = "–"
-    return f"Intent: {intent}, Addressee: {addr_display}, Lang: {language.upper()}"
+    return f"Addressee: {addr_display}, Lang: {language.upper()}"
 
 
-def parse_intent_addressee_language(
-    response_raw: str,
-) -> tuple[str, str | None, str, dict[str, Any], bool]:
+def _answer_field(response: str, key: str, value_pattern: str) -> str | None:
+    """The value of one named field of the detector's JSON answer, read on its own: a garbled
+    neighbour (a broken key, a doubled field) does not cost the others. None when absent."""
+    found = re.search(rf'"{key}"\s*:\s*{value_pattern}', response)
+    return found.group(1) if found else None
+
+
+def parse_intent_response(response_raw: str) -> tuple[str | None, str, dict[str, Any], bool]:
     """
-    Extract intent, addressee, language, mode-switch, and pure-command flag.
+    Extract addressee, language, mode switch and pure-command flag.
 
-    Expected format: "INTENT|ADDRESSEE|LANGUAGE|MODE_SWITCH|IS_PURE_COMMAND"
-    Examples:
-        "FACTUAL||DE||FALSE"                     → no mode switch
-        "FACTUAL||EN|multi=tribunal|TRUE"        → pure tribunal command
-        "MIXED|sokrates|DE||FALSE"               → direct addressing Sokrates
+    Expected: one JSON object ``{"language", "addressee", "mode_switch", "pure_command"}``.
+    The fields are read by name one by one, not as a whole: model output is text, and one
+    garbled field must not lose the rest. Examples:
+        {"language": "DE", "addressee": "", "mode_switch": "", "pure_command": false}
+        {"language": "EN", "addressee": "", "mode_switch": "multi=tribunal", "pure_command": true}
+        {"language": "DE", "addressee": "sokrates", "mode_switch": "", "pure_command": false}
 
-    The user message is NEVER rewritten by the detector — IS_PURE_COMMAND only
-    classifies whether the message is purely a mode/config command.
-
-    Args:
-        response_raw: Raw LLM response
+    The user message is NEVER rewritten by the detector — ``pure_command`` only classifies
+    whether the message is purely a mode/config command.
 
     Returns:
-        Tuple[str, Optional[str], str, Dict[str, Any], bool]:
-            (intent, addressee, language, mode_switch_updates, is_pure_command)
+        (addressee, language, mode_switch_updates, is_pure_command)
     """
-    raw = response_raw.strip()
-
-    # Parse pipe-separated format
-    parts = raw.split("|") if "|" in raw else [raw]
-
-    intent_part = parts[0].strip().upper() if len(parts) > 0 else ""
-    addressee_part = parts[1].strip().lower() if len(parts) > 1 else ""
-
-    # Handle language field - can be at parts[2] OR parts[3] if LLM adds "(empty)"
-    # Expected: "FACTUAL||DE" → parts[2]="DE"
-    # But LLM may return: "FACTUAL||(empty)|DE" → parts[2]="(empty)", parts[3]="DE"
-    language_part = ""
-    language_index = 2
-    if len(parts) > 3 and parts[2].strip().lower() in ("(empty)", "empty", "none", ""):
-        # LLM inserted "(empty)" as 3rd field — language shifts by one
-        language_part = parts[3].strip().upper() if len(parts) > 3 else ""
-        language_index = 3
-    elif len(parts) > 2:
-        language_part = parts[2].strip().upper()
-        language_index = 2
-
-    # MODE_SWITCH field is at position language_index + 1
-    mode_switch_part = ""
-    if len(parts) > language_index + 1:
-        mode_switch_part = parts[language_index + 1].strip()
-
-    # IS_PURE_COMMAND is at position language_index + 2
-    pure_cmd_part = ""
-    if len(parts) > language_index + 2:
-        pure_cmd_part = parts[language_index + 2].strip().upper()
-
-    # Parse intent (with English/German support)
-    if "FAKTISCH" in intent_part or "FACTUAL" in intent_part:
-        intent = "FAKTISCH"
-    elif "KREATIV" in intent_part or "CREATIVE" in intent_part:
-        intent = "KREATIV"
-    elif "GEMISCHT" in intent_part or "MIXED" in intent_part:
-        intent = "GEMISCHT"
-    else:
-        log_message(f"⚠️ Intent unknown: '{response_raw}' → Default: FAKTISCH")
-        intent = "FAKTISCH"
-
-    # Parse addressee — resolve_agent_id handles ID, display_name and aliases
-    # in one place. Phonetic STT variations live in agents.json (aliases field).
-    addressee: str | None = None
-    if addressee_part:
-        from .agent_config import resolve_agent_id
-        addressee = resolve_agent_id(addressee_part)
-
-    # Parse language (fallback to UI language if LLM didn't specify)
+    # Parse language (the UI language if the LLM gave none we know)
+    language_part = (_answer_field(response_raw, "language", r'"([^"]*)"') or "").strip().upper()
     if language_part in ("DE", "DEUTSCH", "GERMAN"):
         language = "de"
     elif language_part in ("EN", "ENGLISH"):
         language = "en"
     else:
-        # No language detected or unknown → Fallback to UI language
         from .prompt_loader import get_language
         language = get_language()
+        log_message(f"⚠️ Language unknown: '{response_raw}' → UI language {language.upper()}")
+
+    # Parse addressee — resolve_agent_id handles ID, display_name and aliases
+    # in one place. Phonetic STT variations live in agents.json (aliases field).
+    addressee: str | None = None
+    addressee_part = (_answer_field(response_raw, "addressee", r'"([^"]*)"') or "").strip()
+    if addressee_part:
+        from .agent_config import resolve_agent_id
+        addressee = resolve_agent_id(addressee_part)
 
     # Parse mode switch field (defensive — unknown values are ignored)
-    mode_switch_updates = _parse_mode_switch(mode_switch_part)
+    mode_switch_updates = _parse_mode_switch(_answer_field(response_raw, "mode_switch", r'"([^"]*)"') or "")
 
-    # Pure-command flag: TRUE only when explicitly set AND a mode switch exists.
-    # If no mode switch, the flag is meaningless → force FALSE.
-    is_pure_command = (
-        pure_cmd_part in ("TRUE", "T", "YES", "1") and bool(mode_switch_updates)
-    )
+    # Pure-command flag: true only when explicitly set AND a mode switch exists.
+    # If no mode switch, the flag is meaningless → force False.
+    is_pure_command = _answer_field(response_raw, "pure_command", r"(true|false)\b") == "true" and bool(mode_switch_updates)
 
-    return (intent, addressee, language, mode_switch_updates, is_pure_command)
+    return (addressee, language, mode_switch_updates, is_pure_command)
 
 
 async def detect_query_intent_and_addressee(
     user_query: str,
     automatik_model: str,
     llm_client,
-    llm_options: dict | None = None,
     automatik_num_ctx: int | None = None
-) -> tuple[str, str | None, str, dict[str, Any], bool, str, float]:
+) -> tuple[str | None, str, dict[str, Any], bool, str, float]:
     """
-    Detect intent, addressee, language, mode-switch, and pure-command flag.
-
-    Combines all five detection tasks into a single LLM call:
-    - intent (for temperature selection)
-    - addressee (for dialog routing)
-    - language (for prompt selection)
-    - mode-switch (voice/text-based config change requests)
-    - pure-command flag (mode-switch only, no question alongside)
+    Detect addressee, language, mode switch and pure-command flag in one LLM call.
 
     Args:
         user_query: User question
         automatik_model: LLM for intent detection
         llm_client: LLMClient instance
-        llm_options: Optional Dict with enable_thinking toggle
         automatik_num_ctx: Context size for Automatik call.
             None = don't set (model keeps current context, avoids reload).
             int = explicit value (e.g. AUTOMATIK_LLM_NUM_CTX for different models).
 
     Returns:
-        Tuple[str, Optional[str], str, Dict[str, Any], bool, str, float]:
-            (intent, addressee, detected_language, mode_switch_updates,
+        Tuple[Optional[str], str, Dict[str, Any], bool, str, float]:
+            (addressee, detected_language, mode_switch_updates,
              is_pure_command, raw_response, load_time)
 
-            - intent: "FAKTISCH", "KREATIV" or "GEMISCHT"
-            - addressee: "aifred", "sokrates", "salomo" or None
+            - addressee: an agent id or None
             - detected_language: "de" or "en" (LLM-detected from user query)
             - mode_switch_updates: dict with config changes ({} if none)
             - is_pure_command: True iff message is ONLY a mode-switch command
@@ -289,7 +236,7 @@ async def detect_query_intent_and_addressee(
     # Use English prompt for intent detection (universal, handles all languages)
     prompt = get_intent_detection_prompt(user_query=user_query, lang="en")
 
-    log_message(f"🎯 Intent+Addressee+Language detection for query: {user_query[:60]}...")
+    log_message(f"🎯 Addressee+Language detection for query: {user_query[:60]}...")
 
     intent_options: dict = {
         'temperature': 0.2,  # Low for consistent detection
@@ -309,64 +256,13 @@ async def detect_query_intent_and_addressee(
     # Strip thinking blocks — models like GPT-OSS always reason regardless of enable_thinking
     response_clean = strip_thinking_blocks(response_raw).strip()
 
-    intent, addressee, detected_language, mode_switch, is_pure_command = parse_intent_addressee_language(
-        response_clean
-    )
+    addressee, detected_language, mode_switch, is_pure_command = parse_intent_response(response_clean)
     log_message(
-        f"✅ {format_intent_result(intent, addressee, detected_language)}, "
+        f"✅ {format_intent_result(addressee, detected_language)}, "
         f"ModeSwitch: {mode_switch or '-'}, PureCmd: {is_pure_command}, "
         f"Raw: '{response_clean}'"
     )
     return (
-        intent, addressee, detected_language, mode_switch, is_pure_command,
+        addressee, detected_language, mode_switch, is_pure_command,
         response_raw, response.load_time,
     )
-
-
-def get_temperature_for_intent(intent: str) -> float:
-    """
-    Returns the appropriate temperature for an intent.
-
-    Temperature values are defined in config.py:
-    - INTENT_TEMPERATURE_FAKTISCH (0.2): precise, deterministic answers
-    - INTENT_TEMPERATURE_GEMISCHT (0.5): general conversation
-    - INTENT_TEMPERATURE_KREATIV (1.1): stories, poems, creative writing
-
-    Args:
-        intent: "FAKTISCH", "KREATIV" or "GEMISCHT"
-
-    Returns:
-        float: Temperature based on config.py constants
-    """
-    from .config import (
-        INTENT_TEMPERATURE_FAKTISCH,
-        INTENT_TEMPERATURE_GEMISCHT,
-        INTENT_TEMPERATURE_KREATIV,
-    )
-
-    temp_map: dict[str, float] = {
-        "FAKTISCH": INTENT_TEMPERATURE_FAKTISCH,
-        "KREATIV": INTENT_TEMPERATURE_KREATIV,
-        "GEMISCHT": INTENT_TEMPERATURE_GEMISCHT
-    }
-    return temp_map.get(intent, INTENT_TEMPERATURE_FAKTISCH)
-
-
-def get_temperature_label(intent: str) -> str:
-    """
-    Returns the label for an intent (for UI display)
-
-    Args:
-        intent: "FAKTISCH", "KREATIV" or "GEMISCHT"
-
-    Returns:
-        str: "factual", "creative" or "mixed"
-    """
-    label_map = {
-        "FAKTISCH": "factual",
-        "KREATIV": "creative",
-        "GEMISCHT": "mixed"
-    }
-    return label_map.get(intent, "factual")  # Fallback: factual
-
-

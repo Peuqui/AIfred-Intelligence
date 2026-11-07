@@ -226,10 +226,8 @@ Inferenzzeit.
 
 ## Temperatur und Sampling
 
-- **Auto-Modus:** Die Intent-Erkennung wählt die Basis-Temperatur
-  (FACTUAL 0.2, MIXED 0.5, CREATIVE 1.0); Sokrates und Salomo bekommen einen
-  Offset obendrauf (Standard +0.2 und +0.3, gedeckelt bei 1.0; `config.py`).
-- **Manual-Modus:** Temperatur pro Agent in der Sampling-Tabelle.
+- Jeder Agent antwortet mit seiner eigenen Temperatur aus der Sampling-Tabelle;
+  eine automatische Temperatur gibt es nicht (seit 07.11.2026).
 - Top-K, Top-P, Min-P und Repeat-Penalty kommen aus dem llama-swap-YAML-Eintrag
   des Modells und werden darauf zurückgesetzt, wenn das Backend startet oder das
   Modell wechselt; die Temperatur überlebt einen Neustart. Der ↺-Button setzt

@@ -20,8 +20,6 @@ from .config import (
     DEFAULT_TEMPERATURE,
     DEFAULT_TOP_K,
     DEFAULT_TOP_P,
-    SALOMO_TEMPERATURE_OFFSET,
-    SOKRATES_TEMPERATURE_OFFSET,
     VISION_DEFAULT_MIN_P,
     VISION_DEFAULT_REPEAT_PENALTY,
     VISION_DEFAULT_TEMPERATURE,
@@ -60,9 +58,8 @@ class AgentTuning:
     # without an entry thinks as the agent's agents.json default says.
     thinking_by_model: dict[str, str] = field(default_factory=dict)
 
-    # Temperature (offset applies in auto mode relative to AIfred's temp)
+    # Temperature: every agent answers with its own
     temperature: float = DEFAULT_TEMPERATURE
-    temperature_offset: float = 0.0
 
     # Sampling
     top_k: int = DEFAULT_TOP_K
@@ -93,10 +90,6 @@ def default_tuning(agent: str) -> AgentTuning:
             repeat_penalty=VISION_DEFAULT_REPEAT_PENALTY,
             num_ctx_manual=32768,
         )
-    if agent == "sokrates":
-        return AgentTuning(temperature_offset=SOKRATES_TEMPERATURE_OFFSET)
-    if agent == "salomo":
-        return AgentTuning(temperature_offset=SALOMO_TEMPERATURE_OFFSET)
     return AgentTuning()
 
 
@@ -116,7 +109,6 @@ class SamplingRow:
     emoji: str = ""
     label: str = ""
     temp: str = ""
-    temp_disabled: bool = False
     top_k: str = ""
     top_p: str = ""
     min_p: str = ""

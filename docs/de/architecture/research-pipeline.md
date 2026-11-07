@@ -29,11 +29,10 @@ bleiben die Ergebnisse ohnehin in der History.
 Intent- + Adressaten-Erkennung
 ├─ Ein kombinierter Call an das Automatik-LLM
 ├─ Prompt: automatik/intent_detection
-├─ Antwort: "INTENT|ADDRESSEE|LANGUAGE|MODE_SWITCH|IS_PURE_COMMAND"
-│  └─ z.B. "FACTUAL||DE||FALSE" oder "MIXED|sokrates|DE||FALSE"
-├─ Temperatur:
-│  ├─ Auto-Modus: FACTUAL=0.2, MIXED=0.5, CREATIVE=1.0
-│  └─ Manual-Modus: Intent ignoriert, manueller Wert verwendet
+├─ Antwort: JSON-Objekt {language, addressee, mode_switch, pure_command},
+│  │  feldweise gelesen (ein verstümmeltes Feld kostet die anderen nicht)
+│  └─ z.B. {"language": "DE", "addressee": "sokrates", "mode_switch": "", "pure_command": false}
+├─ Sprache: DE oder EN (Prompts und Vorlesen folgen ihr)
 ├─ Adressat: direkte Agenten-Ansprache (sokrates/aifred/salomo/…)
 └─ Moduswechsel: gesprochene/getippte Konfigurationsänderungen ("starte ein Tribunal")
 ```
@@ -169,4 +168,4 @@ mit.
   Gedächtnis-Tools (`read_memory`, `store_memory`, `update_memory`, `delete_memory`)
 - `aifred/lib/tool_output_cap.py` — Token-Budget für Tool-Ergebnisse (75 %
   Input-Anteil, JSON-aware Truncation)
-- `aifred/lib/intent_detector.py` — Intent, Adressat, Temperatur, Moduswechsel
+- `aifred/lib/intent_detector.py` — Sprache, Adressat, Moduswechsel

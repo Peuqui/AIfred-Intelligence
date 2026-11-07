@@ -455,13 +455,9 @@ def _setup_debate_contexts(
     )
 
     # Temperatures
-    alfred_temp = state.agent_tuning["aifred"].temperature
-    if state.temperature_mode == "manual":
-        sokrates_temp = state.agent_tuning["sokrates"].temperature
-        salomo_temp = state.agent_tuning["salomo"].temperature
-    else:
-        sokrates_temp = min(1.0, alfred_temp + state.agent_tuning["sokrates"].temperature_offset)
-        salomo_temp = min(1.0, alfred_temp + state.agent_tuning["salomo"].temperature_offset)
+    alfred_temp = resolve_agent_temperature(state, "aifred")
+    sokrates_temp = resolve_agent_temperature(state, "sokrates")
+    salomo_temp = resolve_agent_temperature(state, "salomo")
 
     state.add_debug(
         f"🌡️ Temps: AIfred={format_number(alfred_temp, 1)}, "
@@ -585,7 +581,6 @@ async def _run_agent_direct_response(
     get_prompt_func: Any,
     user_query: str,
     detected_lang: str | None = None,
-    detected_intent: str | None = None,
     *,
     llm_user_text: str,
 ) -> AsyncGenerator[None, None]:
@@ -603,7 +598,6 @@ async def _run_agent_direct_response(
         llm_user_text: The stamped user turn as sent to the model — identical
             to the last llm_history entry (message_builder.stamp_user_turn)
         detected_lang: Language from intent detection, defaults to UI language
-        detected_intent: Intent from intent detection (FAKTISCH/KREATIV/GEMISCHT)
     """
     if detected_lang is None:
         from .prompt_loader import get_language
@@ -783,7 +777,6 @@ async def run_generic_agent_direct_response(
     agent_id: str,
     user_query: str,
     detected_lang: str | None = None,
-    detected_intent: str | None = None,
     *,
     llm_user_text: str,
 ) -> AsyncGenerator[None, None]:
@@ -805,7 +798,6 @@ async def run_generic_agent_direct_response(
         state, agent_id, config.display_name, config.emoji,
         lambda lang=None, memory=True: get_agent_direct_prompt(agent_id, lang=lang, memory=memory),
         user_query, detected_lang,
-        detected_intent=detected_intent,
         llm_user_text=llm_user_text,
     ):
         yield

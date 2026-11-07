@@ -172,7 +172,7 @@ Two independent toggles per agent in the LLM settings:
   the main model. A chat image the main model answers itself (VL Direct) follows the row
   of the agent that answers.
 - Reasoning output appears as a collapsible with model name and inference time.
-- Temperature is independent of reasoning (intent detection or manual value).
+- Temperature is independent of reasoning (each agent's own value in the sampling table).
 - The Automatik-LLM always runs with thinking off — its decisions are fast and
   structured.
 - Tool chains with vision: turn **thinking off for the vision LLM** — reasoning
@@ -292,13 +292,6 @@ Plugin settings worth knowing:
 ## Other `config.py` knobs
 
 ```python
-# Intent-based temperature (auto mode)
-INTENT_TEMPERATURE_FAKTISCH = 0.2    # factual
-INTENT_TEMPERATURE_GEMISCHT = 0.5    # mixed
-INTENT_TEMPERATURE_KREATIV = 1.0     # creative
-SOKRATES_TEMPERATURE_OFFSET = 0.2    # added to AIfred's temperature
-SALOMO_TEMPERATURE_OFFSET = 0.3
-
 # Security
 SECURITY_MAX_TOOL_CHAIN_DEPTH = 100  # tool calls per request
 

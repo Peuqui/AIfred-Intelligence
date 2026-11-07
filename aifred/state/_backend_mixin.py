@@ -60,7 +60,6 @@ class BackendMixin(rx.State, mixin=True):
         pending_images: rx.Field[list[dict[str, str]]]
         session_id: rx.Field[str]
         show_transcription: rx.Field[bool]
-        temperature_mode: rx.Field[str]
         tts_agents: rx.Field[dict[str, dict[str, Any]]]
         tts_autoplay: rx.Field[bool]
         tts_pitch: rx.Field[str]
@@ -461,7 +460,6 @@ class BackendMixin(rx.State, mixin=True):
                         # doesn't run during this synchronous settings restore.
                         self.cloud_api_key_configured = is_cloud_api_configured(saved_provider)
 
-                    self.temperature_mode = saved_settings.get("temperature_mode", self.temperature_mode)
                     # Load UI language and update global locale + prompt language
                     saved_ui_lang = saved_settings.get("ui_language", self.ui_language)
                     if saved_ui_lang in ["de", "en"]:

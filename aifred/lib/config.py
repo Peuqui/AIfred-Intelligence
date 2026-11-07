@@ -149,7 +149,6 @@ DEFAULT_SETTINGS = {
     "dictation_engine": "stt_suite",
     "enable_gpu": True,
     # NOTE: temperature is per-agent (agent_tuning bucket), no flat key
-    "temperature_mode": "auto",  # "auto" (Intent-Detection) or "manual" (user slider)
     "enable_thinking": False,  # Qwen3 Thinking Mode (Chain-of-Thought Reasoning)
     # Multi-agent modes: rounds of a debate/tribunal/symposion, votes that end an auto-consensus
     # ("majority" = 2 of 3, "unanimous" = 3 of 3). The same values as the browser state's.
@@ -576,26 +575,6 @@ HISTORY_SUMMARY_MAX_RATIO = 0.2  # 20% of context for summaries
 
 # Temperature for summary generation (lower = more factual)
 HISTORY_SUMMARY_TEMPERATURE = 0.3
-
-# ============================================================
-# INTENT-BASED TEMPERATURE (Auto-Temperature Mode)
-# ============================================================
-# Temperature values for automatic intent-based temperature selection.
-# Used when temperature_mode="auto" in settings.
-
-# Factual queries: precise, deterministic answers (research, facts, code)
-INTENT_TEMPERATURE_FAKTISCH = 0.2
-
-# Mixed queries: general conversation, explanations
-INTENT_TEMPERATURE_GEMISCHT = 0.5
-
-# Creative queries: stories, poems, brainstorming (higher = more creative)
-INTENT_TEMPERATURE_KREATIV = 1.0
-
-# Temperature offsets for multi-agent mode (auto temperature)
-# Sokrates and Salomo get slightly higher temperatures for more varied responses
-SOKRATES_TEMPERATURE_OFFSET = 0.2  # Sokrates = AIfred + 0.2
-SALOMO_TEMPERATURE_OFFSET = 0.3   # Salomo = AIfred + 0.3 (wisest, most creative)
 
 # ============================================================
 # DEFAULT SAMPLING PARAMETERS (Per-Agent Configurable)
