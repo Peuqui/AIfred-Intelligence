@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ...state._calibration_mixin import CalibrationCell, CalibrationRow
@@ -137,7 +138,7 @@ def _cache_reset_row() -> rx.Component:
         rx.hstack(
             rx.tooltip(
                 rx.button(
-                    rx.icon("trash-2", size=11),
+                    Icon.create("trash-2", size=11),
                     rx.text(t("calibration_reset_vlm_cache_button"), font_size="10px"),
                     on_click=AIState.reset_vlm_vram_cache,
                     size="1",
@@ -158,7 +159,7 @@ def _cancel_button() -> rx.Component:
     return rx.cond(
         AIState.is_calibrating,
         rx.button(
-            rx.icon("circle-stop", size=14),
+            Icon.create("circle-stop", size=14),
             on_click=AIState.cancel_calibration,
             size="1",
             variant="soft",
@@ -181,7 +182,7 @@ def _calibration_picker_popover() -> rx.Component:
                         align="center",
                     ),
                     rx.hstack(
-                        rx.icon("gauge", size=14),
+                        Icon.create("gauge", size=14),
                         rx.text(t("calibrate_context"), font_size="11px"),
                         spacing="2",
                         align="center",
@@ -207,7 +208,7 @@ def _calibration_picker_popover() -> rx.Component:
                 # Start button — closes popover and kicks off calibration.
                 rx.popover.close(
                     rx.button(
-                        rx.icon("play", size=12),
+                        Icon.create("play", size=12),
                         rx.text(t("calibration_start"), font_size="11px"),
                         on_click=AIState.calibrate_context,
                         size="1",
@@ -309,7 +310,7 @@ def _vllm_calibration_popover() -> rx.Component:
                             ),
                             flex_shrink="0",
                         ),
-                        rx.icon("gauge", size=14),
+                        Icon.create("gauge", size=14),
                         rx.text(t("calibrate_context"), font_size="11px"),
                         spacing="2",
                         align="center",
@@ -373,7 +374,7 @@ def _vllm_calibration_popover() -> rx.Component:
                 ),
                 rx.popover.close(
                     rx.button(
-                        rx.icon("play", size=12),
+                        Icon.create("play", size=12),
                         rx.text(t("calibration_start"), font_size="11px"),
                         on_click=AIState.calibrate_context,
                         size="1",

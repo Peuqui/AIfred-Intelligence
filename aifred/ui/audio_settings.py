@@ -17,6 +17,7 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ..state import AIState
 from ..theme import COLORS
@@ -43,14 +44,14 @@ def audio_help_modal() -> rx.Component:
     return overlay_scaffold(
         rx.vstack(
             rx.hstack(
-                rx.icon("lightbulb", size=20, color=COLORS["accent_gold"]),
+                Icon.create("lightbulb", size=20, color=COLORS["accent_gold"]),
                 rx.text(
                     "Hilfe — Audio Player Sources & Index",
                     font_weight="bold", font_size="15px",
                 ),
                 rx.spacer(),
                 rx.button(
-                    rx.icon("x", size=16),
+                    Icon.create("x", size=16),
                     size="1", variant="ghost",
                     on_click=AIState.toggle_audio_settings_help,
                     cursor="pointer",
@@ -226,7 +227,7 @@ def _help_content() -> rx.Component:
 def _sandbox_root_editor() -> rx.Component:
     """Inline editor for picker.root in plugin settings.json."""
     return rx.hstack(
-        rx.icon("shield", size=14, color=COLORS["text_secondary"]),
+        Icon.create("shield", size=14, color=COLORS["text_secondary"]),
         rx.text(
             "Sandbox-Root",
             font_size="12px",
@@ -242,7 +243,7 @@ def _sandbox_root_editor() -> rx.Component:
             font_family="monospace",
         ),
         rx.button(
-            rx.icon("save", size=14),
+            Icon.create("save", size=14),
             "Speichern",
             size="1",
             variant="soft",
@@ -258,7 +259,7 @@ def _sandbox_root_editor() -> rx.Component:
 def _tts_list_threshold_editor() -> rx.Component:
     """Inline editor for tts_list.full_max_items (TTS list filter threshold)."""
     return rx.hstack(
-        rx.icon("megaphone-off", size=14, color=COLORS["text_secondary"]),
+        Icon.create("megaphone-off", size=14, color=COLORS["text_secondary"]),
         rx.text(
             "TTS-Listen-Filter",
             font_size="12px",
@@ -281,7 +282,7 @@ def _tts_list_threshold_editor() -> rx.Component:
         ),
         rx.spacer(),
         rx.button(
-            rx.icon("save", size=14),
+            Icon.create("save", size=14),
             "Speichern",
             size="1",
             variant="soft",
@@ -308,11 +309,11 @@ def _source_row(src: ObjectVar[dict[str, Any]]) -> rx.Component:
             # Type icon
             rx.cond(
                 src["is_stream"],
-                rx.icon("radio", size=16, color=COLORS["accent_purple"]),
+                Icon.create("radio", size=16, color=COLORS["accent_purple"]),
                 rx.cond(
                     src["is_symlink"],
-                    rx.icon("link", size=16, color=COLORS["accent_blue"]),
-                    rx.icon("folder", size=16, color=COLORS["accent_blue"]),
+                    Icon.create("link", size=16, color=COLORS["accent_blue"]),
+                    Icon.create("folder", size=16, color=COLORS["accent_blue"]),
                 ),
             ),
             # Label
@@ -361,7 +362,7 @@ def _source_row(src: ObjectVar[dict[str, Any]]) -> rx.Component:
                             rx.cond(
                                 is_busy,
                                 rx.spinner(size="1"),
-                                rx.icon("refresh-cw", size=14),
+                                Icon.create("refresh-cw", size=14),
                             ),
                             "Indexieren",
                             size="1",
@@ -371,7 +372,7 @@ def _source_row(src: ObjectVar[dict[str, Any]]) -> rx.Component:
                             disabled=AIState.audio_settings_busy != "",
                         ),
                         rx.button(
-                            rx.icon("zap", size=14),
+                            Icon.create("zap", size=14),
                             "Force",
                             size="1",
                             variant="soft",
@@ -382,7 +383,7 @@ def _source_row(src: ObjectVar[dict[str, Any]]) -> rx.Component:
                             title="Komplett neu indexieren (ignoriert mtime, liest alle Tags neu)",
                         ),
                         rx.button(
-                            rx.icon("trash", size=14),
+                            Icon.create("trash", size=14),
                             size="1",
                             variant="soft",
                             color_scheme="gray",
@@ -391,7 +392,7 @@ def _source_row(src: ObjectVar[dict[str, Any]]) -> rx.Component:
                             title="Index-Einträge löschen (Source bleibt)",
                         ),
                         rx.button(
-                            rx.icon("x", size=14),
+                            Icon.create("x", size=14),
                             size="1",
                             variant="soft",
                             color_scheme="red",
@@ -432,12 +433,12 @@ def audio_settings_page() -> rx.Component:
         rx.vstack(
             # Header
             rx.hstack(
-                rx.icon("music", size=20, color=COLORS["accent_blue"]),
+                Icon.create("music", size=20, color=COLORS["accent_blue"]),
                 rx.text("Audio Player — Sources & Index", font_weight="bold", font_size="15px"),
                 rx.spacer(),
                 # Help / lightbulb
                 rx.button(
-                    rx.icon("lightbulb", size=16),
+                    Icon.create("lightbulb", size=16),
                     size="1",
                     variant="ghost",
                     color_scheme="yellow",
@@ -446,7 +447,7 @@ def audio_settings_page() -> rx.Component:
                     title="Hilfe: was macht was?",
                 ),
                 rx.button(
-                    rx.icon("x", size=16),
+                    Icon.create("x", size=16),
                     size="1",
                     variant="ghost",
                     on_click=AIState.close_audio_settings,
@@ -504,7 +505,7 @@ def audio_settings_page() -> rx.Component:
             # Footer with add-source button
             rx.hstack(
                 rx.button(
-                    rx.icon("folder-plus", size=14),
+                    Icon.create("folder-plus", size=14),
                     "Neue Source hinzufügen…",
                     size="2",
                     variant="soft",

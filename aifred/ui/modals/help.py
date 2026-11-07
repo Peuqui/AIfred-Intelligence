@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import reflex as rx
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ...theme import COLORS
@@ -19,7 +20,7 @@ def multi_agent_help_modal() -> rx.Component:
         rx.vstack(
             # Header
             rx.hstack(
-                rx.icon("lightbulb", size=24, color=COLORS["accent_gold"]),
+                Icon.create("lightbulb", size=24, color=COLORS["accent_gold"]),
                 rx.text(t("multi_agent_help_title"), color="white", font_weight="bold", font_size="18px"),
                 spacing="3",
                 align="center",
@@ -147,7 +148,7 @@ def reasoning_thinking_help_modal() -> rx.Component:
         rx.vstack(
             # Header
             rx.hstack(
-                rx.icon("lightbulb", size=24, color=COLORS["accent_gold"]),
+                Icon.create("lightbulb", size=24, color=COLORS["accent_gold"]),
                 rx.text(t("reasoning_thinking_help_title"), color="white", font_weight="bold", font_size="20px"),
                 spacing="3",
                 align="center",
@@ -272,7 +273,7 @@ def model_lifecycle_help_modal() -> rx.Component:
     return overlay_scaffold(
         rx.vstack(
             rx.hstack(
-                rx.icon("lightbulb", size=24, color=COLORS["accent_gold"]),
+                Icon.create("lightbulb", size=24, color=COLORS["accent_gold"]),
                 rx.text(
                     t("model_lifecycle_help_title"),
                     color="white",

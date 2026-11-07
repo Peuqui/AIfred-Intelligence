@@ -1,7 +1,4 @@
 """Agent-Editor: Scheduler-Tab — Jobs (cron/interval/once) verwalten."""
-# mypy: disable-error-code="index, operator, call-arg, func-returns-value, arg-type"
-# Reflex UI code: Var indexing, rx.icon module callable, event handler binding
-# are all runtime-correct but not statically typeable.
 
 from __future__ import annotations
 
@@ -9,6 +6,7 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ...theme import COLORS
@@ -39,7 +37,7 @@ def _scheduler_job_row(job: ObjectVar[dict[str, Any]]) -> rx.Component:
             ),
             rx.badge(job["type_display"], variant="soft", color_scheme="blue", font_size="10px"),
             rx.icon_button(
-                rx.icon("pencil", size=12),
+                Icon.create("pencil", size=12),
                 on_click=AIState.edit_scheduler_job(job["job_id"]),
                 size="1",
                 variant="ghost",
@@ -47,7 +45,7 @@ def _scheduler_job_row(job: ObjectVar[dict[str, Any]]) -> rx.Component:
                 cursor="pointer",
             ),
             rx.icon_button(
-                rx.icon("trash-2", size=12),
+                Icon.create("trash-2", size=12),
                 on_click=AIState.delete_scheduler_job(job["job_id"]),
                 size="1",
                 variant="ghost",
@@ -143,7 +141,6 @@ def _scheduler_job_row(job: ObjectVar[dict[str, Any]]) -> rx.Component:
 
 def _cron_schedule_input() -> rx.Component:
     """Cron: structured fields + preset selector."""
-    _small_input = {"size": "1", "width": "60px", "variant": "surface"}
     return rx.vstack(
         # Preset row
         rx.hstack(
@@ -160,17 +157,17 @@ def _cron_schedule_input() -> rx.Component:
         rx.hstack(
             rx.vstack(
                 rx.text(t("sched_cron_hour"), font_size="10px", color=COLORS["text_muted"]),
-                rx.input(value=AIState.scheduler_cron_hour, on_change=AIState.set_scheduler_cron_hour, **_small_input),
+                rx.input(value=AIState.scheduler_cron_hour, on_change=AIState.set_scheduler_cron_hour, size="1", width="60px", variant="surface"),
                 spacing="0",
             ),
             rx.vstack(
                 rx.text(t("sched_cron_minute"), font_size="10px", color=COLORS["text_muted"]),
-                rx.input(value=AIState.scheduler_cron_min, on_change=AIState.set_scheduler_cron_min, **_small_input),
+                rx.input(value=AIState.scheduler_cron_min, on_change=AIState.set_scheduler_cron_min, size="1", width="60px", variant="surface"),
                 spacing="0",
             ),
             rx.vstack(
                 rx.text(t("sched_cron_dom"), font_size="10px", color=COLORS["text_muted"]),
-                rx.input(value=AIState.scheduler_cron_dom, on_change=AIState.set_scheduler_cron_dom, **_small_input),
+                rx.input(value=AIState.scheduler_cron_dom, on_change=AIState.set_scheduler_cron_dom, size="1", width="60px", variant="surface"),
                 spacing="0",
             ),
             rx.vstack(
@@ -264,7 +261,7 @@ def _scheduler_edit_form() -> rx.Component:
             ),
             rx.vstack(
                 clickable_tip(
-                    rx.hstack(rx.text(t("sched_label_type"), font_size="11px", color=COLORS["text_secondary"]), rx.icon("lightbulb", size=12, color=COLORS["accent_gold"]), spacing="1", align="center", cursor="pointer"),
+                    rx.hstack(rx.text(t("sched_label_type"), font_size="11px", color=COLORS["text_secondary"]), Icon.create("lightbulb", size=12, color=COLORS["accent_gold"]), spacing="1", align="center", cursor="pointer"),
                     rx.vstack(
                         rx.text(t("sched_tip_type_cron"), font_size="12px", color=COLORS["text_primary"]),
                         rx.text(t("sched_tip_type_interval"), font_size="12px", color=COLORS["text_primary"]),
@@ -309,7 +306,7 @@ def _scheduler_edit_form() -> rx.Component:
             ),
             rx.vstack(
                 clickable_tip(
-                    rx.hstack(rx.text(t("sched_label_delivery"), font_size="11px", color=COLORS["text_secondary"]), rx.icon("lightbulb", size=12, color=COLORS["accent_gold"]), spacing="1", align="center", cursor="pointer"),
+                    rx.hstack(rx.text(t("sched_label_delivery"), font_size="11px", color=COLORS["text_secondary"]), Icon.create("lightbulb", size=12, color=COLORS["accent_gold"]), spacing="1", align="center", cursor="pointer"),
                     rx.vstack(
                         rx.text(t("sched_tip_delivery_review"), font_size="12px", color=COLORS["text_primary"]),
                         rx.text(t("sched_tip_delivery_announce"), font_size="12px", color=COLORS["text_primary"]),
@@ -340,7 +337,7 @@ def _scheduler_edit_form() -> rx.Component:
             ),
             rx.vstack(
                 clickable_tip(
-                    rx.hstack(rx.text(t("sched_label_tier"), font_size="11px", color=COLORS["text_secondary"]), rx.icon("lightbulb", size=12, color=COLORS["accent_gold"]), spacing="1", align="center", cursor="pointer"),
+                    rx.hstack(rx.text(t("sched_label_tier"), font_size="11px", color=COLORS["text_secondary"]), Icon.create("lightbulb", size=12, color=COLORS["accent_gold"]), spacing="1", align="center", cursor="pointer"),
                     rx.vstack(
                         rx.text(t("sched_tip_tier_0"), font_size="12px", color=COLORS["text_primary"]),
                         rx.text(t("sched_tip_tier_1"), font_size="12px", color=COLORS["text_primary"]),
@@ -385,7 +382,7 @@ def _scheduler_edit_form() -> rx.Component:
                     size="2",
                 ),
                 clickable_tip(
-                    rx.icon("lightbulb", size=12, color=COLORS["text_secondary"]),
+                    Icon.create("lightbulb", size=12, color=COLORS["text_secondary"]),
                     rx.text(t("sched_tip_fixed_text"), font_size="12px", color=COLORS["text_primary"]),
                 ),
                 rx.cond(
@@ -471,7 +468,7 @@ def _scheduler_view() -> rx.Component:
                 rx.hstack(
                     rx.spacer(),
                     rx.button(
-                        rx.icon("plus", size=14),
+                        Icon.create("plus", size=14),
                         t("scheduler_new_job"),
                         on_click=AIState.new_scheduler_job,
                         size="2",

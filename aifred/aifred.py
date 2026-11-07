@@ -5,6 +5,7 @@ Full Gradio-Style UI with Single Column Layout
 """
 
 import reflex as rx
+from reflex_components_lucide.icon import Icon
 
 from .lib.config import (
     UI_CHAT_HISTORY_MAX_HEIGHT_DESKTOP,
@@ -908,7 +909,7 @@ console.log('✂️ Crop handler loaded');
                     rx.hstack(
                         # Settings menu button (Agent Editor + Memory + Database)
                         rx.tooltip(
-                            rx.icon(
+                            Icon.create(
                                 "menu",
                                 size=18,
                                 color=COLORS["primary"],

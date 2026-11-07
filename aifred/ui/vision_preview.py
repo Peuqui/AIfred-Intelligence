@@ -21,6 +21,8 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
+from reflex_components_moment.moment import Moment
 
 from ..lib.config import VISION_PTZ_HEARTBEAT_MS, VISION_PTZ_SPEEDS
 from ..state import AIState
@@ -84,7 +86,7 @@ def _header_row() -> rx.Component:
             rx.cond(
                 AIState.vision_preview_is_manual_mode,
                 rx.icon_button(
-                    rx.icon("refresh-cw", size=14),
+                    Icon.create("refresh-cw", size=14),
                     on_click=AIState.refresh_vision_preview,
                     size="2",
                     variant="soft",
@@ -93,7 +95,7 @@ def _header_row() -> rx.Component:
                 ),
             ),
             rx.icon_button(
-                rx.icon("scan-search", size=14),
+                Icon.create("scan-search", size=14),
                 on_click=AIState.rescan_vision_preview_sources,
                 size="2",
                 variant="soft",
@@ -118,7 +120,7 @@ def _header_row() -> rx.Component:
             # Solid + orange = geladen, soft + gray = entladen.
             rx.tooltip(
                 rx.icon_button(
-                    rx.icon("power", size=14),
+                    Icon.create("power", size=14),
                     on_click=AIState.toggle_vlm_model_loaded,
                     size="2",
                     variant=rx.cond(
@@ -221,7 +223,7 @@ def _toggle_button(
     return rx.cond(
         is_active,
         rx.button(
-            rx.icon("circle-stop", size=14),
+            Icon.create("circle-stop", size=14),
             rx.text(t(label_key), font_size="13px"),
             on_click=on_click_event,
             size="2",
@@ -229,7 +231,7 @@ def _toggle_button(
             style=_WATCH_BTN_ACTIVE_STYLE,
         ),
         rx.button(
-            rx.icon("play", size=14),
+            Icon.create("play", size=14),
             rx.text(t(label_key), font_size="13px"),
             on_click=on_click_event,
             size="2",
@@ -381,7 +383,7 @@ def _ptz_button(sid: rx.Var, direction: str, icon: str) -> rx.Component:
     Verlassen hält an (auf dem Touchscreen genügt ein Tipp — der Server fährt
     mindestens ``VISION_PTZ_MIN_MOVE_SEC``)."""
     return rx.icon_button(
-        rx.icon(icon, size=16),
+        Icon.create(icon, size=16),
         on_mouse_down=AIState.ptz_press(sid, direction),
         on_mouse_up=AIState.ptz_release(sid),
         on_mouse_leave=AIState.ptz_release(sid),
@@ -418,7 +420,7 @@ def _ptz_panel(source: ObjectVar[dict[str, Any]]) -> rx.Component:
             # Herzschlag nur, solange eine Taste dieser Kamera gehalten wird.
             rx.cond(
                 AIState.ptz_held == sid,
-                rx.moment(
+                Moment.create(
                     interval=VISION_PTZ_HEARTBEAT_MS,
                     on_change=AIState.ptz_heartbeat,
                     style={"display": "none"},
@@ -435,7 +437,7 @@ def _ptz_panel(source: ObjectVar[dict[str, Any]]) -> rx.Component:
                 rx.hstack(
                     _ptz_button(sid, "left", "arrow-left"),
                     rx.icon_button(
-                        rx.icon("house", size=14),
+                        Icon.create("house", size=14),
                         on_click=AIState.ptz_home(sid),
                         title=t("vision_preview_ptz_home"),
                         size="1",
@@ -484,7 +486,7 @@ def _photo_button(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
     sid = entry["id"]
     return rx.hstack(
         rx.icon_button(
-            rx.icon("camera", size=16),
+            Icon.create("camera", size=16),
             on_click=AIState.take_vision_photo(sid),
             title=t("vision_preview_photo"),
             size="1",
@@ -562,7 +564,7 @@ def _teleprompter_overlay(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
         # ``pointer_events: none`` am Wrapper.
         rx.icon_button(
             # AIfred-Orange — gleiches Pattern wie im below-Header.
-            rx.icon("eraser", size=12, color=COLORS["primary"]),
+            Icon.create("eraser", size=12, color=COLORS["primary"]),
             on_click=AIState.clear_vlm_teleprompter(sid),
             size="1",
             variant="soft",
@@ -606,7 +608,7 @@ def _teleprompter_below(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
                 # AIfred-Orange aus theme.py (primary var(--aifred-primary)) — der
                 # User-Brand-Akzent zieht den Klick-Punkt ins Auge,
                 # ohne den Button selbst voll-orange einzufärben.
-                rx.icon("eraser", size=12, color=COLORS["primary"]),
+                Icon.create("eraser", size=12, color=COLORS["primary"]),
                 on_click=AIState.clear_vlm_teleprompter(sid),
                 size="1",
                 variant="ghost",
@@ -747,7 +749,7 @@ def _image_tile(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
                     # Sprung ins Personarium — erkannte Gesichter dort
                     # zuordnen/lernen (Sektion „Unzugeordnete Gesichter").
                     rx.icon_button(
-                        rx.icon("users", size=12),
+                        Icon.create("users", size=12),
                         on_click=AIState.open_personarium,
                         size="1", variant="ghost", color_scheme="orange",
                         title=t("vision_preview_open_personarium"),
@@ -839,7 +841,7 @@ def _image_grid() -> rx.Component:
             },
         ),
         rx.box(
-            rx.icon("camera-off", size=32, color="gray"),
+            Icon.create("camera-off", size=32, color="gray"),
             rx.text(
                 t("vision_preview_no_source"),
                 color="gray",
@@ -880,7 +882,7 @@ def vision_preview_page() -> rx.Component:
         rx.box(
             # Title row
             rx.hstack(
-                rx.icon("video", size=20),
+                Icon.create("video", size=20),
                 rx.text(
                     t("vision_preview_title"),
                     font_weight="bold",
@@ -913,7 +915,7 @@ def vision_preview_page() -> rx.Component:
         rx.cond(
             AIState.vision_preview_status != "",
             rx.callout.root(
-                rx.callout.icon(rx.icon("info")),
+                rx.callout.icon(Icon.create("info")),
                 rx.callout.text(AIState.vision_preview_status),
                 color_scheme="amber",
                 class_name="vlm-preview-status",

@@ -6,6 +6,7 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ..state import AIState
 from ..theme import COLORS
@@ -72,7 +73,7 @@ def render_bubble_audio_buttons(msg: ObjectVar[dict[str, Any]]) -> rx.Component:
     return rx.hstack(
         # Play button - disabled during TTS regeneration
         rx.el.button(
-            rx.icon("volume-2", size=18),
+            Icon.create("volume-2", size=18),
             type="button",
             title=t("audio_play_tooltip"),
             disabled=AIState.tts_regenerating,
@@ -97,7 +98,7 @@ def render_bubble_audio_buttons(msg: ObjectVar[dict[str, Any]]) -> rx.Component:
             rx.cond(
                 AIState.tts_regenerating,
                 rx.spinner(size="1"),
-                rx.icon("refresh-cw", size=16),
+                Icon.create("refresh-cw", size=16),
             ),
             on_click=lambda: AIState.resynthesize_bubble_tts(msg.get("timestamp", "")),
             title=t("audio_generate_tooltip"),

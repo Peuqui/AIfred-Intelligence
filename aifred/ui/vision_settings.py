@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ..state import AIState
 from ..theme import COLORS
@@ -67,7 +68,7 @@ def _model_section() -> rx.Component:
                 },
             ),
             rx.icon_button(
-                rx.icon("refresh-cw", size=14),
+                Icon.create("refresh-cw", size=14),
                 on_click=AIState.rescan_vision_models,
                 size="2",
                 variant="soft",
@@ -88,7 +89,7 @@ def _model_section() -> rx.Component:
 
 def _describer_icon(icon: str, on_click: Any, tooltip_key: str) -> rx.Component:
     return rx.tooltip(
-        rx.icon_button(rx.icon(icon, size=12), on_click=on_click, size="1", variant="ghost", color_scheme="gray"),
+        rx.icon_button(Icon.create(icon, size=12), on_click=on_click, size="1", variant="ghost", color_scheme="gray"),
         content=t(tooltip_key),
     )
 
@@ -191,7 +192,7 @@ def _source_card(cam: ObjectVar[dict[str, Any]]) -> rx.Component:
     return rx.box(
         rx.vstack(
             rx.hstack(
-                rx.icon("camera", size=16, color="gray"),
+                Icon.create("camera", size=16, color="gray"),
                 # Kameraname editierbar — SSoT für den Namen liegt jetzt hier
                 # in den Einstellungen (die Live-Vorschau zeigt ihn nur an).
                 rx.input(
@@ -210,7 +211,7 @@ def _source_card(cam: ObjectVar[dict[str, Any]]) -> rx.Component:
                 rx.cond(
                     cam["is_rtsp"].to(bool),
                     rx.icon_button(
-                        rx.icon("plug", size=12),
+                        Icon.create("plug", size=12),
                         on_click=lambda: AIState.open_rtsp_camera_edit_by_source(sid),
                         size="1", variant="ghost", color_scheme="gray",
                         title=t("vision_rtsp_edit_connection"),
@@ -233,7 +234,7 @@ def _source_card(cam: ObjectVar[dict[str, Any]]) -> rx.Component:
             # Pro-Kamera Mindestabstand zwischen Detection-Events — wie oft
             # darf der Watcher frühestens neu auslösen (Motion/Face/Edge-AI).
             rx.hstack(
-                rx.icon("timer", size=14, color="gray"),
+                Icon.create("timer", size=14, color="gray"),
                 rx.text(t("vision_settings_event_interval_label"), size="2", color="gray"),
                 rx.spacer(),
                 rx.select.root(
@@ -256,7 +257,7 @@ def _source_card(cam: ObjectVar[dict[str, Any]]) -> rx.Component:
             # Pro-Kamera Push-Alerts an/aus (Anti-Spam). Aus = erkennt/speichert
             # weiter, schickt aber keine proaktiven Benachrichtigungen.
             rx.hstack(
-                rx.icon("bell", size=14, color="gray"),
+                Icon.create("bell", size=14, color="gray"),
                 rx.text(t("vision_settings_source_alerts_label"), size="2", color="gray"),
                 rx.spacer(),
                 rx.switch(
@@ -287,7 +288,7 @@ def _source_card(cam: ObjectVar[dict[str, Any]]) -> rx.Component:
                         spacing="2", align="center", wrap="wrap",
                     ),
                     rx.hstack(
-                        rx.icon("moon", size=13, color="gray"),
+                        Icon.create("moon", size=13, color="gray"),
                         rx.text(t("vision_settings_quiet_label"), size="1", color="gray"),
                         rx.switch(
                             checked=cam["quiet_enabled"].to(bool),
@@ -333,7 +334,7 @@ def _source_card(cam: ObjectVar[dict[str, Any]]) -> rx.Component:
             # die Überwachung zeitgesteuert an/aus (unabhängig von der Ruhezeit,
             # die nur Alerts unterdrückt).
             rx.hstack(
-                rx.icon("clock", size=14, color="gray"),
+                Icon.create("clock", size=14, color="gray"),
                 rx.text(t("vision_settings_schedule_label"), size="2", color="gray"),
                 rx.switch(
                     checked=cam["schedule_enabled"].to(bool),
@@ -380,7 +381,7 @@ def _source_card(cam: ObjectVar[dict[str, Any]]) -> rx.Component:
                 style={"margin_top": "0.3em"},
             ),
             rx.button(
-                rx.icon("brush", size=12),
+                Icon.create("brush", size=12),
                 rx.text(t("vision_settings_zone_mask_button"), size="1"),
                 on_click=AIState.open_zone_editor(sid),
                 size="1",
@@ -414,7 +415,7 @@ def _sources_section() -> rx.Component:
             ),
             rx.spacer(),
             rx.icon_button(
-                rx.icon("refresh-cw", size=12),
+                Icon.create("refresh-cw", size=12),
                 on_click=AIState.open_vision_settings,
                 size="1",
                 variant="ghost",
@@ -539,7 +540,7 @@ def _rtsp_camera_form() -> rx.Component:
                 rx.cond(
                     AIState.rtsp_form_editing != "",
                     rx.button(
-                        rx.icon("trash-2", size=12),
+                        Icon.create("trash-2", size=12),
                         t("vision_rtsp_delete"),
                         on_click=lambda: AIState.delete_rtsp_camera(
                             AIState.rtsp_form_editing
@@ -569,7 +570,7 @@ def _rtsp_cameras_section() -> rx.Component:
             rx.text(t("vision_rtsp_section_title"), font_weight="bold", size="3"),
             rx.spacer(),
             rx.button(
-                rx.icon("plus", size=12),
+                Icon.create("plus", size=12),
                 rx.text(t("vision_rtsp_add"), size="1"),
                 on_click=AIState.open_rtsp_camera_new,
                 size="1", variant="soft", color_scheme="orange",
@@ -794,7 +795,7 @@ def vision_settings_modal() -> rx.Component:
         rx.vstack(
                     # Header: Titel + X-Close
             rx.hstack(
-                rx.icon("camera", size=20),
+                Icon.create("camera", size=20),
                 rx.text(
                     t("vision_settings_title"),
                     font_weight="bold",
@@ -802,7 +803,7 @@ def vision_settings_modal() -> rx.Component:
                 ),
                 rx.spacer(),
                 rx.icon_button(
-                    rx.icon("x", size=16),
+                    Icon.create("x", size=16),
                     on_click=AIState.close_vision_settings,
                     size="1",
                     variant="ghost",
@@ -842,7 +843,7 @@ def vision_settings_modal() -> rx.Component:
             # Sub-Modals ist Vigilantia wieder die Top-Layer,
             # der User kommt nicht zu weit zurück.
             rx.button(
-                rx.icon("users", size=16),
+                Icon.create("users", size=16),
                 rx.text(t("vision_settings_open_personarium")),
                 on_click=AIState.open_personarium,
                 size="2",
@@ -851,7 +852,7 @@ def vision_settings_modal() -> rx.Component:
                 width="100%",
             ),
             rx.button(
-                rx.icon("scroll-text", size=16),
+                Icon.create("scroll-text", size=16),
                 rx.text(t("vision_settings_open_casus")),
                 on_click=AIState.open_casus,
                 size="2",
@@ -860,7 +861,7 @@ def vision_settings_modal() -> rx.Component:
                 width="100%",
             ),
             rx.button(
-                rx.icon("user-cog", size=16),
+                Icon.create("user-cog", size=16),
                 rx.text(t("vision_settings_open_multipose")),
                 on_click=AIState.open_multipose(0, ""),
                 size="2",

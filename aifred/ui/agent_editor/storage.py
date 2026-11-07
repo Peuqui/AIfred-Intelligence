@@ -1,7 +1,4 @@
 """Agent-Editor: Storage-Tab — Agent-Dateiablage browsen."""
-# mypy: disable-error-code="index, operator, call-arg, func-returns-value, arg-type"
-# Reflex UI code: Var indexing, rx.icon module callable, event handler binding
-# are all runtime-correct but not statically typeable.
 
 from __future__ import annotations
 
@@ -9,6 +6,7 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ...theme import COLORS
@@ -28,7 +26,7 @@ def _storage_entry_row(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
                 color_scheme="orange",
                 flex_shrink="0",
             ),
-            rx.icon(
+            Icon.create(
                 rx.cond(entry["kind"] == "export", "file-text", "code"),
                 size=16, color=COLORS["primary"], flex_shrink="0",
             ),
@@ -77,7 +75,7 @@ def _storage_entry_row(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
                 rx.hstack(
                     rx.tooltip(
                         rx.icon_button(
-                            rx.icon("external-link", size=14),
+                            Icon.create("external-link", size=14),
                             on_click=AIState.storage_open_file(entry["url"]),
                             size="1", variant="soft", color_scheme="orange", cursor="pointer",
                         ),
@@ -87,7 +85,7 @@ def _storage_entry_row(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
                         entry["is_html"] & (entry["kind"] == "export"),
                         rx.tooltip(
                             rx.icon_button(
-                                rx.icon("tv", size=14),
+                                Icon.create("tv", size=14),
                                 on_click=AIState.storage_copy_to_showcase(entry["id"]),
                                 size="1", variant="soft", color_scheme="orange", cursor="pointer",
                             ),
@@ -96,7 +94,7 @@ def _storage_entry_row(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
                     ),
                     rx.tooltip(
                         rx.icon_button(
-                            rx.icon("trash-2", size=14),
+                            Icon.create("trash-2", size=14),
                             on_click=AIState.storage_request_delete(entry["id"]),
                             size="1", variant="soft", color_scheme="red", cursor="pointer",
                         ),
@@ -134,7 +132,7 @@ def _storage_view() -> rx.Component:
                     ),
                     rx.tooltip(
                         rx.icon_button(
-                            rx.icon("refresh-cw", size=14),
+                            Icon.create("refresh-cw", size=14),
                             on_click=AIState.refresh_storage_files,
                             size="1", variant="soft", color_scheme="gray", cursor="pointer",
                         ),

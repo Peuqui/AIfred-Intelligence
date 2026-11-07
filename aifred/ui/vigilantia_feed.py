@@ -14,6 +14,7 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ..state import AIState
 from ..theme import COLORS
@@ -42,7 +43,7 @@ def _feed_thumb(event: ObjectVar[dict[str, Any]]) -> rx.Component:
                 style=img_style,
             ),
             rx.box(
-                rx.icon("activity", size=14, color="gray"),
+                Icon.create("activity", size=14, color="gray"),
                 style={
                     "width": "32px",
                     "height": "32px",
@@ -281,7 +282,7 @@ def _idle_card() -> rx.Component:
 def _help_row(icon: str, color: str, key_label: str, key_body: str) -> rx.Component:
     """Eine Zeile im Help-Modal — Icon · Titel · Erklärungstext."""
     return rx.hstack(
-        rx.icon(icon, size=18, color=color, style={"flex_shrink": "0"}),
+        Icon.create(icon, size=18, color=color, style={"flex_shrink": "0"}),
         rx.vstack(
             rx.text(t(key_label), font_weight="bold", size="2"),
             rx.text(t(key_body), size="1", color="gray"),
@@ -304,14 +305,14 @@ def vigilantia_help_modal() -> rx.Component:
         AIState.vigilantia_help_open,
         rx.vstack(
             rx.hstack(
-                rx.icon("lightbulb", size=20, color=COLORS["accent_amber"]),
+                Icon.create("lightbulb", size=20, color=COLORS["accent_amber"]),
                 rx.text(
                     t("vigilantia_help_title"),
                     font_weight="bold", size="4",
                 ),
                 rx.spacer(),
                 rx.icon_button(
-                    rx.icon("x", size=16),
+                    Icon.create("x", size=16),
                     on_click=AIState.close_vigilantia_help,
                     size="1", variant="ghost", color_scheme="gray",
                     custom_attrs={"data-modal-close": "true"},
@@ -434,7 +435,7 @@ def vigilantia_feed_popover() -> rx.Component:
         ),
         rx.hstack(
             rx.button(
-                rx.icon("refresh-cw", size=12),
+                Icon.create("refresh-cw", size=12),
                 rx.text(t("vigilantia_feed_refresh"), size="1"),
                 on_click=AIState.refresh_vigilantia_feed,
                 size="1",
@@ -447,7 +448,7 @@ def vigilantia_feed_popover() -> rx.Component:
             # Controlled popover: rx.popover.close greift nicht mehr,
             # also explicit close + open_casus in einer Handler-Kette.
             rx.button(
-                rx.icon("scroll-text", size=12),
+                Icon.create("scroll-text", size=12),
                 rx.text(t("vigilantia_feed_open_casus"), size="1"),
                 on_click=[
                     AIState.close_vigilantia_feed_popover,
@@ -467,14 +468,14 @@ def vigilantia_feed_popover() -> rx.Component:
         width="100%",
     )
     disarmed_block = rx.box(
-        rx.icon("eye-off", size=20, color="gray"),
+        Icon.create("eye-off", size=20, color="gray"),
         rx.text(
             t("vigilantia_feed_disarmed_hint"),
             size="1", color="gray",
             text_align="center", margin_top="0.5em",
         ),
         rx.button(
-            rx.icon("eye", size=12),
+            Icon.create("eye", size=12),
             rx.text(t("vigilantia_arm_button"), size="1"),
             on_click=AIState.toggle_vigilantia_armed,
             size="1",
@@ -490,7 +491,7 @@ def vigilantia_feed_popover() -> rx.Component:
         },
     )
     no_sources_block = rx.box(
-        rx.icon("triangle-alert", size=20, color="var(--amber-11)"),
+        Icon.create("triangle-alert", size=20, color="var(--amber-11)"),
         rx.text(
             t("vigilantia_feed_no_sources_hint"),
             size="1",
@@ -500,7 +501,7 @@ def vigilantia_feed_popover() -> rx.Component:
         ),
         rx.popover.close(
             rx.button(
-                rx.icon("settings", size=12),
+                Icon.create("settings", size=12),
                 rx.text(t("vigilantia_open_settings"), size="1"),
                 on_click=AIState.open_vision_settings,
                 size="1",
@@ -517,7 +518,7 @@ def vigilantia_feed_popover() -> rx.Component:
         },
     )
     empty_armed_block = rx.box(
-        rx.icon("eye", size=20, color="var(--orange-9)"),
+        Icon.create("eye", size=20, color="var(--orange-9)"),
         rx.text(
             t("vigilantia_feed_empty"),
             size="1", color="gray",
@@ -525,7 +526,7 @@ def vigilantia_feed_popover() -> rx.Component:
         ),
         rx.hstack(
             rx.button(
-                rx.icon("refresh-cw", size=12),
+                Icon.create("refresh-cw", size=12),
                 rx.text(t("vigilantia_feed_refresh"), size="1"),
                 on_click=AIState.refresh_vigilantia_feed,
                 size="1",
@@ -536,7 +537,7 @@ def vigilantia_feed_popover() -> rx.Component:
             # kann ältere Ereignisse enthalten, obwohl das Badge-Fenster
             # gerade leer ist. Handler-Kette wie im events_block.
             rx.button(
-                rx.icon("scroll-text", size=12),
+                Icon.create("scroll-text", size=12),
                 rx.text(t("vigilantia_feed_open_casus"), size="1"),
                 on_click=[
                     AIState.close_vigilantia_feed_popover,
@@ -605,7 +606,7 @@ def vigilantia_feed_popover() -> rx.Component:
                             # only manages the Radix-internal state, which
                             # we override via open=... / on_open_change.
                             rx.icon_button(
-                                rx.icon("x", size=12),
+                                Icon.create("x", size=12),
                                 size="1",
                                 variant="ghost",
                                 color_scheme="gray",
@@ -646,7 +647,7 @@ def vigilantia_feed_popover() -> rx.Component:
             # Glühbirne — öffnet das Hilfe-Modal mit der Übersicht
             # über Master / Quellen / Vorschau und der Auge-Logik.
             rx.tooltip(
-                rx.icon(
+                Icon.create(
                     "lightbulb",
                     size=14,
                     color=COLORS["accent_amber"],
@@ -667,8 +668,8 @@ def vigilantia_feed_popover() -> rx.Component:
                 rx.icon_button(
                     rx.cond(
                         AIState.vigilantia_armed,
-                        rx.icon("eye", size=14),
-                        rx.icon("eye-off", size=14),
+                        Icon.create("eye", size=14),
+                        Icon.create("eye-off", size=14),
                     ),
                     on_click=AIState.toggle_vigilantia_armed,
                     size="1",

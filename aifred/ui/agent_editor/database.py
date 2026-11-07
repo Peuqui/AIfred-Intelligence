@@ -1,7 +1,4 @@
 """Agent-Editor: Database-Tab — Dokumenten-Index (pro Dokument) + verwaiste Einträge."""
-# mypy: disable-error-code="index, operator, call-arg, func-returns-value, arg-type"
-# Reflex UI code: Var indexing, rx.icon module callable, event handler binding
-# are all runtime-correct but not statically typeable.
 
 from __future__ import annotations
 
@@ -9,6 +6,7 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ...theme import COLORS
@@ -26,7 +24,7 @@ def _database_view() -> rx.Component:
             rx.vstack(
                 # Title + document count + clear-all
                 rx.hstack(
-                    rx.icon("file-text", size=14, color=COLORS["accent_blue"]),
+                    Icon.create("file-text", size=14, color=COLORS["accent_blue"]),
                     rx.text(t("db_documents"), font_size="14px", font_weight="bold", color=COLORS["text_soft"]),
                     rx.spacer(),
                     rx.badge(
@@ -87,7 +85,7 @@ def _database_view() -> rx.Component:
 def _indexed_doc_row(doc: ObjectVar[dict[str, Any]], icon: str, icon_color: str) -> rx.Component:
     """One indexed document (document list or orphan list): name, chunks, remove from index."""
     return rx.hstack(
-        rx.icon(icon, size=14, color=icon_color),
+        Icon.create(icon, size=14, color=icon_color),
         rx.vstack(
             rx.text(doc["filename"], font_size="12px", color="white"),
             rx.text(
@@ -98,7 +96,7 @@ def _indexed_doc_row(doc: ObjectVar[dict[str, Any]], icon: str, icon_color: str)
         ),
         rx.tooltip(
             rx.icon_button(
-                rx.icon("trash-2", size=12), size="1",
+                Icon.create("trash-2", size=12), size="1",
                 variant="ghost", color_scheme="red",
                 on_click=AIState.db_deindex_document(doc["filename"]),
                 cursor="pointer",
@@ -116,7 +114,7 @@ def _db_orphan_section() -> rx.Component:
     return rx.box(
         rx.hstack(
             rx.icon_button(
-                rx.icon(
+                Icon.create(
                     rx.cond(AIState.db_orphans_visible, "chevron-down", "chevron-right"),
                     size=14,
                 ),
@@ -124,7 +122,7 @@ def _db_orphan_section() -> rx.Component:
                 on_click=AIState.db_toggle_orphans,
                 cursor="pointer",
             ),
-            rx.icon("brush-cleaning", size=14, color=COLORS["accent_warning"]),
+            Icon.create("brush-cleaning", size=14, color=COLORS["accent_warning"]),
             rx.text(
                 t("db_orphans_title"),
                 font_size="13px", font_weight="bold", color=COLORS["accent_warning"],
@@ -142,7 +140,7 @@ def _db_orphan_section() -> rx.Component:
             rx.cond(
                 AIState.db_orphans_visible & (AIState.db_orphans.length() > 0),
                 rx.button(
-                    rx.icon("trash-2", size=12),
+                    Icon.create("trash-2", size=12),
                     t("db_orphans_delete_all"),
                     size="1", variant="soft", color_scheme="red",
                     on_click=AIState.db_delete_all_orphans,

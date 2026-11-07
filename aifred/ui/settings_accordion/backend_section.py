@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import reflex as rx
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ...theme import COLORS
@@ -48,7 +49,7 @@ def _language_user_row() -> rx.Component:
         ),
         # User Name Input + Gender Toggle (Subtle Orange style)
         rx.box(
-            rx.icon("user", size=16, color=COLORS["accent_warning"]),
+            Icon.create("user", size=16, color=COLORS["accent_warning"]),
             rx.input(
                 placeholder=t("your_name"),
                 value=AIState.user_name,
@@ -194,7 +195,7 @@ def _backend_row() -> rx.Component:
 
         # Model lifecycle help (when does what load — base/VLM/TTS/LLM)
         rx.tooltip(
-            rx.icon(
+            Icon.create(
                 "lightbulb",
                 size=14,
                 color=COLORS["accent_gold"],
@@ -241,7 +242,7 @@ def _calibration_row() -> rx.Component:
                                 align="center",
                             ),
                             rx.hstack(
-                                rx.icon("gauge", size=14),
+                                Icon.create("gauge", size=14),
                                 rx.text(t("calibrate_context"), font_size="11px"),
                                 spacing="2",
                                 align="center",
@@ -256,7 +257,7 @@ def _calibration_row() -> rx.Component:
                     rx.cond(
                         AIState.is_calibrating,
                         rx.button(
-                            rx.icon("circle-stop", size=14),
+                            Icon.create("circle-stop", size=14),
                             on_click=AIState.cancel_calibration,
                             size="1",
                             variant="soft",
@@ -321,7 +322,7 @@ def _calibration_row() -> rx.Component:
                     rx.popover.root(
                         rx.popover.trigger(
                             rx.tooltip(
-                                rx.icon(
+                                Icon.create(
                                     "lightbulb",
                                     size=14,
                                     color=COLORS["accent_gold"],

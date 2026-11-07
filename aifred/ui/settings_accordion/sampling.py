@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ...lib.agent_tuning import SamplingRow
 from ...state import AIState
@@ -57,7 +58,7 @@ def _sampling_agent_row(row: ObjectVar[SamplingRow]) -> rx.Component:
         _sampling_input(row, "min_p", row.min_p),
         _sampling_input(row, "repeat_penalty", row.repeat_penalty),
         rx.tooltip(
-            rx.icon(
+            Icon.create(
                 "rotate-ccw",
                 size=13,
                 color=COLORS["primary"],
@@ -96,7 +97,7 @@ def sampling_control_section() -> rx.Component:
                 # beim Oeffnen des Modals auf (Fokus landet auf dem Schalter) und verdeckte
                 # die Tabelle.
                 clickable_tip(
-                    rx.icon(
+                    Icon.create(
                         "lightbulb",
                         size=14,
                         color=COLORS["accent_gold"],

@@ -6,6 +6,7 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ...theme import COLORS
@@ -37,11 +38,11 @@ def bundle_export_modal() -> rx.Component:
         rx.box(
             rx.vstack(
                 rx.hstack(
-                    rx.icon("package", size=18, color=COLORS["accent_gold"]),
+                    Icon.create("package", size=18, color=COLORS["accent_gold"]),
                     rx.text(t("bundle_export_title"), font_weight="bold", font_size="15px", color="white"),
                     rx.spacer(),
                     rx.icon_button(
-                        rx.icon("x", size=14),
+                        Icon.create("x", size=14),
                         on_click=AIState.close_bundle_export,
                         size="1", variant="ghost",
                         custom_attrs={"data-modal-close": "true"},
@@ -66,7 +67,7 @@ def bundle_export_modal() -> rx.Component:
                         variant="soft", color_scheme="gray", size="2",
                     ),
                     rx.button(
-                        rx.icon("download", size=14),
+                        Icon.create("download", size=14),
                         t("bundle_export_btn"),
                         on_click=AIState.confirm_bundle_export,
                         disabled=AIState.bundle_export_selected.length() == 0,
@@ -139,7 +140,7 @@ def bundle_import_modal() -> rx.Component:
     upload_zone = rx.upload(
         rx.box(
             rx.vstack(
-                rx.icon("upload", size=22, color=COLORS["text_secondary"]),
+                Icon.create("upload", size=22, color=COLORS["text_secondary"]),
                 rx.text(
                     t("bundle_import_drop"),
                     font_size="12px", color=COLORS["text_secondary"], text_align="center",
@@ -185,7 +186,7 @@ def bundle_import_modal() -> rx.Component:
         AIState.bundle_import_error != "",
         rx.box(
             rx.hstack(
-                rx.icon("circle-alert", size=14, color=COLORS["danger"]),
+                Icon.create("circle-alert", size=14, color=COLORS["danger"]),
                 rx.text(AIState.bundle_import_error, font_size="11px", color=COLORS["danger"]),
                 spacing="2", align="center",
             ),
@@ -200,11 +201,11 @@ def bundle_import_modal() -> rx.Component:
         rx.box(
             rx.vstack(
                 rx.hstack(
-                    rx.icon("package-open", size=18, color=COLORS["accent_gold"]),
+                    Icon.create("package-open", size=18, color=COLORS["accent_gold"]),
                     rx.text(t("bundle_import_title"), font_weight="bold", font_size="15px", color="white"),
                     rx.spacer(),
                     rx.icon_button(
-                        rx.icon("x", size=14),
+                        Icon.create("x", size=14),
                         on_click=AIState.close_bundle_import,
                         size="1", variant="ghost",
                         custom_attrs={"data-modal-close": "true"},
@@ -222,7 +223,7 @@ def bundle_import_modal() -> rx.Component:
                         variant="soft", color_scheme="gray", size="2",
                     ),
                     rx.button(
-                        rx.icon("check", size=14),
+                        Icon.create("check", size=14),
                         t("bundle_import_btn"),
                         on_click=AIState.confirm_bundle_import,
                         disabled=AIState.bundle_import_selected.length() == 0,

@@ -12,6 +12,7 @@ are empty frames it fills, with the texts handed over as ``data-*`` attributes.
 from __future__ import annotations
 
 import reflex as rx
+from reflex_components_lucide.icon import Icon
 
 from ..state import AIState
 from ..theme import COLORS
@@ -54,7 +55,7 @@ def service_status_bar() -> rx.Component:
             rx.box(id=LIST_ID, class_name="service-status-list", flex="1"),
             rx.tooltip(
                 rx.button(
-                    rx.icon("refresh-cw", size=14),
+                    Icon.create("refresh-cw", size=14),
                     id=REFRESH_ID,
                     size="1",
                     variant="soft",

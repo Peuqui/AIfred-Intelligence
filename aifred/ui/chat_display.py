@@ -9,6 +9,7 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ..state import AIState, ChatHistoryState, StreamingState
 from ..theme import COLORS
@@ -258,7 +259,7 @@ def session_list_display() -> rx.Component:
                 # Delete button, the open session included (the next one
                 # takes over); must not open the session it deletes
                 rx.icon_button(
-                    rx.icon("trash-2", size=12),
+                    Icon.create("trash-2", size=12),
                     size="1",
                     variant="ghost",
                     color_scheme="red",
@@ -290,7 +291,7 @@ def session_list_display() -> rx.Component:
         rx.hstack(
             rx.button(
                 rx.hstack(
-                    rx.icon("plus", size=14),
+                    Icon.create("plus", size=14),
                     rx.text(t("new_chat"), font_size="12px"),
                     spacing="2",
                     align="center",
@@ -311,7 +312,7 @@ def session_list_display() -> rx.Component:
                 },
             ),
             rx.button(
-                rx.icon("refresh-cw", size=14),
+                Icon.create("refresh-cw", size=14),
                 size="1",
                 variant="solid",
                 on_click=AIState.refresh_session_list,

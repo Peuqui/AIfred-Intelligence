@@ -1,7 +1,4 @@
 """Agent-Editor: STT-Tab — ob der Dienst erreichbar ist; eingestellt wird er auf seiner eigenen Oberfläche."""
-# mypy: disable-error-code="index, operator, call-arg, func-returns-value, arg-type"
-# Reflex UI code: Var indexing, rx.icon module callable, event handler binding
-# are all runtime-correct but not statically typeable.
 
 from __future__ import annotations
 

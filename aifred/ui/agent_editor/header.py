@@ -1,11 +1,9 @@
 """Agent-Editor: gemeinsamer Header (Tab-Leiste + Close)."""
-# mypy: disable-error-code="index, operator, call-arg, func-returns-value, arg-type"
-# Reflex UI code: Var indexing, rx.icon module callable, event handler binding
-# are all runtime-correct but not statically typeable.
 
 from __future__ import annotations
 
 import reflex as rx
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ...theme import COLORS
@@ -16,7 +14,7 @@ def _editor_header() -> rx.Component:
     """Shared header with tab navigation for the settings modal."""
     return rx.vstack(
         rx.hstack(
-            rx.icon("settings", size=24, color=COLORS["accent_gold"]),
+            Icon.create("settings", size=24, color=COLORS["accent_gold"]),
             rx.text(
                 t("agent_editor_title"),
                 color="white",
@@ -25,7 +23,7 @@ def _editor_header() -> rx.Component:
             ),
             rx.spacer(),
             rx.button(
-                rx.icon("x", size=16),
+                Icon.create("x", size=16),
                 on_click=AIState.close_editor_with_dirty_check,
                 size="1",
                 variant="ghost",
@@ -38,7 +36,7 @@ def _editor_header() -> rx.Component:
         # Tab bar
         rx.hstack(
             rx.button(
-                rx.icon("users", size=14),
+                Icon.create("users", size=14),
                 t("tab_agents"),
                 on_click=AIState.set_agent_editor_tab("config"),
                 size="2",
@@ -53,7 +51,7 @@ def _editor_header() -> rx.Component:
                 cursor="pointer",
             ),
             rx.button(
-                rx.icon("brain", size=14),
+                Icon.create("brain", size=14),
                 t("tab_memory"),
                 on_click=AIState.set_agent_editor_tab("memory"),
                 size="2",
@@ -68,7 +66,7 @@ def _editor_header() -> rx.Component:
                 cursor="pointer",
             ),
             rx.button(
-                rx.icon("database", size=14),
+                Icon.create("database", size=14),
                 t("tab_database"),
                 on_click=AIState.set_agent_editor_tab("database"),
                 size="2",
@@ -83,7 +81,7 @@ def _editor_header() -> rx.Component:
                 cursor="pointer",
             ),
             rx.button(
-                rx.icon("clock", size=14),
+                Icon.create("clock", size=14),
                 t("tab_scheduler"),
                 on_click=AIState.set_agent_editor_tab("scheduler"),
                 size="2",
@@ -98,7 +96,7 @@ def _editor_header() -> rx.Component:
                 cursor="pointer",
             ),
             rx.button(
-                rx.icon("shield-check", size=14),
+                Icon.create("shield-check", size=14),
                 t("tab_audit"),
                 on_click=AIState.set_agent_editor_tab("audit"),
                 size="2",
@@ -113,7 +111,7 @@ def _editor_header() -> rx.Component:
                 cursor="pointer",
             ),
             rx.button(
-                rx.icon("puzzle", size=14),
+                Icon.create("puzzle", size=14),
                 t("tab_plugins"),
                 on_click=AIState.set_agent_editor_tab("plugins"),
                 size="2",
@@ -128,7 +126,7 @@ def _editor_header() -> rx.Component:
                 cursor="pointer",
             ),
             rx.button(
-                rx.icon("hard-drive", size=14),
+                Icon.create("hard-drive", size=14),
                 t("tab_storage"),
                 on_click=AIState.set_agent_editor_tab("storage"),
                 size="2",
@@ -143,7 +141,7 @@ def _editor_header() -> rx.Component:
                 cursor="pointer",
             ),
             rx.button(
-                rx.icon("volume-2", size=14),
+                Icon.create("volume-2", size=14),
                 t("tab_tts"),
                 on_click=AIState.set_agent_editor_tab("tts"),
                 size="2",
@@ -158,7 +156,7 @@ def _editor_header() -> rx.Component:
                 cursor="pointer",
             ),
             rx.button(
-                rx.icon("mic", size=14),
+                Icon.create("mic", size=14),
                 t("tab_stt"),
                 on_click=AIState.set_agent_editor_tab("stt"),
                 size="2",

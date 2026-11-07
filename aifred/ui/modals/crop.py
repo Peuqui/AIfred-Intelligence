@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import reflex as rx
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ...theme import COLORS
@@ -19,7 +20,7 @@ def crop_modal() -> rx.Component:
         rx.vstack(
             # Header
             rx.hstack(
-                rx.icon("crop", size=20, color="white"),
+                Icon.create("crop", size=20, color="white"),
                 rx.text(t("crop_modal_title"), color="white", font_weight="bold"),
                 spacing="2",
                 align="center",
@@ -79,7 +80,7 @@ def crop_modal() -> rx.Component:
                     size="3",
                 ),
                 rx.button(
-                    rx.icon("rotate-ccw", size=16),
+                    Icon.create("rotate-ccw", size=16),
                     on_click=AIState.rotate_crop_image_left,
                     variant="soft",
                     color_scheme="blue",
@@ -87,7 +88,7 @@ def crop_modal() -> rx.Component:
                     title=t("crop_rotate_left"),
                 ),
                 rx.button(
-                    rx.icon("rotate-cw", size=16),
+                    Icon.create("rotate-cw", size=16),
                     on_click=AIState.rotate_crop_image_right,
                     variant="soft",
                     color_scheme="blue",
@@ -96,7 +97,7 @@ def crop_modal() -> rx.Component:
                 ),
                 rx.button(
                     rx.hstack(
-                        rx.icon("check", size=16),
+                        Icon.create("check", size=16),
                         rx.text(t("crop_apply")),
                         spacing="1",
                     ),

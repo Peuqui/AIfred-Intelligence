@@ -17,6 +17,8 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
+from reflex_components_moment.moment import Moment
 
 from ..state import AIState
 from .helpers import overlay_modal, t
@@ -116,7 +118,7 @@ def _live_preview() -> rx.Component:
             },
         ),
         rx.box(
-            rx.icon("camera-off", size=32, color="gray"),
+            Icon.create("camera-off", size=32, color="gray"),
             rx.text(
                 t("multipose_no_preview"),
                 color="gray",
@@ -145,7 +147,7 @@ def _step_instruction() -> rx.Component:
     Pose-Keys."""
     pose_key = AIState.multipose_current_pose_key
     return rx.callout.root(
-        rx.callout.icon(rx.icon("info")),
+        rx.callout.icon(Icon.create("info")),
         rx.callout.text(
             rx.match(
                 pose_key,
@@ -169,7 +171,7 @@ def _action_buttons() -> rx.Component:
         AIState.multipose_finished,
         rx.hstack(
             rx.button(
-                rx.icon("rotate-ccw", size=14),
+                Icon.create("rotate-ccw", size=14),
                 rx.text(t("multipose_retry")),
                 on_click=AIState.multipose_retry_current,
                 size="2",
@@ -179,7 +181,7 @@ def _action_buttons() -> rx.Component:
             ),
             rx.spacer(),
             rx.button(
-                rx.icon("check", size=14),
+                Icon.create("check", size=14),
                 rx.text(t("multipose_save")),
                 on_click=AIState.multipose_finish,
                 size="2",
@@ -191,7 +193,7 @@ def _action_buttons() -> rx.Component:
         ),
         rx.hstack(
             rx.button(
-                rx.icon("rotate-ccw", size=14),
+                Icon.create("rotate-ccw", size=14),
                 rx.text(t("multipose_retry")),
                 on_click=AIState.multipose_retry_current,
                 size="2",
@@ -200,7 +202,7 @@ def _action_buttons() -> rx.Component:
                 disabled=AIState.multipose_captures.length() == 0,
             ),
             rx.button(
-                rx.icon("skip-forward", size=14),
+                Icon.create("skip-forward", size=14),
                 rx.text(t("multipose_skip")),
                 on_click=AIState.multipose_skip_current,
                 size="2",
@@ -209,7 +211,7 @@ def _action_buttons() -> rx.Component:
             ),
             rx.spacer(),
             rx.button(
-                rx.icon("camera", size=14),
+                Icon.create("camera", size=14),
                 rx.text(t("multipose_capture")),
                 on_click=AIState.multipose_capture,
                 size="2",
@@ -228,7 +230,7 @@ def multipose_modal() -> rx.Component:
         rx.vstack(
             # Header
             rx.hstack(
-                rx.icon("user-cog", size=20),
+                Icon.create("user-cog", size=20),
                 rx.text(
                     t("multipose_title"),
                     font_weight="bold",
@@ -242,7 +244,7 @@ def multipose_modal() -> rx.Component:
                     style={"font_family": "monospace"},
                 ),
                 rx.icon_button(
-                    rx.icon("x", size=16),
+                    Icon.create("x", size=16),
                     on_click=AIState.close_multipose,
                     size="1",
                     variant="ghost",
@@ -268,7 +270,7 @@ def multipose_modal() -> rx.Component:
             # Kontinuierliche Live-Preview: tickt nur solange das Modal
             # offen ist (der Handler no-opt sonst) → frisches Bild zum
             # Pose-Prüfen.
-            rx.moment(
+            Moment.create(
                 # 800 ms: frische Snap-API-Frames (kein RTSP-Pufferlag)
                 # vertragen ein flotteres Tick — responsiv genug zum
                 # Posieren beim Einlernen. Der Handler no-opt bei
@@ -286,7 +288,7 @@ def multipose_modal() -> rx.Component:
             rx.cond(
                 AIState.multipose_status != "",
                 rx.callout.root(
-                    rx.callout.icon(rx.icon("info")),
+                    rx.callout.icon(Icon.create("info")),
                     rx.callout.text(AIState.multipose_status),
                     color_scheme="amber",
                     size="1",

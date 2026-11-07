@@ -9,9 +9,6 @@ Stopp gibt es nur in der Weboberfläche der Suite; der State dazu ist
 der Liste. An/Aus der Sprachausgabe und Autoplay stehen auf der Hauptseite
 (Audio-Bereich).
 """
-# mypy: disable-error-code="index, operator, call-arg, func-returns-value, arg-type"
-# Reflex UI code: Var indexing, rx.icon module callable, event handler binding
-# are all runtime-correct but not statically typeable.
 
 from __future__ import annotations
 
@@ -19,6 +16,7 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ...theme import COLORS
@@ -29,7 +27,7 @@ from .header import _editor_header
 def _icon_action(icon: str, on_click: Any, tooltip_key: str) -> rx.Component:
     return rx.tooltip(
         rx.icon_button(
-            rx.icon(icon, size=12),
+            Icon.create(icon, size=12),
             on_click=on_click,
             size="1",
             variant="ghost",
@@ -84,7 +82,7 @@ def _entry_row(row: ObjectVar[dict[str, Any]]) -> rx.Component:
         rx.cond(
             row["warn"].to(bool),
             rx.tooltip(
-                rx.icon("triangle-alert", size=14, color=COLORS["accent_warning"]),
+                Icon.create("triangle-alert", size=14, color=COLORS["accent_warning"]),
                 content=t("tts_entry_unreachable_warning"),
             ),
             rx.fragment(),
@@ -115,7 +113,7 @@ def _list_section() -> rx.Component:
         _section_heading(
             "tts_list_heading",
             rx.popover.root(
-                rx.popover.trigger(rx.icon("lightbulb", size=14, color=COLORS["accent_gold"], cursor="pointer")),
+                rx.popover.trigger(Icon.create("lightbulb", size=14, color=COLORS["accent_gold"], cursor="pointer")),
                 rx.popover.content(
                     rx.text(t("tts_list_tooltip"), font_size="11px", color=COLORS["text_primary"], line_height="1.5"),
                     max_width="340px",
@@ -124,7 +122,7 @@ def _list_section() -> rx.Component:
             ),
             rx.box(flex="1"),
             rx.button(
-                rx.icon("refresh-cw", size=12),
+                Icon.create("refresh-cw", size=12),
                 t("tts_check_status"),
                 on_click=AIState.check_tts_status,
                 loading=AIState.tts_status_checking,

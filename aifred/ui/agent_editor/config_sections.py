@@ -1,11 +1,9 @@
 """Agent-Editor: Config-Tab-Sektionen — TTS, Tools, Prompt-Layer, Aktionen."""
-# mypy: disable-error-code="index, operator, call-arg, func-returns-value, arg-type"
-# Reflex UI code: Var indexing, rx.icon module callable, event handler binding
-# are all runtime-correct but not statically typeable.
 
 from __future__ import annotations
 
 import reflex as rx
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ...theme import COLORS
@@ -168,7 +166,7 @@ def _tools_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> r
                 rx.spacer(),
                 rx.popover.root(
                     rx.popover.trigger(
-                        rx.icon("lightbulb", size=14, color=COLORS["accent_gold"], cursor="pointer"),
+                        Icon.create("lightbulb", size=14, color=COLORS["accent_gold"], cursor="pointer"),
                     ),
                     rx.popover.content(
                         _tier_help_content(),
@@ -281,7 +279,7 @@ def _dirty_warning() -> rx.Component:
         AIState.editor_dirty_confirm,
         rx.vstack(
             rx.hstack(
-                rx.icon("triangle-alert", size=16, color=COLORS["primary"]),
+                Icon.create("triangle-alert", size=16, color=COLORS["primary"]),
                 rx.text(
                     t("agent_editor_unsaved_warning"),
                     font_size="13px",

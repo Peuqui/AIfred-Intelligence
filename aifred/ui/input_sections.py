@@ -6,6 +6,8 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ObjectVar, StringVar
+from reflex_components_lucide.icon import Icon
+from reflex_components_moment.moment import Moment
 
 from ..state import AIState
 from ..theme import COLORS, DELEGATION_ICON
@@ -128,7 +130,7 @@ def image_upload_section() -> rx.Component:
         rx.hstack(
             # Live Audio Recording Button (LEFTMOST - MediaRecorder)
             rx.button(
-                rx.icon("mic", size=16),
+                Icon.create("mic", size=16),
                 rx.text(t("recording"), font_size="14px", display=["none", "none", "inline"]),  # Hide text on mobile
                 id="recording-button",
                 size="2",
@@ -164,7 +166,7 @@ def image_upload_section() -> rx.Component:
                 rx.upload(
                     rx.tooltip(
                         rx.button(
-                            rx.icon("camera", size=16),
+                            Icon.create("camera", size=16),
                             rx.text(t("camera"), font_size="14px", display=["none", "none", "inline"]),
                             size="2",
                             variant="outline",
@@ -199,7 +201,7 @@ def image_upload_section() -> rx.Component:
             rx.upload(
                 rx.tooltip(
                     rx.button(
-                        rx.icon("image", size=16),
+                        Icon.create("image", size=16),
                         rx.text(t("upload_image"), font_size="14px", display=["none", "none", "inline"]),
                         size="2",
                         variant="outline",
@@ -234,7 +236,7 @@ def image_upload_section() -> rx.Component:
             # (independent of the browser's getUserMedia camera).
             rx.tooltip(
                 rx.button(
-                    rx.icon("video", size=16),
+                    Icon.create("video", size=16),
                     rx.text(
                         t("vision_preview_button"),
                         font_size="14px",
@@ -262,7 +264,7 @@ def image_upload_section() -> rx.Component:
             # Document Manager Button (click = open modal, drop = upload)
             rx.tooltip(
                 rx.button(
-                    rx.icon("file-text", size=16),
+                    Icon.create("file-text", size=16),
                     rx.text(t("upload_document"), font_size="14px", display=["none", "none", "inline"]),
                     size="2",
                     variant="outline",
@@ -286,7 +288,7 @@ def image_upload_section() -> rx.Component:
             rx.upload(
                 rx.tooltip(
                     rx.button(
-                        rx.icon("disc-3", size=16),
+                        Icon.create("disc-3", size=16),
                         rx.text(t("audio"), font_size="14px", display=["none", "none", "inline"]),
                         size="2",
                         variant="outline",
@@ -309,7 +311,7 @@ def image_upload_section() -> rx.Component:
 
             # Help button (lightbulb) — explains all input buttons
             clickable_tip(
-                rx.icon(
+                Icon.create(
                     "lightbulb",
                     size=16,
                     color=COLORS["accent_gold"],
@@ -346,7 +348,7 @@ def image_upload_section() -> rx.Component:
             rx.cond(
                 AIState.pending_images.length() > 0,
                 rx.button(
-                    rx.icon("trash-2", size=20),
+                    Icon.create("trash-2", size=20),
                     rx.text(t("clear_all"), font_size="16px", display=["none", "none", "inline"]),
                     size="4",
                     variant="soft",
@@ -428,7 +430,7 @@ def image_upload_section() -> rx.Component:
                         ),
                         # Crop-Button (links oben) - größer für Touch
                         rx.icon_button(
-                            rx.icon("crop", size=16),
+                            Icon.create("crop", size=16),
                             size="2",  # Größer für bessere Touch-Bedienung
                             color_scheme="green",
                             variant="solid",
@@ -440,7 +442,7 @@ def image_upload_section() -> rx.Component:
                         ),
                         # Remove-Button (rechts oben) - größer für Touch
                         rx.icon_button(
-                            rx.icon("x", size=16),
+                            Icon.create("x", size=16),
                             size="2",  # Größer für bessere Touch-Bedienung
                             color_scheme="red",
                             variant="solid",
@@ -529,7 +531,7 @@ def text_input_section() -> rx.Component:
             ),
             # Help icon
             rx.tooltip(
-                rx.icon(
+                Icon.create(
                     "lightbulb",
                     size=16,
                     color=COLORS["accent_gold"],
@@ -569,8 +571,8 @@ def text_input_section() -> rx.Component:
                 rx.box(
                     rx.cond(
                         AIState.agent_memory_enabled,
-                        rx.icon("lock-open", size=18, cursor="pointer", color=COLORS["accent_success"]),
-                        rx.icon("lock", size=18, cursor="pointer", color=COLORS["text_secondary"], opacity=0.7),
+                        Icon.create("lock-open", size=18, cursor="pointer", color=COLORS["accent_success"]),
+                        Icon.create("lock", size=18, cursor="pointer", color=COLORS["text_secondary"], opacity=0.7),
                     ),
                     on_click=AIState.toggle_agent_memory,
                 ),
@@ -615,7 +617,7 @@ def text_input_section() -> rx.Component:
             rx.hstack(
                 rx.text(t("max_debate_rounds"), font_size="11px"),
                 rx.icon_button(
-                    rx.icon("circle-minus", size=16),
+                    Icon.create("circle-minus", size=16),
                     on_click=AIState.decrease_debate_rounds,
                     size="1",
                     variant="soft",
@@ -632,7 +634,7 @@ def text_input_section() -> rx.Component:
                     style={"background-color": COLORS["warning_bg_hover"], "color": COLORS["primary"], "min-width": "24px", "text-align": "center"},
                 ),
                 rx.icon_button(
-                    rx.icon("circle-plus", size=16),
+                    Icon.create("circle-plus", size=16),
                     on_click=AIState.increase_debate_rounds,
                     size="1",
                     variant="soft",
@@ -650,7 +652,7 @@ def text_input_section() -> rx.Component:
         # Action Buttons
         rx.hstack(
             rx.button(
-                rx.icon("send", size=18),
+                Icon.create("send", size=18),
                 t("send_text"),
                 id="send-button",
                 on_click=rx.call_script(
@@ -688,7 +690,7 @@ def text_input_section() -> rx.Component:
             ),
             # Secondary buttons: icon-only on mobile, icon+text on desktop
             rx.button(
-                rx.icon("trash-2", size=16),
+                Icon.create("trash-2", size=16),
                 rx.cond(AIState.is_mobile, rx.fragment(), t("clear_chat")),
                 on_click=AIState.clear_chat,
                 disabled=_busy_disabled(),
@@ -713,7 +715,7 @@ def text_input_section() -> rx.Component:
             ),
             rx.tooltip(
               rx.button(
-                rx.icon("pin", size=16),
+                Icon.create("pin", size=16),
                 rx.cond(AIState.is_mobile, rx.fragment(), t("save_memory")),
                 on_click=AIState.save_session_memory,
                 disabled=_busy_disabled(),
@@ -739,7 +741,7 @@ def text_input_section() -> rx.Component:
               content=t("save_memory_hint"),
             ),
             rx.button(
-                rx.icon("share-2", size=16),
+                Icon.create("share-2", size=16),
                 rx.cond(AIState.is_mobile, rx.fragment(), t("share_chat")),
                 on_click=AIState.share_chat,
                 disabled=_busy_disabled(),
@@ -750,7 +752,7 @@ def text_input_section() -> rx.Component:
                 style=blue_action_button_style(),
             ),
             rx.button(
-                rx.icon("download", size=16),
+                Icon.create("download", size=16),
                 rx.cond(AIState.is_mobile, rx.fragment(), t("download_chat")),
                 on_click=AIState.download_chat,
                 disabled=_busy_disabled(),
@@ -829,7 +831,7 @@ def debug_console() -> rx.Component:
 
     # Periodic refresh timer for background task state propagation
     # Without this, messages from background tasks (InactivityMonitor) won't appear in UI
-    refresh_timer = rx.moment(
+    refresh_timer = Moment.create(
         interval=500,  # 500ms — fast enough for Hub/FreeEcho.2 debug messages + ghosting
         on_change=AIState.refresh_debug_console,
         display="none",

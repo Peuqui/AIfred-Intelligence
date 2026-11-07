@@ -12,6 +12,7 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ..state import AIState
 from ..theme import COLORS
@@ -23,12 +24,12 @@ def _icon_for(entry_is_dir: rx.Var, entry_is_symlink: rx.Var) -> rx.Component:
     return rx.hstack(
         rx.cond(
             entry_is_dir,
-            rx.icon("folder", size=18, color=COLORS["accent_blue"]),
-            rx.icon("file", size=18, color=COLORS["text_secondary"]),
+            Icon.create("folder", size=18, color=COLORS["accent_blue"]),
+            Icon.create("file", size=18, color=COLORS["text_secondary"]),
         ),
         rx.cond(
             entry_is_symlink,
-            rx.icon("link", size=11, color=COLORS["text_secondary"], margin_left="-6px", margin_top="6px"),
+            Icon.create("link", size=11, color=COLORS["text_secondary"], margin_left="-6px", margin_top="6px"),
             rx.fragment(),
         ),
         spacing="0",
@@ -51,7 +52,7 @@ def _entry_row(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
         rx.cond(
             entry["error"] != "",
             rx.tooltip(
-                rx.icon("triangle-alert", size=14, color=COLORS["danger"]),
+                Icon.create("triangle-alert", size=14, color=COLORS["danger"]),
                 content=entry["error"],
             ),
             rx.fragment(),
@@ -94,7 +95,7 @@ def _toolbar() -> rx.Component:
     """Toolbar with capability-dependent buttons + sort selector."""
     return rx.hstack(
         rx.button(
-            rx.icon("arrow-up", size=14),
+            Icon.create("arrow-up", size=14),
             "Hoch",
             size="1",
             variant="soft",
@@ -105,7 +106,7 @@ def _toolbar() -> rx.Component:
         rx.cond(
             AIState.picker_caps.contains("can_create_folder"),
             rx.button(
-                rx.icon("folder-plus", size=14),
+                Icon.create("folder-plus", size=14),
                 "Neuer Ordner",
                 size="1",
                 variant="soft",
@@ -123,7 +124,7 @@ def _toolbar() -> rx.Component:
         rx.cond(
             AIState.picker_caps.contains("can_create_symlink"),
             rx.button(
-                rx.icon("link", size=14),
+                Icon.create("link", size=14),
                 "Symlink",
                 size="1",
                 variant="soft",
@@ -143,7 +144,7 @@ def _toolbar() -> rx.Component:
         rx.cond(
             ~AIState.picker_writable,
             rx.hstack(
-                rx.icon("lock", size=12, color=COLORS["text_secondary"]),
+                Icon.create("lock", size=12, color=COLORS["text_secondary"]),
                 rx.text("read-only", font_size="11px", color=COLORS["text_secondary"]),
                 spacing="1",
                 align="center",
@@ -265,11 +266,11 @@ def file_picker_modal() -> rx.Component:
         rx.vstack(
             # Header
             rx.hstack(
-                rx.icon("folder", size=20, color=COLORS["accent_blue"]),
+                Icon.create("folder", size=20, color=COLORS["accent_blue"]),
                 rx.text(AIState.picker_title, font_weight="bold", font_size="15px"),
                 rx.spacer(),
                 rx.button(
-                    rx.icon("x", size=16),
+                    Icon.create("x", size=16),
                     size="1",
                     variant="ghost",
                     on_click=AIState.picker_close,

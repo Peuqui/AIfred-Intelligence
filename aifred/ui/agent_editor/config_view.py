@@ -1,11 +1,9 @@
 """Agent-Editor: Config-Tab — Dropdown, Metadata, TTS, Tools, Prompts."""
-# mypy: disable-error-code="index, operator, call-arg, func-returns-value, arg-type"
-# Reflex UI code: Var indexing, rx.icon module callable, event handler binding
-# are all runtime-correct but not statically typeable.
 
 from __future__ import annotations
 
 import reflex as rx
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ...theme import COLORS
@@ -65,7 +63,7 @@ def _agent_selector_row(is_new: rx.Var, is_automatik: rx.Var, is_default: rx.Var
                     placeholder=t("agent_editor_agent_id_placeholder"),
                     auto_complete="off",
                     spell_check=False,
-                    **_INPUT_STYLE,
+                    style=_INPUT_STYLE,
                 ),
                 flex="1",
                 min_width="0",
@@ -76,7 +74,7 @@ def _agent_selector_row(is_new: rx.Var, is_automatik: rx.Var, is_default: rx.Var
             ~is_automatik,
             rx.tooltip(
                 rx.icon_button(
-                    rx.icon("plus", size=16),
+                    Icon.create("plus", size=16),
                     on_click=AIState.start_new_agent,
                     size="2",
                     variant="soft",
@@ -91,7 +89,7 @@ def _agent_selector_row(is_new: rx.Var, is_automatik: rx.Var, is_default: rx.Var
             ~is_new & ~is_default & ~is_automatik,
             rx.tooltip(
                 rx.icon_button(
-                    rx.icon("trash-2", size=16),
+                    Icon.create("trash-2", size=16),
                     on_click=AIState.delete_agent_editor(AIState.editor_agent_id),
                     size="2",
                     variant="soft",
@@ -113,7 +111,7 @@ def _agent_selector_row(is_new: rx.Var, is_automatik: rx.Var, is_default: rx.Var
             ~is_new & ~is_automatik,
             rx.tooltip(
                 rx.icon_button(
-                    rx.icon("eraser", size=16),
+                    Icon.create("eraser", size=16),
                     on_click=AIState.clear_agent_memory(AIState.editor_agent_id),
                     size="2",
                     variant="soft",
@@ -135,7 +133,7 @@ def _agent_selector_row(is_new: rx.Var, is_automatik: rx.Var, is_default: rx.Var
             ~is_new & ~is_automatik,
             rx.tooltip(
                 rx.icon_button(
-                    rx.icon("package", size=16),
+                    Icon.create("package", size=16),
                     on_click=AIState.open_bundle_export,
                     size="2", variant="soft",
                     color_scheme="blue", cursor="pointer",
@@ -148,7 +146,7 @@ def _agent_selector_row(is_new: rx.Var, is_automatik: rx.Var, is_default: rx.Var
             ~is_automatik,
             rx.tooltip(
                 rx.icon_button(
-                    rx.icon("package-open", size=16),
+                    Icon.create("package-open", size=16),
                     on_click=AIState.open_bundle_import,
                     size="2", variant="soft",
                     color_scheme="cyan", cursor="pointer",
@@ -174,7 +172,7 @@ def _metadata_row(is_new: rx.Var, is_automatik: rx.Var) -> rx.Component:
                     value=AIState.editor_agent_id,
                     read_only=True,
                     tab_index=-1,
-                    **_ID_INPUT_STYLE,
+                    style=_ID_INPUT_STYLE,
                 ),
                 spacing="1",
                 width="140px",
@@ -189,7 +187,7 @@ def _metadata_row(is_new: rx.Var, is_automatik: rx.Var) -> rx.Component:
                 auto_complete="off",
                 spell_check=False,
                 on_change=lambda _: AIState.mark_editor_dirty("name"),
-                **_INPUT_STYLE,
+                style=_INPUT_STYLE,
             ),
             spacing="1",
             flex="1",
@@ -292,7 +290,7 @@ def _system_model_section(is_system: rx.Var) -> rx.Component:
                 ),
                 rx.tooltip(
                     rx.hstack(
-                        rx.icon("brain", size=14, color=rx.cond(
+                        Icon.create("brain", size=14, color=rx.cond(
                             AIState.editor_system_reasoning, COLORS["accent_gold"], COLORS["text_muted"],
                         )),
                         rx.switch(
@@ -351,7 +349,7 @@ def _role_description_row(is_automatik: rx.Var, is_system: rx.Var) -> rx.Compone
                 auto_complete="off",
                 spell_check=False,
                 on_change=lambda _: AIState.mark_editor_dirty("description"),
-                **_INPUT_STYLE,
+                style=_INPUT_STYLE,
             ),
             spacing="1",
             flex="1",

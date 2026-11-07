@@ -1,11 +1,12 @@
 """Agent-Editor: Plugins-Tab — Tool-/Channel-Plugins mit Tier-Badges."""
-# mypy: disable-error-code="index, operator, call-arg, func-returns-value, arg-type"
-# Reflex UI code: Var indexing, rx.icon module callable, event handler binding
-# are all runtime-correct but not statically typeable.
+# mypy: disable-error-code="arg-type"
+# The tier label comes from rx.match, whose stub returns Component | Var also when every case is a
+# text: the select's value is a string at runtime, mypy cannot see it.
 
 from __future__ import annotations
 
 import reflex as rx
+from reflex_components_lucide.icon import Icon
 
 from ...lib.plugin_base import plugin_description, plugin_display_name
 from ...state import AIState
@@ -25,7 +26,7 @@ def _plugin_description_popover(plugin: object | None) -> rx.Component:
     description = plugin_text(plugin_description, plugin)
     return rx.popover.root(
         rx.popover.trigger(
-            rx.icon("lightbulb", size=14, color=COLORS["accent_gold"], cursor="pointer"),
+            Icon.create("lightbulb", size=14, color=COLORS["accent_gold"], cursor="pointer"),
         ),
         rx.popover.content(
             rx.text(description, font_size="11px", color=COLORS["text_primary"], padding="8px", max_width="320px"),
@@ -65,7 +66,7 @@ def _plugins_view() -> rx.Component:
         row_children: list[rx.Component] = [
             # Name column — fixed width keeps lightbulb column aligned across rows
             rx.hstack(
-                rx.icon("puzzle", size=14, color=rx.cond(enabled_var, COLORS["accent_success"], COLORS["text_muted"])),
+                Icon.create("puzzle", size=14, color=rx.cond(enabled_var, COLORS["accent_success"], COLORS["text_muted"])),
                 rx.text(display_name, font_size="14px", color=rx.cond(enabled_var, "white", COLORS["text_secondary"])),
                 spacing="2", align="center", min_width="220px",
             ),
@@ -76,7 +77,7 @@ def _plugins_view() -> rx.Component:
         if has_creds:
             row_children.append(
                 rx.icon_button(
-                    rx.icon("settings", size=14),
+                    Icon.create("settings", size=14),
                     on_click=AIState.open_channel_credentials(name),
                     size="1",
                     variant="ghost",
@@ -95,7 +96,7 @@ def _plugins_view() -> rx.Component:
                 if callable(handler):
                     row_children.append(
                         rx.icon_button(
-                            rx.icon("settings", size=14),
+                            Icon.create("settings", size=14),
                             on_click=handler,
                             size="1",
                             variant="ghost",
@@ -157,7 +158,7 @@ def _plugins_view() -> rx.Component:
         header = rx.hstack(
             # Col 1: Icon + Name (fixed width for alignment)
             rx.hstack(
-                rx.icon(channel_plugin.icon, size=14, color=rx.cond(enabled_var, COLORS["accent_success"], COLORS["text_muted"])),
+                Icon.create(channel_plugin.icon, size=14, color=rx.cond(enabled_var, COLORS["accent_success"], COLORS["text_muted"])),
                 rx.text(plugin_text(plugin_display_name, channel_plugin), font_size="14px", color=rx.cond(enabled_var, "white", COLORS["text_secondary"])),
                 spacing="2", align="center", min_width="220px",
             ),
@@ -168,7 +169,7 @@ def _plugins_view() -> rx.Component:
             rx.spacer(),
             # Col 3: Gear + Switch + ON/OFF
             rx.icon_button(
-                rx.icon("settings", size=14),
+                Icon.create("settings", size=14),
                 on_click=AIState.open_channel_credentials(name),
                 size="1",
                 variant="ghost",
@@ -240,7 +241,7 @@ def _plugins_view() -> rx.Component:
                     enabled_var,
                     rx.hstack(
                         rx.box(width="14px"),
-                        rx.icon("shield", size=12, color=COLORS["text_muted"]),
+                        Icon.create("shield", size=12, color=COLORS["text_muted"]),
                         rx.text(
                             AIState.channel_allowlists[name],
                             font_size="10px", color=COLORS["text_secondary"],
@@ -265,7 +266,7 @@ def _plugins_view() -> rx.Component:
                         rx.text(t("security_tiers_title"), font_size="11px", color=COLORS["text_muted"]),
                         rx.popover.root(
                             rx.popover.trigger(
-                                rx.icon("lightbulb", size=14, color=COLORS["accent_gold"], cursor="pointer"),
+                                Icon.create("lightbulb", size=14, color=COLORS["accent_gold"], cursor="pointer"),
                             ),
                             rx.popover.content(
                                 _tier_help_content(),

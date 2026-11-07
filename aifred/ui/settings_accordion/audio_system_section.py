@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import reflex as rx
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ...theme import COLORS
@@ -17,7 +18,7 @@ def _tts_section() -> rx.Component:
             rx.text(t("tts_heading"), font_weight="bold", font_size="12px"),
             rx.tooltip(
                 rx.icon_button(
-                    rx.icon("settings", size=14),
+                    Icon.create("settings", size=14),
                     on_click=AIState.open_tts_settings,
                     size="1",
                     variant="ghost",

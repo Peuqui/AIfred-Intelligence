@@ -146,15 +146,13 @@ sieht die anderen nicht.
   Änderungen an Typen, Deklarationen oder Dekoratoren das Rendering jeder Seite
   vorher und nachher vergleichen: `scripts/render_pages.py` (06.11. fing das ein
   `.to(list)`, das den Elementtyp verwarf und die Seite beim Kompilieren gebrochen hätte).
-- Meldet mypy „Module not callable“ (`rx.icon`, `rx.moment`), **ohne Cache gegenprüfen**
-  (`--no-incremental`). Ursache (07.11.): `reflex_components_lucide` und
-  `reflex_components_moment` haben ein Untermodul `icon` bzw. `moment` und binden den
-  Namen in `__init__.py` danach an `Icon.create` bzw. `Moment.create`; der inkrementelle
-  Lauf nimmt offenbar das Untermodul. Nachgestellt: eine Kommentarzeile in
-  `lib/formatting.py` oder in einem State-Mixin, und der Lauf mit Cache meldet 242 solche
-  Fehler (alle an diesen beiden Aufrufen); der Cache bleibt kaputt, bis ein Lauf ohne Cache
-  ihn neu schreibt. Sauber ist ein Lauf mit Cache nur ohne Änderung seit dem letzten
-  vollen Lauf (auch eine Änderung an `mypy.ini` baut alles neu). Verschwindet mit Reflex.
+- **`Icon.create(...)` und `Moment.create(...)` statt `rx.icon(...)`/`rx.moment(...)`** (seit 07.11.):
+  `reflex_components_lucide` und `reflex_components_moment` haben ein Untermodul `icon` bzw. `moment`
+  und binden den Namen in `__init__.py` danach an die Funktion. Nach jeder Codeänderung nahm mypys
+  Lauf mit Cache das Untermodul und meldete an allen 242 Aufrufen „Module not callable“; nur ein Lauf
+  ohne Cache stimmte (40 statt 9 s). Über die Klasse ist der Name eindeutig, die Signatur wird weiter
+  geprüft. `tests/test_reflex_ambiguous_names.py` hält das. `follow_imports = skip` für die beiden
+  Pakete macht es schlimmer (dann meldet auch der volle Lauf die 242).
 - **Stellvertreter in Tests** (eine kleine Klasse statt des echten States oder
   Objekts) erben für mypy von der echten Klasse und zur Laufzeit von `object`:
   ```python

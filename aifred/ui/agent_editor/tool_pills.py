@@ -1,8 +1,5 @@
 """Agent-Editor: Tool-Pills, gruppiert nach Plugin. Sie kommen zur Laufzeit aus dem
 State: Plugins werden im laufenden Dienst an- und abgeschaltet."""
-# mypy: disable-error-code="index, operator, call-arg, func-returns-value, arg-type"
-# Reflex UI code: Var indexing, rx.icon module callable, event handler binding
-# are all runtime-correct but not statically typeable.
 
 from __future__ import annotations
 

@@ -6,6 +6,7 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ...theme import COLORS
@@ -45,8 +46,8 @@ def _cred_field_input(field: ObjectVar[dict[str, Any]]) -> rx.Component:
             rx.icon_button(
                 rx.cond(
                     AIState.channel_cred_show_password,
-                    rx.icon("eye-off", size=14),
-                    rx.icon("eye", size=14),
+                    Icon.create("eye-off", size=14),
+                    Icon.create("eye", size=14),
                 ),
                 on_click=AIState.toggle_channel_cred_show_password,
                 size="1",
@@ -74,7 +75,7 @@ def _cred_field_input(field: ObjectVar[dict[str, Any]]) -> rx.Component:
         clickable_tip(
             rx.hstack(
                 rx.text(field["label_key"].to(str), font_size="11px", color=COLORS["text_secondary"]),
-                rx.icon("lightbulb", size=12, color=COLORS["accent_gold"]),
+                Icon.create("lightbulb", size=12, color=COLORS["accent_gold"]),
                 spacing="1", align="center", cursor="pointer",
             ),
             rx.text(field["tooltip"].to(str), font_size="12px", color=COLORS["text_primary"], white_space="pre-line"),
@@ -184,7 +185,7 @@ def channel_credentials_page() -> rx.Component:
                                 rx.hstack(
                                     rx.button(
                                         rx.hstack(
-                                            rx.icon("circle-check", size=14),
+                                            Icon.create("circle-check", size=14),
                                             rx.text(t("oauth_connect_connected")),
                                             spacing="2", align="center",
                                         ),
@@ -212,7 +213,7 @@ def channel_credentials_page() -> rx.Component:
                                     rx.link(
                                         rx.button(
                                             rx.hstack(
-                                                rx.icon("circle-alert", size=14),
+                                                Icon.create("circle-alert", size=14),
                                                 rx.text(t("oauth_connect_error")),
                                                 spacing="2", align="center",
                                             ),
@@ -230,7 +231,7 @@ def channel_credentials_page() -> rx.Component:
                                     ),
                                     rx.button(
                                         rx.hstack(
-                                            rx.icon("circle-alert", size=14),
+                                            Icon.create("circle-alert", size=14),
                                             rx.text(t("oauth_connect_no_credentials")),
                                             spacing="2", align="center",
                                         ),
@@ -248,7 +249,7 @@ def channel_credentials_page() -> rx.Component:
                                 rx.link(
                                     rx.button(
                                         rx.hstack(
-                                            rx.icon("link", size=14),
+                                            Icon.create("link", size=14),
                                             rx.text(t("oauth_connect_idle")),
                                             spacing="2", align="center",
                                         ),
@@ -266,7 +267,7 @@ def channel_credentials_page() -> rx.Component:
                                 ),
                                 rx.button(
                                     rx.hstack(
-                                        rx.icon("link", size=14),
+                                        Icon.create("link", size=14),
                                         rx.text(t("oauth_connect_no_credentials")),
                                         spacing="2", align="center",
                                     ),

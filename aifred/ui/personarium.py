@@ -13,6 +13,7 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ArrayVar, ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ..state import AIState
 from .helpers import bulk_delete_bar, overlay_modal, t
@@ -39,7 +40,7 @@ def _face_row(face: ObjectVar[dict[str, Any]]) -> rx.Component:
                 },
             ),
             rx.box(
-                rx.icon("user", size=24, color="gray"),
+                Icon.create("user", size=24, color="gray"),
                 style={
                     "width": "48px",
                     "height": "48px",
@@ -64,7 +65,7 @@ def _face_row(face: ObjectVar[dict[str, Any]]) -> rx.Component:
                     style={"flex": "1 1 auto", "min_width": "0"},
                 ),
                 rx.icon_button(
-                    rx.icon("check", size=14),
+                    Icon.create("check", size=14),
                     on_click=AIState.personarium_save_rename,
                     size="1",
                     variant="soft",
@@ -72,7 +73,7 @@ def _face_row(face: ObjectVar[dict[str, Any]]) -> rx.Component:
                     title=t("personarium_save"),
                 ),
                 rx.icon_button(
-                    rx.icon("x", size=14),
+                    Icon.create("x", size=14),
                     on_click=AIState.personarium_cancel_rename,
                     size="1",
                     variant="soft",
@@ -104,7 +105,7 @@ def _face_row(face: ObjectVar[dict[str, Any]]) -> rx.Component:
             rx.fragment(),
             rx.hstack(
                 rx.icon_button(
-                    rx.icon("user-cog", size=14),
+                    Icon.create("user-cog", size=14),
                     on_click=AIState.open_multipose(fid, face["name"]),
                     size="1",
                     variant="soft",
@@ -112,7 +113,7 @@ def _face_row(face: ObjectVar[dict[str, Any]]) -> rx.Component:
                     title=t("personarium_multipose_add"),
                 ),
                 rx.icon_button(
-                    rx.icon("layers", size=14),
+                    Icon.create("layers", size=14),
                     on_click=AIState.personarium_open_embeddings(fid),
                     size="1",
                     variant="soft",
@@ -120,7 +121,7 @@ def _face_row(face: ObjectVar[dict[str, Any]]) -> rx.Component:
                     title=t("personarium_manage_embeddings"),
                 ),
                 rx.icon_button(
-                    rx.icon("pencil", size=14),
+                    Icon.create("pencil", size=14),
                     on_click=AIState.personarium_start_rename(fid, face["name"]),
                     size="1",
                     variant="soft",
@@ -128,7 +129,7 @@ def _face_row(face: ObjectVar[dict[str, Any]]) -> rx.Component:
                     title=t("personarium_rename"),
                 ),
                 rx.icon_button(
-                    rx.icon("trash-2", size=14),
+                    Icon.create("trash-2", size=14),
                     on_click=AIState.personarium_delete_face(fid),
                     size="1",
                     variant="soft",
@@ -194,7 +195,7 @@ def _embedding_cell(emb: ObjectVar[dict[str, Any]]) -> rx.Component:
                 },
             ),
             rx.box(
-                rx.icon("image-off", size=20, color="gray"),
+                Icon.create("image-off", size=20, color="gray"),
                 style={
                     "width": "64px", "height": "64px", "border_radius": "4px",
                     "background_color": "var(--gray-3)", "border": "1px solid var(--gray-7)",
@@ -207,7 +208,7 @@ def _embedding_cell(emb: ObjectVar[dict[str, Any]]) -> rx.Component:
             size="1", color="gray", style={"text_align": "center"},
         ),
         rx.icon_button(
-            rx.icon("trash-2", size=12),
+            Icon.create("trash-2", size=12),
             on_click=AIState.personarium_delete_embedding(emb["id"]),
             size="1", variant="soft", color_scheme="red",
             style={"position": "absolute", "top": "2px", "right": "2px"},
@@ -227,7 +228,7 @@ def _untagged_section(
         cards.length() > 0,
         rx.vstack(
             rx.hstack(
-                rx.icon(icon, size=13, color="gray"),
+                Icon.create(icon, size=13, color="gray"),
                 rx.text(title, font_weight="bold", size="2"),
                 rx.badge(cards.length(), variant="soft", size="1"),
                 align="center", spacing="2",
@@ -325,14 +326,14 @@ def _untagged_card(ev: ObjectVar[dict[str, Any]]) -> rx.Component:
                 ),
                 rx.hstack(
                     rx.icon_button(
-                        rx.icon("check", size=14),
+                        Icon.create("check", size=14),
                         on_click=AIState.personarium_save_tag,
                         size="1", variant="soft", color_scheme="green",
                         loading=AIState.personarium_tag_busy,
                         title=t("personarium_tag_save"),
                     ),
                     rx.icon_button(
-                        rx.icon("x", size=14),
+                        Icon.create("x", size=14),
                         on_click=AIState.personarium_cancel_tag,
                         size="1", variant="soft", color_scheme="gray",
                         title=t("personarium_tag_cancel"),
@@ -345,13 +346,13 @@ def _untagged_card(ev: ObjectVar[dict[str, Any]]) -> rx.Component:
             ),
             rx.hstack(
                 rx.icon_button(
-                    rx.icon("user-plus", size=14),
+                    Icon.create("user-plus", size=14),
                     on_click=AIState.personarium_start_tag(eid),
                     size="1", variant="soft", color_scheme="orange",
                     title=t("personarium_tag_button"),
                 ),
                 rx.icon_button(
-                    rx.icon("x", size=14),
+                    Icon.create("x", size=14),
                     on_click=AIState.personarium_dismiss_untagged(eid),
                     size="1", variant="soft", color_scheme="gray",
                     title=t("personarium_untagged_dismiss"),
@@ -379,7 +380,7 @@ def personarium_modal() -> rx.Component:
         rx.vstack(
             # Header
             rx.hstack(
-                rx.icon("users", size=20),
+                Icon.create("users", size=20),
                 rx.text(
                     t("personarium_title"),
                     font_weight="bold",
@@ -387,7 +388,7 @@ def personarium_modal() -> rx.Component:
                 ),
                 rx.spacer(),
                 rx.icon_button(
-                    rx.icon("x", size=16),
+                    Icon.create("x", size=16),
                     on_click=AIState.close_personarium,
                     size="1",
                     variant="ghost",
@@ -417,7 +418,7 @@ def personarium_modal() -> rx.Component:
                     },
                 ),
                 rx.box(
-                    rx.icon("users", size=32, color="gray"),
+                    Icon.create("users", size=32, color="gray"),
                     rx.text(
                         t("personarium_empty"),
                         color="gray",
@@ -443,7 +444,7 @@ def personarium_modal() -> rx.Component:
                 ),
                 rx.spacer(),
                 rx.button(
-                    rx.icon("scan-face", size=14),
+                    Icon.create("scan-face", size=14),
                     t("personarium_rematch_button"),
                     on_click=AIState.personarium_rematch_untagged,
                     loading=AIState.personarium_rematch_busy,
@@ -503,7 +504,7 @@ def personarium_modal() -> rx.Component:
             rx.cond(
                 AIState.personarium_status != "",
                 rx.callout.root(
-                    rx.callout.icon(rx.icon("info")),
+                    rx.callout.icon(Icon.create("info")),
                     rx.callout.text(AIState.personarium_status),
                     color_scheme="amber",
                     size="1",

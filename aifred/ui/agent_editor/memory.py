@@ -1,7 +1,4 @@
 """Agent-Editor: Memory-Tab — Eintraege mit Typ-Filter."""
-# mypy: disable-error-code="index, operator, call-arg, func-returns-value, arg-type"
-# Reflex UI code: Var indexing, rx.icon module callable, event handler binding
-# are all runtime-correct but not statically typeable.
 
 from __future__ import annotations
 
@@ -9,6 +6,7 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ...lib.config import AGENT_MEMORY_SUMMARY_MAX_CHARS
 from ...state import AIState
@@ -104,7 +102,7 @@ def _memory_entry_row(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
             rx.text(entry["date"], font_size="11px", color=COLORS["text_secondary"]),
             rx.spacer(),
             rx.icon_button(
-                rx.icon("pencil", size=12),
+                Icon.create("pencil", size=12),
                 on_click=AIState.start_memory_edit(entry["id"]),
                 size="1",
                 variant="ghost",
@@ -112,7 +110,7 @@ def _memory_entry_row(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
                 cursor="pointer",
             ),
             rx.icon_button(
-                rx.icon("trash-2", size=12),
+                Icon.create("trash-2", size=12),
                 on_click=AIState.delete_memory_entry(entry["id"]),
                 size="1",
                 variant="ghost",

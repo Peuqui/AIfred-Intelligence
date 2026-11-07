@@ -7,6 +7,7 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import StringVar
+from reflex_components_lucide.icon import Icon
 
 from ..lib.i18n import TranslationManager
 from ..state import AIState
@@ -469,7 +470,7 @@ def confirm_delete_all(
         confirming,
         rx.hstack(
             rx.button(
-                rx.icon("trash-2", size=14),
+                Icon.create("trash-2", size=14),
                 t("delete_all_confirm") + " (" + count.to_string() + ")",
                 on_click=on_confirm,
                 size="1",
@@ -489,7 +490,7 @@ def confirm_delete_all(
             align="center",
         ),
         rx.button(
-            rx.icon("trash-2", size=14),
+            Icon.create("trash-2", size=14),
             t("delete_all"),
             on_click=on_request,
             size="1",
@@ -520,7 +521,7 @@ def bulk_delete_bar(
     """
     return rx.hstack(
         rx.button(
-            rx.icon("check-check", size=14),
+            Icon.create("check-check", size=14),
             t("select_all"),
             on_click=on_select_all,
             size="1",
@@ -533,7 +534,7 @@ def bulk_delete_bar(
             selected_count > 0,
             rx.hstack(
                 rx.button(
-                    rx.icon("trash-2", size=14),
+                    Icon.create("trash-2", size=14),
                     t("delete_selected") + " (" + selected_count.to_string() + ")",
                     on_click=on_delete_selected,
                     size="1",

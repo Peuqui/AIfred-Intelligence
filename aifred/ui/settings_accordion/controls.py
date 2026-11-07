@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import reflex as rx
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ...theme import COLORS
@@ -124,7 +125,7 @@ def _agent_thinking_select(
 def _lightbulb_icon() -> rx.Component:
     """Reasoning/Thinking help lightbulb icon with tooltip."""
     return rx.tooltip(
-        rx.icon(
+        Icon.create(
             "lightbulb",
             size=14,
             color=COLORS["accent_gold"],

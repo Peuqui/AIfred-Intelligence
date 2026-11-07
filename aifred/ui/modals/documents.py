@@ -15,6 +15,7 @@ import reflex as rx
 # brauchen wir ein echtes Anchor-Tag.
 from reflex.components.el.elements.inline import A as _Anchor
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ...theme import COLORS
@@ -45,7 +46,7 @@ def _doc_index_toggle(is_indexed: rx.Var, on_index: Any, on_deindex: Any) -> rx.
         is_indexed,
         rx.tooltip(
             rx.icon_button(
-                rx.icon("database-zap", size=14),
+                Icon.create("database-zap", size=14),
                 size="1", variant="ghost", color_scheme="orange",
                 on_click=on_deindex, cursor="pointer",
             ),
@@ -53,7 +54,7 @@ def _doc_index_toggle(is_indexed: rx.Var, on_index: Any, on_deindex: Any) -> rx.
         ),
         rx.tooltip(
             rx.icon_button(
-                rx.icon("database", size=14),
+                Icon.create("database", size=14),
                 size="1", variant="ghost", color_scheme="gray",
                 on_click=on_index, cursor="pointer",
             ),
@@ -88,9 +89,9 @@ def _doc_file_row(item: ObjectVar[dict[str, Any]]) -> rx.Component:
         # Icon: folder or file with index indicator
         rx.cond(
             is_folder,
-            rx.icon("folder", size=16, color=COLORS["accent_warning"], cursor="pointer",
+            Icon.create("folder", size=16, color=COLORS["accent_warning"], cursor="pointer",
                      on_click=AIState.doc_navigate_folder(name)),
-            rx.icon("file-text", size=16, color=rx.cond(is_indexed, COLORS["accent_success"], COLORS["text_secondary"])),
+            Icon.create("file-text", size=16, color=rx.cond(is_indexed, COLORS["accent_success"], COLORS["text_secondary"])),
         ),
         # Name — inline rename input or clickable text
         rx.cond(
@@ -109,12 +110,12 @@ def _doc_file_row(item: ObjectVar[dict[str, Any]]) -> rx.Component:
                     auto_focus=True,
                 ),
                 rx.icon_button(
-                    rx.icon("check", size=12), size="1",
+                    Icon.create("check", size=12), size="1",
                     variant="ghost", color_scheme="green",
                     on_click=AIState.doc_confirm_rename, cursor="pointer",
                 ),
                 rx.icon_button(
-                    rx.icon("x", size=12), size="1",
+                    Icon.create("x", size=12), size="1",
                     variant="ghost", color_scheme="gray",
                     on_click=AIState.doc_cancel_rename, cursor="pointer",
                 ),
@@ -176,7 +177,7 @@ def _doc_file_row(item: ObjectVar[dict[str, Any]]) -> rx.Component:
                 # Rename
                 rx.tooltip(
                     rx.icon_button(
-                        rx.icon("pencil", size=14),
+                        Icon.create("pencil", size=14),
                         size="1", variant="ghost", color_scheme="yellow",
                         on_click=AIState.doc_start_rename(name), cursor="pointer",
                     ),
@@ -185,7 +186,7 @@ def _doc_file_row(item: ObjectVar[dict[str, Any]]) -> rx.Component:
                 # Preview
                 rx.tooltip(
                     rx.icon_button(
-                        rx.icon("eye", size=14),
+                        Icon.create("eye", size=14),
                         size="1", variant="ghost", color_scheme="blue",
                         on_click=AIState.preview_document(name), cursor="pointer",
                     ),
@@ -209,7 +210,7 @@ def _doc_file_row(item: ObjectVar[dict[str, Any]]) -> rx.Component:
                 rx.tooltip(
                     _Anchor.create(
                         rx.icon_button(
-                            rx.icon("download", size=14),
+                            Icon.create("download", size=14),
                             size="1", variant="ghost", color_scheme="green",
                             cursor="pointer",
                         ),
@@ -224,7 +225,7 @@ def _doc_file_row(item: ObjectVar[dict[str, Any]]) -> rx.Component:
                 # direkt in den Chat eingefügt werden.
                 rx.tooltip(
                     rx.icon_button(
-                        rx.icon("clipboard-copy", size=14),
+                        Icon.create("clipboard-copy", size=14),
                         size="1", variant="ghost", color_scheme="gray",
                         on_click=rx.set_clipboard(AIState.doc_path_prefix + name),
                         cursor="pointer",
@@ -234,7 +235,7 @@ def _doc_file_row(item: ObjectVar[dict[str, Any]]) -> rx.Component:
                 # Delete
                 rx.tooltip(
                     rx.icon_button(
-                        rx.icon("trash-2", size=14),
+                        Icon.create("trash-2", size=14),
                         size="1", variant="ghost", color_scheme="red",
                         on_click=AIState.doc_open_delete_dialog(name), cursor="pointer",
                     ),
@@ -250,7 +251,7 @@ def _doc_file_row(item: ObjectVar[dict[str, Any]]) -> rx.Component:
             rx.hstack(
                 rx.tooltip(
                     rx.icon_button(
-                        rx.icon("pencil", size=14),
+                        Icon.create("pencil", size=14),
                         size="1", variant="ghost", color_scheme="yellow",
                         on_click=AIState.doc_start_rename(name), cursor="pointer",
                     ),
@@ -258,7 +259,7 @@ def _doc_file_row(item: ObjectVar[dict[str, Any]]) -> rx.Component:
                 ),
                 rx.tooltip(
                     rx.icon_button(
-                        rx.icon("trash-2", size=14),
+                        Icon.create("trash-2", size=14),
                         size="1", variant="ghost", color_scheme="red",
                         on_click=AIState.doc_open_delete_folder_dialog(name), cursor="pointer",
                     ),
@@ -286,8 +287,8 @@ def _doc_remote_row(item: ObjectVar[dict[str, Any]]) -> rx.Component:
     return rx.hstack(
         rx.cond(
             is_folder,
-            rx.icon("folder", size=16, color=COLORS["accent_warning"]),
-            rx.icon("file", size=16, color=rx.cond(is_indexed, COLORS["accent_success"], COLORS["text_secondary"])),
+            Icon.create("folder", size=16, color=COLORS["accent_warning"]),
+            Icon.create("file", size=16, color=rx.cond(is_indexed, COLORS["accent_success"], COLORS["text_secondary"])),
         ),
         rx.text(
             name,
@@ -326,7 +327,7 @@ def _doc_remote_row(item: ObjectVar[dict[str, Any]]) -> rx.Component:
             rx.tooltip(
                 _Anchor.create(
                     rx.icon_button(
-                        rx.icon("download", size=14),
+                        Icon.create("download", size=14),
                         size="1", variant="ghost", color_scheme="green",
                         cursor="pointer",
                     ),
@@ -367,7 +368,7 @@ def _doc_remote_toolbar() -> rx.Component:
     return rx.hstack(
         rx.tooltip(
             rx.icon_button(
-                rx.icon("home", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                Icon.create("home", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                 variant="ghost", color_scheme="yellow",
                 on_click=AIState.doc_remote_root, cursor="pointer",
             ),
@@ -377,7 +378,7 @@ def _doc_remote_toolbar() -> rx.Component:
             AIState.doc_remote_trail.length() > 0,
             rx.tooltip(
                 rx.icon_button(
-                    rx.icon("arrow-left", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                    Icon.create("arrow-left", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                     variant="ghost", color_scheme="gray",
                     on_click=AIState.doc_remote_up, cursor="pointer",
                 ),
@@ -393,7 +394,7 @@ def _doc_remote_toolbar() -> rx.Component:
         ),
         rx.tooltip(
             rx.icon_button(
-                rx.icon("search", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                Icon.create("search", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                 variant="ghost", color_scheme="gray",
                 on_click=AIState.doc_remote_search, cursor="pointer",
             ),
@@ -401,7 +402,7 @@ def _doc_remote_toolbar() -> rx.Component:
         ),
         rx.tooltip(
             rx.icon_button(
-                rx.icon("refresh-cw", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                Icon.create("refresh-cw", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                 variant="ghost", color_scheme="gray",
                 on_click=AIState.doc_remote_refresh, cursor="pointer",
             ),
@@ -409,7 +410,7 @@ def _doc_remote_toolbar() -> rx.Component:
         ),
         rx.tooltip(
             rx.icon_button(
-                rx.icon("database", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                Icon.create("database", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                 variant="ghost", color_scheme="green",
                 on_click=AIState.doc_index_remote_folder, cursor="pointer",
             ),
@@ -521,14 +522,14 @@ def document_manager_page() -> rx.Component:
         rx.vstack(
             # Header
             rx.hstack(
-                rx.icon("folder-open", size=24, color=COLORS["accent_warning"]),
+                Icon.create("folder-open", size=24, color=COLORS["accent_warning"]),
                 rx.text(t("doc_manager_title"), color="white",
                         font_weight="bold", font_size="18px"),
                 _doc_source_switch(),
                 rx.spacer(),
                 rx.tooltip(
                     rx.icon_button(
-                        rx.icon("x", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                        Icon.create("x", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                         variant="ghost", color_scheme="gray",
                         on_click=AIState.close_document_manager, cursor="pointer",
                         custom_attrs={"data-modal-close": "true"},
@@ -544,7 +545,7 @@ def document_manager_page() -> rx.Component:
             rx.cond(AIState.doc_is_remote, _doc_remote_toolbar(), rx.hstack(
                 rx.tooltip(
                     rx.icon_button(
-                        rx.icon("home", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                        Icon.create("home", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                         variant="ghost", color_scheme="yellow",
                         on_click=AIState.doc_navigate_root, cursor="pointer",
                     ),
@@ -554,7 +555,7 @@ def document_manager_page() -> rx.Component:
                     AIState.doc_current_folder != "",
                     rx.tooltip(
                         rx.icon_button(
-                            rx.icon("arrow-left", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                            Icon.create("arrow-left", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                             variant="ghost", color_scheme="gray",
                             on_click=AIState.doc_navigate_up, cursor="pointer",
                         ),
@@ -578,7 +579,7 @@ def document_manager_page() -> rx.Component:
                         ),
                         rx.tooltip(
                             rx.icon_button(
-                                rx.icon("check", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                                Icon.create("check", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                                 variant="ghost", color_scheme="green",
                                 on_click=AIState.doc_confirm_create_folder, cursor="pointer",
                             ),
@@ -586,7 +587,7 @@ def document_manager_page() -> rx.Component:
                         ),
                         rx.tooltip(
                             rx.icon_button(
-                                rx.icon("x", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                                Icon.create("x", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                                 variant="ghost", color_scheme="gray",
                                 on_click=AIState.doc_cancel_create_folder, cursor="pointer",
                             ),
@@ -597,7 +598,7 @@ def document_manager_page() -> rx.Component:
                     rx.hstack(
                         rx.tooltip(
                             rx.icon_button(
-                                rx.icon("folder-plus", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                                Icon.create("folder-plus", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                                 variant="ghost", color_scheme="yellow",
                                 on_click=AIState.doc_open_create_folder, cursor="pointer",
                             ),
@@ -605,7 +606,7 @@ def document_manager_page() -> rx.Component:
                         ),
                         rx.tooltip(
                             rx.icon_button(
-                                rx.icon("refresh-cw", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                                Icon.create("refresh-cw", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                                 variant="ghost", color_scheme="gray",
                                 on_click=AIState.doc_refresh, cursor="pointer",
                             ),
@@ -613,7 +614,7 @@ def document_manager_page() -> rx.Component:
                         ),
                         rx.tooltip(
                             rx.icon_button(
-                                rx.icon("database", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                                Icon.create("database", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
                                 variant="ghost", color_scheme="green",
                                 on_click=AIState.doc_index_folder, cursor="pointer",
                             ),
@@ -642,7 +643,7 @@ def document_manager_page() -> rx.Component:
                         AIState.doc_source_writable,
                         rx.upload(
                             rx.hstack(
-                                rx.icon("upload", size=14, color=COLORS["text_secondary"]),
+                                Icon.create("upload", size=14, color=COLORS["text_secondary"]),
                                 rx.text(
                                     t("doc_drop_files"),
                                     font_size="11px", color=COLORS["text_secondary"],
@@ -678,14 +679,14 @@ def document_manager_page() -> rx.Component:
                                     ),
                                     rx.spacer(),
                                     rx.button(
-                                        rx.icon("x", size=12),
+                                        Icon.create("x", size=12),
                                         t("doc_selection_clear"),
                                         on_click=AIState.doc_clear_selection,
                                         size="1", variant="soft", color_scheme="gray",
                                         cursor="pointer",
                                     ),
                                     rx.button(
-                                        rx.icon("trash-2", size=12),
+                                        Icon.create("trash-2", size=12),
                                         t("doc_delete_selected"),
                                         on_click=AIState.doc_open_batch_delete_dialog,
                                         size="1", variant="solid", color_scheme="red",
@@ -762,12 +763,12 @@ def document_manager_page() -> rx.Component:
                         AIState.document_preview_filename != "",
                         rx.vstack(
                             rx.hstack(
-                                rx.icon("eye", size=16, color=COLORS["accent_blue"]),
+                                Icon.create("eye", size=16, color=COLORS["accent_blue"]),
                                 rx.text(AIState.document_preview_filename,
                                         color=COLORS["accent_blue"], font_weight="bold", font_size="14px"),
                                 rx.spacer(),
                                 rx.icon_button(
-                                    rx.icon("x", size=14), size="1",
+                                    Icon.create("x", size=14), size="1",
                                     variant="ghost", color_scheme="gray",
                                     on_click=AIState.close_document_preview, cursor="pointer",
                                     custom_attrs={"data-modal-close": "true"},
@@ -787,7 +788,7 @@ def document_manager_page() -> rx.Component:
                             height="100%",
                         ),
                         rx.vstack(
-                            rx.icon("eye-off", size=32, color=COLORS["text_muted"]),
+                            Icon.create("eye-off", size=32, color=COLORS["text_muted"]),
                             rx.text(
                                 t("doc_preview_hint"),
                                 color=COLORS["text_muted"], font_size="13px",

@@ -15,6 +15,7 @@ from typing import Any
 
 import reflex as rx
 from reflex.vars import ObjectVar
+from reflex_components_lucide.icon import Icon
 
 from ..state import AIState
 from ..theme import COLORS
@@ -74,7 +75,7 @@ def _thumb(event: ObjectVar[dict[str, Any]], index: rx.Var) -> rx.Component:
                     style=thumb_style,
                 ),
                 rx.box(
-                    rx.icon("activity", size=18, color="gray"),
+                    Icon.create("activity", size=18, color="gray"),
                     style={
                         "width": "40px",
                         "height": "40px",
@@ -192,7 +193,7 @@ def _tag_controls(event: ObjectVar[dict[str, Any]]) -> rx.Component:
                 on_change=AIState.casus_set_tag_face,
             ),
             rx.icon_button(
-                rx.icon("check", size=14),
+                Icon.create("check", size=14),
                 on_click=AIState.casus_save_tag,
                 size="1",
                 variant="soft",
@@ -200,7 +201,7 @@ def _tag_controls(event: ObjectVar[dict[str, Any]]) -> rx.Component:
                 title=t("casus_tag_save"),
             ),
             rx.icon_button(
-                rx.icon("x", size=14),
+                Icon.create("x", size=14),
                 on_click=AIState.casus_cancel_tag,
                 size="1",
                 variant="soft",
@@ -214,7 +215,7 @@ def _tag_controls(event: ObjectVar[dict[str, Any]]) -> rx.Component:
             rx.cond(
                 can_tag,
                 rx.icon_button(
-                    rx.icon("user-plus", size=14),
+                    Icon.create("user-plus", size=14),
                     on_click=AIState.casus_start_tag(eid),
                     size="1",
                     variant="soft",
@@ -227,7 +228,7 @@ def _tag_controls(event: ObjectVar[dict[str, Any]]) -> rx.Component:
             # via loading=. Bei vorhandener Beschreibung: lila statt
             # orange als „schon analysiert"-Hinweis.
             rx.icon_button(
-                rx.icon("sparkles", size=14),
+                Icon.create("sparkles", size=14),
                 on_click=AIState.casus_analyze_event(eid),
                 size="1",
                 variant=rx.cond(event["description"] != "", "soft", "soft"),
@@ -244,7 +245,7 @@ def _tag_controls(event: ObjectVar[dict[str, Any]]) -> rx.Component:
             rx.cond(
                 event["cluster_id"] != "",
                 rx.icon_button(
-                    rx.icon("film", size=14),
+                    Icon.create("film", size=14),
                     on_click=AIState.casus_open_film(eid),
                     size="1",
                     variant="soft",
@@ -254,7 +255,7 @@ def _tag_controls(event: ObjectVar[dict[str, Any]]) -> rx.Component:
                 rx.fragment(),
             ),
             rx.icon_button(
-                rx.icon("trash-2", size=14),
+                Icon.create("trash-2", size=14),
                 on_click=AIState.casus_delete_event(eid),
                 size="1",
                 variant="soft",
@@ -346,7 +347,7 @@ def _bulk_bar() -> rx.Component:
         AIState.casus_bulk_running,
         rx.box(
             rx.hstack(
-                rx.icon("sparkles", size=14, color="var(--orange-9)"),
+                Icon.create("sparkles", size=14, color="var(--orange-9)"),
                 rx.text(AIState.casus_bulk_message, size="1", color="gray"),
                 rx.spacer(),
                 rx.text(
@@ -356,7 +357,7 @@ def _bulk_bar() -> rx.Component:
                     style={"font_family": "monospace"},
                 ),
                 rx.button(
-                    rx.icon("x", size=12),
+                    Icon.create("x", size=12),
                     rx.text(t("casus_bulk_cancel"), size="1"),
                     on_click=AIState.casus_bulk_cancel_run,
                     size="1",
@@ -399,7 +400,7 @@ def _bulk_bar() -> rx.Component:
             # Glühbirne — öffnet das Casus-Hilfe-Modal (erklärt
             # „Alle analysieren" + „Gruppiert"-Toggle).
             rx.tooltip(
-                rx.icon(
+                Icon.create(
                     "lightbulb",
                     size=14,
                     color=COLORS["accent_gold"],
@@ -414,7 +415,7 @@ def _bulk_bar() -> rx.Component:
             ),
             rx.tooltip(
                 rx.button(
-                    rx.icon("users", size=14),
+                    Icon.create("users", size=14),
                     rx.text(t("casus_open_personarium"), size="1"),
                     on_click=AIState.open_personarium,
                     size="1",
@@ -425,7 +426,7 @@ def _bulk_bar() -> rx.Component:
             ),
             rx.tooltip(
                 rx.button(
-                    rx.icon("sparkles", size=14),
+                    Icon.create("sparkles", size=14),
                     rx.text(t("casus_bulk_start"), size="1"),
                     on_click=AIState.casus_bulk_start,
                     size="1",
@@ -449,14 +450,14 @@ def casus_help_modal() -> rx.Component:
         AIState.casus_help_open,
         rx.vstack(
             rx.hstack(
-                rx.icon("lightbulb", size=20, color=COLORS["accent_gold"]),
+                Icon.create("lightbulb", size=20, color=COLORS["accent_gold"]),
                 rx.text(
                     t("casus_help_title"),
                     font_weight="bold", size="4",
                 ),
                 rx.spacer(),
                 rx.icon_button(
-                    rx.icon("x", size=16),
+                    Icon.create("x", size=16),
                     on_click=AIState.close_casus_help,
                     size="1", variant="ghost", color_scheme="gray",
                     custom_attrs={"data-modal-close": "true"},
@@ -471,7 +472,7 @@ def casus_help_modal() -> rx.Component:
             rx.divider(),
             # Sparkles per single event
             rx.hstack(
-                rx.icon("sparkles", size=18, color="var(--orange-9)",
+                Icon.create("sparkles", size=18, color="var(--orange-9)",
                         style={"flex_shrink": "0"}),
                 rx.vstack(
                     rx.text(
@@ -491,7 +492,7 @@ def casus_help_modal() -> rx.Component:
             rx.divider(),
             # Alle analysieren
             rx.hstack(
-                rx.icon("sparkles", size=18, color="var(--orange-9)",
+                Icon.create("sparkles", size=18, color="var(--orange-9)",
                         style={"flex_shrink": "0"}),
                 rx.vstack(
                     rx.text(
@@ -511,7 +512,7 @@ def casus_help_modal() -> rx.Component:
             rx.divider(),
             # Gruppiert
             rx.hstack(
-                rx.icon("layers", size=18, color="var(--purple-9)",
+                Icon.create("layers", size=18, color="var(--purple-9)",
                         style={"flex_shrink": "0"}),
                 rx.vstack(
                     rx.text(
@@ -598,7 +599,7 @@ def _filter_bar() -> rx.Component:
         rx.spacer(),
         rx.tooltip(
             rx.icon_button(
-                rx.icon("refresh-cw", size=14),
+                Icon.create("refresh-cw", size=14),
                 on_click=AIState.casus_refresh,
                 size="1",
                 variant="soft",
@@ -649,7 +650,7 @@ def _filter_bar() -> rx.Component:
 def _pagination_bar() -> rx.Component:
     return rx.hstack(
         rx.icon_button(
-            rx.icon("chevron-left", size=14),
+            Icon.create("chevron-left", size=14),
             on_click=AIState.casus_prev_page,
             size="1",
             variant="soft",
@@ -658,7 +659,7 @@ def _pagination_bar() -> rx.Component:
         ),
         rx.text(AIState.casus_page_label, size="1", color="gray"),
         rx.icon_button(
-            rx.icon("chevron-right", size=14),
+            Icon.create("chevron-right", size=14),
             on_click=AIState.casus_next_page,
             size="1",
             variant="soft",
@@ -741,7 +742,7 @@ def _image_overlay() -> rx.Component:
             # NICHT (eigene Container über dem Backdrop).
             rx.hstack(
                 rx.icon_button(
-                    rx.icon("chevron-left", size=30),
+                    Icon.create("chevron-left", size=30),
                     on_click=AIState.casus_image_older,
                     disabled=AIState.casus_image_at_oldest,
                     size="3", variant="soft", color_scheme="gray",
@@ -776,7 +777,7 @@ def _image_overlay() -> rx.Component:
                         ),
                     ),
                     rx.icon_button(
-                        rx.icon("x", size=18),
+                        Icon.create("x", size=18),
                         on_click=AIState.casus_close_image,
                         size="2", variant="solid", color_scheme="gray",
                         custom_attrs={"data-modal-close": "true"},
@@ -795,7 +796,7 @@ def _image_overlay() -> rx.Component:
                     style={"flex_shrink": "1", "min_width": "0"},
                 ),
                 rx.icon_button(
-                    rx.icon("chevron-right", size=30),
+                    Icon.create("chevron-right", size=30),
                     on_click=AIState.casus_image_newer,
                     disabled=AIState.casus_image_at_newest,
                     size="3", variant="soft", color_scheme="gray",
@@ -824,7 +825,7 @@ def casus_modal() -> rx.Component:
         rx.vstack(
             # Header
             rx.hstack(
-                rx.icon("scroll-text", size=20),
+                Icon.create("scroll-text", size=20),
                 rx.text(
                     t("casus_title"),
                     font_weight="bold",
@@ -836,7 +837,7 @@ def casus_modal() -> rx.Component:
                 # damit klar ist was passiert — der kleine Power-
                 # Icon-Button war zu kryptisch.
                 rx.button(
-                    rx.icon("power", size=14),
+                    Icon.create("power", size=14),
                     rx.text(
                         rx.cond(
                             AIState.vlm_model_loaded,
@@ -856,7 +857,7 @@ def casus_modal() -> rx.Component:
                     loading=AIState.vlm_model_busy,
                 ),
                 rx.icon_button(
-                    rx.icon("x", size=16),
+                    Icon.create("x", size=16),
                     on_click=AIState.close_casus,
                     size="1",
                     variant="ghost",
@@ -889,7 +890,7 @@ def casus_modal() -> rx.Component:
                     },
                 ),
                 rx.box(
-                    rx.icon("scroll-text", size=32, color="gray"),
+                    Icon.create("scroll-text", size=32, color="gray"),
                     rx.text(
                         t("casus_empty"),
                         color="gray",
@@ -909,7 +910,7 @@ def casus_modal() -> rx.Component:
             rx.cond(
                 AIState.casus_status != "",
                 rx.callout.root(
-                    rx.callout.icon(rx.icon("info")),
+                    rx.callout.icon(Icon.create("info")),
                     rx.callout.text(AIState.casus_status),
                     color_scheme="amber",
                     size="1",

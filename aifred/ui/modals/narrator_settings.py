@@ -8,6 +8,7 @@ entry that can speak); the engine selector only picks whose voice to edit.
 """
 
 import reflex as rx
+from reflex_components_lucide.icon import Icon
 
 from ...state import AIState
 from ..helpers import overlay_modal, t
@@ -36,11 +37,11 @@ def narrator_settings_modal() -> rx.Component:
         rx.vstack(
             # Header: icon + title + X-close (family-A pattern)
             rx.hstack(
-                rx.icon("audio-lines", size=20),
+                Icon.create("audio-lines", size=20),
                 rx.text("Narrator", font_weight="bold", size="4"),
                 rx.spacer(),
                 rx.icon_button(
-                    rx.icon("x", size=16),
+                    Icon.create("x", size=16),
                     on_click=AIState.close_narrator_settings,
                     size="1",
                     variant="ghost",
