@@ -334,28 +334,11 @@ laufen lassen; danach prüfen: `grep -n "allowedHosts\|dedupe" .web/vite.config.
 
 ---
 
-## ⚠️ Reflex Patch: eigener Kontext für Uploads (Laufzeit)
-
-Reflex 0.9.10.post1 legt das Ereignis einer Upload-Anfrage in `enqueue_stream_delta` mit
-`dataclasses.replace(self._root_context, …)` an und behält dabei die txid des Wurzelkontexts.
-Jedes Ereignis von außen (Websocket, API) ist ein `fork()` dieses Kontexts, seine Eltern-txid
-also genau diese: Während ein Upload läuft, wird jedes neue Ereignis, aus jedem Tab, sein Kind.
-Die Upload-Anfrage wartet auf alle Kinder und bricht sie ab, wenn sie vorzeitig endet.
-Gefunden 06.11.2026: Ein Diktat „Direkt senden“ wird während des Aufnahme-Uploads vom
-500-ms-Abholer übernommen, und sein Zug starb beim Schließen des Tabs.
-
-`scripts/patch-reflex.py` (Patch 9) setzt `self._root_context.fork(token=token)` ein: eigene
-txid, bleibt ein Wurzelereignis. `tests/test_reflex_upload_context.py` schlägt fehl, solange der
-Patch fehlt. **Bei Reflex-Update:** `patch-reflex.py` erneut laufen lassen.
-Upstream behoben mit PR #7357 (30.09.2026, frischer Kontext statt Kopie der Wurzel), enthalten ab
-v0.10.0; 0.9.12 und 0.9.13 haben den Fehler noch. Mit dem Wechsel auf 0.10 entfällt Patch 9.
-
----
-
 ## ⚠️ Reflex Patch: Typen der Komponenten-Pakete (mypy)
 
-Reflex 0.9 liefert die Komponenten in eigenen Paketen (`reflex_components_*`)
-mit `.pyi`-Stubs, aber **ohne `py.typed`** (PEP 561, noch in 0.9.10.post1).
+Reflex liefert die Komponenten in eigenen Paketen (`reflex_components_*`)
+mit `.pyi`-Stubs, aber **ohne `py.typed`** (PEP 561, noch in 0.10.1; upstream
+Issue #7708, PR #7710).
 mypy ignoriert die Stubs dann, jede Komponente wird `Any` → ~200
 `no-any-return`-Fehler. Zweiter Fehler: In
 `reflex_components_core/core/cond.py` stehen TypeVars mitten in der
@@ -366,12 +349,15 @@ Wert-Überladungen, und `rx.cond(var, "a", "b")` scheitert mit `call-overload`.
 Serie (Laufzeit unverändert). **Bei Reflex-Update:** Skript erneut laufen
 lassen, `--check` meldet, ob upstream inzwischen gefixt ist.
 
-Seit 06.11.2026 setzt es dazu vier reine Typ-Patches (5–8), ohne die mypy die
-Oberfläche nicht prüfen kann (Begründung je Patch im Docstring des Skripts):
-`Field.__get__` (mypy machte aus jedem `dict`-Feld eine `ArrayVar[Never]`),
-`rx.event` als überladene Funktion statt Klasse mit `__new__`, der Rückgabetyp
-von `EventCallback.__get__` auf der Instanz und `ObjectVar.__getitem__` für
-Dataclass-Werte. Fehlen sie nach einem Update, meldet mypy in `aifred/ui`
+Dazu kommen drei reine Typ-Patches (5–7), ohne die mypy die Oberfläche nicht
+prüfen kann (Begründung je Patch im Docstring des Skripts): `Field.__get__`
+(mypy prüft die Grenze einer TypeVar im `self`-Typ nicht, wenn die Lösung eine
+Union ist; ohne Patch wird jedes `dict`-Feld eine `ArrayVar[Never]`), `rx.event`
+als überladene Funktion statt Klasse mit `__new__` und `ObjectVar.__getitem__`
+für Dataclass-Werte. Den Rückgabetyp von `EventCallback.__get__` und den
+Upload-Kontext (jedes Ereignis wurde Kind des laufenden Uploads, PR #7357) hat
+Reflex 0.10 selbst behoben; `tests/test_reflex_upload_context.py` wacht weiter
+darüber. Fehlen sie nach einem Update, meldet mypy in `aifred/ui`
 Hunderte Fehler — dann zuerst `patch-reflex.py` laufen lassen.
 
 ---

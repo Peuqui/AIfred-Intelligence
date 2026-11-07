@@ -11,7 +11,7 @@ failed workers; a crash loop ends the master, then systemd restarts the
 service.
 
 2. ``reflex_components_*`` ship ``.pyi`` stubs but no ``py.typed`` marker
-(PEP 561, still missing in 0.9.10.post1), so mypy ignores the stubs and
+(PEP 561, still missing in 0.10.1), so mypy ignores the stubs and
 every component (``rx.box``, ``rx.cond`` …) becomes ``Any``. The marker
 makes the shipped stubs count.
 
@@ -32,12 +32,13 @@ the compile) is overwritten at once; the template is the one place that
 sticks. (``allowedHosts`` needs no patch: ``vite_allowed_hosts`` in
 ``rxconfig.py``.)
 
-5. ``reflex_base/vars/base.py`` — ``Field.__get__`` overloads whose self-type is a union with a
-TypeVar (``Field[SEQUENCE_TYPE] | Field[SEQUENCE_TYPE | None]``). mypy (2.4) solves the TypeVar
-as Never there and takes the first such overload for every field: a ``dict`` field became
-``ArrayVar[Never]``, ``AIState.agent_tuning["aifred"]`` an error. One overload per self-type
-fixes it; an optional field falls through to ``Var[FIELD_TYPE]``. Type-level only: at runtime
-an ``@overload`` is replaced by the implementation below it.
+5. ``reflex_base/vars/base.py`` — ``Field.__get__`` overloads whose self-type holds a TypeVar.
+When mypy (2.4, still on master 07.11.2026) solves such a TypeVar to a union, it skips the
+TypeVar's bound: a self-type union ``Field[T] | Field[T | None]`` made every field
+``ArrayVar[Never]`` (``AIState.agent_tuning["aifred"]`` an error), and an ``X | None`` variant
+matches every optional field. One overload per self-type and no optional variant; an optional
+field falls through to ``Var[FIELD_TYPE]``. Open fix in mypy: python/mypy#22042. Type-level
+only: at runtime an ``@overload`` is replaced by the implementation below it.
 
 6. ``reflex_base/event/__init__.py`` — ``event = EventNamespace``: the decorator is a class whose
 ``__new__`` returns an EventCallback. mypy ignores such a ``__new__``, so every ``@rx.event``
@@ -45,23 +46,14 @@ method was an ``EventNamespace`` ("not callable" in state code, no checking in t
 type checker ``event`` becomes the overloaded function the ``__new__`` overloads describe; the
 runtime lines stay as they are, under ``else``.
 
-7. Same file, ``EventCallback.__get__`` on an instance returns ``Callable[[Unpack[P]]]`` — no
-return type, so mypy took the whole call as ``Any``. ``Callable[[Unpack[P]], Any]`` checks the
-arguments of a handler called from state code; its return value stays ``Any``.
-
-8. ``reflex_base/vars/object.py`` — ``ObjectVar.__getitem__`` turns a dataclass value into a bare
+7. ``reflex_base/vars/object.py`` — ``ObjectVar.__getitem__`` turns a dataclass value into a bare
 ``Var``, so ``AIState.agent_tuning["aifred"].model_id`` had no attributes for mypy. An overload
 for dataclass values returns ``ObjectVar`` (three edits: TYPE_CHECKING import, TypeVar, overload).
 
-9. ``reflex_base/event/processor/event_processor.py`` — ``enqueue_stream_delta`` (the upload
-request) built its event context with ``dataclasses.replace(self._root_context, …)`` and so kept
-the root context's txid. Every event enqueued from outside (websocket, API) is a ``fork()`` of
-the root context, whose ``parent_txid`` is that txid: while an upload ran, each of them — any
-tab, any client — became a child of the upload. The upload request waited for them all and
-cancelled them when it ended early. Found 06.11.2026 (0.9.10.post1): a dictation sent straight
-to the AI is picked up by the 500 ms poll during the recording's upload, and its turn died when
-the tab closed. ``fork()`` gives the upload a txid of its own; it stays a root event, because
-the root txid has no tracked future.
+Fixed upstream in 0.10, removed here: the return type of ``EventCallback.__get__`` on an
+instance (``Callable[[Unpack[P]], Any]`` since 0.10.1) and the upload request's event context
+(PR #7357, 0.10.0: before, every event enqueued during an upload became the upload's child and
+died with it).
 
 Idempotent — running it twice is a no-op. A patch is only applied when its
 original text is found verbatim, so a changed upstream file is reported,
@@ -160,31 +152,47 @@ def cond(
         owner: Any,
     ) -> ArrayVar[SEQUENCE_TYPE]: ...
 
+    # The bounds of these type variables admit `None` (for computed vars of an
+    # optional object). Matched against `Field[X | None]`, a `self` union of
+    # `Field[T]` and `Field[T | None]` lets a checker solve `T` to `X | None`, so
+    # the optional overload comes first, on its own.
     @overload
     def __get__(
-        self: Field[MAPPING_TYPE] | Field[MAPPING_TYPE | None],
-        instance: None,
-        owner: Any,
+        self: Field[MAPPING_TYPE | None], instance: None, owner: Any
     ) -> ObjectVar[MAPPING_TYPE]: ...
 
     @overload
     def __get__(
-        self: Field[SQLA_TYPE] | Field[SQLA_TYPE | None], instance: None, owner: Any
+        self: Field[MAPPING_TYPE], instance: None, owner: Any
+    ) -> ObjectVar[MAPPING_TYPE]: ...
+
+    @overload
+    def __get__(
+        self: Field[SQLA_TYPE | None], instance: None, owner: Any
+    ) -> ObjectVar[SQLA_TYPE]: ...
+
+    @overload
+    def __get__(
+        self: Field[SQLA_TYPE], instance: None, owner: Any
     ) -> ObjectVar[SQLA_TYPE]: ...
 
     if TYPE_CHECKING:
 
         @overload
         def __get__(
-            self: Field[DATACLASS_TYPE] | Field[DATACLASS_TYPE | None],
-            instance: None,
-            owner: Any,
+            self: Field[DATACLASS_TYPE | None], instance: None, owner: Any
+        ) -> ObjectVar[DATACLASS_TYPE]: ...
+
+        @overload
+        def __get__(
+            self: Field[DATACLASS_TYPE], instance: None, owner: Any
         ) -> ObjectVar[DATACLASS_TYPE]: ...
 
 """,
-        """    # mypy (2.4) solves a TypeVar in a union self-type as Never and then takes that overload
-    # for every field (a dict field became ArrayVar[Never]). One overload per self-type and no
-    # union with a TypeVar; an optional field falls through to Var[FIELD_TYPE].
+        """    # mypy (2.4) skips a TypeVar's bound when it solves a TypeVar of a self-type to a union: a
+    # union self-type made every field ArrayVar[Never], an `X | None` variant took every optional
+    # field. One overload per self-type, no optional variant; an optional field falls through to
+    # Var[FIELD_TYPE] (patch-reflex.py, 5).
     @overload
     def __get__(self: Field[list[V]], instance: None, owner: Any) -> ArrayVar[Sequence[V]]: ...
 
@@ -268,13 +276,6 @@ else:
 """,
     ),
     (
-        "reflex_base/event/__init__.py",
-        """    def __get__(self, instance: Any, owner: Any) -> "Callable[[Unpack[P]]]": ...
-""",
-        """    def __get__(self, instance: Any, owner: Any) -> "Callable[[Unpack[P]], Any]": ...
-""",
-    ),
-    (
         "reflex_base/vars/object.py",
         """from typing import (
     Any,
@@ -320,21 +321,6 @@ if TYPE_CHECKING:
         self: ObjectVar[Mapping[Any, VALUE_TYPE]],
         key: Var | Any,
     ) -> Var[VALUE_TYPE]: ...
-""",
-    ),
-    (
-        "reflex_base/event/processor/event_processor.py",
-        """            ev_ctx=dataclasses.replace(
-                self._root_context,
-                token=token,
-                emit_delta_impl=_emit_delta_impl,
-""",
-        """            ev_ctx=dataclasses.replace(
-                # A txid of its own (patch-reflex.py, 9): replace() kept the root's txid,
-                # the parent of every event enqueued from outside, and each of them
-                # became a child of this upload.
-                self._root_context.fork(token=token),
-                emit_delta_impl=_emit_delta_impl,
 """,
     ),
 ]

@@ -1,11 +1,12 @@
-"""An upload request runs in an event context of its own (scripts/patch-reflex.py, patch 9).
+"""An upload request runs in an event context of its own.
 
 Reflex 0.9.10.post1 built the upload's context with ``dataclasses.replace(root_context, …)`` and so
 kept the root's txid. Every event enqueued from outside (websocket, API) is a ``fork()`` of the root
 context, whose parent is that txid: while an upload ran, each of them became a child of the upload,
 and the upload cancelled them when its request ended early. 06.11.2026: a dictation sent straight to
 the AI is picked up by the poll during the recording's upload; closing the tab killed its turn.
-Fails after a Reflex upgrade until ``scripts/patch-reflex.py`` has been run again.
+AIfred patched this until Reflex fixed it itself (PR #7357, 0.10.0); the test now guards against
+the fault coming back with a Reflex upgrade.
 """
 
 import asyncio
