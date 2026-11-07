@@ -281,6 +281,16 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   `AgentMemory.counts()` und `entries()` sind jetzt öffentlich; ein Agent ohne Sammlung wird nicht gelesen
   (das legte eine an). Index-Pflege (verwaiste Einträge) gehört auf die Dokumente-Seite, Export und Import
   von Agenten-Bündeln auf die Agenten-Seite (API vorhanden) — beides offen.
+- **Aufträge-Seite (erledigt 07.11.2026):** `JobsView.vue` (⏰ in der Kopfleiste) mit `JobForm.vue`: Liste mit
+  Schalter, Agent, Zeitplan, nächstem und letztem Lauf; anlegen, ändern, letzte Läufe, löschen. Der Zeitplan
+  entsteht aus Feldern (Cron-Vorlage oder fünf Felder, Intervall mit Einheit, Datum und Uhrzeit;
+  `lib/schedule.ts` mit Tests), der Server nennt vor dem Speichern den nächsten Lauf. Die Regeln (Typen,
+  Zustellwege, fester Text nur mit „Senden“ und Kanal, Ton-Art) stehen jetzt an einer Stelle,
+  `scheduler.job_problem`, für das Werkzeug der Agenten, die Seite und die Cron-Vorlagen der Reflex-Kopie.
+  `JobStore.add` lehnt einen Ausdruck ohne nächsten Lauf ab wie `update` (das Werkzeug legte an und löschte
+  wieder), ein einmaliger Auftrag braucht einen gültigen Zeitpunkt (vorher wurde jeder Text gespeichert).
+  Kanäle kommen aus dem Plugin-Register statt einer festen Liste; stille Ersatzwerte des Reflex-Formulars
+  (Intervall 60 s, Datum 2026-01-01) gibt es nicht mehr.
 - **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
 
 ## Schritte

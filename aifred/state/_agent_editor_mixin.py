@@ -15,6 +15,7 @@ from reflex.event import EventSpec
 
 from ..lib.config import TTS_DEFAULT_ENGINE
 from ..lib.logging_utils import log_exception
+from ..lib.scheduler import CRON_PRESETS
 
 
 class AgentEditorMixin(rx.State, mixin=True):
@@ -828,13 +829,7 @@ class AgentEditorMixin(rx.State, mixin=True):
     # ── Cron presets ───────────────────────────────────────────
 
     # (i18n key, min, hour, dom, month, dow)
-    _CRON_PRESETS: ClassVar[list[tuple[str, str, str, str, str, str]]] = [
-        ("sched_preset_hourly", "0", "*", "*", "*", "*"),
-        ("sched_preset_daily", "0", "8", "*", "*", "*"),
-        ("sched_preset_weekdays", "0", "8", "*", "*", "1-5"),
-        ("sched_preset_weekly", "0", "8", "*", "*", "1"),
-        ("sched_preset_monthly", "0", "8", "1", "*", "*"),
-    ]
+    _CRON_PRESETS: ClassVar[tuple[tuple[str, str, str, str, str, str], ...]] = CRON_PRESETS
 
     @rx.var(deps=["ui_language"], auto_deps=False)
     def sched_preset_options(self) -> list[str]:

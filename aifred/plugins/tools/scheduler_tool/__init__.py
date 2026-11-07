@@ -14,6 +14,7 @@ from typing import Any
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_WRITE_DATA, TIER_READONLY
 from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
+from ....lib.scheduler import DELIVERY_MODES, SCHEDULE_TYPES
 
 
 @dataclass
@@ -25,31 +26,19 @@ class SchedulerPlugin:
     def is_available(self) -> bool:
         return True
 
-    # Eine Wahrheit für beide Wertemengen: Executor-Validierung UND
-    # JSON-Schema-Enums leiten sich hieraus ab (der SQLite-CHECK in
-    # lib/scheduler.py bleibt als DB-seitige Integritätsgrenze).
-    _SCHEDULE_TYPES = ("cron", "interval", "once")
-    _DELIVERY_MODES = ("review", "announce", "webhook")
-    # Payload fields shown by list and changed by update — one place.
+    # Payload fields shown by list and changed by update — one place. What a job may be
+    # (schedule types, delivery modes, the fixed-text rule) is lib/scheduler.py's: job_problem.
     _PAYLOAD_FIELDS = (
         "message", "agent", "delivery", "channel", "recipient", "webhook_url", "fixed_text", "audio_type",
     )
 
-    def _invalid_choice(self, schedule_type: str, delivery: str) -> str | None:
-        """Error JSON for an unknown schedule type or delivery mode, else None."""
-        if schedule_type not in self._SCHEDULE_TYPES:
-            return json.dumps({"error": f"Invalid schedule_type: {schedule_type}. Use: {', '.join(self._SCHEDULE_TYPES)}"})
-        if delivery not in self._DELIVERY_MODES:
-            return json.dumps({"error": f"Invalid delivery: {delivery}. Use: {', '.join(self._DELIVERY_MODES)}"})
-        return None
-
     @staticmethod
-    def _invalid_fixed_text(payload: dict[str, Any]) -> str | None:
-        """Error JSON for a fixed text with nowhere to go, else None: without a model run
-        there is no session to review it in."""
-        if payload.get("fixed_text") and not (payload.get("delivery") == "announce" and payload.get("channel")):
-            return json.dumps({"error": "fixed_text needs delivery 'announce' and a channel"})
-        return None
+    def _problem(schedule_type: str, payload: dict[str, Any]) -> str | None:
+        """Error JSON for a job lib/scheduler.py refuses, else None."""
+        from ....lib.scheduler import job_problem
+
+        problem = job_problem(schedule_type, payload)
+        return json.dumps({"error": problem}) if problem else None
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         from ....lib.logging_utils import log_message
@@ -71,10 +60,6 @@ class SchedulerPlugin:
             """Create a new scheduled job."""
             from ....lib.scheduler import get_job_store
 
-            error = self._invalid_choice(schedule_type, delivery)
-            if error:
-                return error
-
             store = get_job_store()
             payload: dict[str, Any] = {
                 "message": message,
@@ -94,7 +79,7 @@ class SchedulerPlugin:
                     payload["fixed_text"] = True
             except InvalidValue as exc:
                 return json.dumps({"error": str(exc)})
-            error = self._invalid_fixed_text(payload)
+            error = self._problem(schedule_type, payload)
             if error:
                 return error
 
@@ -106,22 +91,19 @@ class SchedulerPlugin:
             from ....lib.security import TIER_COMMUNICATE
             job_tier = TIER_COMMUNICATE
 
-            job = store.add(
-                name=name,
-                schedule_type=schedule_type,
-                schedule_expr=schedule_expr,
-                payload=payload,
-                max_tier=job_tier,
-            )
-            if job.next_run is None:
-                # Fail-loud: without next_run the job would NEVER fire
-                # (get_due_jobs filters next_run IS NOT NULL) — an invalid
+            try:
+                job = store.add(
+                    name=name,
+                    schedule_type=schedule_type,
+                    schedule_expr=schedule_expr,
+                    payload=payload,
+                    max_tier=job_tier,
+                )
+            except ValueError as exc:
+                # Fail-loud: without next_run the job would NEVER fire — an invalid
                 # cron expression must not be reported as success.
-                store.delete(job.job_id)
-                log_message(f"Scheduler: job '{name}' rejected — invalid {schedule_type} expression '{schedule_expr}'", "warning")
-                return json.dumps({
-                    "error": f"Invalid {schedule_type} expression: '{schedule_expr}' — job not created"
-                })
+                log_message(f"Scheduler: job '{name}' rejected — {exc}", "warning")
+                return json.dumps({"error": f"{exc} — job not created"})
             log_message(f"Scheduler: job '{name}' created (id={job.job_id}, next={job.next_run})")
             return json.dumps({
                 "success": True,
@@ -182,10 +164,6 @@ class SchedulerPlugin:
             if not job:
                 return json.dumps({"error": f"Job {job_id} not found"})
             new_type = schedule_type or job.schedule_type
-            new_delivery = delivery or job.payload.get("delivery", "review")
-            error = self._invalid_choice(new_type, new_delivery)
-            if error:
-                return error
 
             changes = {
                 "message": message, "agent": agent, "delivery": delivery,
@@ -198,7 +176,7 @@ class SchedulerPlugin:
                     payload["fixed_text"] = parse_bool(fixed_text, "fixed_text")
             except InvalidValue as exc:
                 return json.dumps({"error": str(exc)})
-            error = self._invalid_fixed_text(payload)
+            error = self._problem(new_type, payload)
             if error:
                 return error
             try:
@@ -246,7 +224,7 @@ class SchedulerPlugin:
                 description=(
                     load_tool_description(__file__, "scheduler_create")
                 ),
-                parameters=load_tool_parameters(__file__, "scheduler_create", enums={"schedule_type": list(self._SCHEDULE_TYPES), "delivery": list(self._DELIVERY_MODES)}),
+                parameters=load_tool_parameters(__file__, "scheduler_create", enums={"schedule_type": list(SCHEDULE_TYPES), "delivery": list(DELIVERY_MODES)}),
                 executor=_create,
             ),
             Tool(
@@ -260,7 +238,7 @@ class SchedulerPlugin:
                 name="scheduler_update",
                 tier=TIER_WRITE_DATA,
                 description=load_tool_description(__file__, "scheduler_update"),
-                parameters=load_tool_parameters(__file__, "scheduler_update", enums={"schedule_type": list(self._SCHEDULE_TYPES), "delivery": list(self._DELIVERY_MODES)}),
+                parameters=load_tool_parameters(__file__, "scheduler_update", enums={"schedule_type": list(SCHEDULE_TYPES), "delivery": list(DELIVERY_MODES)}),
                 executor=_update,
             ),
             Tool(

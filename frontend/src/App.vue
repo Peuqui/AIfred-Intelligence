@@ -38,6 +38,7 @@ onMounted(async () => {
         <RouterLink to="/agents">{{ t("nav_agents") }}</RouterLink>
         <RouterLink to="/documents">{{ t("doc_manager_title") }}</RouterLink>
         <RouterLink to="/memory">{{ t("nav_memory") }}</RouterLink>
+        <RouterLink to="/jobs">{{ t("nav_jobs") }}</RouterLink>
         <RouterLink to="/settings">{{ t("settings") }}</RouterLink>
       </nav>
       <span class="user">{{ auth.user }}</span>

@@ -29,6 +29,36 @@ logger = logging.getLogger(__name__)
 # Check interval: how often the scheduler looks for due jobs
 _CHECK_INTERVAL_SECONDS = 60
 
+# What a job can be: one truth for the agents' scheduler tool (its JSON-schema enums), the jobs page and the
+# Reflex editor (the SQLite CHECK in _ensure_schema stays as the database's own limit).
+SCHEDULE_TYPES = ("cron", "interval", "once")
+DELIVERY_MODES = ("review", "announce", "webhook")
+AUDIO_TYPES = ("notification", "alarm")   # the chime of an announcement in rooms (FreeEcho.2)
+# Cron templates: (i18n key, minute, hour, day of month, month, day of week).
+CRON_PRESETS: tuple[tuple[str, str, str, str, str, str], ...] = (
+    ("sched_preset_hourly", "0", "*", "*", "*", "*"),
+    ("sched_preset_daily", "0", "8", "*", "*", "*"),
+    ("sched_preset_weekdays", "0", "8", "*", "*", "1-5"),
+    ("sched_preset_weekly", "0", "8", "*", "*", "1"),
+    ("sched_preset_monthly", "0", "8", "1", "*", "*"),
+)
+
+
+def job_problem(schedule_type: str, payload: dict[str, Any]) -> str | None:
+    """What is wrong with a job before it is stored, None when nothing. The expression itself is checked
+    when the next run is computed (JobStore.add / update raise for one that never fires)."""
+    if schedule_type not in SCHEDULE_TYPES:
+        return f"Invalid schedule_type: {schedule_type}. Use: {', '.join(SCHEDULE_TYPES)}"
+    delivery = payload.get("delivery", "review")
+    if delivery not in DELIVERY_MODES:
+        return f"Invalid delivery: {delivery}. Use: {', '.join(DELIVERY_MODES)}"
+    # Without a model run there is no session to review a fixed text in.
+    if payload.get("fixed_text") and not (delivery == "announce" and payload.get("channel")):
+        return "fixed_text needs delivery 'announce' and a channel"
+    if payload.get("audio_type", "notification") not in AUDIO_TYPES:
+        return f"Invalid audio_type: {payload['audio_type']}. Use: {', '.join(AUDIO_TYPES)}"
+    return None
+
 
 # ============================================================
 # JOB DATACLASS
@@ -146,9 +176,15 @@ class JobStore:
         payload: dict[str, Any],
         max_tier: int = 1,
     ) -> Job:
-        """Add a new job. Returns the created Job with its ID."""
+        """Add a new job. Returns the created Job with its ID.
+
+        Raises ValueError for an expression without a next run: the job would never fire
+        (get_due_jobs filters next_run IS NOT NULL).
+        """
         now = _now_iso()
         next_run = _calculate_next_run(schedule_type, schedule_expr, now)
+        if next_run is None:
+            raise ValueError(f"Invalid {schedule_type} expression: '{schedule_expr}'")
         with self._connect() as conn:
             cursor = conn.execute(
                 """INSERT INTO jobs (name, schedule_type, schedule_expr, payload, max_tier, next_run)
@@ -313,6 +349,11 @@ def _now_iso() -> str:
     return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
 
+def next_run_of(schedule_type: str, schedule_expr: str) -> str | None:
+    """When an expression fires next from now on; None for one that never does."""
+    return _calculate_next_run(schedule_type, schedule_expr, _now_iso())
+
+
 def _calculate_next_run(schedule_type: str, schedule_expr: str, after: str) -> str | None:
     """Calculate next run time based on schedule type.
 
@@ -322,7 +363,12 @@ def _calculate_next_run(schedule_type: str, schedule_expr: str, after: str) -> s
         after: Calculate next run after this ISO timestamp
     """
     if schedule_type == "once":
-        return schedule_expr  # ISO timestamp — run at that time
+        # An ISO timestamp — run at that time (one past runs at the next check); anything else never fires.
+        try:
+            datetime.fromisoformat(schedule_expr)
+        except ValueError:
+            return None
+        return schedule_expr
 
     if schedule_type == "interval":
         seconds = int(schedule_expr)

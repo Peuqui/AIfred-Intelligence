@@ -3,6 +3,7 @@ import { createRouter, createWebHashHistory } from "vue-router";
 import AgentsView from "./views/AgentsView.vue";
 import ChatView from "./views/ChatView.vue";
 import DocumentsView from "./views/DocumentsView.vue";
+import JobsView from "./views/JobsView.vue";
 import MemoryView from "./views/MemoryView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
@@ -13,6 +14,7 @@ export const router = createRouter({
     { path: "/agents", component: AgentsView },
     { path: "/documents", component: DocumentsView },
     { path: "/memory", component: MemoryView },
+    { path: "/jobs", component: JobsView },
     { path: "/settings", component: SettingsView },
   ],
 });
