@@ -9,7 +9,8 @@ dictation did:
 - a long transcript → a file in the documents and a bubble with its link,
 - an audio file → a bubble with the transcript,
 - a dictation → straight to the AI as a turn, or into the input field (``dictation_text``) when
-  ``show_transcription`` is on or the text holds a mail address or a URL STT likely got wrong.
+  ``show_transcription`` is on or the text holds a mail address or a URL STT likely got wrong
+  (``hand_on``; the browser's own recognition hands its text on the same way).
 
 Every job ends with ``dictation_finished``; a message for the user comes as ``notice``.
 """
@@ -225,8 +226,7 @@ async def _transcribe(job: DictationJob) -> str | None:
 async def _deliver(job: DictationJob, text: str) -> None:
     from .config import TRANSCRIPT_TO_WORKSPACE_THRESHOLD_CHARS
     from .logging_utils import CONSOLE_SEPARATOR
-    from .settings import persisted_settings
-    from .turn_service import TurnRequest, post_bubble, submit_turn
+    from .turn_service import post_bubble
 
     if len(text) > TRANSCRIPT_TO_WORKSPACE_THRESHOLD_CHARS:
         _save_long_transcript(job, text)
@@ -236,15 +236,23 @@ async def _deliver(job: DictationJob, text: str) -> None:
             job, "stt_bubble_transcript", filename=job.filename, size=job.size_display, text=text,
         ), job.lang, in_history=True)
         debug("💬 Transcript added to chat bubble")
-    elif persisted_settings().get("show_transcription") or needs_review(text):
-        if needs_review(text):
-            debug("✏️ Email/URL detected → edit mode")
+    elif not hand_on(job.session_id, text):
         session_events.publish(job.session_id, "dictation_text", {"job_id": job.id, "text": text})
-        debug("✏️ Text in input field → Ready for editing")
-    else:
-        submit_turn(TurnRequest(job.session_id, text))
-        debug("🚀 Dictation sent to the AI")
     debug(CONSOLE_SEPARATOR)
+
+
+def hand_on(session_id: str, text: str) -> bool:
+    """A dictation's text goes straight to the AI as a turn (True), or into the input field for the
+    user to check (False): with ``show_transcription`` on, or when it holds a mail address or a URL."""
+    from .settings import persisted_settings
+    from .turn_service import TurnRequest, submit_turn
+
+    if persisted_settings().get("show_transcription") or needs_review(text):
+        debug("✏️ Email/URL detected → edit mode" if needs_review(text) else "✏️ Text in input field → Ready for editing")
+        return False
+    submit_turn(TurnRequest(session_id, text))
+    debug("🚀 Dictation sent to the AI")
+    return True
 
 
 def _save_long_transcript(job: DictationJob, text: str) -> None:

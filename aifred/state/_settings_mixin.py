@@ -141,6 +141,7 @@ class SettingsMixin(rx.State, mixin=True):
     def _save_settings(self) -> None:
         """Save current settings to file (per-backend models)."""
         from ..lib.agent_settings import get_agent_setting
+        from ..lib.config import DEFAULT_SETTINGS
         existing = load_settings() or {}
         backend_models = existing.get("backend_models", {})
 
@@ -215,6 +216,9 @@ class SettingsMixin(rx.State, mixin=True):
             # that has not loaded them yet can never wipe them.
             "channel_toggles": existing.get("channel_toggles", {}),
             "channel_security_tiers": existing.get("channel_security_tiers", {}),
+            # The dictation's engine: written only by the Vue app's dictation settings
+            # (settings.update_settings), taken from the file here like the hub's switches.
+            "dictation_engine": existing.get("dictation_engine", DEFAULT_SETTINGS["dictation_engine"]),
         }
 
         # Per-agent tuning — one dict per agent bucket. Field list is SSOT in

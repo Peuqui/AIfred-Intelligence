@@ -182,3 +182,43 @@ def test_the_endpoints_take_uploads_for_the_own_sessions_only(client: TestClient
     assert client.post(f"/sessions/{'e' * 32}/dictation", files=audio, data=other).status_code == 404
     assert client.post(f"/sessions/{SESSION}/dictation", files={"file": ("x.txt", b"x", "text/plain")}, data=other).status_code == 422
     assert client.post(f"/sessions/{SESSION}/dictation/nix/answer", json={"yes": True}).status_code == 404
+
+
+# ── The browser's own recognition ────────────────────────────────────────
+
+
+def test_the_browsers_text_follows_the_same_rule_as_a_transcription(client: TestClient, stt: dict[str, Any]) -> None:
+    def post(text: str) -> Any:
+        return client.post(f"/sessions/{SESSION}/dictation/text", json={"text": text})
+
+    assert post("Wie spät ist es?").json() == {"sent": True}
+    assert [request.text for request in stt["sent"]] == ["Wie spät ist es?"]
+    assert post("Schreib an peter at beispiel punkt de").json() == {"sent": False}    # for checking first
+    stt["settings"] = {"show_transcription": True}
+    assert post("Wie spät ist es?").json() == {"sent": False}
+    assert len(stt["sent"]) == 1
+    assert post("   ").status_code == 422
+    assert client.post(f"/sessions/{'e' * 32}/dictation/text", json={"text": "x"}).status_code == 404
+
+
+def test_the_dictation_settings_keep_every_other_key(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    settings_file = tmp_path / "settings.json"
+    settings_file.write_text(json.dumps({"ui_language": "de", "backend_type": "llamacpp"}), encoding="utf-8")
+    monkeypatch.setattr(settings, "SETTINGS_FILE", settings_file)
+    monkeypatch.setattr(settings, "SETTINGS_DIR", tmp_path)
+    monkeypatch.setattr(settings, "persisted_settings", lambda: {**settings.get_default_settings(), **json.loads(settings_file.read_text())})
+    assert client.get("/dictation/settings").json() == {"engine": "stt_suite", "show_transcription": False}
+    response = client.patch("/dictation/settings", json={"engine": "browser"})
+    assert response.json() == {"engine": "browser", "show_transcription": False}
+    assert json.loads(settings_file.read_text()) == {"ui_language": "de", "backend_type": "llamacpp", "dictation_engine": "browser"}
+    assert client.patch("/dictation/settings", json={"engine": "telepathie"}).status_code == 422
+
+
+def test_an_unreadable_settings_file_is_never_replaced_by_a_few_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    settings_file = tmp_path / "settings.json"
+    settings_file.write_text("{ kaputt", encoding="utf-8")
+    monkeypatch.setattr(settings, "SETTINGS_FILE", settings_file)
+    assert settings.update_settings({"dictation_engine": "browser"}) is False
+    assert settings_file.read_text(encoding="utf-8") == "{ kaputt"

@@ -23,6 +23,7 @@ const streamingHtml = computed(() => (chat.streaming ? renderMarkdown(chat.strea
 
 async function start(): Promise<void> {
   agents.value = await api<AgentSummary[]>("agents/summary");
+  await chat.loadDictationSettings();
   await sessions.refresh();
   const latest = sessions.list[0];
   await chat.open(latest ? latest.session_id : await sessions.create());
@@ -104,11 +105,14 @@ onMounted(async () => {
         :images="chat.pendingImages"
         :uploading="chat.uploading"
         :transcribing="chat.dictations.length > 0"
+        :dictation="chat.dictationSettings"
         @send="chat.send"
         @stop="chat.stop"
         @upload="chat.uploadImages"
         @remove-image="chat.removeImage"
         @dictate="chat.dictate"
+        @heard="chat.dictated"
+        @dictation-settings="chat.changeDictationSettings"
       />
       <DebugConsole :lines="chat.debugLines" />
     </main>

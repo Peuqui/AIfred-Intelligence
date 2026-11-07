@@ -86,6 +86,18 @@ def save_settings(settings: dict[str, Any]) -> bool:
         return False
 
 
+def update_settings(changes: dict[str, Any]) -> bool:
+    """Write ``changes`` into settings.json and keep every other key as the file has it. False when
+    the file exists but cannot be read (it is never replaced by the changes alone) or the write fails."""
+    if SETTINGS_FILE.exists():
+        settings = load_settings()
+        if settings is None:
+            return False
+    else:
+        settings = {}
+    return save_settings({**settings, **changes})
+
+
 def get_default_settings() -> dict[str, Any]:
     """
     Get default settings from config.py DEFAULT_SETTINGS

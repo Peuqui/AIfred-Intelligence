@@ -321,6 +321,70 @@ async def sessions_dictation_answer(session_id: str, job_id: str, reply: Dictati
     return Response(status_code=204)
 
 
+class DictatedText(BaseModel):
+    text: str
+
+
+class DictatedTextResult(BaseModel):
+    sent: bool = Field(description="True: it went to the AI as a turn; False: it belongs in the input field")
+
+
+@api_app.post("/sessions/{session_id}/dictation/text", response_model=DictatedTextResult, tags=["Sessions"])
+async def sessions_dictation_text(session_id: str, dictated: DictatedText, request: Request) -> DictatedTextResult:
+    """What the browser's own recognition heard: straight to the AI or into the input field, by the
+    same rule as a transcription of the server (``dictation.hand_on``)."""
+    from ..debug_bus import session_scope
+    from ..dictation import hand_on
+
+    owned_session(request, session_id)
+    text = dictated.text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="Empty dictation")
+    with session_scope(session_id):
+        return DictatedTextResult(sent=hand_on(session_id, text))
+
+
+class DictationSettings(BaseModel):
+    engine: str = Field(description="Who recognizes a dictation: stt_suite or browser (config.DICTATION_ENGINES)")
+    show_transcription: bool = Field(description="A dictation goes into the input field first instead of to the AI")
+
+
+class DictationSettingsUpdate(BaseModel):
+    engine: str | None = None
+    show_transcription: bool | None = None
+
+
+def _dictation_settings() -> DictationSettings:
+    from ..settings import persisted_settings
+
+    settings = persisted_settings()
+    return DictationSettings(engine=settings["dictation_engine"], show_transcription=bool(settings["show_transcription"]))
+
+
+@api_app.get("/dictation/settings", response_model=DictationSettings, tags=["Sessions"])
+async def dictation_settings(request: Request) -> DictationSettings:
+    current_user(request)
+    return _dictation_settings()
+
+
+@api_app.patch("/dictation/settings", response_model=DictationSettings, tags=["Sessions"])
+async def dictation_settings_update(update: DictationSettingsUpdate, request: Request) -> DictationSettings:
+    from ..config import DICTATION_ENGINES
+    from ..settings import update_settings
+
+    current_user(request)
+    changes: dict[str, Any] = {}
+    if update.engine is not None:
+        if update.engine not in DICTATION_ENGINES:
+            raise HTTPException(status_code=422, detail=f"Unknown dictation engine: {update.engine}")
+        changes["dictation_engine"] = update.engine
+    if update.show_transcription is not None:
+        changes["show_transcription"] = update.show_transcription
+    if changes and not update_settings(changes):
+        raise HTTPException(status_code=500, detail="settings.json could not be written")
+    return _dictation_settings()
+
+
 @api_app.post("/sessions/{session_id}/stop", tags=["Sessions"])
 async def sessions_stop(session_id: str, request: Request) -> dict[str, bool]:
     """End the running turn and the reading aloud, also one that outlasts its turn;

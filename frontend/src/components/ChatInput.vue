@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import type { UploadedImage } from "../api/types";
-import { t } from "../i18n";
+import type { DictationSettings, UploadedImage } from "../api/types";
+import { language, t } from "../i18n";
 import * as recorder from "../lib/recorder";
 import { speaking } from "../lib/speech";
 import DictationBadge, { type BadgePhase } from "./DictationBadge.vue";
+import DictationMenu from "./DictationMenu.vue";
 
 const props = defineProps<{
   running: boolean;
@@ -12,6 +13,7 @@ const props = defineProps<{
   images: UploadedImage[];
   uploading: boolean;
   transcribing: boolean;
+  dictation: DictationSettings;
 }>();
 const emit = defineEmits<{
   send: [text: string];
@@ -19,6 +21,8 @@ const emit = defineEmits<{
   upload: [files: File[]];
   removeImage: [name: string];
   dictate: [file: File, source: "mic" | "file"];
+  heard: [text: string];
+  dictationSettings: [changes: Partial<DictationSettings>];
 }>();
 // The input field's text lives in the chat store: a dictation in edit mode lands there.
 const text = defineModel<string>({ required: true });
@@ -54,15 +58,24 @@ function picked(event: Event): void {
   input.value = "";
 }
 
+// The dictation goes to the STT-Suite as a recording, or the browser's own recognition listens, as the
+// dictation settings say. Neither stands in for the other by itself.
 async function toggleRecording(): Promise<void> {
   if (recording.value) {
     recorder.stop();
     return;
   }
   try {
-    await recorder.start((file) => emit("dictate", file, "mic"));
+    if (props.dictation.engine === "browser") {
+      recorder.startBrowser(language.value, (text) => emit("heard", text), (error) => window.alert(`${t("dictation_browser_failed")} (${error})`));
+    } else {
+      await recorder.start((file) => emit("dictate", file, "mic"));
+    }
   } catch (error) {
-    window.alert(error instanceof Error && error.message === "insecure" ? t("mic_needs_secure_origin") : t("mic_access_denied"));
+    const reason = error instanceof Error ? error.message : "";
+    window.alert(
+      reason === "unsupported" ? t("dictation_browser_unsupported") : reason === "insecure" ? t("mic_needs_secure_origin") : t("mic_access_denied"),
+    );
   }
 }
 
@@ -103,6 +116,7 @@ function audioPicked(event: Event): void {
       >
         <DictationBadge :phase="badgePhase" />
       </button>
+      <DictationMenu :settings="dictation" @change="(changes) => emit('dictationSettings', changes)" />
       <button class="tool" :title="t('audio_file_upload')" @click="audioPicker?.click()">🎵</button>
       <span v-if="transcribing" class="transcribing">{{ t("dictation_running") }}</span>
       <span v-if="queued" class="queued">{{ t("messages_waiting", { count: queued }) }}</span>

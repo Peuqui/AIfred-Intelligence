@@ -114,6 +114,8 @@ DEFAULT_TTS_ESCALATION: list[dict[str, object]] = [
 # (satzweise / absatzweise / am Stück) trägt die Engine selbst (Katalog der TTS-Suite: ``unit_default``).
 TTS_AUTOPLAY_DEFAULT = False
 
+DICTATION_ENGINES = ("stt_suite", "browser")
+
 DEFAULT_SETTINGS = {
     # NOTE: Model names are defined in BACKEND_DEFAULT_MODELS below (backend-specific)
     # They will be merged in settings.py get_default_settings()
@@ -142,6 +144,9 @@ DEFAULT_SETTINGS = {
     # des Dienstes kommt beim Abgleich ausgeschaltet dahinter.
     "tts_escalation": DEFAULT_TTS_ESCALATION,
     "show_transcription": False,
+    # Who recognizes a dictation: the STT-Suite on this machine, or the browser's own recognition
+    # (Chrome and Edge send the speech to Google or Microsoft; Firefox has none). No switching by itself.
+    "dictation_engine": "stt_suite",
     "enable_gpu": True,
     # NOTE: temperature is per-agent (agent_tuning bucket), no flat key
     "temperature_mode": "auto",  # "auto" (Intent-Detection) or "manual" (user slider)

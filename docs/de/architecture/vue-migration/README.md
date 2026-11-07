@@ -133,6 +133,13 @@ entfernen; gesehen oder einmal beschrieben), Diktat und Audio-Dateien, Inkognito
   Anmeldung sehen darf, steht in `lib/upload_files.py` (`mount_upload_folders`); die Reflex-App ruft
   sie auf, der Server ohne Reflex muss es beim Wechsel ebenso tun.
 - **Bilder, Rest:** drehen und zuschneiden vor dem Senden (heute Zuschneide-Dialog im State).
+- **Browser-Erkennung** (Peuqui 07.11.2026): Im Diktat-Menü neben dem Mikrofon wählt man die
+  Spracherkennung, STT-Suite (Standard) oder Browser (Web Speech API; Chrome und Edge schicken die
+  Sprache an Google bzw. Microsoft, Firefox kann es nicht), dazu „erst ins Eingabefeld“.
+  `dictation_engine` und `show_transcription` in settings.json (`GET/PATCH /api/dictation/settings`,
+  schlüsselweise über `settings.update_settings`). Kein Ausweichen von selbst, nur für Diktate. Was
+  der Browser hört, geht an `POST /api/sessions/{id}/dictation/text`; dieselbe Regel wie beim Diktat
+  des Servers (`dictation.hand_on`) schickt es an die KI oder ins Eingabefeld.
 - **Diktat, Rest:** Die Schätzung der Dauer nimmt immer die GPU an, auch wenn die Aufnahme auf die CPU
   geht (Bestandsaufnahme). Die Gerätewahl in AIfred und die Rückfrage „LLM entladen?“ sind entfallen
   (Peuqui 07.11.2026, Archiv-Tag `archive-vue-frontend-2026-11-07`): AIfred fragt immer mit `auto`.

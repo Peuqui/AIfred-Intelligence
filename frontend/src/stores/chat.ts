@@ -6,7 +6,9 @@ import { ApiError, api } from "../api/client";
 import { followSession } from "../api/events";
 import type {
   ChatEntry,
+  DictatedTextResult,
   DictationAccepted,
+  DictationSettings,
   MessageAccepted,
   SessionConfig,
   SessionDetail,
@@ -42,6 +44,8 @@ export const useChat = defineStore("chat", () => {
   // Dictations this tab sent that are not finished yet: only this tab asks their questions and
   // takes their text into its input field.
   const dictations = ref<string[]>([]);
+  // Who recognizes a dictation and whether it goes into the input field first (settings.json).
+  const dictationSettings = ref<DictationSettings>({ engine: "stt_suite", show_transcription: false });
   let source: EventSource | null = null;
 
   async function open(id: string): Promise<void> {
@@ -197,6 +201,28 @@ export const useChat = defineStore("chat", () => {
     }
   }
 
+  // What the browser's own recognition heard: the server sends it to the AI or gives it back for the
+  // input field, by the same rule as a transcription (dictation.hand_on).
+  async function dictated(text: string): Promise<void> {
+    if (!sessionId.value) return;
+    const result = await api<DictatedTextResult>(`sessions/${sessionId.value}/dictation/text`, {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+    if (!result.sent) draft.value = draft.value.trim() ? `${draft.value.trim()} ${text}` : text;
+  }
+
+  async function loadDictationSettings(): Promise<void> {
+    dictationSettings.value = await api<DictationSettings>("dictation/settings");
+  }
+
+  async function changeDictationSettings(changes: Partial<DictationSettings>): Promise<void> {
+    dictationSettings.value = await api<DictationSettings>("dictation/settings", {
+      method: "PATCH",
+      body: JSON.stringify(changes),
+    });
+  }
+
   async function answerDictation(jobId: string, question: string): Promise<void> {
     if (!sessionId.value) return;
     await api<void>(`sessions/${sessionId.value}/dictation/${jobId}/answer`, {
@@ -228,7 +254,7 @@ export const useChat = defineStore("chat", () => {
 
   return {
     sessionId, title, history, debugLines, config, running, streaming, toolStatus, notice, queued,
-    pendingImages, uploading, draft, dictations, open, close, send, stop, configure, uploadImages, removeImage,
-    dictate,
+    pendingImages, uploading, draft, dictations, dictationSettings, open, close, send, stop, configure,
+    uploadImages, removeImage, dictate, dictated, loadDictationSettings, changeDictationSettings,
   };
 });
