@@ -289,7 +289,9 @@ LLAMACPP_HYBRID_HEALTH_TIMEOUT = 900   # Hybrid mode: CPU offload + mlock — ex
 # (~750 MB/s) sind allein ~170 s reines Lesen + mlock-Double-Touch + Layer-Init.
 # 6 s/GB = ~2.4× der gemessenen Basis-Ladezeit, komfortabler Puffer.
 LLAMACPP_HEALTH_TIMEOUT_PER_GB = 6     # Seconds per GB model size (added to floor logic)
-LLAMACPP_CALIBRATION_PORT = int(os.environ.get("LLAMACPP_CALIBRATION_PORT", "9999"))
+# Port of the calibration's test server. Not 9999: that is AI-Connect's bridge (and the default of AIfred's
+# AI-Connect channel); a test instance without this .env key took it on 08.11.2026.
+LLAMACPP_CALIBRATION_PORT = int(os.environ.get("LLAMACPP_CALIBRATION_PORT", "19999"))
 # HTTP timeout (seconds) for llama-swap's /running query; normal answer < 100 ms,
 # the value only guards against hung connections.
 LLAMASWAP_RUNNING_TIMEOUT_S = 5

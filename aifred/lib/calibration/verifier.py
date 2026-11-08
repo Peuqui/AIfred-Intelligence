@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
+import psutil
 
 from ..config import (
     LLAMACPP_HEALTH_TIMEOUT,
@@ -697,15 +698,42 @@ async def verify(
         raise
 
 
+# The calibration's test server: the only program the cleanup of the calibration port may stop.
+CALIBRATION_SERVER_NAME = "llama-server"
+
+
+def _listeners(port: int) -> list[psutil.Process]:
+    """The processes listening on ``port`` (TCP)."""
+    pids = {
+        connection.pid for connection in psutil.net_connections(kind="tcp")
+        if connection.pid and connection.laddr and connection.laddr.port == port
+        and connection.status == psutil.CONN_LISTEN
+    }
+    return [psutil.Process(pid) for pid in sorted(pids)]
+
+
+def _kill_calibration_servers(port: int) -> bool:
+    killed = False
+    for process in _listeners(port):
+        try:
+            if process.name() != CALIBRATION_SERVER_NAME:
+                logger.warning(
+                    f"Port {port} is held by {process.name()} (PID {process.pid}), not a {CALIBRATION_SERVER_NAME} — "
+                    f"left alone; the calibration needs the port free (LLAMACPP_CALIBRATION_PORT)"
+                )
+                continue
+            process.kill()
+            killed = True
+        except psutil.NoSuchProcess:  # ended on its own meanwhile
+            continue
+    return killed
+
+
 async def kill_orphan_on_port(port: int) -> bool:
-    """Best-effort cleanup of a leftover llama-server holding ``port``; True when one was killed."""
-    try:
-        result = await asyncio.to_thread(
-            subprocess.run, ["fuser", "-k", f"{port}/tcp"], capture_output=True, timeout=5, check=False,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        logger.warning(f"fuser on port {port} failed, a leftover server may still hold it: {exc}")
-        return False
-    if result.returncode == 0:
-        logger.info(f"Killed orphan on port {port}")
-    return result.returncode == 0
+    """Stop a leftover llama-server of an interrupted calibration that still listens on ``port``; True when one was
+    stopped. Another program on the port is left alone and named in the log: before, ``fuser -k`` stopped whatever
+    held it, and on 08.11.2026 that was AI-Connect's bridge (its default port is the calibration's default 9999)."""
+    killed = await asyncio.to_thread(_kill_calibration_servers, port)
+    if killed:
+        logger.info(f"Killed orphan {CALIBRATION_SERVER_NAME} on port {port}")
+    return killed

@@ -37,7 +37,7 @@ Environment="BUN_MAX_OLD_SPACE_SIZE=4096"
 # into <project>/.env (loaded via EnvironmentFile above), e.g.
 #   AIFRED_FRONTEND_PATH=aifred           # app behind a proxy at /aifred
 #   LLAMACPP_URL=http://localhost:11435/v1
-#   LLAMACPP_CALIBRATION_PORT=19999       # default 9999 collides with another service
+#   LLAMACPP_CALIBRATION_PORT=19999       # the default; set another one if 19999 is taken
 # Extra ExecStartPre/ExecStopPost lines: a drop-in via
 # `sudo systemctl edit aifred-intelligence` (survives re-installs).
 # ─────────────────────────────────────────────────────────────────

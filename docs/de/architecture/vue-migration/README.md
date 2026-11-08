@@ -333,9 +333,18 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   `qwen-plus`, wenn der Kalibrier-Agent kein Modell hatte (der Lauf bricht dann ab), und prüfte nur den
   DashScope-Schlüssel statt den des eingestellten Anbieters. Entfernt: das wirkungslose `session_scope` um den
   VLM-Burn-in. Geprüft: Tests mit Stellvertreter-Schritten (fertig, Abbruch, Fehler, doppelter Start), Oberfläche
-  an der Testinstanz ohne Start, Reflex-Rendering unverändert. **Offen: ein echter Lauf** (stoppt llama-swap,
-  belegt alle Karten; der Ollama-Dienst ist auf dem Mini aus) — in Peuquis Zeitfenster, am besten ein kleines GGUF
-  unter llama.cpp mit „Kein VLM | Kein TTS“, danach eine TTS-Zelle und ein Abbruch.
+  an der Testinstanz ohne Start, Reflex-Rendering unverändert. Live 08.11.2026 über die API der Testinstanz
+  (`~/.cache/aifred-e2e/vue/calibration_live.py`, Qwen3VL-4B, Basiszelle): ein voller Lauf in 63 s (llama-swap
+  gestoppt, ein Prüfstart mit echtem Laden bei 262.144 Token auf einer RTX 8000, Profil geschrieben, llama-swap
+  wieder gestartet, Denktest; inhaltlich änderte sich in der Config nur dieses Profil, der YAML-Schreiber formatiert
+  die Datei dabei neu) und ein Lauf mit Abbruch (hielt am nächsten Schritt, Warnung, llama-swap wieder an).
+  **Dabei gefunden und behoben:** Das Aufräumen vor jedem Prüfstart (`verifier.kill_orphan_on_port`) beendete per
+  `fuser -k` jeden Prozess auf dem Port des Testservers. Die Testinstanz hatte `LLAMACPP_CALIBRATION_PORT` nicht aus
+  der `.env` und nahm den Standard 9999 — den Port der AI-Connect-Bridge (auch Standard von AIfreds AI-Connect-
+  Kanal): Die Bridge wurde zweimal beendet, ihr Neustart scheiterte am belegten Port, und der Prozess hing ohne
+  Socket weiter (neu gestartet über PolKit). Jetzt beendet das Aufräumen nur einen `llama-server` und nennt jeden
+  anderen Prozess im Log; der Standard-Port ist 19999 wie in der `.env` der Produktion. Offen bleibt ein Lauf mit
+  TTS- oder VLM-Zelle (lädt die TTS-Suite bzw. den Burn-in).
 - **Server-Start in lib (Vorarbeit für Schritt 6, 08.11.2026):** `lib/server_startup.py` hält, was AIfred einmal je
   Prozess startet (`start_process_tasks`: Debug-Log, Plattform, die Aufräum-Tasks, Audio-Index, Vision-Prewarm im
   Live-Modus, GPU-Erkennung, Ollama leeren), und die Lifespans `session_events_lifespan`, `message_hub_lifespan` (Hub,
