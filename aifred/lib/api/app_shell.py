@@ -37,7 +37,19 @@ async def _send_build_id(request: Request, call_next: Callable[[Request], Awaita
 
 @api_app.get("/app/theme.css", include_in_schema=False)
 async def app_theme() -> Response:
-    return Response(css_variables(), media_type="text/css")
+    """The colours of theme.py and the heights of the collapsibles in answers (config.py) as CSS variables."""
+    from ..config import (
+        UI_SANDBOX_MAX_HEIGHT,
+        UI_THINKING_MAX_HEIGHT_DESKTOP,
+        UI_THINKING_MAX_HEIGHT_MOBILE,
+    )
+
+    heights = (
+        f":root {{\n    --thinking-max-height-desktop: {UI_THINKING_MAX_HEIGHT_DESKTOP};\n"
+        f"    --thinking-max-height-mobile: {UI_THINKING_MAX_HEIGHT_MOBILE};\n"
+        f"    --sandbox-max-height: {UI_SANDBOX_MAX_HEIGHT};\n}}"
+    )
+    return Response(f"{css_variables()}\n{heights}", media_type="text/css")
 
 
 @api_app.get("/app/manifest.webmanifest", include_in_schema=False)

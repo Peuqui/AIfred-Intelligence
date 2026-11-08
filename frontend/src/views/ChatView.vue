@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { AgentSummary, ChatEntry, CropBox, DebateMode } from "../api/types";
 import AgentChoicesModal from "../components/AgentChoicesModal.vue";
@@ -142,23 +142,7 @@ watch(() => chat.sessionId, async () => {
 // The shell shows this page only once logged in; kept alive, it opens a session once per login.
 onMounted(() => void start());
 
-// How tall each turn's pinned question is (--pinned-height on its turn): an opened collapsible's title line sticks right
-// beneath it instead of sliding under it. A closed one is only as tall as its title and scrolls on by itself.
-const pinnedHeights = new ResizeObserver((entries) => {
-  for (const entry of entries) {
-    const question = entry.target as HTMLElement;
-    question.parentElement?.style.setProperty("--pinned-height", `${question.offsetHeight}px`);
-  }
-});
-watch(
-  turns,
-  async () => {
-    await nextTick();
-    messages.value?.querySelectorAll<HTMLElement>(".turn > .pinned").forEach((question) => pinnedHeights.observe(question));
-  },
-  { immediate: true },
-);
-onBeforeUnmount(() => pinnedHeights.disconnect());
+
 </script>
 
 <template>
@@ -287,10 +271,7 @@ h2 { margin: 0; font-size: 1rem; }
   border-radius: 8px;
 }
 .bubbles { display: flex; flex-direction: column; gap: 10px; zoom: calc(var(--chat-zoom) / var(--ui-zoom)); }
-/* --pinned-height: the turn's question (measured, above); a turn without one has none. */
-.turn { --pinned-height: 0px; display: flex; flex-direction: column; gap: 10px; }
-/* formatting.py writes the title lines with top: 0 into the answer's HTML; only !important outranks that. */
-.turn :deep(details[open] > summary) { top: var(--pinned-height) !important; }
+.turn { display: flex; flex-direction: column; gap: 10px; }
 /* Above the collapsibles' headers, which stick too (formatting.py writes them with z-index 2 into the answer). */
 .turn > .pinned { position: sticky; top: 0; z-index: 3; box-shadow: 0 4px 10px var(--aifred-page-bg); }
 .streaming { align-self: flex-start; max-width: min(860px, 92%); padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light); }

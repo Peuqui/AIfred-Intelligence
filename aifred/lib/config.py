@@ -1753,6 +1753,11 @@ SECURITY_RATE_LIMITS: dict[str, int] = {
 # HTML PREVIEW CONFIGURATION
 # ============================================================
 HTML_PREVIEW_MAX_FILES = env_int("HTML_PREVIEW_MAX_FILES", 200)  # LRU cache limit for data/html_preview/
+# A collapsible in an answer (thinking, sources) is a box of its own with this height at most and a scrollbar of its
+# own, as on the Reflex page; a sandbox page has its own limit. Reach the interface through /api/app/theme.css.
+UI_THINKING_MAX_HEIGHT_DESKTOP = "450px"   # ~15-20 lines of text
+UI_THINKING_MAX_HEIGHT_MOBILE = "40vh"     # narrow screens (max-width 760px)
+UI_SANDBOX_MAX_HEIGHT = "60vh"             # details[data-sandbox]
 SANDBOX_OUTPUT_DIR = DATA_DIR / "sandbox_output"
 # Max size of a file a channel *_send tool may attach. Guards against a
 # huge sandbox/upload file stalling the send or hitting provider limits

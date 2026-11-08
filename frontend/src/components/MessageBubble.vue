@@ -93,7 +93,25 @@ header { font-size: 0.8rem; font-weight: 600; color: var(--aifred-primary); marg
 .note { color: var(--aifred-text-secondary); font-weight: 400; font-size: 0.7rem; align-self: center; }
 .content :deep(p) { margin: 0.5em 0; }
 .content :deep(pre) { overflow-x: auto; background: var(--aifred-page-bg); padding: 8px; border-radius: 6px; }
-.content :deep(details) { margin: 0.3em 0; }
+/* Every collapsible (thinking, sources, …) a box of its own inside the answer, as on the Reflex page: lighter than the
+   bubble, at most so high (config.py, theme.css) with a scrollbar of its own; its title line sticks at its top. A
+   sandbox page keeps its own height and no frame. */
+.content :deep(details) {
+  background: var(--aifred-input-bg);
+  border: 1px solid var(--aifred-border);
+  border-radius: 6px;
+  padding: 0 0.75em 0.5em;
+  margin: 0.4em 0 1em;
+  max-height: var(--thinking-max-height-desktop);
+  overflow-y: auto;
+}
+.content :deep(details > summary) { padding: 6px 0 !important; color: var(--aifred-text-secondary); }
+.content :deep(details[data-sandbox]) { max-height: var(--sandbox-max-height); overflow: hidden; background: transparent; border: none; padding: 0; }
+.content :deep(.thinking-compact) { color: var(--aifred-text-soft); }
+.content :deep(details a) { color: var(--aifred-accent-cyan); }
+@media (max-width: 760px) {
+  .content :deep(details:not([data-sandbox])) { max-height: var(--thinking-max-height-mobile); }
+}
 .content :deep(table) { border-collapse: collapse; }
 .content :deep(td), .content :deep(th) { border: 1px solid var(--aifred-border); padding: 2px 6px; }
 .content :deep(img) { max-width: 100%; }
