@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, nextTick, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
-import type { AgentSummary, CropBox, DebateMode } from "../api/types";
+import type { AgentSummary, ChatEntry, CropBox, DebateMode } from "../api/types";
 import AgentChoicesModal from "../components/AgentChoicesModal.vue";
 import AgentSelect from "../components/AgentSelect.vue";
 import DebateControls from "../components/DebateControls.vue";
@@ -30,6 +30,20 @@ const modes = ref<DebateMode[]>([]);
 const messages = ref<HTMLElement | null>(null);
 const streamingHtml = computed(() => (chat.streaming ? renderMarkdown(chat.streaming.text) : ""));
 const hasReplies = computed(() => chat.history.some((entry) => entry.role === "assistant"));
+// The history in turns: a question with the answers after it. The question stays at the top edge of the box while its
+// answers scroll beneath it, until the next turn's question pushes it out (sticky within its turn).
+const turns = computed(() => {
+  const grouped: { key: string; entries: ChatEntry[] }[] = [];
+  let current: { key: string; entries: ChatEntry[] } | null = null;
+  for (const entry of chat.history) {
+    if (entry.role === "user" || current === null) {
+      current = { key: entry.timestamp + entry.role, entries: [] };
+      grouped.push(current);
+    }
+    current.entries.push(entry);
+  }
+  return grouped;
+});
 // Shown in the streaming bubble, or on its own while the turn has none yet.
 const progress = computed(() =>
   progressLine(chat.running, chat.phase, !chat.streaming || (!chat.streaming.text && !chat.toolStatus)),
@@ -174,13 +188,16 @@ onMounted(() => void start());
       </div>
       <div ref="messages" class="messages">
         <div class="bubbles">
-        <MessageBubble
-          v-for="entry in chat.history"
-          :key="entry.timestamp + entry.role"
-          :entry="entry"
-          :speech-on="!!settings.current?.enable_tts && entry.role === 'assistant'"
-          @read-again="chat.readAgain"
-        />
+        <section v-for="turn in turns" :key="turn.key" class="turn">
+          <MessageBubble
+            v-for="entry in turn.entries"
+            :key="entry.timestamp + entry.role"
+            :class="{ pinned: entry.role === 'user' }"
+            :entry="entry"
+            :speech-on="!!settings.current?.enable_tts && entry.role === 'assistant'"
+            @read-again="chat.readAgain"
+          />
+        </section>
         <article v-if="chat.streaming" class="streaming">
           <header>{{ chat.streaming.emoji }} {{ chat.streaming.displayName }}</header>
           <!-- eslint-disable-next-line vue/no-v-html -- sanitized by renderMarkdown (DOMPurify) -->
@@ -251,6 +268,8 @@ h2 { margin: 0; font-size: 1rem; }
   border-radius: 8px;
 }
 .bubbles { display: flex; flex-direction: column; gap: 10px; zoom: calc(var(--chat-zoom) / var(--ui-zoom)); }
+.turn { display: flex; flex-direction: column; gap: 10px; }
+.turn > .pinned { position: sticky; top: -10px; z-index: 1; box-shadow: 0 4px 10px var(--aifred-page-bg); }
 .streaming { align-self: flex-start; max-width: min(860px, 92%); padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light); }
 .streaming header { font-size: 0.8rem; font-weight: 600; color: var(--aifred-primary); }
 .tool { margin: 4px 0 0; font-size: 0.8rem; color: var(--aifred-accent-cyan); }
