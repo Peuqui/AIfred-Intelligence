@@ -343,8 +343,12 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   der `.env` und nahm den Standard 9999 — den Port der AI-Connect-Bridge (auch Standard von AIfreds AI-Connect-
   Kanal): Die Bridge wurde zweimal beendet, ihr Neustart scheiterte am belegten Port, und der Prozess hing ohne
   Socket weiter (neu gestartet über PolKit). Jetzt beendet das Aufräumen nur einen `llama-server` und nennt jeden
-  anderen Prozess im Log; der Standard-Port ist 19999 wie in der `.env` der Produktion. Offen bleibt ein Lauf mit
-  TTS- oder VLM-Zelle (lädt die TTS-Suite bzw. den Burn-in).
+  anderen Prozess im Log; der Standard-Port ist 19999 wie in der `.env` der Produktion. Ein dritter Lauf mit TTS-,
+  VLM- und Kombi-Zelle (`calibration_cells_live.py`, 17 s): Basis übernommen, alle drei Varianten im getrennten Modus
+  (Sprachmodell auf einer RTX 8000, TTS und Bildmodell auf der V100-Karte 4), Profile mit der Verteilung der Basis
+  geschrieben. Ungeprüft bleiben die Varianten-Wege mit eigenen Prüfstarts (Sprachmodell teilt die Karte mit TTS oder
+  Bildmodell) und der Burn-in eines Bildmodells ohne Cache-Wert: Dafür bräuchte es ein GGUF, das über die
+  Side-Channel-Karte reicht, und auf dem Mini liegen nur das 4B und das 30B (beide passen auf eine Karte).
 - **Server-Start in lib (Vorarbeit für Schritt 6, 08.11.2026):** `lib/server_startup.py` hält, was AIfred einmal je
   Prozess startet (`start_process_tasks`: Debug-Log, Plattform, die Aufräum-Tasks, Audio-Index, Vision-Prewarm im
   Live-Modus, GPU-Erkennung, Ollama leeren), und die Lifespans `session_events_lifespan`, `message_hub_lifespan` (Hub,
