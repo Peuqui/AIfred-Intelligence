@@ -435,7 +435,13 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
      kommt über den Sitzungsstrom). `GET /api/service-status` und `/hosts` haben jetzt ihre Dataclasses als
      `response_model`, Vue nimmt die erzeugten Typen. Die Dienst-Icons liegen wieder unter
      `frontend/src/assets/status-icons/`. Die Testinstanz startet den Monitor mit (er liest nur). Im Browser geprüft.
-  4. Sichtbarer Audio-Player (Pause, Spulen, Lautstärke, was läuft); Musik lässt sich sonst nicht anhalten.
+  4. ~~Sichtbarer Audio-Player~~ (erledigt 08.11.: `MediaPlayer.vue` unter der Statuszeile, solange etwas spielt:
+     was, ⏯, ⏹, Position mit Spulen, Lautstärke je Gerät; `lib/media.ts` gibt dafür seinen Zustand als Refs heraus).
+     Dabei behoben: Der Browser-Kanal des Audio-Players (`audio_channels/browser.py`) führte seinen Zustand im
+     Reflex-State; auf dem Server-Weg fanden Pause, Fortsetzen, Stopp, Spulen, Tempo und Status nie etwas, ein Agent
+     konnte Musik im Browser nur starten. Jetzt hält der Kanal je Sitzung, was er gestartet hat; die Knöpfe gehen
+     über `POST /api/sessions/{id}/media` denselben Weg wie die Werkzeuge, alle Tabs folgen. Live geprüft mit dem
+     30B-Modell: Werkzeug spielt, ⏸ hält über den Server an, ⏹ stoppt.
   5. ~~„Merken“~~ (erledigt 08.11.: 📌 in der Kopfleiste, `POST /api/sessions/{id}/remember`,
      `lib/session_memory.py`). Beim Umzug geändert: Prompt in `prompts/<lang>/utility/session_memory.txt` (stand
      englisch im Code), das Gespräch füllt den Kontext des Modells, neueste Zeilen zuerst, statt auf 4.000 Zeichen

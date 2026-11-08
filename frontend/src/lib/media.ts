@@ -3,8 +3,9 @@
 // and "stop" over the session's event stream. The spoken reply goes first: while it speaks the track pauses, after it
 // the track goes on a few seconds earlier (pre_roll_sec, the server's). Where a track stands is saved on the server
 // while it plays (every position_save_sec), when it pauses or stops, and as completed when it ends, so it resumes
-// there next time.
-import { watch } from "vue";
+// there next time. What plays, where it stands and how loud are refs for the visible player (MediaPlayer.vue); its
+// buttons go through the server (POST /api/sessions/{id}/media), so every tab and the agents' tools see the same.
+import { ref, watch } from "vue";
 import { api } from "../api/client";
 import { speaking } from "./speech";
 
@@ -17,6 +18,24 @@ let preRollSec = 0;
 let saveEverySec = 0;
 let saver: number | null = null;
 let pausedForSpeech = false;
+let queueEnded: (() => void) | null = null;
+
+export const current = ref("");          // the state_key of the track (folder/file), "" = nothing
+export const playing = ref(false);
+export const position = ref(0);          // seconds
+export const duration = ref(0);          // seconds; Infinity for a stream
+export const volume = ref(1);
+
+player.addEventListener("play", () => (playing.value = true));
+player.addEventListener("pause", () => (playing.value = false));
+player.addEventListener("timeupdate", () => (position.value = player.currentTime));
+player.addEventListener("durationchange", () => (duration.value = player.duration));
+watch(volume, (level) => (player.volume = level));
+
+// What to do when the last track has ended (the chat store tells the server: nothing plays there any more).
+export function onQueueEnd(callback: () => void): void {
+  queueEnded = callback;
+}
 
 function savePosition(completed = false): void {
   if (!track) return;
@@ -38,6 +57,7 @@ function keepSaving(on: boolean): void {
 
 function load(next: Track, startSec: number): void {
   track = next;
+  current.value = next.stateKey;
   player.src = next.url;
   player.currentTime = 0;
   if (startSec > 0) player.addEventListener("loadedmetadata", () => { player.currentTime = startSec; }, { once: true });
@@ -52,8 +72,13 @@ player.addEventListener("ended", () => {
   savePosition(true);
   keepSaving(false);
   const next = following.shift();
-  if (next) load(next, 0);
-  else track = null;
+  if (next) {
+    load(next, 0);
+    return;
+  }
+  track = null;
+  current.value = "";
+  queueEnded?.();
 });
 
 export function handle(kind: string, data: Record<string, unknown>): void {
@@ -88,6 +113,7 @@ export function stop(): void {
   player.pause();
   keepSaving(false);
   track = null;
+  current.value = "";
   following = [];
   pausedForSpeech = false;
 }

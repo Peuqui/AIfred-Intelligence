@@ -1,24 +1,17 @@
-"""BrowserChannel — HTML5 ``<audio>`` im Browser-Tab.
+"""BrowserChannel — HTML5 audio in the session's browser tabs (frontend/src/lib/media.ts).
 
-Kein PCM-Streaming, kein FIFO. Der Browser lädt die Datei selbst per
-HTTP-Range vom REST-Endpoint ``/api/audio/file?key=<state_key>`` und
-dekodiert sie nativ. Steuerung läuft über den Reflex-State (``media_*``-
-Felder), den wir hier setzen — JS-Code in ``custom.js`` reagiert auf
-State-Pushes und steuert das ``<audio>``-Element.
+No PCM streaming: the browser loads the file itself by HTTP range from ``/api/audio/file?key=<state_key>``. The
+channel pushes what to play and how (``media``, ``pause``, ``resume``, ``stop``, ``seek``, ``speed``) into the
+session's event stream; every open tab of the session follows. What plays in a session (started, paused) the
+channel keeps itself (``_playing``): the agents' tools and the player's buttons in the page ask it.
 
-``target_id``-Format: ``"browser:<session_id>"`` oder bloß ``"browser"``
-(letzteres = aktuelle Browser-Session aus ``ctx``).
-
-Voraussetzung für Steuerung: ``ctx.state`` muss gesetzt sein. Bei
-Aufrufen aus anderen Channels (z.B. ``_stop`` am FreeEcho.2) ist ``ctx`` =
-None oder ``ctx.state`` = None — dann wird die Steuerung übersprungen
-mit Warn-Log. Im Multi-Stream-Modell ist das auch das gewünschte
-Verhalten (FreeEcho.2-Stop soll Browser nicht beeinflussen).
+``target_id``: ``"browser:<session_id>"`` or ``"browser"`` (the session of ``ctx``).
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -30,28 +23,60 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Speeds an HTML5 audio element plays (playbackRate).
+SPEED_RANGE = (0.25, 4.0)
+
+
+@dataclass
+class _Playing:
+    """What the channel started in a session: the first track (a folder's further ones the page plays on)."""
+
+    label: str
+    state_key: str
+    is_stream: bool
+    queue_length: int
+    paused: bool = False
+
+
+# Session id → what plays there.
+_playing: dict[str, _Playing] = {}
+
+
+def _session_of(target_id: str, ctx: PluginContext | None) -> str:
+    """The session a target names: ``browser:<id>``, else the session of the call."""
+    if target_id.startswith("browser:"):
+        return target_id.split(":", 1)[1]
+    return getattr(ctx, "session_id", "") if ctx else ""
+
+
+def audio_url(state_key: str) -> str:
+    """Where the page loads a source from (the REST endpoint, not the file's path)."""
+    return f"/api/audio/file?key={quote(state_key)}"
+
+
+def ended(session_id: str) -> None:
+    """The page played the last track to its end: nothing plays in the session any more."""
+    _playing.pop(session_id, None)
+
 
 class BrowserChannel(AudioOutputChannel):
-    """HTML5 ``<audio>`` über Reflex-State + REST-Endpoint."""
+    """HTML5 audio in the session's tabs, steered over its event stream."""
 
     name = "browser"
-    # Browser dekodiert selbst, kein Eingabe-Format-Zwang
+    # The browser decodes itself: no input format required
     required_format = AudioFormat()
 
     def can_handle(self, target_id: str) -> bool:
         return target_id == "browser" or target_id.startswith("browser:")
 
     def list_targets(self, ctx: PluginContext) -> list[TargetInfo]:
-        # Aktuell ist immer höchstens ein Browser-Tab pro Session aktiv;
-        # Multi-Tab könnte später zusätzlich Tabs enthalten.
-        device = getattr(ctx, "session_id", "") or "default"
-        return [
-            TargetInfo(
-                id=f"browser:{device}",
-                label="Aktueller Browser-Tab",
-                ready=True,
-            ),
-        ]
+        """The session of the call: every open tab of it plays."""
+        from ..i18n import t
+
+        session_id = getattr(ctx, "session_id", "")
+        if not session_id:
+            return []
+        return [TargetInfo(id=f"browser:{session_id}", label=t("audio_target_browser", lang=ctx.lang), ready=True)]
 
     async def play(
         self,
@@ -62,130 +87,43 @@ class BrowserChannel(AudioOutputChannel):
     ) -> dict[str, Any]:
         from ..browser_push import browser_push
 
-        audio_url = f"/api/audio/file?key={quote(src.state_key)}"
-        state = getattr(ctx, "state", None)
-
-        # Streams haben keinen sinnvollen Seek
-        seek_to = 0.0
-        if not src.is_stream and start_pos_sec is not None and start_pos_sec > 0:
-            seek_to = float(start_pos_sec)
-
-        tts_active = bool(getattr(state, "enable_tts", False)) if state is not None else False
-
-        # Persist-Snapshot im Reflex-State (fuer Reload nach Server-Restart,
-        # Pause/Resume bei TTS-Takeover). State ist NICHT mehr der Trigger
-        # zum Abspielen — das laeuft jetzt ueber den Audio-Bus (SSE).
-        if state is not None:
-            state.media_audio_url = audio_url
-            state.media_state_key = src.state_key
-            state.media_is_stream = src.is_stream
-            state.media_paused_for_tts = tts_active or seek_to > 0
-            state.media_pause_pos_sec = seek_to
-            state.media_paused_by_user = False  # frischer Start
-            state.media_queue = []
-            if hasattr(state, "_persist_audio_state"):
-                state._persist_audio_state()
-
-        # Audio-Bus: SSE-Event triggert <audio>-Element direkt im Browser
-        # (analog zum TTS-Pfad). Ohne diesen Push wuerden React-State-Updates
-        # asynchron angekommen und der MutationObserver-Trigger ausserhalb der
-        # User-Geste-Kette landen → audio.play() blockiert.
-        session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
-        audio_type = getattr(src, "audio_type", "music")
+        url = audio_url(src.state_key)
+        # Streams have no meaningful position
+        seek_to = float(start_pos_sec) if not src.is_stream and start_pos_sec else 0.0
+        session_id = _session_of(target_id, ctx)
         if session_id:
+            _playing[session_id] = _Playing(src.label, src.state_key, bool(src.is_stream), 1)
             browser_push(
-                session_id, "media", audio_url,
+                session_id, "media", url,
                 state_key=src.state_key,
                 start_pos_sec=seek_to,
                 is_stream=bool(src.is_stream),
-                audio_type=audio_type,
+                audio_type=getattr(src, "audio_type", "music"),
             )
-
         return {
-            "success": True,
+            "success": bool(session_id),
             "label": src.label,
             "item": src.item,
             "state_key": src.state_key,
             "is_stream": src.is_stream,
             "target": target_id,
-            "audio_url": audio_url,
+            "audio_url": url,
             "resumed_at_sec": seek_to,
         }
 
     async def pause(self, target_id: str, ctx: PluginContext | None = None) -> bool:
-        from ..browser_push import browser_push
-
-        state = getattr(ctx, "state", None) if ctx else None
-        if state is None or not getattr(state, "media_audio_url", ""):
-            return False
-
-        # ``media_paused_by_user`` blockt das Auto-Resume nach TTS-Ende
-        # (resume_media_after_tts) — User said pause, User has to resume.
-        # ``media_paused_for_tts`` bleibt fuer State-Konsistenz, ist hier
-        # aber nicht funktional ausschlaggebend.
-        state.media_paused_by_user = True
-        state.media_paused_for_tts = True
-        if hasattr(state, "_persist_audio_state"):
-            state._persist_audio_state()
-
-        # Bus-Pause: JS ruft player.pause(); Position bleibt im Element
-        # erhalten und wird per pause-Event automatisch via /api/audio/position
-        # persistiert.
-        session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
-        if session_id:
-            browser_push(session_id, "pause", "")
-        return True
+        return self._push_to_playing(target_id, ctx, "pause", paused=True)
 
     async def resume(self, target_id: str, ctx: PluginContext | None = None) -> bool:
-        from ..browser_push import browser_push
-
-        state = getattr(ctx, "state", None) if ctx else None
-        if state is None or not getattr(state, "media_audio_url", ""):
-            return False
-
-        state.media_paused_by_user = False
-        state.media_paused_for_tts = False
-        if hasattr(state, "_persist_audio_state"):
-            state._persist_audio_state()
-
-        # Bus-Resume: JS ruft player.play() im SSE-Event-Handler — User-
-        # Geste-Erbe vom startBrowserStream gilt, autoplay-Block greift
-        # nicht.
-        session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
-        if session_id:
-            browser_push(session_id, "resume", "")
-        return True
+        return self._push_to_playing(target_id, ctx, "resume", paused=False)
 
     async def stop(self, target_id: str, ctx: PluginContext | None = None) -> bool:
         from ..browser_push import browser_push
 
-        state = getattr(ctx, "state", None) if ctx else None
-        if state is None:
-            logger.debug("BrowserChannel.stop: no ctx.state — skipping (target=%s)", target_id)
+        session_id = _session_of(target_id, ctx)
+        if _playing.pop(session_id, None) is None:
             return False
-        if not (getattr(state, "media_audio_url", "") or getattr(state, "media_queue", [])):
-            return False
-
-        # State-Snapshot leeren (Persistenz)
-        state.media_audio_url = ""
-        state.media_state_key = ""
-        state.media_is_stream = False
-        state.media_paused_for_tts = False
-        state.media_pause_pos_sec = 0.0
-        state.media_queue = []
-        if hasattr(state, "_persist_audio_state"):
-            state._persist_audio_state()
-
-        # Bus-Stop-Event triggert player.pause() + src-clear im Browser
-        # (analog zu kind="media" beim Start). Ohne diesen Push wuerde der
-        # Reflex-State-Clear allein nicht reichen — das <audio>-Element
-        # spielt sonst weiter, weil React-Renders das `src`-Property nicht
-        # mehr automatisch zuruecksetzen, wenn der Trigger-Pfad ueber den
-        # Bus laeuft.
-        session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
-        if session_id:
-            browser_push(session_id, "stop", "")
-
+        browser_push(session_id, "stop", "")
         return True
 
     async def seek(
@@ -195,45 +133,29 @@ class BrowserChannel(AudioOutputChannel):
         relative: bool = False,
         ctx: PluginContext | None = None,
     ) -> bool:
-        from ..browser_push import browser_push
-
-        state = getattr(ctx, "state", None) if ctx else None
-        if state is None or not getattr(state, "media_audio_url", ""):
-            return False
-
-        session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
-        if not session_id:
-            return False
-
-        # Bus-Seek: JS setzt audio.currentTime. Bei relative=true addiert
-        # JS auf currentTime, sonst absolute Position. JS clampt auf
-        # [0, duration].
-        browser_push(
-            session_id, "seek", "",
-            position_sec=float(position_sec),
-            relative=bool(relative),
-        )
-        return True
+        # The page sets currentTime (relative: added to it) and keeps it within the track.
+        return self._push_to_playing(target_id, ctx, "seek", position_sec=float(position_sec), relative=bool(relative))
 
     async def set_speed(
         self, target_id: str, factor: float, ctx: PluginContext | None = None
     ) -> bool:
+        if not SPEED_RANGE[0] <= factor <= SPEED_RANGE[1]:
+            return False
+        # HTML5 audio changes playbackRate without changing the pitch.
+        return self._push_to_playing(target_id, ctx, "speed", factor=float(factor))
+
+    def _push_to_playing(self, target_id: str, ctx: PluginContext | None, kind: str, *,
+                         paused: bool | None = None, **details: Any) -> bool:
+        """``kind`` to the session's tabs, when something plays there; False otherwise."""
         from ..browser_push import browser_push
 
-        if not 0.25 <= factor <= 4.0:
+        session_id = _session_of(target_id, ctx)
+        playing = _playing.get(session_id)
+        if playing is None:
             return False
-
-        state = getattr(ctx, "state", None) if ctx else None
-        if state is None or not getattr(state, "media_audio_url", ""):
-            return False
-
-        session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
-        if not session_id:
-            return False
-
-        # Bus-Speed: JS setzt audio.playbackRate. HTML5-Audio macht das
-        # nativ ohne Pitch-Verzerrung (preservesPitch default true).
-        browser_push(session_id, "speed", "", factor=float(factor))
+        if paused is not None:
+            playing.paused = paused
+        browser_push(session_id, kind, "", **details)
         return True
 
     async def play_queue(
@@ -244,89 +166,48 @@ class BrowserChannel(AudioOutputChannel):
         audio_type: str = "music",
         shuffle: bool = False,
     ) -> dict[str, Any]:
-        """Browser-seitige Folder-Playback-Implementierung.
-
-        Schickt das erste Item via Audio-Bus in den Browser, persistiert
-        die volle Queue im Reflex-State (data-media-queue) — JS-Cursor in
-        custom.js advanced auf 'ended' zum nächsten Item, kein Server-
-        Roundtrip pro Track.
-
-        ``items``-uri ist ein lokaler Filesystem-Pfad (channel-agnostic);
-        Browser braucht aber den REST-Endpoint — wir transformieren hier
-        ``state_key`` zur API-URL.
-        """
+        """A folder: the first track goes out with the ones after it; the page plays on by itself at each end, no
+        round trip per track. ``items`` carry the source's ``state_key`` (the page loads them from the REST
+        endpoint, not from their path)."""
         import random
 
         from ..browser_push import browser_push
 
         if not items:
             return {"success": False, "error": "empty queue"}
-
         ordered = list(items)
         if shuffle:
             random.shuffle(ordered)
-
-        state = getattr(ctx, "state", None)
-        first = ordered[0]
-        first_key = first["state_key"]
-        # Browser-spezifische URL-Form: REST-Endpoint, nicht lokaler Pfad
-        first_url = f"/api/audio/file?key={quote(first_key)}"
-
-        tts_active = bool(getattr(state, "enable_tts", False)) if state is not None else False
-
-        if state is not None:
-            state.media_audio_url = first_url
-            state.media_state_key = first_key
-            state.media_is_stream = False
-            state.media_paused_for_tts = tts_active
-            state.media_pause_pos_sec = 0.0
-            state.media_paused_by_user = False
-            # Browser-side queue: list of {audio_url, state_key} — JS reads
-            # this from data-media-queue and uses it as a cursor on 'ended'.
-            state.media_queue = [
-                {
-                    "audio_url": f"/api/audio/file?key={quote(it['state_key'])}",
-                    "state_key": it["state_key"],
-                }
-                for it in ordered
-            ]
-            if hasattr(state, "_persist_audio_state"):
-                state._persist_audio_state()
-
-        session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
+        first_key = ordered[0]["state_key"]
+        session_id = _session_of(target_id, ctx)
         if session_id:
-            # The tracks after the first travel with the event: the Vue page has no Reflex state to read them from.
+            _playing[session_id] = _Playing(ordered[0].get("label", first_key), first_key, False, len(ordered))
             browser_push(
-                session_id, "media", first_url,
+                session_id, "media", audio_url(first_key),
                 state_key=first_key,
                 start_pos_sec=0.0,
                 is_stream=False,
                 audio_type=audio_type,
-                queue=[{"audio_url": f"/api/audio/file?key={quote(it['state_key'])}", "state_key": it["state_key"]}
-                       for it in ordered[1:]],
+                queue=[{"audio_url": audio_url(it["state_key"]), "state_key": it["state_key"]} for it in ordered[1:]],
             )
-
         return {
-            "success": True,
+            "success": bool(session_id),
             "target": target_id,
             "queued_count": len(ordered),
             "shuffle": shuffle,
-            "first": {"state_key": first_key, "uri": first_url},
+            "first": {"state_key": first_key, "uri": audio_url(first_key)},
         }
 
     async def status(self, target_id: str, ctx: PluginContext | None = None) -> dict[str, Any]:
-        state = getattr(ctx, "state", None) if ctx else None
-        if state is None:
+        playing = _playing.get(_session_of(target_id, ctx))
+        if playing is None:
             return {"running": False, "playing": False, "paused": False}
         return {
-            "running": bool(getattr(state, "media_audio_url", "")),
-            "playing": bool(
-                getattr(state, "media_audio_url", "")
-                and not getattr(state, "media_paused_for_tts", False)
-            ),
-            "paused": bool(getattr(state, "media_paused_for_tts", False)),
-            "state_key": getattr(state, "media_state_key", ""),
-            "position_sec": float(getattr(state, "media_pause_pos_sec", 0.0)),
-            "is_stream": bool(getattr(state, "media_is_stream", False)),
-            "queue_length": len(getattr(state, "media_queue", []) or []),
+            "running": True,
+            "playing": not playing.paused,
+            "paused": playing.paused,
+            "label": playing.label,
+            "state_key": playing.state_key,
+            "is_stream": playing.is_stream,
+            "queue_length": playing.queue_length,
         }

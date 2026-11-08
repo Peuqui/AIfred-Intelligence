@@ -58,6 +58,9 @@ export const useChat = defineStore("chat", () => {
   // Every reply of the session is being read into new audio (its button is off meanwhile).
   const regenerating = ref(false);
   let source: EventSource | null = null;
+  // The session whose audio player plays in this page.
+  let mediaSession: string | null = null;
+  media.onQueueEnd(() => void mediaControl("ended"));
 
   async function open(id: string): Promise<void> {
     source?.close();
@@ -163,6 +166,9 @@ export const useChat = defineStore("chat", () => {
         media.stop();
         break;
       case "media":
+        mediaSession = sessionId.value;   // the buttons steer the session that started it, also from another one
+        media.handle(kind, data);
+        break;
       case "pause":
       case "resume":
       case "seek":
@@ -288,6 +294,17 @@ export const useChat = defineStore("chat", () => {
     }
   }
 
+  // The player's buttons: through the server, so every tab of the session and the agents' tools see the same.
+  async function mediaControl(action: "pause" | "resume" | "stop" | "seek" | "ended", positionSec = 0): Promise<void> {
+    if (!mediaSession) return;
+    try {
+      await api(`sessions/${mediaSession}/media`, { method: "POST", body: JSON.stringify({ action, position_sec: positionSec }) });
+    } catch (error) {
+      notice.value = error instanceof ApiError ? error.detail : String(error);
+    }
+    if (action === "stop" || action === "ended") mediaSession = null;
+  }
+
   // The chat emptied on the server; every tab of the session, this one too, follows chat_cleared.
   async function clearChat(): Promise<void> {
     if (!sessionId.value) return;
@@ -373,6 +390,6 @@ export const useChat = defineStore("chat", () => {
     pendingImages, uploading, draft, dictations, open, close, send, stop, configure,
     uploadImages, removeImage, dictate, dictated,
     readAgain, regenerating, regenerateAll, rotateImage, cropImage, exportChat, clearChat,
-    remembering, remember,
+    remembering, remember, mediaControl,
   };
 });

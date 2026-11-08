@@ -7,7 +7,7 @@ queue; the turn service starts it when the running one ends, with or without an 
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import Form, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
@@ -483,6 +483,37 @@ async def sessions_stop(session_id: str, request: Request) -> dict[str, bool]:
     cancelled = cancel_pipeline(session_id)
     reply_speech.stop(session_id)
     return {"cancelled": cancelled}
+
+
+class MediaControl(BaseModel):
+    action: Literal["pause", "resume", "stop", "seek", "ended"]
+    position_sec: float = Field(0.0, description="seek: where to (relative: by how much)")
+    relative: bool = False
+
+
+@api_app.post("/sessions/{session_id}/media", tags=["Sessions"])
+async def sessions_media(session_id: str, control: MediaControl, request: Request) -> dict[str, bool]:
+    """The player's buttons on what the audio player plays in the session's tabs, the same way an agent's tool goes
+    (lib/audio_channels/browser.py): every tab follows. ``ended``: the page played the last track to its end.
+    ``done`` is False when nothing played."""
+    from ..audio_channels import browser
+
+    owned_session(request, session_id)
+    target = f"browser:{session_id}"
+    channel = browser.BrowserChannel()
+    match control.action:
+        case "pause":
+            done = await channel.pause(target)
+        case "resume":
+            done = await channel.resume(target)
+        case "stop":
+            done = await channel.stop(target)
+        case "seek":
+            done = await channel.seek(target, control.position_sec, relative=control.relative)
+        case "ended":
+            browser.ended(session_id)
+            done = True
+    return {"done": done}
 
 
 class SessionRemembered(BaseModel):

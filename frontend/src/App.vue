@@ -5,6 +5,7 @@ import { onMounted, watch } from "vue";
 import { RouterLink, RouterView } from "vue-router";
 import { api } from "./api/client";
 import LoginForm from "./components/LoginForm.vue";
+import MediaPlayer from "./components/MediaPlayer.vue";
 import ServiceStatusBar from "./components/ServiceStatusBar.vue";
 import { loadLanguage, t } from "./i18n";
 import { useAuth } from "./stores/auth";
@@ -48,6 +49,7 @@ onMounted(async () => {
       <button class="logout" @click="logout">{{ t("logout") }}</button>
     </header>
     <ServiceStatusBar />
+    <MediaPlayer />
     <RouterView v-slot="{ Component }">
       <KeepAlive><component :is="Component" class="page" /></KeepAlive>
     </RouterView>
