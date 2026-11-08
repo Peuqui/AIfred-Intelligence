@@ -6,12 +6,13 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import asdict
 
-from fastapi import HTTPException, Query
+from fastapi import Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..agent_config import AgentConfig
 from ..logging_utils import log_message
 from ..tts_client import TTSSuiteError
+from ..user_error import Invalid, Missing, NotDone, Unavailable
 from .app import api_app
 from .schemas import ChoiceOption
 
@@ -120,12 +121,10 @@ async def _changed(change: Callable[[], bool], what: str) -> SpeechList:
     422 for a change that cannot be right, 500 when settings.json could not be written."""
     try:
         saved = await asyncio.to_thread(change)
-    except TTSSuiteError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    except TTSSuiteError as error:  # the change needs the service's catalog
+        raise Unavailable("tts_service_unreachable", reason=str(error)) from error
     if not saved:
-        raise HTTPException(status_code=500, detail="settings.json could not be written")
+        raise NotDone("settings_not_saved")
     log_message(f"🔊 Speech list: {what}")
     return await asyncio.to_thread(_list)
 
@@ -199,7 +198,7 @@ def _chat_agent(agent: str) -> AgentConfig:
 
     config = selectable_agents().get(agent)
     if config is None:
-        raise HTTPException(status_code=404, detail=f"No chat agent '{agent}'")
+        raise Missing("no_chat_agent", agent=agent)
     return config
 
 
@@ -235,15 +234,12 @@ async def speech_agent_change(agent: str, change: AgentSpeechChange, engine: str
 
     _chat_agent(agent)
     saved = True
-    try:
-        if change.enabled is not None:
-            saved = set_agent_voice_enabled(agent, change.enabled)
-        if change.language is not None:
-            saved = set_agent_language(agent, change.language) and saved
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    if change.enabled is not None:
+        saved = set_agent_voice_enabled(agent, change.enabled)
+    if change.language is not None:
+        saved = set_agent_language(agent, change.language) and saved
     if not saved:
-        raise HTTPException(status_code=500, detail="settings.json could not be written")
+        raise NotDone("settings_not_saved")
     log_message(f"🔊 Speech of {agent}: {change.model_dump(exclude_none=True)}")
     return await asyncio.to_thread(_agent_speech, agent, engine)
 
@@ -255,9 +251,9 @@ async def speech_agent_voice(agent: str, engine: str, change: AgentVoiceChange) 
 
     _chat_agent(agent)
     if change.speed not in TTS_SPEED_CHOICES or change.pitch not in TTS_PITCH_CHOICES:
-        raise HTTPException(status_code=422, detail=f"Tempo and pitch must be among the choices, got {change.speed}, {change.pitch}")
+        raise Invalid("speed_pitch_choices", speed=change.speed, pitch=change.pitch)
     if not save_agent_voice(agent, engine, change.model_dump()):
-        raise HTTPException(status_code=500, detail="settings.json could not be written")
+        raise NotDone("settings_not_saved")
     log_message(f"🔊 Voice of {agent} on {engine}: {change.voice} {change.speed} {change.pitch}")
     return await asyncio.to_thread(_agent_speech, agent, engine)
 
@@ -270,7 +266,7 @@ def _narrator(engine: str) -> NarratorVoice:
     try:
         voices = voice_names(engine)
     except TTSSuiteUnreachable as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
+        raise Unavailable("tts_service_unreachable", reason=str(error)) from error
     return NarratorVoice(engine=engine, voice=narrator_voice(engine, voices), voices=voices)
 
 
@@ -286,9 +282,9 @@ async def speech_narrator_change(engine: str, change: NarratorChange) -> Narrato
 
     offered = await asyncio.to_thread(_narrator, engine)
     if change.voice not in offered.voices:
-        raise HTTPException(status_code=422, detail=f"'{engine}' has no voice '{change.voice}'")
+        raise Invalid("no_voice", engine=engine, voice=change.voice)
     if not set_narrator_voice(engine, change.voice):
-        raise HTTPException(status_code=500, detail="settings.json could not be written")
+        raise NotDone("settings_not_saved")
     log_message(f"🔊 Narrator voice on {engine}: {change.voice}")
     return await asyncio.to_thread(_narrator, engine)
 

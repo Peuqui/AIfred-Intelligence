@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 import reflex as rx
 from reflex.event import EventSpec
 
+from ..lib.user_error import said
+
 
 class DocumentMixin(rx.State, mixin=True):
     """Mixin for document file explorer and management."""
@@ -237,7 +239,7 @@ class DocumentMixin(rx.State, mixin=True):
             self.doc_source_writable = False
             self.add_debug(f"⚠️ Document source {self.doc_source}: {failed}")
             return rx.toast.error(
-                t("doc_source_failed", lang=self.ui_language, error=str(failed)),
+                t("doc_source_failed", lang=self.ui_language, error=said(failed, self.ui_language)),
                 duration=6000, position="top-center",
             )
         indexed = await asyncio.to_thread(chunks_per_document)
@@ -583,7 +585,7 @@ class DocumentMixin(rx.State, mixin=True):
             )
             return rx.toast.success(msg, duration=5000, position="top-center")
         self.add_debug(f"⚠️ index: {result.detail}")
-        return rx.toast.error(result.detail, duration=5000, position="top-center")
+        return rx.toast.error(result.said(self.ui_language), duration=5000, position="top-center")
 
     @rx.event
     async def doc_index_folder(self):
@@ -628,7 +630,7 @@ class DocumentMixin(rx.State, mixin=True):
             entries = await files_below(get_document_source(self.doc_source), self._open_remote_folder_id())
         except (LookupError, DocumentSourceError) as failed:
             yield rx.toast.error(
-                t("doc_source_failed", lang=self.ui_language, error=str(failed)),
+                t("doc_source_failed", lang=self.ui_language, error=said(failed, self.ui_language)),
                 duration=6000, position="top-center",
             )
             return
@@ -868,7 +870,7 @@ class DocumentMixin(rx.State, mixin=True):
             self.add_debug(f"⚠️ {result.detail}")
             self.doc_delete_target = ""
             self.doc_delete_is_folder = False
-            yield rx.toast.error(result.detail, duration=8000, position="top-center")
+            yield rx.toast.error(result.said(self.ui_language), duration=8000, position="top-center")
             return
 
         # Build human-readable summary aligned with the previous wording

@@ -52,6 +52,7 @@ from .tts_client import (
     TTSSuiteError,
     get_tts_client,
 )
+from .user_error import Invalid
 
 # ---- The catalog: GET /engines (cached) ---------------------------------------
 
@@ -85,7 +86,7 @@ def catalog(*, fresh: bool = False) -> tuple[EngineInfo, ...]:
 
 def unreachable_text(error: TTSSuiteError, lang: str | None = None) -> str:
     """Message for UI places that show the failure instead of data."""
-    return t("tts_service_unreachable", lang=lang, reason=str(error))
+    return t("error_tts_service_unreachable", lang=lang, reason=str(error))
 
 
 def reading_failure_text(error: TTSSuiteError, lang: str | None = None) -> str:
@@ -259,15 +260,15 @@ def check_stored_settings(settings: Mapping[str, Any]) -> None:
     (the service validates each request).
 
     Raises:
-        ValueError: with the reason.
+        Invalid: with the reason.
     """
     seen: set[tuple[str, str | None]] = set()
     for position, raw in enumerate(settings["tts_escalation"]):
         if set(raw) != {"engine", "host", "enabled"}:
-            raise ValueError(f"tts_escalation[{position}] must have exactly engine, host, enabled; got {sorted(raw)}")
+            raise Invalid("tts_entry_fields", position=position, fields=", ".join(sorted(raw)))
         pair = (raw["engine"], raw["host"])
         if pair in seen:
-            raise ValueError(f"{raw['engine']}@{raw['host'] or 'local'} is already in the list")
+            raise Invalid("tts_entry_twice", entry=f"{raw['engine']}@{raw['host'] or 'local'}")
         seen.add(pair)
 
 

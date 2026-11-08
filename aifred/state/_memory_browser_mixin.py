@@ -197,7 +197,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
             await self._reload_db_orphans()
         if not result.success:
             self.add_debug(f"⚠️ {result.detail}")
-            yield rx.toast.error(result.detail, duration=8000, position="top-center")
+            yield rx.toast.error(result.said(self.ui_language), duration=8000, position="top-center")
 
     @rx.event
     async def db_delete_all_orphans(self) -> AsyncGenerator[EventSpec | None, None]:

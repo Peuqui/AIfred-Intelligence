@@ -80,7 +80,7 @@ class PrinterPlugin:
         async def _print_file(filename: str, copies: int = 1, pages: str = "", duplex: bool = False) -> str:
             path, error = fm.safe_resolve(filename)
             if error:
-                return json.dumps({"error": error})
+                return json.dumps({"error": str(error)})
             if path is None or not path.is_file():
                 return json.dumps({"error": f"File not found: {filename}"})
             if path.suffix.lower() not in PRINTABLE_SUFFIXES:

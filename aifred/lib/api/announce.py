@@ -9,7 +9,7 @@ the other. Token-guarded like inject/webhook, with ``Authorization: Bearer``.
 
 from typing import Annotated
 
-from fastapi import Header, HTTPException
+from fastapi import Header
 from pydantic import BaseModel, Field, model_validator
 
 from ..auth import require_service_token
@@ -18,6 +18,7 @@ from ..config import (
 )
 from ..logging_utils import log_message
 from ..message_processor import announce_into_rooms, resolve_announce_targets
+from ..user_error import Missing, UpstreamFailed
 from .app import api_app
 from .schemas import CallerName
 
@@ -86,7 +87,7 @@ async def announce(request: AnnounceRequest, authorization: str | None = Header(
     paragraphs = request.paragraphs
     rooms = resolve_announce_targets("freeecho2", request.room)
     if not rooms:
-        raise HTTPException(status_code=404, detail=f"no connected FreeEcho.2 room '{request.room}'")
+        raise Missing("no_echo_room", room=request.room)
 
     pause_ms = ANNOUNCE_PAUSE_MS if request.pause_ms is None else request.pause_ms
     # One stream: whether a start tone before the first and an end tone after the last paragraph
@@ -98,6 +99,6 @@ async def announce(request: AnnounceRequest, authorization: str | None = Header(
     spoken = "\n\n".join(paragraphs)
     reached = await announce_into_rooms("freeecho2", rooms, spoken, request.speaker, metadata)
     if not reached:
-        raise HTTPException(status_code=502, detail="the announcement could not be delivered")
+        raise UpstreamFailed("announcement_not_delivered")
     log_message(f"Announce API: {len(paragraphs)} paragraph(s), {sum(map(len, paragraphs))} characters to {reached}")
     return {"success": True, "rooms": reached}

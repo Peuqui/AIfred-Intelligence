@@ -7,12 +7,12 @@ the cookie-protected endpoints.
 
 from pathlib import Path
 
-from fastapi import HTTPException
 from fastapi.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 
 from ...theme import css_variables
 from ..i18n import TranslationManager
+from ..user_error import Missing
 from .app import api_app
 
 FRONTEND_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"
@@ -35,7 +35,7 @@ async def app_ui_settings() -> dict[str, str]:
 async def app_texts(lang: str) -> JSONResponse:
     texts = TranslationManager._translations.get(lang)
     if texts is None:
-        raise HTTPException(status_code=404, detail=f"No UI texts for language {lang!r}")
+        raise Missing("no_ui_texts", language=lang)
     return JSONResponse(texts)
 
 

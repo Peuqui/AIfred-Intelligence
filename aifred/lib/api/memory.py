@@ -4,10 +4,11 @@ summary is embedded anew, type and session stay), one or all deleted. 503 while 
 
 from typing import TYPE_CHECKING
 
-from fastapi import HTTPException, Response
+from fastapi import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_message
+from ..user_error import Invalid, Missing, Unavailable
 from .app import api_app
 
 if TYPE_CHECKING:
@@ -45,7 +46,7 @@ def _memory() -> "AgentMemory":
 
     memory = get_agent_memory()
     if memory is None:
-        raise HTTPException(status_code=503, detail="Agent memory not available (ChromaDB not running?)")
+        raise Unavailable("memory_unavailable")
     return memory
 
 
@@ -90,10 +91,10 @@ async def memory_edit(agent_id: str, memory_id: str, edit: MemoryEdit) -> Memory
 
     summary, content = edit.summary.strip(), edit.content.strip()
     if not summary_fits_index(summary):
-        raise HTTPException(status_code=422, detail=f"The summary must be one line of at most {AGENT_MEMORY_SUMMARY_MAX_CHARS} characters")
+        raise Invalid("memory_summary_line", limit=AGENT_MEMORY_SUMMARY_MAX_CHARS)
     entry = next((entry for entry in _entries(agent_id) if entry.id == memory_id), None)
     if entry is None:
-        raise HTTPException(status_code=404, detail=f"No memory '{memory_id}' of '{agent_id}'")
+        raise Missing("no_memory", memory=memory_id, agent=agent_id)
     await _memory().update(agent_id, memory_id, content, summary, memory_type=entry.type, session_id=entry.session_id)
     log_message(f"🧠 Memory {memory_id[:8]} of '{agent_id}' edited")
     return next(entry for entry in _entries(agent_id) if entry.id == memory_id)
@@ -103,7 +104,7 @@ async def memory_edit(agent_id: str, memory_id: str, edit: MemoryEdit) -> Memory
 async def memory_delete(agent_id: str, memory_id: str) -> Response:
     """Delete one memory."""
     if all(entry.id != memory_id for entry in _entries(agent_id)):
-        raise HTTPException(status_code=404, detail=f"No memory '{memory_id}' of '{agent_id}'")
+        raise Missing("no_memory", memory=memory_id, agent=agent_id)
     await _memory().delete(agent_id, memory_id)
     return Response(status_code=204)
 

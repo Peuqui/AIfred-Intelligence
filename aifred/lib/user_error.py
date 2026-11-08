@@ -55,6 +55,12 @@ class Conflict(UserError, RuntimeError):
     status = 409
 
 
+class Unauthorized(UserError, PermissionError):
+    """Who asks is not known: a wrong login (401)."""
+
+    status = 401
+
+
 class Refused(UserError, PermissionError):
     """Not allowed (403)."""
 

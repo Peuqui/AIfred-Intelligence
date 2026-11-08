@@ -9,12 +9,11 @@ The document manager links to a source's file here (e.g. Google Drive); it strea
 comes, never through Reflex state. Login cookie required like every API path (app middleware).
 """
 import asyncio
-from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Literal
 from urllib.parse import quote
 
-from fastapi import Form, HTTPException, UploadFile
+from fastapi import Form, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,7 +22,9 @@ from .. import file_manager as fm
 from ..document_sources import DocumentSource, DocumentSourceError, get_document_source
 from ..formatting import format_stamp
 from ..logging_utils import log_exception, log_message
+from ..prompt_loader import get_language
 from ..upload_files import DOCUMENTS_URL
+from ..user_error import Invalid, Missing, Unavailable
 from .app import api_app
 
 
@@ -31,14 +32,7 @@ from .app import api_app
 async def document_source_file(source_key: str, file_id: str) -> StreamingResponse:
     """Download one file of a document source (404 unknown source, 502 source failed). The id may hold
     slashes: Nextcloud's is the file's path."""
-    try:
-        source = get_document_source(source_key)
-    except LookupError as missing:
-        raise HTTPException(status_code=404, detail=str(missing)) from missing
-    try:
-        download = await source.download(file_id)
-    except DocumentSourceError as failed:
-        raise HTTPException(status_code=502, detail=str(failed)) from failed
+    download = await get_document_source(source_key).download(file_id)
     log_message(f"📄 Document download from {source_key}: {download.name}")
     # RFC 5987: names with umlauts arrive intact.
     disposition = f"attachment; filename*=UTF-8''{quote(download.name)}"
@@ -110,9 +104,10 @@ class DocumentPreview(BaseModel):
 
 
 def _done(result: fm.FileOpResult) -> fm.FileOpResult:
-    """A failed operation answers 422 with its reason (a path outside the folder, a name, not there)."""
+    """A failed operation answers with its refusal (a path outside the folder, a name, not there, no index)."""
     if not result.success:
-        raise HTTPException(status_code=422, detail=result.detail)
+        assert result.problem is not None, result.detail   # every refusal of these operations names its reason
+        raise result.problem
     return result
 
 
@@ -160,7 +155,7 @@ async def documents_delete(deletion: DocumentDeletion) -> DocumentsDeleted:
             result = await fm.delete_file(deletion.folder, name, from_disk=deletion.from_disk, from_index=deletion.from_index)
         chunks += int(result.metadata.get("chunks_removed", 0))
         if not result.success:
-            failed.append(DocumentDeletionFailed(name=name, reason=result.detail))
+            failed.append(DocumentDeletionFailed(name=name, reason=result.said(get_language())))
     total = len(deletion.files) + len(deletion.folders)
     log_message(f"🗑️ Documents: {total - len(failed)}/{total} deleted in {deletion.folder or '/'} ({chunks} sections from the index)")
     return DocumentsDeleted(deleted=total - len(failed), chunks_removed=chunks, failed=failed, listing=await _listing(deletion.folder))
@@ -172,18 +167,19 @@ async def documents_preview(path: str) -> DocumentPreview:
     from ..document_store import PARSERS
 
     file, problem = fm.safe_resolve(path)
-    if problem or file is None:
-        raise HTTPException(status_code=422, detail=problem or "Invalid path")
+    if problem:
+        raise problem
+    assert file is not None
     if not file.is_file():
-        raise HTTPException(status_code=404, detail=f"File not found: {path}")
+        raise Missing("file_not_found", path=path)
     parser = PARSERS.get(file.suffix.lower())
     if parser is None:
-        raise HTTPException(status_code=422, detail=f"No parser for {file.suffix.lower()}")
+        raise Invalid("no_parser", ext=file.suffix.lower())
     try:
         text = await asyncio.to_thread(parser, file)
     except Exception as error:  # a damaged file of any kind: the page shows why it has no preview
         log_exception(f"Preview of {path} failed", error)
-        raise HTTPException(status_code=422, detail=str(error)) from error
+        raise Invalid("preview_failed", reason=str(error)) from error
     return DocumentPreview(name=file.name, text=text)
 
 
@@ -249,7 +245,7 @@ async def documents_upload(files: list[UploadFile], folder: str = Form("")) -> D
         if result.success:
             saved.append(result.metadata["rel_path"])
         else:
-            rejected.append(DocumentUploadRejected(name=name, reason=result.detail))
+            rejected.append(DocumentUploadRejected(name=name, reason=result.said(get_language())))
     log_message(f"📄 Documents: {len(saved)} uploaded to {folder or '/'}, {len(rejected)} refused")
     if saved:
         document_indexing.queue_files([document_indexing.local_item(path) for path in saved])
@@ -337,7 +333,7 @@ async def documents_index_clear() -> IndexCleared:
 
     store = get_document_store()
     if store is None:
-        raise HTTPException(status_code=503, detail="Document store not available")
+        raise Unavailable("document_store_unavailable")
     removed = await asyncio.to_thread(store.clear)
     log_message(f"🧹 Index cleared: {removed} sections")
     return IndexCleared(chunks_removed=removed)
@@ -402,18 +398,7 @@ class SourceUploaded(BaseModel):
 
 def _source(key: str) -> DocumentSource:
     """The source of an enabled plugin; 404 when none offers it (disabled or not connected)."""
-    try:
-        return get_document_source(key)
-    except LookupError as missing:
-        raise HTTPException(status_code=404, detail=str(missing)) from missing
-
-
-async def _source_call[Answer](key: str, call: Callable[[DocumentSource], Awaitable[Answer]]) -> Answer:
-    """A call to a source; its failure (not connected, not found …) answers 502 with its message."""
-    try:
-        return await call(_source(key))
-    except DocumentSourceError as failed:
-        raise HTTPException(status_code=502, detail=str(failed)) from failed
+    return get_document_source(key)
 
 
 @api_app.get("/documents/sources", response_model=list[DocumentSourceInfo], tags=["Documents"])
@@ -439,7 +424,7 @@ async def documents_source_listing(source_key: str, folder_id: str = "", query: 
     from ..document_store import PARSERS
 
     source = _source(source_key)
-    entries = await _source_call(source_key, lambda found: found.search(query) if query else found.list_folder(folder_id))
+    entries = await (source.search(query) if query else source.list_folder(folder_id))
     indexed = await asyncio.to_thread(fm.chunks_per_document)
     rows = []
     for entry in entries:
@@ -466,7 +451,7 @@ async def documents_source_upload(source_key: str, files: list[UploadFile], fold
 
     source = _source(source_key)
     if not source.writable:
-        raise HTTPException(status_code=422, detail=f"{source_key} takes no uploads")
+        raise Invalid("source_takes_no_uploads", source=source_key)
     saved: list[str] = []
     rejected: list[DocumentUploadRejected] = []
     for file in files:
@@ -474,14 +459,15 @@ async def documents_source_upload(source_key: str, files: list[UploadFile], fold
         suffix = Path(name).suffix.lower()
         if suffix not in DOCUMENT_ALLOWED_EXTENSIONS:
             allowed = ", ".join(sorted(DOCUMENT_ALLOWED_EXTENSIONS))
-            rejected.append(DocumentUploadRejected(name=name, reason=f"{name}: type {suffix or '(none)'} not allowed ({allowed})"))
+            refused = Invalid("type_not_allowed", name=name, type=suffix or "(none)", allowed=allowed)
+            rejected.append(DocumentUploadRejected(name=name, reason=refused.message(get_language())))
             continue
         data = await file.read()
         mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
         try:
             await source.upload(folder_id, name, data, mime)
         except DocumentSourceError as failed:
-            rejected.append(DocumentUploadRejected(name=name, reason=f"{name}: {failed}"))
+            rejected.append(DocumentUploadRejected(name=name, reason=failed.message(get_language())))
             continue
         saved.append(name)
     log_message(f"📄 Documents: {len(saved)} uploaded to {source_key}, {len(rejected)} refused")
@@ -492,7 +478,6 @@ async def documents_source_upload(source_key: str, files: list[UploadFile], fold
 async def documents_source_index(source_key: str, indexing: SourceIndexing) -> DocumentIndexProgress:
     """Queue files and folders of a source for indexing (folders with every file below them the index
     can read). The files stay at the source; the index keeps their text."""
-    from functools import partial
     from pathlib import Path
 
     from ..document_sources import files_below
@@ -500,7 +485,7 @@ async def documents_source_index(source_key: str, indexing: SourceIndexing) -> D
 
     items = [document_indexing.source_item(source_key, file.id, file.name) for file in indexing.files]
     for folder_id in indexing.folders:
-        below = await _source_call(source_key, partial(files_below, folder_id=folder_id))
+        below = await files_below(_source(source_key), folder_id=folder_id)
         items.extend(
             document_indexing.source_item(source_key, entry.id, entry.name)
             for entry in below if Path(entry.name).suffix.lower() in PARSERS

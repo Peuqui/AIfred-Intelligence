@@ -176,7 +176,7 @@ class WorkspacePlugin:
             """The tool result (JSON) and the image URLs it prepared."""
             file_path, error = fm.safe_resolve(filename)
             if error:
-                return json.dumps({"error": error}), []
+                return json.dumps({"error": str(error)}), []
             if not file_path or not file_path.exists():
                 return json.dumps({"error": f"File not found: {filename}"}), []
 
@@ -269,7 +269,7 @@ class WorkspacePlugin:
             """Write or overwrite a text file in data/documents/."""
             file_path, error = fm.safe_resolve(filename)
             if error:
-                return json.dumps({"error": error})
+                return json.dumps({"error": str(error)})
             if not file_path:
                 return json.dumps({"error": f"Invalid path: {filename}"})
 
@@ -309,7 +309,7 @@ class WorkspacePlugin:
             """Replace an exact text passage in a file in data/documents/."""
             file_path, error = fm.safe_resolve(filename)
             if error:
-                return json.dumps({"error": error})
+                return json.dumps({"error": str(error)})
             if not file_path:
                 return json.dumps({"error": f"Invalid path: {filename}"})
 
@@ -385,7 +385,7 @@ class WorkspacePlugin:
             """Find all lines containing a literal string in a file in data/documents/."""
             file_path, error = fm.safe_resolve(filename)
             if error:
-                return json.dumps({"error": error})
+                return json.dumps({"error": str(error)})
             if not file_path:
                 return json.dumps({"error": f"Invalid path: {filename}"})
             if not file_path.is_file():
@@ -585,7 +585,7 @@ class WorkspacePlugin:
             # Extension-Check bleibt hier, weil nur das index-Tool ihn braucht.
             file_path, error = fm.safe_resolve(filename)
             if error:
-                return json.dumps({"error": error})
+                return json.dumps({"error": str(error)})
             if not file_path or not file_path.exists():
                 return json.dumps({"error": f"File not found: {filename}"})
             from ....lib.config import DOCUMENT_ALLOWED_EXTENSIONS

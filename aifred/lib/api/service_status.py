@@ -14,12 +14,11 @@ import asyncio
 import json
 from typing import Any, Literal
 
-from fastapi import HTTPException, Query
+from fastapi import Query
 from pydantic import BaseModel
 
 from ...backends.base import BackendError
 from .. import session_events
-from ..i18n import t
 from ..logging_utils import log_message
 from ..service_control import (
     ServiceControlRefused,
@@ -31,6 +30,7 @@ from ..service_control import (
     unload_llamaswap_model,
 )
 from ..service_status import ServiceSnapshot, get_monitor
+from ..user_error import Conflict
 from .app import api_app
 from .browser_bus import browser_push
 
@@ -59,18 +59,15 @@ async def service_status(refresh: bool = Query(False)) -> dict[str, Any]:
 class UnloadRequest(BaseModel):
     service: Literal["llm", "describer", "stt", "tts"]
     item: str  # the model (llm, describer) or the engine (tts); STT has one GPU worker, the item is empty
-    lang: str
 
 
 class LoadRequest(BaseModel):
     service: Literal["llm", "describer"]
-    lang: str
 
 
 class HoldRequest(BaseModel):
     host: str  # a machine of VISION_REMOTE_HOSTS
     hold: bool  # True = keep its card free for somebody (clears it), False = release it
-    lang: str
 
 
 @api_app.get("/service-status/hosts", tags=["System"])
@@ -89,18 +86,12 @@ async def service_status_hold(request: HoldRequest) -> dict[str, str]:
     try:
         await asyncio.to_thread(set_hold, request.host, request.hold, VISION_REMOTE_HOLD_REASON)
     except (RemoteHostError, GpuOrcError) as error:
-        message = t("service_status_hold_failed", lang=request.lang).format(host=request.host, error=error)
-        log_message(f"⚠️ Status line: {message}", "warning")
-        raise HTTPException(status_code=409, detail=message) from error
+        refused = Conflict("hold_failed", host=request.host, error=str(error))
+        log_message(f"⚠️ Status line: {refused}", "warning")
+        raise refused from error
     log_message(f"{'⛔' if request.hold else '✅'} Status line: the card of {request.host} is "
                 f"{'held free' if request.hold else 'released'}")
     return {"status": "held" if request.hold else "released"}
-
-
-def _refused(refused: ServiceControlRefused, lang: str) -> HTTPException:
-    message = t(refused.key, lang=lang).format(**refused.params)
-    log_message(f"⚠️ Status line: {message}", "warning")
-    return HTTPException(status_code=409, detail=message)
 
 
 @api_app.post("/service-status/unload", tags=["System"])
@@ -120,8 +111,9 @@ async def service_status_unload(request: UnloadRequest) -> dict[str, str]:
                 await release_stt_gpu()
             case "tts":
                 await release_tts_engine(request.item)
-    except ServiceControlRefused as refused:
-        raise _refused(refused, request.lang) from refused
+    except ServiceControlRefused as refused:  # the log keeps it too; the page gets it in its language
+        log_message(f"⚠️ Status line: {refused}", "warning")
+        raise
     log_message(f"⏏️ Status line: {f'{request.service} {request.item}'.strip()} unloaded")
     return {"status": "unloaded"}
 
@@ -136,8 +128,9 @@ async def service_status_load(request: LoadRequest) -> dict[str, str]:
     choose = main_model_to_load if request.service == "llm" else describer_to_load
     try:
         backend_type, model = await asyncio.to_thread(choose)
-    except ServiceControlRefused as refused:
-        raise _refused(refused, request.lang) from refused
+    except ServiceControlRefused as refused:  # the log keeps it too; the page gets it in its language
+        log_message(f"⚠️ Status line: {refused}", "warning")
+        raise
     task = asyncio.create_task(_load(backend_type, model))
     _loads.add(task)
     task.add_done_callback(_loads.discard)

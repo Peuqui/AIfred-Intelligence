@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .logging_utils import log_message
+from .user_error import Invalid
 
 logger = logging.getLogger(__name__)
 
@@ -44,19 +45,19 @@ CRON_PRESETS: tuple[tuple[str, str, str, str, str, str], ...] = (
 )
 
 
-def job_problem(schedule_type: str, payload: dict[str, Any]) -> str | None:
+def job_problem(schedule_type: str, payload: dict[str, Any]) -> Invalid | None:
     """What is wrong with a job before it is stored, None when nothing. The expression itself is checked
     when the next run is computed (JobStore.add / update raise for one that never fires)."""
     if schedule_type not in SCHEDULE_TYPES:
-        return f"Invalid schedule_type: {schedule_type}. Use: {', '.join(SCHEDULE_TYPES)}"
+        return Invalid("unknown_schedule_type", value=schedule_type, allowed=", ".join(SCHEDULE_TYPES))
     delivery = payload.get("delivery", "review")
     if delivery not in DELIVERY_MODES:
-        return f"Invalid delivery: {delivery}. Use: {', '.join(DELIVERY_MODES)}"
+        return Invalid("unknown_delivery", value=delivery, allowed=", ".join(DELIVERY_MODES))
     # Without a model run there is no session to review a fixed text in.
     if payload.get("fixed_text") and not (delivery == "announce" and payload.get("channel")):
-        return "fixed_text needs delivery 'announce' and a channel"
+        return Invalid("fixed_text_needs_announce")
     if payload.get("audio_type", "notification") not in AUDIO_TYPES:
-        return f"Invalid audio_type: {payload['audio_type']}. Use: {', '.join(AUDIO_TYPES)}"
+        return Invalid("unknown_audio_type", value=payload["audio_type"], allowed=", ".join(AUDIO_TYPES))
     return None
 
 
@@ -178,13 +179,13 @@ class JobStore:
     ) -> Job:
         """Add a new job. Returns the created Job with its ID.
 
-        Raises ValueError for an expression without a next run: the job would never fire
+        Raises Invalid for an expression without a next run: the job would never fire
         (get_due_jobs filters next_run IS NOT NULL).
         """
         now = _now_iso()
         next_run = _calculate_next_run(schedule_type, schedule_expr, now)
         if next_run is None:
-            raise ValueError(f"Invalid {schedule_type} expression: '{schedule_expr}'")
+            raise Invalid("schedule_never_fires", kind=schedule_type, expression=schedule_expr)
         with self._connect() as conn:
             cursor = conn.execute(
                 """INSERT INTO jobs (name, schedule_type, schedule_expr, payload, max_tier, next_run)
@@ -211,12 +212,12 @@ class JobStore:
         lose them and — worse — lose the job entirely if the add fails
         after the delete). retry_count resets like a fresh add.
 
-        Raises ValueError for an expression without a next run: the job
+        Raises Invalid for an expression without a next run: the job
         would never fire (get_due_jobs filters next_run IS NOT NULL).
         """
         next_run = _calculate_next_run(schedule_type, schedule_expr, _now_iso())
         if next_run is None:
-            raise ValueError(f"Invalid {schedule_type} expression: '{schedule_expr}'")
+            raise Invalid("schedule_never_fires", kind=schedule_type, expression=schedule_expr)
         with self._connect() as conn:
             cursor = conn.execute(
                 """UPDATE jobs SET name = ?, schedule_type = ?, schedule_expr = ?,

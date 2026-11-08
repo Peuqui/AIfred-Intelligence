@@ -171,7 +171,7 @@ class NarratorPlugin:
                 output_filename = str(p.with_suffix(".mp3"))
             out_path, err = fm.safe_resolve(output_filename)
             if err:
-                return json.dumps({"error": err})
+                return json.dumps({"error": str(err)})
             assert out_path is not None
 
             loop = asyncio.get_running_loop()

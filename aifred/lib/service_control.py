@@ -24,19 +24,15 @@ import requests
 from .config import LLAMASWAP_BACKENDS, LLAMASWAP_UNLOAD_TIMEOUT_S
 from .gpu_release import RELEASE_DONE_OUTCOMES, GpuReleaseResult
 from .service_status import LLAMASWAP_BASE_URL
+from .user_error import Conflict
 
 # The describer profiles (-visiond) are llama.cpp servers, whatever backend the chat uses.
 DESCRIBER_BACKEND = "llamacpp"
 RELEASE_REASON = "AIfred: unload button in the status line"
 
 
-class ServiceControlRefused(RuntimeError):
-    """The action cannot be done now. ``key`` and ``params`` name the message for the user (i18n)."""
-
-    def __init__(self, key: str, **params: str) -> None:
-        super().__init__(f"{key}: {params}" if params else key)
-        self.key = key
-        self.params = params
+class ServiceControlRefused(Conflict):
+    """The action cannot be done now (409)."""
 
 
 # ---- What a load button loads -----------------------------------------------------

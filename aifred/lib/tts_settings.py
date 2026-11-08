@@ -16,6 +16,7 @@ from typing import Any
 from .i18n import t
 from .settings import persisted_settings, update_settings
 from .tts_client import SPEECH_UNITS, TTSSuiteError
+from .user_error import Invalid
 
 # ── The list ─────────────────────────────────────────────────────────────
 
@@ -106,7 +107,7 @@ def change_list(change: Callable[[list[dict[str, Any]], dict[str, Any]], None]) 
 
 def _entry_at(listed: list[dict[str, Any]], index: int) -> dict[str, Any]:
     if not 0 <= index < len(listed):
-        raise ValueError(f"the list has no entry at position {index} (it changed, reload the page)")
+        raise Invalid("list_position_gone", position=index)
     return listed[index]
 
 
@@ -130,7 +131,7 @@ def set_engine_unit(engine: str, unit: str) -> bool:
     """The unit an engine speaks in (system-wide, every agent and channel)."""
     def change(_listed: list[dict[str, Any]], units: dict[str, Any]) -> None:
         if unit not in SPEECH_UNITS:
-            raise ValueError(f"speech unit must be one of {SPEECH_UNITS}, got {unit!r}")
+            raise Invalid("unknown_speech_unit", value=unit, allowed=", ".join(SPEECH_UNITS))
         units.setdefault(engine, {})["unit"] = unit
     return change_list(change)
 
@@ -183,7 +184,7 @@ def set_agent_language(agent: str, language: str) -> bool:
     from .config import TTS_LANGUAGE_CODE_TO_LABEL
 
     if language not in TTS_LANGUAGE_CODE_TO_LABEL:
-        raise ValueError(f"unknown speech language {language!r}")
+        raise Invalid("unknown_speech_language", value=language)
     return _set_agent_speech(agent, "language", language)
 
 

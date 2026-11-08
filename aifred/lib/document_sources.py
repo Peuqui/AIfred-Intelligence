@@ -17,10 +17,12 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from .user_error import Missing, UpstreamFailed
 
-class DocumentSourceError(RuntimeError):
+
+class DocumentSourceError(UpstreamFailed):
     """A source could not do what was asked (not connected, not found, too
-    large …); the message is meant for the user. Sources raise only this."""
+    large …), worded for the user (502). Sources raise only this."""
 
 
 @dataclass(frozen=True)
@@ -90,8 +92,8 @@ def document_sources() -> dict[str, DocumentSource]:
 
 
 def get_document_source(key: str) -> DocumentSource:
-    """The source with this key; ``LookupError`` when no enabled plugin offers it."""
+    """The source with this key; ``Missing`` (a ``LookupError``) when no enabled plugin offers it."""
     source = document_sources().get(key)
     if source is None:
-        raise LookupError(f"no document source {key!r} (plugin disabled or not connected)")
+        raise Missing("no_document_source", source=key)
     return source

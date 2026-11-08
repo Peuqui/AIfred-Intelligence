@@ -26,6 +26,7 @@ from hashlib import sha256
 
 from .config import AUTH_COOKIE_MAX_AGE_DAYS, DATA_DIR
 from .credential_broker import broker
+from .user_error import Refused, Unavailable
 
 logger = logging.getLogger(__name__)
 
@@ -79,20 +80,15 @@ def _session_secret() -> bytes:
 def require_service_token(service: str, provided: str | None) -> None:
     """Validate an API token for a control endpoint, constant-time, fail-closed.
 
-    Raises an HTTPException (503 if the token is not configured, 403 if it is
-    missing or wrong). ``service`` is the credential-broker service name
+    Raises ``Unavailable`` (503) if the token is not configured, ``Refused`` (403) if it is
+    missing or wrong. ``service`` is the credential-broker service name
     (e.g. "inject", "webhook").
     """
-    from fastapi import HTTPException
-
     expected = broker.get(service, "api_token")
     if not expected:
-        raise HTTPException(
-            status_code=503,
-            detail=f"{service} API not configured ({service.upper()}_API_TOKEN not set)",
-        )
+        raise Unavailable("service_token_not_set", service=service, variable=f"{service.upper()}_API_TOKEN")
     if not provided or not hmac.compare_digest(provided, expected):
-        raise HTTPException(status_code=403, detail="Invalid token")
+        raise Refused("invalid_token")
 
 
 # ============================================================

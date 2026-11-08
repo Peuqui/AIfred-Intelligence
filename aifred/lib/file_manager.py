@@ -23,6 +23,7 @@ from typing import Any
 
 from .config import DOCUMENTS_DIR
 from .formatting import format_stamp
+from .user_error import Invalid, Unavailable, UserError
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +38,23 @@ class FileOpResult:
     """Uniform return type for every file-manager operation.
 
     ``success`` says whether the operation completed; ``detail`` is a
-    human-readable summary suitable for both UI toasts and tool output;
+    human-readable summary in English, as the tools give it to the model;
     ``metadata`` carries optional structured data (counts, sizes, paths)
-    that callers can serialize as needed.
+    that callers can serialize as needed; ``problem`` is a refusal's reason,
+    which a page words in its language (``said``).
     """
     success: bool
     detail: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    problem: UserError | None = None
+
+    def said(self, lang: str) -> str:
+        """The outcome as a page shows it: a refusal in the UI language, anything else as ``detail`` reads."""
+        return self.problem.message(lang) if self.problem else self.detail
+
+
+def _refused(problem: UserError, metadata: dict[str, Any] | None = None) -> FileOpResult:
+    return FileOpResult(False, str(problem), metadata or {}, problem)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -51,24 +62,25 @@ class FileOpResult:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def safe_resolve(rel_path: str) -> tuple[Path | None, str | None]:
+def safe_resolve(rel_path: str) -> tuple[Path | None, Invalid | None]:
     """Resolve a path relative to DOCUMENTS_DIR, refusing escape attempts.
 
-    Returns ``(path, None)`` on success or ``(None, error_message)`` if
-    the path tries to traverse outside the documents tree (via ``..``,
-    absolute paths, or symlinks pointing elsewhere).
+    Returns ``(path, None)`` on success or ``(None, refusal)`` if the path
+    tries to traverse outside the documents tree (via ``..``, absolute
+    paths, or symlinks pointing elsewhere); ``str(refusal)`` is the reason
+    in English, as a tool gives it to the model.
     """
     if not isinstance(rel_path, str):
-        return None, f"Invalid path type: {type(rel_path).__name__}"
+        return None, Invalid("path_type", type=type(rel_path).__name__)
     if rel_path.startswith(("/", "\\")):
-        return None, f"Absolute paths not allowed: {rel_path!r}"
+        return None, Invalid("path_absolute", path=rel_path)
 
     candidate = (DOCUMENTS_DIR / rel_path).resolve()
     docs_root = DOCUMENTS_DIR.resolve()
     try:
         candidate.relative_to(docs_root)
     except ValueError:
-        return None, f"Path escapes documents tree: {rel_path!r}"
+        return None, Invalid("path_escapes", path=rel_path)
     return candidate, None
 
 
@@ -122,13 +134,13 @@ def list_directory(folder_rel: str = "") -> FileOpResult:
 
     folder, err = safe_resolve(folder_rel) if folder_rel else (DOCUMENTS_DIR.resolve(), None)
     if err:
-        return FileOpResult(False, err)
+        return _refused(err)
     assert folder is not None
 
     if not folder.exists():
-        return FileOpResult(False, f"Folder not found: {folder_rel}", {"items": []})
+        return _refused(Invalid("folder_not_found", path=folder_rel), {"items": []})
     if not folder.is_dir():
-        return FileOpResult(False, f"Not a folder: {folder_rel}", {"items": []})
+        return _refused(Invalid("not_a_folder", path=folder_rel), {"items": []})
 
     indexed_chunks = chunks_per_document()
 
@@ -196,10 +208,10 @@ def create_folder(parent_rel: str, name: str) -> FileOpResult:
     semantics, which is what the UI/agent both want).
     """
     if not _is_safe_name(name):
-        return FileOpResult(False, f"Invalid folder name: {name!r}")
+        return _refused(Invalid("invalid_folder_name", name=name))
     parent, err = safe_resolve(parent_rel) if parent_rel else (DOCUMENTS_DIR.resolve(), None)
     if err:
-        return FileOpResult(False, err)
+        return _refused(err)
     assert parent is not None
     target = parent / name
     target.mkdir(parents=True, exist_ok=True)
@@ -225,17 +237,17 @@ async def delete_folder(
     empty (matches the safe-by-default Unix ``rmdir`` semantics).
     """
     if not _is_safe_name(name):
-        return FileOpResult(False, f"Invalid folder name: {name!r}")
+        return _refused(Invalid("invalid_folder_name", name=name))
     parent, err = safe_resolve(parent_rel) if parent_rel else (DOCUMENTS_DIR.resolve(), None)
     if err:
-        return FileOpResult(False, err)
+        return _refused(err)
     assert parent is not None
     target = parent / name
     disk_exists = target.exists() and target.is_dir()
 
     if target.exists() and not disk_exists:
         # path exists but is a file, not a folder
-        return FileOpResult(False, f"Not a folder: {name}. Use delete_file.")
+        return _refused(Invalid("folder_is_no_file", name=name))
     # A missing disk folder must NOT abort here: the index cleanup below
     # still has to run. The actions check at the end reports the case
     # where neither a disk folder nor index entries were found.
@@ -251,18 +263,14 @@ async def delete_folder(
         dir_count = sum(1 for p in all_items if p.is_dir())
 
         if from_disk and file_count + dir_count > 0 and not recursive:
-            return FileOpResult(
-                False,
-                f"Folder not empty ({file_count} files, {dir_count} subfolders). "
-                f"Pass recursive=True to delete the entire tree.",
-            )
+            return _refused(Invalid("folder_not_empty", files=file_count, folders=dir_count))
 
     chunks_removed = 0
     if from_index:
         from .document_store import get_document_store
         store = get_document_store()
         if store is None:
-            return FileOpResult(False, f"{name} stays: the document index is not available")
+            return _refused(Unavailable("stays_index_unavailable", name=name))
         prefix = rel_target.rstrip("/") + "/"
         try:
             documents = await asyncio.to_thread(store.list_documents)
@@ -271,7 +279,7 @@ async def delete_folder(
                     chunks_removed += await store.delete_document(document["filename"], delete_file=False)
         except Exception as exc:  # noqa: BLE001 — the folder stays: gone from disk, the search would keep finding it
             logger.warning(f"delete_folder: index cleanup failed for {name}: {exc}")
-            return FileOpResult(False, f"{name} stays: removing it from the index failed: {exc}")
+            return _refused(Unavailable("stays_index_failed", name=name, reason=str(exc)))
 
     actions: list[str] = []
     if from_index and chunks_removed:
@@ -285,7 +293,7 @@ async def delete_folder(
             actions.append("disk(empty)")
 
     if not actions:
-        return FileOpResult(False, f"Nothing to delete for {name}: no disk folder, no index entries")
+        return _refused(Invalid("nothing_to_delete_folder", name=name))
 
     detail = f"Deleted {name}: {', '.join(actions)}"
     logger.info(f"delete_folder: {rel_target} ({', '.join(actions)})")
@@ -305,16 +313,16 @@ def read_file(rel_path: str) -> FileOpResult:
     """Read a text file and return its content."""
     path, err = safe_resolve(rel_path)
     if err:
-        return FileOpResult(False, err)
+        return _refused(err)
     assert path is not None
     if not path.exists():
-        return FileOpResult(False, f"File not found: {rel_path}")
+        return _refused(Invalid("file_not_found", path=rel_path))
     if not path.is_file():
-        return FileOpResult(False, f"Not a file: {rel_path}")
+        return _refused(Invalid("not_a_file", path=rel_path))
     try:
         content = path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
-        return FileOpResult(False, f"File is not UTF-8 text: {rel_path}")
+        return _refused(Invalid("not_utf8", path=rel_path))
     return FileOpResult(True, f"Read {len(content)} chars", {"content": content})
 
 
@@ -322,7 +330,7 @@ def write_file(rel_path: str, content: str) -> FileOpResult:
     """Write/overwrite a text file. Parent directories are created."""
     path, err = safe_resolve(rel_path)
     if err:
-        return FileOpResult(False, err)
+        return _refused(err)
     assert path is not None
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
@@ -339,18 +347,18 @@ def save_upload(folder_rel: str, filename: str, content: bytes) -> FileOpResult:
 
     name = Path(filename).name
     if not _is_safe_name(name):
-        return FileOpResult(False, f"Invalid file name: {filename!r}")
+        return _refused(Invalid("invalid_file_name", name=filename))
     suffix = Path(name).suffix.lower()
     if suffix not in DOCUMENT_ALLOWED_EXTENSIONS:
         allowed = ", ".join(sorted(DOCUMENT_ALLOWED_EXTENSIONS))
-        return FileOpResult(False, f"{name}: type {suffix or '(none)'} not allowed ({allowed})")
+        return _refused(Invalid("type_not_allowed", name=name, type=suffix or "(none)", allowed=allowed))
     rel_path = f"{folder_rel}/{name}".lstrip("/")
     path, err = safe_resolve(rel_path)
     if err:
-        return FileOpResult(False, err)
+        return _refused(err)
     assert path is not None
     if not path.parent.is_dir():
-        return FileOpResult(False, f"Folder not found: {folder_rel}")
+        return _refused(Invalid("folder_not_found", path=folder_rel))
     path.write_bytes(content)
     logger.info(f"save_upload: {rel_path} ({len(content)} bytes)")
     return FileOpResult(True, f"Saved {rel_path}", {"rel_path": rel_path})
@@ -363,10 +371,10 @@ def files_to_index(folder_rel: str) -> FileOpResult:
 
     base, err = safe_resolve(folder_rel)
     if err:
-        return FileOpResult(False, err)
+        return _refused(err)
     assert base is not None
     if not base.is_dir():
-        return FileOpResult(False, f"Folder not found: {folder_rel}")
+        return _refused(Invalid("folder_not_found", path=folder_rel))
     root = DOCUMENTS_DIR.resolve()
     files = sorted(
         str(path.relative_to(root)) for path in base.rglob("*")
@@ -384,14 +392,14 @@ async def delete_file(
 ) -> FileOpResult:
     """Delete a file. Either side (disk, index) can be skipped independently."""
     if not _is_safe_name(name):
-        return FileOpResult(False, f"Invalid filename: {name!r}")
+        return _refused(Invalid("invalid_file_name", name=name))
     parent, err = safe_resolve(folder_rel) if folder_rel else (DOCUMENTS_DIR.resolve(), None)
     if err:
-        return FileOpResult(False, err)
+        return _refused(err)
     assert parent is not None
     target = parent / name
     if target.exists() and target.is_dir():
-        return FileOpResult(False, f"Is a folder: {name}. Use delete_folder.")
+        return _refused(Invalid("file_is_a_folder", name=name))
     # A missing file on disk must NOT abort here: disk and index are
     # independent, so the index cleanup below still has to run. The
     # actions check at the end reports the "nothing to delete" case.
@@ -404,12 +412,12 @@ async def delete_file(
         from .document_store import get_document_store
         store = get_document_store()
         if store is None:
-            return FileOpResult(False, f"{name} stays: the document index is not available")
+            return _refused(Unavailable("stays_index_unavailable", name=name))
         try:
             chunks_removed = await store.delete_document(rel_target, delete_file=False)
         except Exception as exc:  # noqa: BLE001 — the file stays: gone from disk, the search would keep finding it
             logger.warning(f"delete_file: index cleanup failed for {name}: {exc}")
-            return FileOpResult(False, f"{name} stays: removing it from the index failed: {exc}")
+            return _refused(Unavailable("stays_index_failed", name=name, reason=str(exc)))
         if chunks_removed:
             actions.append(f"index({chunks_removed} chunks)")
 
@@ -418,9 +426,7 @@ async def delete_file(
         actions.append("disk")
 
     if not actions:
-        return FileOpResult(
-            False, f"Nothing to delete for {name}: no file on disk, no index chunks"
-        )
+        return _refused(Invalid("nothing_to_delete_file", name=name))
 
     detail = f"Deleted {name}: {', '.join(actions)}"
     logger.info(f"delete_file: {rel_target} ({', '.join(actions)})")
@@ -461,23 +467,23 @@ def copy_file(src_rel: str, dest_rel: str, *, overwrite: bool = False) -> FileOp
     import shutil
     src, err = safe_resolve(src_rel)
     if err:
-        return FileOpResult(False, err)
+        return _refused(err)
     assert src is not None
     if not src.exists():
-        return FileOpResult(False, f"Source not found: {src_rel}")
+        return _refused(Invalid("source_not_found", path=src_rel))
     if src.is_dir():
-        return FileOpResult(False, "copy_file copies files only, not folders")
+        return _refused(Invalid("copies_files_only"))
 
     dest, err = safe_resolve(dest_rel)
     if err:
-        return FileOpResult(False, err)
+        return _refused(err)
     assert dest is not None
     if dest.is_dir():
         dest = dest / src.name
     if dest == src:
-        return FileOpResult(False, "Source and target are identical")
+        return _refused(Invalid("same_source_and_target"))
     if dest.exists() and not overwrite:
-        return FileOpResult(False, f"Target exists: {dest_rel} (set overwrite=true to replace)")
+        return _refused(Invalid("target_exists_overwrite", path=dest_rel))
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(src, dest)
@@ -496,21 +502,21 @@ def move_file(src_rel: str, dest_rel: str, *, overwrite: bool = False) -> FileOp
     import shutil
     src, err = safe_resolve(src_rel)
     if err:
-        return FileOpResult(False, err)
+        return _refused(err)
     assert src is not None
     if not src.exists():
-        return FileOpResult(False, f"Source not found: {src_rel}")
+        return _refused(Invalid("source_not_found", path=src_rel))
 
     dest, err = safe_resolve(dest_rel)
     if err:
-        return FileOpResult(False, err)
+        return _refused(err)
     assert dest is not None
     if dest.is_dir():
         dest = dest / src.name
     if dest == src:
-        return FileOpResult(False, "Source and target are identical")
+        return _refused(Invalid("same_source_and_target"))
     if dest.exists() and not overwrite:
-        return FileOpResult(False, f"Target exists: {dest_rel} (set overwrite=true to replace)")
+        return _refused(Invalid("target_exists_overwrite", path=dest_rel))
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(src), str(dest))
@@ -534,21 +540,21 @@ def rename(
     what is indexed stays searchable under the new path.
     """
     if not _is_safe_name(new_name):
-        return FileOpResult(False, f"Invalid new name: {new_name!r}")
+        return _refused(Invalid("invalid_new_name", name=new_name))
     if old_name == new_name:
-        return FileOpResult(False, "Old and new name are identical")
+        return _refused(Invalid("same_name"))
 
     parent, err = safe_resolve(folder_rel) if folder_rel else (DOCUMENTS_DIR.resolve(), None)
     if err:
-        return FileOpResult(False, err)
+        return _refused(err)
     assert parent is not None
     old_path = parent / old_name
     new_path = parent / new_name
 
     if not old_path.exists():
-        return FileOpResult(False, f"Source not found: {old_name}")
+        return _refused(Invalid("source_not_found", path=old_name))
     if new_path.exists():
-        return FileOpResult(False, f"Target exists: {new_name}")
+        return _refused(Invalid("target_exists", path=new_name))
 
     old_path.rename(new_path)
 
@@ -571,16 +577,16 @@ async def index_file(rel_path: str) -> FileOpResult:
     from .document_store import get_document_store
     store = get_document_store()
     if not store:
-        return FileOpResult(False, "Document store not available")
+        return _refused(Unavailable("document_store_unavailable"))
 
     path, err = safe_resolve(rel_path)
     if err:
-        return FileOpResult(False, err)
+        return _refused(err)
     assert path is not None
     if not path.exists():
-        return FileOpResult(False, f"File not found: {rel_path}")
+        return _refused(Invalid("file_not_found", path=rel_path))
     if not path.is_file():
-        return FileOpResult(False, f"Not a file: {rel_path}")
+        return _refused(Invalid("not_a_file", path=rel_path))
 
     chunks = await store.index_document(path, rel_path)
     detail = f"Indexed {rel_path}: {chunks} chunks"
@@ -596,9 +602,9 @@ async def _index_temp_copy(chunks: AsyncIterator[bytes], name: str, source_key: 
     from .document_store import PARSERS, get_document_store
     store = get_document_store()
     if not store:
-        return FileOpResult(False, "Document store not available")
+        return _refused(Unavailable("document_store_unavailable"))
     if Path(name).suffix.lower() not in PARSERS:
-        return FileOpResult(False, f"Unsupported file type: {name}")
+        return _refused(Invalid("unsupported_file_type", name=name))
 
     try:
         with tempfile.TemporaryDirectory(prefix="aifred-index-") as folder:
@@ -641,7 +647,7 @@ async def deindex_file(rel_path: str) -> FileOpResult:
     from .document_store import get_document_store
     store = get_document_store()
     if not store:
-        return FileOpResult(False, "Document store not available")
+        return _refused(Unavailable("document_store_unavailable"))
 
     chunks = await store.delete_document(rel_path, delete_file=False)
     detail = f"Deindexed {rel_path}: {chunks} chunks"
@@ -674,7 +680,7 @@ async def search_index(
     from .document_store import get_document_store
     store = get_document_store()
     if not store:
-        return FileOpResult(False, "Document store not available", {"results": []})
+        return _refused(Unavailable("document_store_unavailable"), {"results": []})
 
     hits, has_more, total = await store.search(
         query, n_results=n_results, folder=folder, page=page, without_corpora=without_corpora
@@ -691,7 +697,7 @@ def list_indexed() -> FileOpResult:
     from .document_store import get_document_store
     store = get_document_store()
     if not store:
-        return FileOpResult(False, "Document store not available", {"documents": []})
+        return _refused(Unavailable("document_store_unavailable"), {"documents": []})
     docs = store.list_documents()
     return FileOpResult(True, f"{len(docs)} indexed documents", {"documents": docs})
 
@@ -707,7 +713,7 @@ def list_orphaned() -> FileOpResult:
     from .document_store import get_document_store
     store = get_document_store()
     if not store:
-        return FileOpResult(False, "Document store not available", {"orphans": []})
+        return _refused(Unavailable("document_store_unavailable"), {"orphans": []})
 
     docs = store.list_documents()
     docs_root = DOCUMENTS_DIR.resolve()

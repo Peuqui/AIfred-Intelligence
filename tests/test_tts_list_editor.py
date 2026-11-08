@@ -16,6 +16,7 @@ import httpx
 import pytest
 
 from aifred.lib import settings, tts_service
+from aifred.lib.i18n import t
 from aifred.lib.agent_tuning import default_tuning
 from aifred.lib.tts_client import TTSClient
 from aifred.state._tts_config_mixin import TTSConfigMixin
@@ -279,7 +280,7 @@ def test_switching_off_keeps_every_configuration(service, toasts) -> None:
 def test_a_stale_index_is_a_toast_not_a_wrong_change(service, toasts) -> None:
     _, file = service([stored("xtts")])
     events = run(TTSConfigMixin.set_tts_entry_enabled, FakeState(), 5, False)
-    assert len(events) == 1 and events[0][0] == "error" and "no entry at position 5" in events[0][1]
+    assert events == [("error", f"TTS: {t('error_list_position_gone', lang='de', position=5)}")]
     assert file.untouched()
 
 
@@ -303,7 +304,7 @@ def test_set_unit_for_an_engine_without_choice_creates_it(service, toasts) -> No
 def test_an_unknown_unit_is_a_toast_and_nothing_is_written(service, toasts) -> None:
     _, file = service([stored("piper")])
     events = run(TTSConfigMixin.set_tts_entry_unit, FakeState(), "piper", "chapter")
-    assert len(events) == 1 and events[0][0] == "error" and "speech unit" in events[0][1]
+    assert events == [("error", f"TTS: {t('error_unknown_speech_unit', lang='de', value='chapter', allowed='sentence, paragraph, whole')}")]
     assert file.untouched()
 
 

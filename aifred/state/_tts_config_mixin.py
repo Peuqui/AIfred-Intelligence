@@ -29,10 +29,11 @@ def _lang(state: Any) -> str:
 
 
 def _error_text(error: Exception, lang: str) -> str:
-    """What a failed call shows the user: the unreachable message, or the reason as it is."""
+    """What a failed call shows the user: the unreachable message, or the reason in the UI language."""
     from ..lib.tts_client import TTSSuiteUnreachable
     from ..lib.tts_service import unreachable_text
-    return unreachable_text(error, lang) if isinstance(error, TTSSuiteUnreachable) else str(error)
+    from ..lib.user_error import said
+    return unreachable_text(error, lang) if isinstance(error, TTSSuiteUnreachable) else said(error, lang)
 
 
 class TTSConfigMixin(rx.State, mixin=True):
@@ -117,7 +118,8 @@ class TTSConfigMixin(rx.State, mixin=True):
         except (TTSSuiteError, ValueError) as error:
             return [toast("error", f"TTS: {_error_text(error, _lang(self))}")]
         if not saved:
-            return [toast("error", "TTS: settings.json could not be written")]
+            from ..lib.i18n import t
+            return [toast("error", f"TTS: {t('error_settings_not_saved', lang=_lang(self))}")]
         self.tts_list_revision += 1
         return []
 

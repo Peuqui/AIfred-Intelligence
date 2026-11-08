@@ -2,10 +2,10 @@
 
 from typing import Any
 
-from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from ..logging_utils import log_message
+from ..user_error import BadRequest, Missing, NotDone
 from .app import api_app
 from .schemas import CallerName, SystemActionResponse
 
@@ -85,7 +85,7 @@ async def inject_message(request: ChatInjectRequest):
         )
     else:
         log_message(f"❌ API: Failed to queue message for {request.session_id[:8]}...")
-        raise HTTPException(status_code=500, detail="Failed to queue message")
+        raise NotDone("message_not_queued")
 
 
 class ChatStatusResponse(BaseModel):
@@ -110,7 +110,7 @@ async def get_chat_status(session_id: str):
 
     session = load_session(session_id)
     if not session or "data" not in session:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise Missing("no_session")
 
     data = session["data"]
     chat_history = data.get("chat_history", [])
@@ -283,17 +283,11 @@ async def update_session_config_endpoint(request: SessionConfigRequest):
 
     updates = request.model_dump(exclude={"session_id"}, exclude_none=True)
     if not updates:
-        raise HTTPException(
-            status_code=400,
-            detail="No config fields provided (at least one of: active_agent, multi_agent_mode, symposion_agents)"
-        )
+        raise BadRequest("no_config_fields", fields="active_agent, multi_agent_mode, symposion_agents")
 
     success = update_session_config(request.session_id, **updates)
     if not success:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Session {request.session_id[:8]}... not found"
-        )
+        raise Missing("no_session")
 
     current = get_session_config(request.session_id)
     log_message(

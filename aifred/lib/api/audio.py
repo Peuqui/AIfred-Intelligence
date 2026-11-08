@@ -3,11 +3,12 @@
 import asyncio
 from pathlib import Path
 
-from fastapi import HTTPException, Request
+from fastapi import Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from ...theme import css_variables
+from ..user_error import BadRequest, Missing, UserError
 from .app import api_app
 
 # In-memory map: session_id -> last requested state_key (for re-resolve from JS)
@@ -49,6 +50,18 @@ def _audio_resolver():
     return SourceResolver(sources)
 
 
+class UnsupportedAudio(UserError):
+    """A file of a format the player does not stream (415)."""
+
+    status = 415
+
+
+class RangeNotSatisfiable(UserError):
+    """A range outside the file (416). No ValueError: the parser below turns those into 400."""
+
+    status = 416
+
+
 @api_app.get("/audio/file", tags=["Audio"])
 async def audio_file(request: Request, key: str):
     """Stream an audio file by state_key. Supports HTTP Range for seeking.
@@ -62,8 +75,8 @@ async def audio_file(request: Request, key: str):
 
     try:
         src = _audio_resolver().resolve(key)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:  # the resolver's reasons are written for the model (English)
+        raise Missing("no_audio", reason=str(exc)) from exc
 
     # HTTP streams: redirect the browser to the upstream URL — the browser
     # opens the connection itself, no proxying needed.
@@ -72,9 +85,9 @@ async def audio_file(request: Request, key: str):
 
     file_path = Path(src.uri)
     if not file_path.is_file():
-        raise HTTPException(status_code=404, detail="file not found")
+        raise Missing("audio_file_gone")
     if file_path.suffix.lower() not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=415, detail="unsupported audio extension")
+        raise UnsupportedAudio("unsupported_audio_extension", ext=file_path.suffix.lower())
 
     file_size = file_path.stat().st_size
     range_header = request.headers.get("range") or request.headers.get("Range")
@@ -112,9 +125,9 @@ async def audio_file(request: Request, key: str):
             else:
                 raise ValueError("empty range")
             if start >= file_size or start > end:
-                raise HTTPException(status_code=416, detail="range not satisfiable")
-        except (ValueError, AttributeError):
-            raise HTTPException(status_code=400, detail="invalid range header")
+                raise RangeNotSatisfiable("range_not_satisfiable")
+        except (ValueError, AttributeError) as error:
+            raise BadRequest("invalid_range") from error
 
         length = end - start + 1
 

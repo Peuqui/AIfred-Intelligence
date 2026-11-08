@@ -7,11 +7,12 @@ service's own web interface. Token-guarded with ``Authorization: Bearer <TTS_CON
 
 import asyncio
 
-from fastapi import Header, HTTPException, Query
+from fastapi import Header, Query
 from pydantic import BaseModel, Field
 
 from ..auth import require_service_token
 from ..tts_client import TTSSuiteUnreachable
+from ..user_error import Unavailable
 from .app import api_app
 
 
@@ -43,7 +44,7 @@ async def tts_entries(
     try:
         listed = await asyncio.to_thread(entries, fresh=True)
     except TTSSuiteUnreachable as unreachable:
-        raise HTTPException(status_code=503, detail=str(unreachable)) from unreachable
+        raise Unavailable("tts_service_unreachable", reason=str(unreachable)) from unreachable
     rows: list[dict[str, object]] = []
     for entry in listed:
         status = status_key(entry)

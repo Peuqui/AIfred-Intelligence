@@ -16,6 +16,7 @@ from dataclasses import dataclass, field, replace
 
 from . import file_manager as fm
 from .logging_utils import log_exception, log_message
+from .prompt_loader import get_language
 
 
 @dataclass(frozen=True)
@@ -99,7 +100,7 @@ async def _index_waiting() -> None:
             _progress.indexed += 1
             _progress.chunks += int(result.metadata["chunks"])
         else:
-            _progress.failed.append(IndexFailure(_current.label, result.detail))
+            _progress.failed.append(IndexFailure(_current.label, result.said(get_language())))
     log_message(
         f"📚 Index run: {_progress.indexed}/{_progress.total} files, {_progress.chunks} sections, "
         f"{len(_progress.failed)} failed",

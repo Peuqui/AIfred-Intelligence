@@ -2,7 +2,6 @@
 
 from typing import Literal
 
-from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import (
@@ -15,6 +14,7 @@ from ..formatting import format_number
 from ..logging_utils import log_message
 from ..settings import load_settings, persisted_settings
 from ..settings import update_settings as write_settings
+from ..user_error import Invalid, NotDone
 from .app import API_VERSION, api_app, get_global_backend_state
 
 # ============================================================
@@ -120,9 +120,9 @@ async def update_settings(update: SettingsUpdate) -> SettingsResponse:
     if "user_name" in changes:
         changes["user_name"] = changes["user_name"].strip()
     if changes.get("dictation_engine", DICTATION_ENGINES[0]) not in DICTATION_ENGINES:
-        raise HTTPException(status_code=422, detail=f"Unknown dictation engine: {changes['dictation_engine']}")
+        raise Invalid("unknown_dictation_engine", engine=changes["dictation_engine"])
     if changes and not write_settings(changes):
-        raise HTTPException(status_code=500, detail="settings.json could not be read or written")
+        raise NotDone("settings_not_saved")
     if "ui_language" in changes:
         set_ui_locale(changes["ui_language"])
     log_message(f"📝 API: settings changed: {sorted(changes)}")

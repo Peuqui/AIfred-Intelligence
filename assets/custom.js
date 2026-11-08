@@ -2598,9 +2598,8 @@ function serviceStatusNotice(text) {
 // A load answers at once and goes on in the background; the line follows over the bus.
 async function serviceStatusAct(button) {
     const {verb, service, item} = button.dataset;
-    const lang = document.getElementById('service-status-dots').dataset.lang;
     const hold = verb === 'hold' || verb === 'release';
-    const body = hold ? {host: item, hold: verb === 'hold', lang} : verb === 'load' ? {service, lang} : {service, item, lang};
+    const body = hold ? {host: item, hold: verb === 'hold'} : verb === 'load' ? {service} : {service, item};
     button.disabled = true;
     try {
         const response = await fetch(`/api/service-status/${hold ? 'hold' : verb}`, {

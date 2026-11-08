@@ -15,6 +15,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from aifred.lib import agent_config, scheduler
+from aifred.lib.i18n import t
 
 CRON = {"name": "Morgengruß", "schedule_type": "cron", "schedule_expr": "0 8 * * *", "message": "Guten Morgen", "agent": "aifred"}
 
@@ -66,16 +67,19 @@ def test_a_job_keeps_the_fields_of_its_delivery_only(client: TestClient, store: 
     assert "audio_type" not in store.get(sent["job_id"]).payload  # type: ignore[union-attr]  # no rooms on Telegram
 
 
-@pytest.mark.parametrize(("change", "reason"), [
-    ({"schedule_expr": "jeden Morgen"}, "Invalid cron expression"),           # never fires
-    ({"fixed_text": True}, "fixed_text needs delivery 'announce'"),
-    ({"delivery": "brieftaube"}, "Invalid delivery"),
-    ({"agent": "sokrates"}, "switched off"),
-    ({"schedule_type": "once", "schedule_expr": "morgen früh"}, "Invalid once expression"),           # no point in time
+@pytest.mark.parametrize(("change", "key", "values"), [
+    ({"schedule_expr": "jeden Morgen"}, "schedule_never_fires", {"kind": "cron", "expression": "jeden Morgen"}),
+    ({"fixed_text": True}, "fixed_text_needs_announce", {}),
+    ({"delivery": "brieftaube"}, "unknown_delivery", {"value": "brieftaube", "allowed": ", ".join(scheduler.DELIVERY_MODES)}),
+    ({"agent": "sokrates"}, "job_agent_unfit", {"agent": "sokrates"}),
+    ({"schedule_type": "once", "schedule_expr": "morgen früh"}, "schedule_never_fires",            # no point in time
+     {"kind": "once", "expression": "morgen früh"}),
 ])
-def test_a_job_the_scheduler_refuses_is_not_stored(client: TestClient, store: scheduler.JobStore, change: dict[str, Any], reason: str) -> None:
+def test_a_job_the_scheduler_refuses_is_not_stored(
+    client: TestClient, store: scheduler.JobStore, change: dict[str, Any], key: str, values: dict[str, str],
+) -> None:
     refused = client.post("/jobs", json={**CRON, **change})
-    assert refused.status_code == 422 and reason in refused.json()["detail"]
+    assert (refused.status_code, refused.json()["detail"]) == (422, t(f"error_{key}").format(**values))
     assert store.list_all() == []
 
 

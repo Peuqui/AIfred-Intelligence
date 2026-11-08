@@ -38,7 +38,7 @@ class SchedulerPlugin:
         from ....lib.scheduler import job_problem
 
         problem = job_problem(schedule_type, payload)
-        return json.dumps({"error": problem}) if problem else None
+        return json.dumps({"error": str(problem)}) if problem else None
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         from ....lib.logging_utils import log_message

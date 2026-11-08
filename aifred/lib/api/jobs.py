@@ -5,12 +5,13 @@ before it is saved. The page composes the expression; the server takes nothing i
 
 from typing import Literal
 
-from fastapi import HTTPException, Query, Response
+from fastapi import Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_message
 from ..scheduler import Job
 from ..security import TIER_ADMIN, TIER_READONLY
+from ..user_error import Invalid, Missing
 from .app import api_app
 from .schemas import ChoiceOption
 
@@ -110,7 +111,7 @@ def _payload(job: JobWrite) -> dict[str, object]:
     from ..scheduler import job_problem
 
     if job.agent not in selectable_agents():
-        raise HTTPException(status_code=422, detail=f"Agent '{job.agent}' is switched off or no chat agent")
+        raise Invalid("job_agent_unfit", agent=job.agent)
     payload: dict[str, object] = {"message": job.message, "agent": job.agent, "delivery": job.delivery}
     if job.fixed_text:   # asked for with any delivery: job_problem says where it can go
         payload["fixed_text"] = True
@@ -122,7 +123,7 @@ def _payload(job: JobWrite) -> dict[str, object]:
         payload["webhook_url"] = job.webhook_url
     problem = job_problem(job.schedule_type, payload)
     if problem:
-        raise HTTPException(status_code=422, detail=problem)
+        raise problem
     return payload
 
 
@@ -131,7 +132,7 @@ def _job(job_id: int) -> Job:
 
     job = get_job_store().get(job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail=f"No job {job_id}")
+        raise Missing("no_job", job=job_id)
     return job
 
 
@@ -172,10 +173,7 @@ async def jobs_create(job: JobWrite) -> JobRow:
     from ..scheduler import get_job_store
 
     payload = _payload(job)
-    try:
-        created = get_job_store().add(job.name, job.schedule_type, job.schedule_expr, payload, job.max_tier)
-    except ValueError as refused:
-        raise HTTPException(status_code=422, detail=str(refused)) from refused
+    created = get_job_store().add(job.name, job.schedule_type, job.schedule_expr, payload, job.max_tier)
     return _row(created)
 
 
@@ -186,12 +184,9 @@ async def jobs_change(job_id: int, job: JobWrite) -> JobRow:
 
     _job(job_id)
     payload = _payload(job)
-    try:
-        changed = get_job_store().update(job_id, job.name, job.schedule_type, job.schedule_expr, payload, job.max_tier)
-    except ValueError as refused:
-        raise HTTPException(status_code=422, detail=str(refused)) from refused
+    changed = get_job_store().update(job_id, job.name, job.schedule_type, job.schedule_expr, payload, job.max_tier)
     if changed is None:   # deleted meanwhile
-        raise HTTPException(status_code=404, detail=f"No job {job_id}")
+        raise Missing("no_job", job=job_id)
     return _row(changed)
 
 
@@ -231,5 +226,5 @@ async def jobs_preview(preview: SchedulePreview) -> NextRun:
 
     next_run = next_run_of(preview.schedule_type, preview.schedule_expr)
     if next_run is None:
-        raise HTTPException(status_code=422, detail=f"Invalid {preview.schedule_type} expression: '{preview.schedule_expr}'")
+        raise Invalid("schedule_never_fires", kind=preview.schedule_type, expression=preview.schedule_expr)
     return NextRun(next_run=next_run)

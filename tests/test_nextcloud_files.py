@@ -288,9 +288,9 @@ def test_the_document_source_reports_what_went_wrong(client, folder) -> None:
     reader = NextcloudDocumentSource(client, writable=False)
     with pytest.raises(DocumentSourceError, match="read-only"):
         asyncio.run(reader.upload(folder, "a.txt", b"x", "text/plain"))
-    with pytest.raises(DocumentSourceError, match="not found"):
+    with pytest.raises(DocumentSourceError, match="HTTP 404"):
         asyncio.run(reader.list_folder(f"{folder}/fehlt"))
-    with pytest.raises(DocumentSourceError, match="not found"):
+    with pytest.raises(DocumentSourceError, match="HTTP 404"):
         asyncio.run(reader.download(f"{folder}/fehlt.txt"))
     writer = NextcloudDocumentSource(client, writable=True)
 

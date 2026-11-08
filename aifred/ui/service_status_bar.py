@@ -14,7 +14,6 @@ from __future__ import annotations
 import reflex as rx
 from reflex_components_lucide.icon import Icon
 
-from ..state import AIState
 from ..theme import COLORS
 from .helpers import t
 
@@ -26,7 +25,6 @@ NOTICE_ID = "service-status-notice"
 
 def service_status_bar() -> rx.Component:
     texts = {
-        "data-lang": AIState.ui_language,
         "data-t-llm": t("service_status_llm"),
         "data-t-describer": t("service_status_describer"),
         "data-t-stt": t("service_status_stt"),

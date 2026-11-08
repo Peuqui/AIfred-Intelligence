@@ -6,9 +6,13 @@ from typing import Any
 
 import pytest
 
+from aifred.lib.i18n import t
 from aifred.lib.plugin_base import PluginContext, plugin_display_name
 from aifred.lib.scheduler import get_job_store
 from aifred.plugins.tools.scheduler_tool import SchedulerPlugin
+
+# The tool answers the model, which reads English.
+NEEDS_A_CHANNEL = t("error_fixed_text_needs_announce", lang="en")
 
 
 @pytest.fixture
@@ -145,8 +149,8 @@ class TestFixedText:
         assert self._create(plugin, ctx, delivery="announce", channel="telegram", fixed_text="true")["success"]
 
     def test_a_fixed_text_needs_somewhere_to_go(self, plugin, ctx):
-        assert "needs delivery" in self._create(plugin, ctx, fixed_text=True)["error"]
-        assert "needs delivery" in self._create(plugin, ctx, delivery="announce", fixed_text=True)["error"]
+        assert self._create(plugin, ctx, fixed_text=True)["error"] == NEEDS_A_CHANNEL
+        assert self._create(plugin, ctx, delivery="announce", fixed_text=True)["error"] == NEEDS_A_CHANNEL
 
     def test_nonsense_is_refused(self, plugin, ctx):
         assert "fixed_text" in self._create(plugin, ctx, delivery="announce", channel="email", fixed_text="ja")["error"]
@@ -162,7 +166,7 @@ class TestFixedText:
     def test_update_refuses_a_fixed_text_without_a_channel(self, plugin, ctx):
         update = next(t for t in plugin.get_tools(ctx) if t.name == "scheduler_update")
         job_id = self._create(plugin, ctx)["job_id"]
-        assert "needs delivery" in json.loads(_run(update.executor(job_id=job_id, fixed_text=True)))["error"]
+        assert json.loads(_run(update.executor(job_id=job_id, fixed_text=True)))["error"] == NEEDS_A_CHANNEL
 
     def test_the_tool_names_the_pucks_and_all_rooms(self, plugin, ctx):
         tool = next(t for t in plugin.get_tools(ctx) if t.name == "scheduler_create")

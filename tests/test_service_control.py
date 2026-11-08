@@ -18,6 +18,7 @@ from aifred.lib.api.app import api_app
 from aifred.lib.auth import sign_username
 from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
 from aifred.lib.gpu_release import GpuReleaseResult
+from aifred.lib.i18n import t
 from aifred.lib.service_control import ServiceControlRefused
 from aifred.lib.service_status import ModelStatus, ServiceSnapshot
 
@@ -75,7 +76,7 @@ def test_a_describer_that_would_push_the_main_model_out_is_not_loaded(
     fake_describer(monkeypatch, vision, fit)
     with pytest.raises(ServiceControlRefused) as refused:
         service_control.describer_to_load()
-    assert (refused.value.key, refused.value.params) == (key, params)
+    assert (refused.value.key, refused.value.values) == (key, params)
 
 
 def test_loading_goes_through_the_backend_and_closes_it(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -124,7 +125,7 @@ def test_a_failed_unload_names_the_model_and_the_answer(monkeypatch: pytest.Monk
     monkeypatch.setattr(service_control.requests, "post", lambda url, timeout: FakeResponse(404, "model not found"))
     with pytest.raises(ServiceControlRefused) as refused:
         service_control.unload_llamaswap_model("gone")
-    assert refused.value.key == "service_control_failed" and "404 model not found" in refused.value.params["error"]
+    assert refused.value.key == "service_control_failed" and "404 model not found" in refused.value.values["error"]
 
     def refuse(url: str, timeout: float) -> None:
         raise requests.ConnectionError("refused")
@@ -187,7 +188,7 @@ def test_unload_of_a_busy_model_is_refused_with_the_message_in_the_pages_languag
     unloaded: list[str] = []
     monkeypatch.setattr(status_api, "get_monitor", lambda: snapshot_with(busy=True))
     monkeypatch.setattr(status_api, "unload_llamaswap_model", unloaded.append)
-    answer = client.post("/service-status/unload", json={"service": "llm", "item": MAIN, "lang": "de"})
+    answer = client.post("/service-status/unload", json={"service": "llm", "item": MAIN})
     assert answer.status_code == 409
     assert answer.json()["detail"] == f"{MAIN} arbeitet gerade und bleibt geladen."
     assert unloaded == []
@@ -197,7 +198,7 @@ def test_unload_of_an_idle_model_goes_to_llama_swap(client: TestClient, monkeypa
     unloaded: list[str] = []
     monkeypatch.setattr(status_api, "get_monitor", lambda: snapshot_with(busy=False))
     monkeypatch.setattr(status_api, "unload_llamaswap_model", unloaded.append)
-    answer = client.post("/service-status/unload", json={"service": "llm", "item": MAIN, "lang": "en"})
+    answer = client.post("/service-status/unload", json={"service": "llm", "item": MAIN})
     assert (answer.status_code, unloaded) == (200, [MAIN])
 
 
@@ -208,8 +209,8 @@ def test_unload_takes_only_a_model_the_status_line_lists(
     unloaded: list[str] = []
     monkeypatch.setattr(status_api, "get_monitor", lambda: snapshot_with(busy=False))
     monkeypatch.setattr(status_api, "unload_llamaswap_model", unloaded.append)
-    answer = client.post("/service-status/unload", json={"service": "llm", "item": item, "lang": "en"})
-    assert (answer.status_code, answer.json()["detail"], unloaded) == (409, f"{item} is not loaded.", [])
+    answer = client.post("/service-status/unload", json={"service": "llm", "item": item})
+    assert (answer.status_code, answer.json()["detail"], unloaded) == (409, t("error_service_control_not_loaded", name=item), [])
 
 
 def test_unload_of_stt_and_tts_goes_to_the_suites(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -223,8 +224,8 @@ def test_unload_of_stt_and_tts_goes_to_the_suites(client: TestClient, monkeypatc
 
     monkeypatch.setattr(status_api, "release_stt_gpu", stt)
     monkeypatch.setattr(status_api, "release_tts_engine", tts)
-    assert client.post("/service-status/unload", json={"service": "stt", "item": "", "lang": "de"}).status_code == 200
-    assert client.post("/service-status/unload", json={"service": "tts", "item": "xtts", "lang": "de"}).status_code == 200
+    assert client.post("/service-status/unload", json={"service": "stt", "item": ""}).status_code == 200
+    assert client.post("/service-status/unload", json={"service": "tts", "item": "xtts"}).status_code == 200
     assert asked == ["stt", "tts xtts"]
 
 
@@ -237,7 +238,7 @@ def test_load_answers_at_once_and_loads_in_the_background(client: TestClient, mo
 
     monkeypatch.setattr(status_api, "describer_to_load", lambda: ("llamacpp", PLACEMENT))
     monkeypatch.setattr(status_api, "load_llamaswap_model", load)
-    answer = client.post("/service-status/load", json={"service": "describer", "lang": "de"})
+    answer = client.post("/service-status/load", json={"service": "describer"})
     assert answer.json() == {"status": "loading", "model": PLACEMENT}
     client.close()  # ends the portal's loop; the background task has run by then
     assert started == [("llamacpp", PLACEMENT)]
@@ -248,9 +249,9 @@ def test_a_describer_that_does_not_fit_is_refused_with_the_reason(client: TestCl
         raise ServiceControlRefused("service_control_describer_does_not_fit", reason="GPU 0: 900 MiB frei")
 
     monkeypatch.setattr(status_api, "describer_to_load", does_not_fit)
-    answer = client.post("/service-status/load", json={"service": "describer", "lang": "en"})
+    answer = client.post("/service-status/load", json={"service": "describer"})
     assert answer.status_code == 409
-    assert answer.json()["detail"] == "The describer does not fit next to what is loaded right now: GPU 0: 900 MiB frei"
+    assert answer.json()["detail"] == t("error_service_control_describer_does_not_fit", reason="GPU 0: 900 MiB frei")
 
 
 def test_a_failed_background_load_is_logged(monkeypatch: pytest.MonkeyPatch) -> None:

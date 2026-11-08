@@ -47,11 +47,12 @@ def _entry(item: dict) -> SourceEntry:
     )
 
 
-def _source_error(exc: Exception, action: str) -> DocumentSourceError:
-    """One readable message per failure; the cause stays chained for the log."""
-    if isinstance(exc, httpx.HTTPStatusError):
-        return DocumentSourceError(f"Google Drive: {action} failed (HTTP {exc.response.status_code})")
-    return DocumentSourceError(f"Google Drive: {action} failed — {exc}")
+SOURCE = "Google Drive"
+
+
+def _reason(exc: Exception) -> str:
+    """One readable reason per failure; the cause stays chained for the log."""
+    return f"HTTP {exc.response.status_code}" if isinstance(exc, httpx.HTTPStatusError) else str(exc)
 
 
 class DriveDocumentSource:
@@ -87,7 +88,7 @@ class DriveDocumentSource:
         try:
             return await self._files(f"'{parent}' in parents and trashed=false", None, "folder,name_natural")
         except Exception as exc:
-            raise _source_error(exc, "listing the folder") from exc
+            raise DocumentSourceError("source_list_failed", source=SOURCE, reason=_reason(exc)) from exc
 
     async def search(self, query: str) -> list[SourceEntry]:
         term = escape_drive_term(query.strip())
@@ -97,7 +98,7 @@ class DriveDocumentSource:
                 f"(name contains '{term}' or fullText contains '{term}') and trashed=false", _SEARCH_LIMIT, "",
             )
         except Exception as exc:
-            raise _source_error(exc, "searching") from exc
+            raise DocumentSourceError("source_search_failed", source=SOURCE, reason=_reason(exc)) from exc
 
     async def download(self, file_id: str) -> SourceDownload:
         try:
@@ -105,14 +106,14 @@ class DriveDocumentSource:
                 "GET", f"{DRIVE_API}/files/{file_id}", params={"fields": "id,name,mimeType"},
             )).json()
         except Exception as exc:
-            raise _source_error(exc, "opening the file") from exc
+            raise DocumentSourceError("source_open_failed", source=SOURCE, reason=_reason(exc)) from exc
         mime = meta["mimeType"]
         name = meta["name"]
         if mime == FOLDER_MIME:
-            raise DocumentSourceError("Google Drive: a folder cannot be downloaded")
+            raise DocumentSourceError("source_folder_no_download", source=SOURCE)
         if mime.startswith("application/vnd.google-apps."):
             if mime not in _EXPORT_FOR_DOWNLOAD:
-                raise DocumentSourceError(f"Google Drive: {name} has no downloadable format ({mime})")
+                raise DocumentSourceError("source_no_format", source=SOURCE, name=name, mime=mime)
             mime, extension = _EXPORT_FOR_DOWNLOAD[mime]
             url, params = f"{DRIVE_API}/files/{file_id}/export", {"mimeType": mime}
             if not name.lower().endswith(extension):
@@ -128,11 +129,12 @@ class DriveDocumentSource:
             response = await client.send(request, stream=True)
         except Exception as exc:
             await client.aclose()
-            raise _source_error(exc, f"downloading {name}") from exc
+            raise DocumentSourceError("source_download_failed", source=SOURCE, name=name, reason=_reason(exc)) from exc
         if response.is_error:
             await response.aclose()
             await client.aclose()
-            raise DocumentSourceError(f"Google Drive: downloading {name} failed (HTTP {response.status_code})")
+            raise DocumentSourceError("source_download_failed", source=SOURCE, name=name,
+                                      reason=f"HTTP {response.status_code}")
         return SourceDownload(name=name, mime=mime, chunks=self._chunks(client, response))
 
     @staticmethod
@@ -146,7 +148,7 @@ class DriveDocumentSource:
 
     async def upload(self, folder_id: str, name: str, data: bytes, mime: str) -> SourceEntry:
         if not self.writable:
-            raise DocumentSourceError("Google Drive is read-only in the plugin settings")
+            raise DocumentSourceError("source_read_only", source=SOURCE)
         boundary = f"aifred-{uuid.uuid4().hex}"
         metadata = {"name": name, "parents": [folder_id or "root"]}
         body = b"".join([
@@ -166,5 +168,5 @@ class DriveDocumentSource:
                 )
             response.raise_for_status()
         except Exception as exc:
-            raise _source_error(exc, f"uploading {name}") from exc
+            raise DocumentSourceError("source_upload_failed", source=SOURCE, name=name, reason=_reason(exc)) from exc
         return _entry(response.json())

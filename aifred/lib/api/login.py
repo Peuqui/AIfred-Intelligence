@@ -4,10 +4,11 @@ While Reflex and Vue run side by side both read the cookie, and Reflex reads it 
 the cookie therefore keeps Reflex's attributes (no HttpOnly) until Reflex is gone.
 """
 
-from fastapi import HTTPException, Request
+from fastapi import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from ..user_error import Unauthorized
 from .app import api_app
 
 
@@ -39,7 +40,7 @@ async def auth_login(credentials: Credentials) -> JSONResponse:
     user = credentials.username.strip().lower()
     # One answer for an unknown account and a wrong password: the login does not tell which exist.
     if not user or not account_exists(user) or not verify_account(user, credentials.password):
-        raise HTTPException(status_code=401, detail="Wrong user name or password")
+        raise Unauthorized("wrong_login")
     return _with_cookie(JSONResponse({"user": user}), user)
 
 
