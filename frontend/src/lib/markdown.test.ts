@@ -19,6 +19,30 @@ describe("renderMarkdown", () => {
     expect(html).toContain('style="color: rgba(255, 255, 255, 0.6); font-style: italic;"');
   });
 
+  it("embeds the server's sandbox visualisation, always sandboxed to scripts", () => {
+    // Until 08.11.2026 DOMPurify removed every iframe: in Vue a sandbox visualisation was only a link.
+    const html = renderMarkdown(
+      '<details data-sandbox><summary>📊</summary><iframe src="/_upload/sandbox_output/abc/plot-1.html" ' +
+        'sandbox="allow-scripts allow-same-origin" scrolling="no" loading="lazy"></iframe></details>',
+    );
+    expect(html).toContain('<iframe src="/_upload/sandbox_output/abc/plot-1.html"');
+    expect(html).toContain('sandbox="allow-scripts"');
+    expect(html).not.toContain("allow-same-origin");
+  });
+
+  it("removes every other iframe", () => {
+    for (const src of [
+      "https://example.org/_upload/sandbox_output/a/b.html",
+      "/_upload/sandbox_output/../documents/x.html",
+      "/_upload/sandbox_output/%2e%2e/documents/x.html",
+      "/api/app/",
+      "javascript:alert(1)",
+    ]) {
+      expect(renderMarkdown(`<iframe src="${src}"></iframe>`)).not.toContain("<iframe");
+    }
+    expect(renderMarkdown("<iframe></iframe>")).not.toContain("<iframe");
+  });
+
   it("opens links in a new tab without access to this page", () => {
     const html = renderMarkdown("[AIfred](https://example.org)");
     expect(html).toContain('target="_blank"');

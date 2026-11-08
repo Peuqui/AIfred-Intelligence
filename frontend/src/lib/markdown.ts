@@ -31,6 +31,29 @@ markdown.renderer.rules.link_open = (tokens, index, options, env, self) => {
   return defaultLinkOpen ? defaultLinkOpen(tokens, index, options, env, self) : self.renderToken(tokens, index, options);
 };
 
+// The server's sandbox visualisations (formatting.build_sandbox_iframe): an iframe stays when it shows AIfred's own
+// sandbox output (resolved, so "../" leads nowhere else) and always runs sandboxed, scripts only, without access
+// to this page. Every other iframe goes.
+const SANDBOX_OUTPUT_PATH = "/_upload/sandbox_output/";
+
+function isSandboxOutput(src: string | null): boolean {
+  if (!src) return false;
+  const url = new URL(src, window.location.origin);
+  return url.origin === window.location.origin && url.pathname.startsWith(SANDBOX_OUTPUT_PATH);
+}
+
+DOMPurify.addHook("uponSanitizeElement", (node, data) => {
+  if (data.tagName === "iframe" && !isSandboxOutput((node as Element).getAttribute("src"))) {
+    node.parentNode?.removeChild(node);
+  }
+});
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+  if (node.tagName === "IFRAME") node.setAttribute("sandbox", "allow-scripts");
+});
+
 export function renderMarkdown(text: string): string {
-  return DOMPurify.sanitize(markdown.render(text), { ADD_ATTR: ["target"] });
+  return DOMPurify.sanitize(markdown.render(text), {
+    ADD_TAGS: ["iframe"],
+    ADD_ATTR: ["target", "sandbox", "scrolling", "loading"],
+  });
 }
