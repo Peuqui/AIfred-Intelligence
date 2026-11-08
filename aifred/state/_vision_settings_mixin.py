@@ -769,7 +769,8 @@ class VisionSettingsMixin(rx.State, mixin=True):
     def save_rtsp_camera(self) -> None:
         """Formular prüfen und über ``lib.rtsp_cameras`` speichern (Anlegen oder Verbindung ändern; beim Ändern
         bleiben alle Felder des Eintrags, die das Formular nicht kennt, z. B. ``ptz``), Quellen neu einlesen."""
-        from ..lib.rtsp_cameras import add_rtsp_camera, change_rtsp_camera
+        from ..lib.i18n import t
+        from ..lib.rtsp_cameras import NameTaken, add_rtsp_camera, change_rtsp_camera
 
         f = self.rtsp_form
         try:
@@ -787,6 +788,9 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 change_rtsp_camera(self.rtsp_form_editing, fields, user, password)
             else:
                 add_rtsp_camera(str(f.get("name", "")), fields, user, password)
+        except NameTaken:
+            self.rtsp_form_error = t("vision_rtsp_name_taken", lang=self.ui_language)
+            return
         except (ValueError, KeyError) as error:
             self.rtsp_form_error = str(error)
             return

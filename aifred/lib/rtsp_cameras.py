@@ -22,6 +22,10 @@ FIELDS = (*_TEXT_FIELDS, *_INT_FIELDS, "ptz")
 _CRED = re.compile(r"[a-z0-9_]+")
 
 
+class NameTaken(ValueError):
+    """Another camera has this name (the interfaces say it: i18n ``vision_rtsp_name_taken``)."""
+
+
 def _credential(cred: str) -> str:
     return f"rtsp_{cred}"
 
@@ -97,12 +101,13 @@ def _keep_secrets(cred: str, user: str, password: str) -> None:
 
 
 def add_rtsp_camera(name: str, fields: dict[str, Any], user: str = "", password: str = "") -> None:
-    """A new camera; its name must be new (ValueError otherwise, nothing is written)."""
+    """A new camera; its name must be new (:class:`NameTaken` otherwise, ValueError for a field it cannot take;
+    nothing is written then)."""
     name = name.strip()
     if not name:
         raise ValueError("a camera needs a name")
     if any(str(entry.get("name")) == name for entry in _entries()):
-        raise ValueError(f"a camera named {name!r} exists already")
+        raise NameTaken(name)
     checked = _checked({"profile": PROFILES[0], "port": 554, **fields})
     if "host" not in checked:
         raise ValueError("a camera needs its host")

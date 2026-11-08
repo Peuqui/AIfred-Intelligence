@@ -260,7 +260,9 @@ def test_a_new_camera_needs_a_new_name_and_its_secrets_go_to_the_env(rtsp: tuple
     assert "RTSP_GARTEN_PASSWORD" in env_file.read_text() and os.environ["RTSP_GARTEN_PASSWORD"] == "pw"
     assert json.loads(settings_file.read_text())["rtsp_cameras"][1] == {"name": "Garten", "host": "192.0.2.20", "cred": "garten",
                                                                          "profile": "webcam", "port": 554}
-    assert client.post("/vision/rtsp-cameras", json={"name": "Garten", "host": "192.0.2.21"}).status_code == 422
+    taken = client.post("/vision/rtsp-cameras", json={"name": "Garten", "host": "192.0.2.21"})
+    assert taken.status_code == 409 and taken.json()["detail"].startswith("Eine Kamera mit diesem Namen gibt es schon")
+    assert json.loads(settings_file.read_text())["rtsp_cameras"][1]["host"] == "192.0.2.20"      # the old one untouched
 
 
 def test_taking_a_camera_out_forgets_secrets_no_other_camera_uses(rtsp: tuple[TestClient, Path, Path]) -> None:

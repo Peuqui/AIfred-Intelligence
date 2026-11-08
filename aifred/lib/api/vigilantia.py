@@ -247,12 +247,18 @@ async def vision_rtsp_cameras() -> RtspCameras:
 
 @api_app.post("/vision/rtsp-cameras", response_model=RtspCameras, status_code=201, tags=["Vision"])
 async def vision_rtsp_camera_add(camera: NewRtspCamera) -> RtspCameras:
-    """A new camera (its name must be new); 422 for a field it cannot take."""
-    from ..rtsp_cameras import add_rtsp_camera
+    """A new camera; 409 for a name another camera has (``detail`` in the page's language), 422 for a field it cannot
+    take."""
+    from ..rtsp_cameras import NameTaken, add_rtsp_camera
 
     fields = camera.model_dump(exclude_none=True, exclude={"name", "user", "password"})
     try:
         await asyncio.to_thread(add_rtsp_camera, camera.name, fields, camera.user, camera.password)
+    except NameTaken as error:
+        from ..i18n import t
+        from ..prompt_loader import get_language
+
+        raise HTTPException(status_code=409, detail=t("vision_rtsp_name_taken", lang=get_language())) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     log_message(f"📷 RTSP camera {camera.name!r} added ({sorted(fields)})")
