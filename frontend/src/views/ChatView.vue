@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { AgentSummary, CropBox, DebateMode } from "../api/types";
 import AgentChoicesModal from "../components/AgentChoicesModal.vue";
@@ -37,6 +37,10 @@ const progress = computed(() =>
 
 // The agents' quick choices (models and switches) behind the 🎛️ button.
 const choicesOpen = ref(false);
+
+// What the sandbox made in this chat (plots, pages, screenshots) in the file requester; loaded when it opens.
+const FileRequester = defineAsyncComponent(() => import("../components/FileRequester.vue"));
+const outputsOpen = ref(false);
 
 // The image of the next message in the crop dialog (its place in the list: turning gives it a new name).
 const editing = ref<number | null>(null);
@@ -162,6 +166,7 @@ onMounted(() => void start());
           </button>
           <button class="export" :disabled="!chat.history.length || exporting" :title="t('share_chat')" @click="shareChat">🔗</button>
           <button class="export" :disabled="!chat.history.length || exporting" :title="t('download_chat')" @click="downloadChat">💾</button>
+          <button class="export" :disabled="!chat.sessionId" :title="t('sandbox_outputs_tooltip')" @click="outputsOpen = true">📂</button>
           <AgentSelect :agents="agents" :active="chat.config.active_agent" @choose="(agent) => chat.configure({ active_agent: agent })" />
           <DebateControls :config="chat.config" :agents="agents" :modes="modes" @configure="chat.configure" />
           <VisionBadge />
@@ -207,6 +212,7 @@ onMounted(() => void start());
       />
       <DebugConsole :lines="chat.debugLines" />
       <AgentChoicesModal v-if="choicesOpen" @close="choicesOpen = false" />
+      <FileRequester v-if="outputsOpen && chat.sessionId" :area="`sandbox-${chat.sessionId}`" :title="t('sandbox_outputs')" @close="outputsOpen = false" />
       <ImageEditor
         v-if="editingImage"
         :image="editingImage"

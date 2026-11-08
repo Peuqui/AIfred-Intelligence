@@ -16,6 +16,8 @@
   "audio_hint": "💡 Upload audio file (WAV, MP3, M4A, OGG, FLAC)",
   "share_chat": "Share Chat",
   "download_chat": "Download HTML",
+  "sandbox_outputs": "Outputs of this chat",
+  "sandbox_outputs_tooltip": "What the sandbox made in this chat (plots, pages, screenshots): look at, download, rename, delete",
   "chat_export_title": "🎩 AIfred Intelligence – Chat export",
   "chat_export_subtitle": "Chat export • {time}",
   "chat_export_expand_all": "📂 Expand all",

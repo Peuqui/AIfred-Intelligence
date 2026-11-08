@@ -47,8 +47,32 @@ AREAS: dict[str, FileArea] = {
 }
 
 
-def file_area(name: str) -> FileArea:
+# A session's sandbox outputs (plots, pages, screenshots the agents made in it): "sandbox-<session id>", only for the
+# session's owner. Looked at, downloaded, renamed, removed; made only by the sandbox.
+SANDBOX_PREFIX = "sandbox-"
+SANDBOX_ACTIONS = frozenset({"rename", "delete", "download", "preview", "search"})
+
+
+def file_area(name: str, user: str) -> FileArea:
+    """The area ``name`` for ``user``; a session's area only when the session is theirs (404 otherwise, as for a
+    session of someone else)."""
+    if name.startswith(SANDBOX_PREFIX):
+        return _session_sandbox(name.removeprefix(SANDBOX_PREFIX), user)
     area = AREAS.get(name)
     if area is None:
         raise Missing("no_file_area", area=name)
     return area
+
+
+def _session_sandbox(session_id: str, user: str) -> FileArea:
+    from .sandbox import session_output_dir
+    from .session_storage import load_session
+
+    try:
+        session = load_session(session_id)
+    except ValueError:            # no session id (32 hex characters)
+        session = None
+    if session is None or str(session.get("owner", "")).lower() != user:
+        raise Missing("no_session")
+    folder = str(session_output_dir(session_id))
+    return FileArea(lambda: folder, SANDBOX_ACTIONS)

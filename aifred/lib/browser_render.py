@@ -128,8 +128,8 @@ async def render_html_in_browser(
     from .sandbox import (
         SCREENSHOT_STEM,
         _sandbox_url,
-        _session_output_dir,
         output_filename,
+        session_output_dir,
     )
 
     html_path = resolve_sandbox_html_path(html_url, session_id)
@@ -145,7 +145,7 @@ async def render_html_in_browser(
     width, height = (int(v) for v in BROWSER_RENDER_WINDOW_SIZE.split(","))
     settle_ms = wait_ms if wait_ms and wait_ms > 0 else BROWSER_RENDER_DEFAULT_WAIT_MS
     result = RenderResult()
-    output_dir = _session_output_dir(session_id)
+    output_dir = session_output_dir(session_id)
     tmp_shots: list[Path] = []
 
     async def _run() -> None:

@@ -92,7 +92,7 @@ def _safe_session_subdir(session_id: str) -> Path | None:
     return candidate
 
 
-def _session_output_dir(session_id: str) -> Path:
+def session_output_dir(session_id: str) -> Path:
     """Get or create session-specific sandbox output directory."""
     session_dir = _safe_session_subdir(session_id)
     if session_dir is None:
@@ -378,7 +378,7 @@ def _collect_images(work_dir: Path, session_id: str) -> list[str]:
     the script wrote itself (``plt.savefig("name.png")``, PIL, …). Without the
     second one a script that saves and closes its figure produced an image
     that never reached the result — and the model then invented a URL."""
-    output_dir = _session_output_dir(session_id)
+    output_dir = session_output_dir(session_id)
 
     urls: list[str] = []
     for png in sorted(work_dir.glob("*.png")):
@@ -414,7 +414,7 @@ def _collect_html(work_dir: Path, session_id: str) -> list[str]:
 
     urls: list[str] = []
     seen_hashes: set[str] = set()
-    output_dir = _session_output_dir(session_id)
+    output_dir = session_output_dir(session_id)
     for html_file in candidates:
         try:
             html_content = html_file.read_text(encoding="utf-8")

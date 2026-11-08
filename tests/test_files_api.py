@@ -133,3 +133,24 @@ def test_the_voices_area_is_the_tts_suites_folder_and_takes_no_links(client: Tes
     assert "symlink" not in client.get("/files/voices/info").json()["actions"]
     refused = client.post("/files/voices/symlink", json={"path": "voices://", "name": "x", "target": "voices://Sokrates"})
     assert refused.status_code == 403 and not (voices / "x").exists()
+
+
+def test_a_sessions_sandbox_outputs_open_only_for_its_owner(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from aifred.lib import config, session_storage
+
+    monkeypatch.setattr(session_storage, "SESSION_DIR", tmp_path / "sessions")
+    (tmp_path / "sessions").mkdir()
+    session_storage._session_meta_cache.clear()
+    monkeypatch.setattr(config, "SANDBOX_OUTPUT_DIR", tmp_path / "sandbox_output")
+    mine, theirs = "a" * 32, "b" * 32
+    session_storage.save_session(mine, {"data": {"chat_history": []}}, owner="ki")
+    session_storage.save_session(theirs, {"data": {"chat_history": []}}, owner="anderer")
+    (tmp_path / "sandbox_output" / mine).mkdir(parents=True)
+    (tmp_path / "sandbox_output" / mine / "plot-1a2b3c.png").write_bytes(b"png")
+    listing = client.get(f"/files/sandbox-{mine}").json()
+    assert _names(listing) == ["plot-1a2b3c.png"] and listing["dirname"] == f"sandbox-{mine}://"
+    assert client.get(f"/files/sandbox-{theirs}").status_code == 404          # someone else's session
+    assert client.get("/files/sandbox-keine-sitzung").status_code == 404
+    upload = client.post(f"/files/sandbox-{mine}/upload", data={"path": f"sandbox-{mine}://"}, files={"file": ("x.txt", b"x")})
+    assert upload.status_code == 403                                            # only the sandbox makes outputs
+    session_storage._session_meta_cache.clear()
