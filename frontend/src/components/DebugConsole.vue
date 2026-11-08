@@ -20,7 +20,9 @@ watch(
   <section class="debug">
     <button class="toggle" @click="open = !open">{{ open ? "▾" : "▸" }} {{ t("debug_console") }} ({{ lines.length }})</button>
     <div v-if="open" ref="list" class="lines">
-      <div v-for="(line, index) in lines" :key="index" :class="{ error: line.includes('✗') || line.includes('❌') }">{{ line }}</div>
+      <div class="text">
+        <div v-for="(line, index) in lines" :key="index" :class="{ error: line.includes('✗') || line.includes('❌') }">{{ line }}</div>
+      </div>
     </div>
   </section>
 </template>
@@ -29,7 +31,7 @@ watch(
 .toggle { background: none; border: none; color: var(--aifred-debug-accent); cursor: pointer; font: inherit; padding: 0; }
 /* The Matrix terminal of the Reflex console: neon green, errors red. */
 .lines {
-  max-height: var(--debug-max-height, 40vh);
+  max-height: calc(var(--debug-max-height, 40vh) / var(--ui-zoom));
   overflow-y: auto;
   margin: 6px 0 0;
   padding: 8px;
@@ -42,5 +44,7 @@ watch(
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* The console's own size; the interface's size is taken out again. */
+.text { zoom: calc(var(--console-zoom) / var(--ui-zoom)); }
 .error { color: var(--aifred-danger); }
 </style>

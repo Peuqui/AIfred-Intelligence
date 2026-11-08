@@ -31,6 +31,8 @@ class SessionEvent:
 @dataclass
 class _Channel:
     last_id: int = 0
+    # The id up to which the replay was emptied: a client behind it may have missed events it no longer holds.
+    cleared_through: int = 0
     replay: list[SessionEvent] = field(default_factory=list)
     subscribers: set["asyncio.Queue[SessionEvent]"] = field(default_factory=set)
 
@@ -99,12 +101,21 @@ def clear_replay(session_id: str, *, keep: frozenset[str] = frozenset()) -> None
 
 def _clear_here(session_id: str, keep: frozenset[str]) -> None:
     channel = _channel(session_id)
+    channel.cleared_through = channel.last_id
     channel.replay = [event for event in channel.replay if event.kind in keep]
 
 
 def last_event_id(session_id: str) -> int:
     """The id of the session's newest event (0 before the first)."""
     return _channel(session_id).last_id
+
+
+def missed_beyond_replay(session_id: str, after_id: int) -> bool:
+    """Whether a client that saw everything up to ``after_id`` may have missed events the replay no longer holds:
+    the replay was emptied after it (a new turn), or the server started anew since (its ids begin again at 1, so
+    ``after_id`` lies beyond the newest)."""
+    channel = _channel(session_id)
+    return after_id < channel.cleared_through or after_id > channel.last_id
 
 
 def replay_after(session_id: str, after_id: int) -> list[SessionEvent]:

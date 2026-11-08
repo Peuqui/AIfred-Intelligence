@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The shell: the login, then the top bar (the pages behind ☰, as under Reflex) and the page itself. The chat
 // page stays alive while another page shows (its session and event stream go on).
-import { onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch, watchEffect } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
 import { api } from "./api/client";
 import HubNoticeToast from "./components/HubNoticeToast.vue";
@@ -12,6 +12,7 @@ import { loadLanguage, t } from "./i18n";
 import { useAuth } from "./stores/auth";
 import { useChat } from "./stores/chat";
 import { useSettings } from "./stores/settings";
+import { ZOOM, type ZoomName, chatZoom, consoleZoom, uiZoom, zoomBy } from "./lib/devicePrefs";
 import hatIcon from "../../assets/AIfred-Zylinder.png";
 
 const auth = useAuth();
@@ -19,6 +20,21 @@ const chat = useChat();
 const settings = useSettings();
 const route = useRoute();
 const menuOpen = ref(false);
+
+// The two sizes the menu offers (the chat's own is above the chat).
+const sizes = computed<{ name: ZoomName; label: string; value: number }[]>(() => [
+  { name: "ui", label: "size_interface", value: uiZoom.value },
+  { name: "console", label: "size_console", value: consoleZoom.value },
+]);
+
+// The three sizes of this device reach the stylesheet as numbers: the interface scales the whole page (body), the
+// chat's history and the console take it out again and apply their own.
+watchEffect(() => {
+  const root = document.documentElement.style;
+  root.setProperty("--ui-zoom", String(uiZoom.value / 100));
+  root.setProperty("--chat-zoom", String(chatZoom.value / 100));
+  root.setProperty("--console-zoom", String(consoleZoom.value / 100));
+});
 
 async function logout(): Promise<void> {
   chat.close();
@@ -44,6 +60,14 @@ onMounted(async () => {
       <button class="burger" :aria-expanded="menuOpen" :title="t('settings')" @click="menuOpen = !menuOpen">☰</button>
       <div v-if="menuOpen" class="backdrop" @click="menuOpen = false" />
       <nav v-if="menuOpen" class="menu" @click="menuOpen = false">
+        <div class="sizes" @click.stop>
+          <span>{{ t("display_sizes") }}</span>
+          <div v-for="size in sizes" :key="size.name" class="size">
+            <span>{{ t(size.label) }}</span>
+            <button :disabled="size.value <= ZOOM.min" :title="t('chat_font_smaller')" @click="zoomBy(size.name, -1)">−</button>
+            <button :disabled="size.value >= ZOOM.max" :title="t('chat_font_larger')" @click="zoomBy(size.name, 1)">+</button>
+          </div>
+        </div>
         <RouterLink to="/">💬 {{ t("nav_chat") }}</RouterLink>
         <RouterLink to="/agents">{{ t("nav_agents") }}</RouterLink>
         <RouterLink to="/documents">{{ t("doc_manager_title") }}</RouterLink>
@@ -67,6 +91,7 @@ onMounted(async () => {
 <style>
 html,
 body {
+  zoom: var(--ui-zoom);
   margin: 0;
   background: var(--aifred-page-bg);
   color: var(--aifred-text-primary);
@@ -86,6 +111,11 @@ body {
 .backdrop { position: fixed; inset: 0; z-index: 40; }
 .menu { position: absolute; top: 100%; right: 0; z-index: 41; display: flex; flex-direction: column; min-width: 220px; padding: 6px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 8px; }
 .menu a { color: var(--aifred-text-secondary); text-decoration: none; padding: 8px 10px; border-radius: 6px; }
+.sizes { display: flex; flex-direction: column; gap: 4px; padding: 4px 10px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--aifred-border); color: var(--aifred-text-secondary); font-size: 0.85rem; }
+.size { display: flex; align-items: center; gap: 6px; }
+.size span { flex: 1; }
+.size button { min-width: 32px; background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; }
+.size button:disabled { opacity: 0.4; cursor: default; }
 .menu a:hover, .menu a.router-link-active { color: var(--aifred-text-primary); background: var(--aifred-input-bg); }
 .logout { white-space: nowrap; background: none; border: 1px solid var(--aifred-border); color: inherit; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 .page { flex: 1; }

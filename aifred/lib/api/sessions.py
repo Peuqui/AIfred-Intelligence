@@ -581,7 +581,9 @@ async def sessions_events(session_id: str, request: Request, after: int = 0) -> 
     """Server-Sent Events of the session. Each event is named by its kind and carries its id.
 
     ``after``: the first connection starts behind the id the session's detail reported (an
-    EventSource cannot set headers); on a reconnect the browser's Last-Event-ID wins.
+    EventSource cannot set headers); on a reconnect the browser's Last-Event-ID wins. When the client
+    may have missed events the replay no longer holds (a new turn emptied it, or the server started
+    anew), the stream begins with ``resync``: the client loads the session again.
     """
     owned_session(request, session_id)
     last_event_id = request.headers.get("last-event-id", "")
@@ -590,6 +592,9 @@ async def sessions_events(session_id: str, request: Request, after: int = 0) -> 
     async def stream():
         async with session_events.subscribe(session_id, after_id) as (missed, queue):
             yield ": connected\n\n"   # flushes the headers: a proxy holds them until the first data
+            if session_events.missed_beyond_replay(session_id, after_id):
+                yield "event: resync\ndata: {}\n\n"
+                return
             for event in missed:
                 yield _sse(event)
             while True:

@@ -1,5 +1,6 @@
 // Preferences of this device, kept in its browser (another screen may want them otherwise): whether Enter sends and
-// how large the chat's text is. A browser that keeps nothing (private window, blocked storage) gets the default.
+// three sizes — the chat's text, the interface (controls and labels) and the console. A browser that keeps nothing
+// (private window, blocked storage) gets the default.
 import { type Ref, ref, watch } from "vue";
 
 function stored<T>(key: string, fallback: T, valid: (value: unknown) => value is T): Ref<T> {
@@ -23,14 +24,19 @@ function stored<T>(key: string, fallback: T, valid: (value: unknown) => value is
 
 const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
 
-// The chat's text size in percent, in steps between the bounds (as the Reflex page had it: 80 to 200, by 10).
-export const CHAT_ZOOM = { min: 80, max: 200, step: 10, default: 100 } as const;
-const isZoom = (value: unknown): value is number =>
-  typeof value === "number" && value >= CHAT_ZOOM.min && value <= CHAT_ZOOM.max;
+// A size in percent, in steps between the bounds (as the Reflex page had it for the chat: 80 to 200, by 10).
+export const ZOOM = { min: 80, max: 200, step: 10, default: 100 } as const;
+const isZoom = (value: unknown): value is number => typeof value === "number" && value >= ZOOM.min && value <= ZOOM.max;
 
 export const enterSends = stored("aifred-enter-sends", true, isBoolean);
-export const chatZoom = stored("aifred-chat-zoom", CHAT_ZOOM.default, isZoom);
+export const chatZoom = stored("aifred-chat-zoom", ZOOM.default, isZoom);
+export const uiZoom = stored("aifred-ui-zoom", ZOOM.default, isZoom);
+export const consoleZoom = stored("aifred-console-zoom", ZOOM.default, isZoom);
 
-export function zoomBy(steps: number): void {
-  chatZoom.value = Math.min(CHAT_ZOOM.max, Math.max(CHAT_ZOOM.min, chatZoom.value + steps * CHAT_ZOOM.step));
+const zooms = { chat: chatZoom, ui: uiZoom, console: consoleZoom };
+export type ZoomName = keyof typeof zooms;
+
+export function zoomBy(name: ZoomName, steps: number): void {
+  const zoom = zooms[name];
+  zoom.value = Math.min(ZOOM.max, Math.max(ZOOM.min, zoom.value + steps * ZOOM.step));
 }

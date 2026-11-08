@@ -38,6 +38,7 @@ export const SESSION_EVENT_KINDS = [
   "dictation_finished",
   "service_status",
   "hub_notification",
+  "resync",
 ] as const;
 
 export function followSession(sessionId: string, afterId: number, handle: SessionEventHandler): EventSource {

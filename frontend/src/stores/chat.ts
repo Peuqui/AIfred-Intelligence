@@ -67,8 +67,21 @@ export const useChat = defineStore("chat", () => {
   media.onQueueEnd(() => void mediaControl("ended"));
 
   async function open(id: string): Promise<void> {
-    source?.close();
     speech.stop(); // the other session's reading goes on for its other tabs, not here
+    await load(id);
+    notice.value = "";
+    info.value = "";
+    queued.value = [];
+    pendingImages.value = [];
+    draft.value = "";
+    dictations.value = [];
+  }
+
+  // The session as the server has it, and its event stream from there on. Also when the stream says it may have
+  // missed events (``resync``: a new turn emptied the replay, or the server started anew): what the user is
+  // typing, attaching or dictating stays.
+  async function load(id: string): Promise<void> {
+    source?.close();
     const detail = await api<SessionDetail>(`sessions/${id}`);
     sessionId.value = id;
     title.value = detail.title ?? null;
@@ -80,12 +93,6 @@ export const useChat = defineStore("chat", () => {
     streaming.value = null;
     toolStatus.value = "";
     phase.value = null;
-    notice.value = "";
-    info.value = "";
-    queued.value = [];
-    pendingImages.value = [];
-    draft.value = "";
-    dictations.value = [];
     source = followSession(id, detail.last_event_id, handle);
   }
 
@@ -137,6 +144,9 @@ export const useChat = defineStore("chat", () => {
         history.value = history.value.map((old) => (old.role === entry.role && old.timestamp === entry.timestamp ? entry : old));
         break;
       }
+      case "resync":
+        if (sessionId.value) void load(sessionId.value);
+        break;
       case "history_replaced":
         history.value = data.chat_history as ChatEntry[];
         break;

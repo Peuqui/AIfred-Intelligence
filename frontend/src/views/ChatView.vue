@@ -13,7 +13,7 @@ import MessageBubble from "../components/MessageBubble.vue";
 import SessionList from "../components/SessionList.vue";
 import TurnProgress from "../components/TurnProgress.vue";
 import { t } from "../i18n";
-import { CHAT_ZOOM, chatZoom, zoomBy } from "../lib/devicePrefs";
+import { ZOOM, chatZoom, zoomBy } from "../lib/devicePrefs";
 import { saveAs } from "../lib/download";
 import { renderMarkdown } from "../lib/markdown";
 import { successorSession } from "../lib/sessionSuccessor";
@@ -136,8 +136,8 @@ onMounted(() => void start());
       <div class="toolbar">
         <h2>{{ chat.title || t("untitled_chat") }}</h2>
         <div class="choices">
-          <button class="zoom" :disabled="chatZoom <= CHAT_ZOOM.min" :title="t('chat_font_smaller')" @click="zoomBy(-1)">A−</button>
-          <button class="zoom" :disabled="chatZoom >= CHAT_ZOOM.max" :title="`${t('chat_font_larger')} (${chatZoom} %)`" @click="zoomBy(1)">A+</button>
+          <button class="zoom" :disabled="chatZoom <= ZOOM.min" :title="t('chat_font_smaller')" @click="zoomBy('chat', -1)">A−</button>
+          <button class="zoom" :disabled="chatZoom >= ZOOM.max" :title="t('chat_font_larger')" @click="zoomBy('chat', 1)">A+</button>
           <button class="agent-choices" :title="t('agent_choices_title')" @click="choicesOpen = true">🎛️</button>
           <button
             v-if="settings.current?.enable_tts && hasReplies"
@@ -172,7 +172,8 @@ onMounted(() => void start());
           <VisionBadge />
         </div>
       </div>
-      <div ref="messages" class="messages" :style="{ zoom: chatZoom / 100 }">
+      <div ref="messages" class="messages">
+        <div class="bubbles">
         <MessageBubble
           v-for="entry in chat.history"
           :key="entry.timestamp + entry.role"
@@ -191,6 +192,7 @@ onMounted(() => void start());
         <p v-if="chat.notice" class="notice">⚠️ {{ chat.notice }}</p>
         <p v-if="chat.info" class="info">{{ chat.info }}</p>
         <p v-if="settings.notice" class="notice">⚠️ {{ settings.notice }}</p>
+        </div>
       </div>
       <ChatInput
         v-if="settings.current"
@@ -237,7 +239,10 @@ h2 { margin: 0; font-size: 1rem; }
 .regenerate:disabled, .export:disabled, .remember:disabled { opacity: 0.7; cursor: progress; }
 .clear:disabled, .zoom:disabled { opacity: 0.5; cursor: default; }
 .incognito.on { border-color: var(--aifred-accent-amber); }
-.messages { height: 70vh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; overflow-wrap: anywhere; }
+/* The box keeps 70 % of the screen whatever the sizes; only its content takes the chat's size (the interface's
+   size, set on the page, is taken out again). */
+.messages { height: calc(70vh / var(--ui-zoom)); overflow-y: auto; padding-right: 4px; overflow-wrap: anywhere; }
+.bubbles { display: flex; flex-direction: column; gap: 10px; zoom: calc(var(--chat-zoom) / var(--ui-zoom)); }
 .streaming { align-self: flex-start; max-width: min(860px, 92%); padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light); }
 .streaming header { font-size: 0.8rem; font-weight: 600; color: var(--aifred-primary); }
 .tool { margin: 4px 0 0; font-size: 0.8rem; color: var(--aifred-accent-cyan); }

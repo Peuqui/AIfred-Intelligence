@@ -55,6 +55,26 @@ def test_ids_keep_rising_across_a_clear() -> None:
     assert (after.kind, after.id > before.id) == ("b", True)
 
 
+def test_a_client_behind_a_cleared_replay_may_have_missed_events() -> None:
+    """08.11.2026: a tablet that slept through a turn reconnected behind the emptied replay and showed a chat with
+    gaps until it was reloaded. The stream then begins with resync."""
+    session_events.publish(SESSION, "message_added", {})
+    seen = session_events.last_event_id(SESSION)
+    session_events.publish(SESSION, "message_added", {})
+    assert not session_events.missed_beyond_replay(SESSION, seen)      # the replay still holds what came after
+    session_events.clear_replay(SESSION)                                # a new turn
+    session_events.publish(SESSION, "turn_started", {})
+    assert session_events.missed_beyond_replay(SESSION, seen)
+    assert not session_events.missed_beyond_replay(SESSION, session_events.last_event_id(SESSION))
+
+
+def test_a_client_from_before_a_server_start_may_have_missed_events() -> None:
+    """After a start the ids begin again at 1: a client's last id lies beyond the newest."""
+    session_events.publish(SESSION, "token", {})
+    assert session_events.missed_beyond_replay(SESSION, 523)
+    assert not session_events.missed_beyond_replay(SESSION, 0)     # the first connection of a fresh page
+
+
 def test_clear_keeps_the_kinds_asked_for() -> None:
     session_events.publish(SESSION, "token", {})
     session_events.publish(SESSION, "status", {})
