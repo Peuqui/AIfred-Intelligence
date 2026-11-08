@@ -18,14 +18,11 @@ from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 
+# Zeitfenster des „neue Events"-Badge und Anzahl im aufgeklappten Akkordeon: config.py (auch für die Vue-Seite).
+from ..lib.config import VISION_BADGE_EVENTS as _FEED_LIMIT
+from ..lib.config import VISION_BADGE_WINDOW_MIN as _BADGE_WINDOW_MIN
+
 logger = logging.getLogger(__name__)
-
-
-# Zeitfenster für das „neue Events"-Badge: Events der letzten X Min
-# werden im Header-Counter mitgezählt.
-_BADGE_WINDOW_MIN = 10
-# Anzahl Events die im aufgeklappten Akkordeon angezeigt werden.
-_FEED_LIMIT = 10
 
 
 class VigilantiaFeedMixin(rx.State, mixin=True):
@@ -107,17 +104,8 @@ class VigilantiaFeedMixin(rx.State, mixin=True):
         if not self.vigilantia_sources:
             self._reload_vigilantia_sources()
         try:
-            from datetime import datetime, timedelta
-
-            from ..lib.vision_store import VisionStore
-            store = VisionStore()
-            events = store.list_events_with_summary(
-                event_types=["motion", "person", "animal", "vehicle",
-                             "face_known", "face_unsure",
-                             "face_unknown", "vlm_analysis"],
-                limit=_FEED_LIMIT,
-                offset=0,
-            )
+            from ..lib.casus import recent
+            events, count = recent(_BADGE_WINDOW_MIN, _FEED_LIMIT)
             # Only assign when the result actually changed. The 500ms tick
             # invokes us on every refresh_debug_console pass while the feed
             # is visible — unconditional assignment makes Reflex flag the
@@ -127,15 +115,8 @@ class VigilantiaFeedMixin(rx.State, mixin=True):
             # debug_messages issue fixed in commit 531c84d).
             if events != self.vigilantia_feed_events:
                 self.vigilantia_feed_events = events
-            since = datetime.now() - timedelta(minutes=_BADGE_WINDOW_MIN)
-            recent = store.count_events(
-                event_types=["motion", "person", "animal", "vehicle",
-                             "face_known", "face_unsure",
-                             "face_unknown", "vlm_analysis"],
-                since=since,
-            )
-            if recent != self.vigilantia_feed_recent_count:
-                self.vigilantia_feed_recent_count = recent
+            if count != self.vigilantia_feed_recent_count:
+                self.vigilantia_feed_recent_count = count
         except sqlite3.Error as e:  # the event database; this runs in the 500 ms tick
             logger.warning("vigilantia-feed refresh failed: %s", e)
             if self.vigilantia_feed_events:

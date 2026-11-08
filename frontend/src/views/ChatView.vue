@@ -5,6 +5,7 @@ import type { AgentSummary, CropBox, DebateMode } from "../api/types";
 import AgentChoicesModal from "../components/AgentChoicesModal.vue";
 import AgentSelect from "../components/AgentSelect.vue";
 import DebateControls from "../components/DebateControls.vue";
+import VisionBadge from "../components/VisionBadge.vue";
 import ChatInput from "../components/ChatInput.vue";
 import DebugConsole from "../components/DebugConsole.vue";
 import ImageEditor from "../components/ImageEditor.vue";
@@ -110,6 +111,7 @@ onMounted(() => void start());
           </button>
           <AgentSelect :agents="agents" :active="chat.config.active_agent" @choose="(agent) => chat.configure({ active_agent: agent })" />
           <DebateControls :config="chat.config" :agents="agents" :modes="modes" @configure="chat.configure" />
+          <VisionBadge />
         </div>
       </div>
       <div ref="messages" class="messages">

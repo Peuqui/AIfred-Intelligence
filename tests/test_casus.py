@@ -310,3 +310,24 @@ def test_the_runs_over_the_api(client: TestClient, store: VisionStore, runs: Non
         time.sleep(0.02)
     assert client.get("/vision/casus/runs").json()["analysis"] == {"running": 0, "last": rows["vehicle"], "error": ""}
     assert client.post("/vision/casus/events/9999/analyze").status_code == 404
+
+
+def test_the_badge_counts_the_last_minutes_and_lists_the_newest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(vision_store, "DEFAULT_DB_PATH", tmp_path / "vision.db")
+    store = VisionStore()
+    now = datetime.now()
+    for minutes_ago in (90, 30, 9, 2, 1):
+        store.add_event("cam/a", "person", timestamp=now - timedelta(minutes=minutes_ago))
+    events, count = casus.recent(10, 2)
+    assert count == 3 and len(events) == 2 and events[0]["timestamp"] > events[1]["timestamp"]
+
+
+def test_the_badge_over_the_api(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from aifred.lib import plugin_registry
+    from aifred.lib.config import VISION_BADGE_EVENTS, VISION_BADGE_WINDOW_MIN
+
+    monkeypatch.setattr(plugin_registry, "is_plugin_enabled", lambda name: name == "vision")
+    badge = client.get("/vision/casus/recent").json()
+    assert badge["plugin_enabled"] is True and badge["window_minutes"] == VISION_BADGE_WINDOW_MIN
+    assert badge["recent"] == 0                                          # the fixture's events are from 04.11.
+    assert len(badge["events"]) == min(VISION_BADGE_EVENTS, 10) and badge["refresh_seconds"] > 0

@@ -427,6 +427,13 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   eigener Rand von 30 %). Entfernt: das tote `POST /vision/face/enroll` und `embedding_b64` im Live-Ereignis (rund
   2 KB je Gesicht, nirgends gelesen). Geprüft mit der echten Reolink (4 Live-Bilder in 5 s; nachts kein Gesicht, die
   Meldung kommt; Abbrechen beendet die Sitzung, nichts gespeichert), Aufnehmen und Speichern im Test mit Stellvertretern.
+- **Vision im Chat: Abzeichen statt Feed-Karte (erledigt 08.11.2026):** `VisionBadge.vue` in der Werkzeugleiste des
+  Chats: Auge (scharf/unscharf) und Zahl der Ereignisse der letzten `VISION_BADGE_WINDOW_MIN` Minuten, ein Klick zeigt die
+  neuesten `VISION_BADGE_EVENTS`, jedes führt in den Reiter Ereignisse gefiltert auf seine Kamera
+  (`#/vision/events?source=<id>`). Neue Ereignisse über den Strom der Ereignisse, dazu alle `VISION_BADGE_REFRESH_SEC`
+  (ältere fallen aus dem Fenster); ohne Vision-Plugin bleibt es weg. Die Abfrage steht in `casus.recent`, auch für die
+  Reflex-Feed-Karte (dort stand die Typenliste zweimal, die Werte fest im Mixin). Geprüft im Browser mit einem frischen
+  Prüf-Ereignis.
 - **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
 
 ## Schritte

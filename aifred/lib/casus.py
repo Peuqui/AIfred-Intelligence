@@ -68,6 +68,16 @@ def page(events_filter: EventFilter, *, grouped: bool, offset: int, limit: int) 
             store.count_events(**query, grouped=grouped))
 
 
+def recent(window_minutes: int, newest: int) -> tuple[list[dict[str, Any]], int]:
+    """The ``newest`` events (every type, newest first) and how many were stored in the last ``window_minutes`` —
+    the vision's badge in the chat."""
+    from datetime import datetime, timedelta
+
+    store = VisionStore()
+    since = datetime.now() - timedelta(minutes=window_minutes)
+    return store.list_events_with_summary(limit=newest), store.count_events(since=since)
+
+
 @dataclass(frozen=True)
 class Choices:
     sources: list[tuple[str, str]]    # (source id, name) of every source events were stored for

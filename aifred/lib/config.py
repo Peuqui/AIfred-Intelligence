@@ -852,6 +852,10 @@ VISION_EVENT_INTERVAL_CHOICES = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10
 VISION_ALERT_TYPES = ("person", "vehicle", "animal", "face")
 # How many events (or occurrences) one page of the Casus lists.
 VISION_CASUS_PAGE_SIZE = 50
+# The vision's badge in the chat: events of the last minutes it counts, and how many of the newest it lists.
+VISION_BADGE_WINDOW_MIN = 10
+VISION_BADGE_EVENTS = 10
+VISION_BADGE_REFRESH_SEC = 60    # the count asked again so older events leave the window
 # Learning a person from several poses: how long the live picture waits after one arrived before asking again (ms).
 VISION_ENROLL_PREVIEW_MS = 800
 # A camera's quiet hours (no alerts; whole hours 0–23) and its active window (watched only then; "HH:MM")

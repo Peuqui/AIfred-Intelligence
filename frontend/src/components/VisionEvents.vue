@@ -14,8 +14,9 @@ import { formatNumber, t, tCount } from "../i18n";
 import ImageLightbox from "./ImageLightbox.vue";
 
 const choices = ref<CasusChoices | null>(null);
-// A person's events open from the persons tab: #/vision/events?face=<id>.
-const chosen = reactive({ source: "", type: "all", face: String(useRoute().query.face ?? "all") });
+// A person's or a camera's events open from elsewhere: #/vision/events?face=<id> or ?source=<id>.
+const opened = useRoute().query;
+const chosen = reactive({ source: String(opened.source ?? ""), type: "all", face: String(opened.face ?? "all") });
 const grouped = ref(false);
 const offset = ref(0);
 const list = ref<CasusPage | null>(null);

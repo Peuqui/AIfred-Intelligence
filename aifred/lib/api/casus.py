@@ -89,6 +89,36 @@ async def casus_events(
     )
 
 
+class CasusRecent(BaseModel):
+    plugin_enabled: bool = Field(description="The vision plugin is on (without it the badge stays away)")
+    armed: bool = Field(description="The eye watches in the background")
+    window_minutes: int
+    recent: int = Field(description="Events stored in the last window_minutes")
+    events: list[CasusEvent] = Field(description="The newest events")
+    refresh_seconds: int = Field(description="How often the badge asks again (older events leave the window)")
+
+
+@api_app.get("/vision/casus/recent", response_model=CasusRecent, tags=["Vision"])
+async def casus_recent() -> CasusRecent:
+    """The vision's badge in the chat: the eye, how many events the last minutes brought, the newest ones."""
+    from ..casus import recent
+    from ..config import (
+        VISION_BADGE_EVENTS,
+        VISION_BADGE_REFRESH_SEC,
+        VISION_BADGE_WINDOW_MIN,
+    )
+    from ..plugin_registry import is_plugin_enabled
+    from ..vigilantia import vigilantia
+
+    events, count = await asyncio.to_thread(recent, VISION_BADGE_WINDOW_MIN, VISION_BADGE_EVENTS)
+    return CasusRecent(
+        plugin_enabled=is_plugin_enabled("vision"), armed=(await asyncio.to_thread(vigilantia)).armed,
+        window_minutes=VISION_BADGE_WINDOW_MIN, recent=count,
+        events=[CasusEvent(**event, has_frame=bool(event["frame_path"])) for event in events],
+        refresh_seconds=VISION_BADGE_REFRESH_SEC,
+    )
+
+
 @api_app.get("/vision/casus/choices", response_model=CasusChoices, tags=["Vision"])
 async def casus_choices() -> CasusChoices:
     from ..casus import TAGGABLE_TYPES, choices
