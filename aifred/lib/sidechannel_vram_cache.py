@@ -1,14 +1,11 @@
-"""Gemessene GEMEINSAME VRAM-Spitzen von VLM- und TTS-Paaren.
+"""Verdict per pair of the vLLM matrix: does a describer and a TTS engine fit together on the side-channel card?
 
-Eigener Speicher neben ``vlm_vram_cache``, weil er
-eine andere Frage beantwortet: Jene halten fest, was ein Dienst ALLEIN
-braucht; hier steht, was ein Paar ZUSAMMEN auf einer Karte zieht. Die
-Summe der Einzelwerte ist dafuer keine Antwort — beide Dienste halten
-ihre Puffer gleichzeitig, und der Allokator fragmentiert dazwischen.
+The rule is the llama.cpp combos' (``calibration.service.side_channel_pair_fits``): the describer's reserve (its
+stress-measured peak in ``vlm_vram_cache`` plus ``VLM_HEADROOM_MIB``) and the engine's need (the TTS service's
+``needed_mib``, budget plus its headroom) against the card. A joint measurement under load is not possible: the TTS
+service chooses its card itself, an empty one when there is one.
 
-Schluessel ist ``"<vlm_key>|<tts_key>"`` in derselben Schreibweise wie
-die Kalibrier-Matrix (leere Seite = "keins"), damit die Oberflaeche pro
-Zelle direkt nachschlagen kann.
+Key is ``"<vlm_key>|<tts_key>"`` as in the calibration matrix (empty side = none).
 """
 
 from __future__ import annotations
@@ -27,27 +24,16 @@ _store = JsonPeakCache(CACHE_FILE, "sidechannel_vram_cache")
 
 
 def pair_key(vlm_key: str, tts_key: str) -> str:
-    """Matrix-Schluessel — SSOT fuer beide Seiten (Speicher und Anzeige)."""
+    """The matrix key (``calibration.matrix.cell_key`` writes the same)."""
     return f"{vlm_key}|{tts_key}"
 
 
-def get(vlm_key: str, tts_key: str) -> int | None:
-    """Gemeinsame Spitze in MiB, oder ``None`` wenn ungemessen."""
-    entry = _store.get_entry(pair_key(vlm_key, tts_key))
-    if entry is None:
-        return None
-    peak = entry.get("peak_mb")
-    if not isinstance(peak, (int, float)) or peak <= 0:
-        return None
-    return int(peak)
-
-
-def put(vlm_key: str, tts_key: str, peak_mb: int, gpu_index: int,
+def put(vlm_key: str, tts_key: str, needed_mb: int, gpu_index: int,
         total_mb: int, fits: bool) -> None:
-    """Messung festhalten. ``fits`` haelt das Urteil fest, damit die
-    Oberflaeche eine gescheiterte Paarung rot statt gruen zeigen kann."""
+    """The verdict of a pair with what it needs on its fullest card; ``fits`` lets the matrix show a pair that does
+    not fit red instead of green."""
     _store.put_entry(pair_key(vlm_key, tts_key), {
-        "peak_mb": int(peak_mb),
+        "needed_mb": int(needed_mb),
         "gpu_index": int(gpu_index),
         "total_mb": int(total_mb),
         "fits": bool(fits),
@@ -56,7 +42,7 @@ def put(vlm_key: str, tts_key: str, peak_mb: int, gpu_index: int,
 
 
 def fits(vlm_key: str, tts_key: str) -> bool | None:
-    """Urteil der letzten Messung, ``None`` wenn ungemessen."""
+    """The pair's last verdict, ``None`` when it was never judged."""
     entry = _store.get_entry(pair_key(vlm_key, tts_key))
     return None if entry is None else bool(entry.get("fits", False))
 

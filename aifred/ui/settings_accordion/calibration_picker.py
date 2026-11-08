@@ -41,7 +41,7 @@ def _calibration_picker_button() -> rx.Component:
 def _matrix_header() -> rx.Component:
     """Kopfzeile der VLM x TTS-Matrix — leere Ecke plus eine Spalte je
     TTS-Engine. Von beiden Backends genutzt: llama.cpp waehlt hier
-    Kalibrierziele, vLLM Burn-in-Paare, aber die Spalten sind dieselben."""
+    Kalibrierziele, vLLM Paare aus Bildmodell und TTS, aber die Spalten sind dieselben."""
     return rx.hstack(
         rx.foreach(
             AIState.calibration_matrix_header,

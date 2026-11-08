@@ -4,9 +4,9 @@ engine one can calibrate against (no TTS first).
 llama.cpp: a cell is a llama-swap profile of the model (the base, a TTS variant, a VLM variant or both),
 done when it was really calibrated (``gpu_model`` on its cache entry), failed when the last try left a
 failure record. vLLM: the base cell is the model's operating point on this hardware; every other cell a
-burn-in pair of VLM and TTS sharing the side-channel card, done when they fitted together, failed when
-they did not (vLLM computes only on the cards the side channel leaves, so a profile per combination would
-measure the same thing each time).
+pair of describer and TTS engine on the side-channel card, done when their reserves fit on it together, failed
+when they do not (``calibration.service.side_channel_pair_fits``; vLLM computes only on the cards the side channel
+leaves, so a profile per combination would measure the same thing each time).
 
 Which cells a run calibrates is the choice of the client that starts it, no part of the matrix.
 """

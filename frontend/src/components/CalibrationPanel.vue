@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Calibrating AIfred's model: the matrix of its variants with a tick per cell (llama.cpp: the profiles to calibrate;
-// vLLM: the base cell re-measures the operating point, the others burn in describer/TTS pairs), the options (mode and
+// vLLM: the base cell re-measures the operating point, the others judge describer/TTS pairs), the options (mode and
 // hybrid for llama.cpp; for vLLM re-measuring the persisted topology only and a dry run), the start after a question
 // (a run stops llama-swap and takes every card), its console while it runs (read again every 2 s from the line seen
 // last), the cancel, and dropping the measured VLM peaks. The ticks belong to this page; the server keeps the run.
@@ -87,7 +87,7 @@ const runLine = computed(() => {
   if (!state.outcome) return "";
   return t(`calibration_outcome_${state.outcome}`, { model: state.model_id, time: state.started_at });
 });
-// What a cell's dot says: llama.cpp a profile, vLLM the operating point (base cell) or a burn-in pair.
+// What a cell's dot says: llama.cpp a profile, vLLM the operating point (base cell) or a describer/TTS pair.
 function cellTitle(cell: MatrixCell): string {
   if (backend.value !== "vllm") {
     return t({ done: "calibration_already_done", failed: "calibration_cell_failed", open: "calibration_cell_open" }[cell.status]);

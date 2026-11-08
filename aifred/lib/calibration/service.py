@@ -105,6 +105,13 @@ def _write_variant_cache_entry(
 _VERIFY_LINE_RE = re.compile(r"^\[\[?.+\.\d+\]")
 
 
+def side_channel_pair_fits(needed_mb: int, card_total_mb: int) -> bool:
+    """A describer and a TTS engine fit on one card when their reserves (each with its headroom: VLM_HEADROOM_MIB on
+    the measured describer peak, the service's on the engine's budget) together do not exceed it. The rule of the
+    llama.cpp combos and the vLLM matrix."""
+    return needed_mb <= card_total_mb
+
+
 def _free_cards_for_calibration(report: Any) -> None:
     """Have GPU-Orc clear every card of everything but llama-swap's models (the STT and TTS workers): the
     calibration measures cards that must be free (a running worker would count as the model's own
@@ -203,7 +210,6 @@ class CalibrationRun:
         from ..calibration_gate import is_cancel_requested
         from ..config import DATA_DIR
         from ..formatting import format_number
-        from ..tts_service import running_gpu_engine
 
         assert self.vllm_target is not None
         checkpoint, entry_name = self.vllm_target
@@ -229,134 +235,180 @@ class CalibrationRun:
                 self._report("🧹 llama-swap stopped (freeing VRAM for calibration)")
         except Exception as stop_err:  # noqa: BLE001 — weiter mit Warnung
             self._report(f"⚠️ Could not stop llama-swap: {stop_err}")
-        await asyncio.to_thread(_free_cards_for_calibration, self._report)
-
-        # Gemeinsamer Side-Channel-Burn-in VOR der Topologie-Leiter:
-        # vLLM laesst die TTS-/VLM-Karte ohnehin aus (side_channel_uuids),
-        # deshalb braucht es hier keine VLM x TTS-Matrix wie bei llama.cpp
-        # — wohl aber die Antwort, ob beide Dienste zusammen auf diese EINE
-        # Karte passen. Der Lauf laeuft mit gestopptem llama-swap, also auf
-        # sonst leerer Karte, und misst die gemeinsame Spitze unter Last.
-        _tts_engine = running_gpu_engine()
-        if _tts_engine:
-            from ..sidechannel_burnin import burnin_sidechannel
-            self._report(
-                f"🔥 Side-channel burn-in: {_tts_engine} + VLM on one card..."
-            )
-            yield
-            try:
-                _sc = await burnin_sidechannel(_tts_engine, debug=self._report)
-            except Exception as sc_err:  # noqa: BLE001 — Messung, kein Tor
-                self._report(f"⚠️ Side-channel burn-in failed: {sc_err}")
-                _sc = None
-            if _sc and not _sc["fits"]:
-                self._report(
-                    f"🚨 VLM + {_tts_engine} exceed GPU {_sc['gpu_index']}: "
-                    f"{format_number(_sc['joint_peak_mb'])} MiB peak vs "
-                    f"{format_number(_sc['total_mb'])} MiB — the side channel "
-                    f"will OOM under load."
-                )
-            yield
-
-        # Basiszelle wie bei llama.cpp: nicht angehakt heisst, den
-        # vorhandenen Betriebspunkt behalten und nur die angehakten
-        # Seitenkanal-Paare einzubrennen (das ist oben schon passiert).
-        if not self.cells.get("|", False):
-            self._report(
-                "⏭️ Skipping base — keeping the persisted operating point"
-            )
-            yield
-            return
-
-        # Ist ausser der Basiszelle nichts angehakt, wird waehrend der
-        # Messung kein Seitenkanal gebraucht — dann darf die TTS-/VLM-Karte
-        # mitrechnen.
-        _sc_gewuenscht = any(
-            gewaehlt for schluessel, gewaehlt in self.cells.items()
-            if schluessel != "|"
-        )
-
-        def _run():
-            return calibrate_vllm_checkpoint(
-                checkpoint=checkpoint,
-                entry_name=entry_name,
-                log_dir=log_dir,
-                progress=progress_q.put,
-                cancel_check=_cancelled,
-                reserve_side_channel=_sc_gewuenscht,
-                resweep=self.vllm_resweep,
-                dry_run=self.vllm_dry_run,
-            )
-
-        task = asyncio.create_task(asyncio.to_thread(_run))
         try:
-            while not task.done():
+            await asyncio.to_thread(_free_cards_for_calibration, self._report)
+
+            # Die angehakten Seitenkanal-Paare VOR der Topologie-Leiter: vLLM laesst die TTS-/VLM-Karte aus
+            # (side_channel_uuids); ob Bildmodell und TTS-Engine zusammen darauf passen, entscheidet dieselbe Regel wie
+            # bei den llama.cpp-Kombis (side_channel_pair_fits).
+            async for _ in self._judge_side_channel_pairs():
+                yield
+
+            # Basiszelle wie bei llama.cpp: nicht angehakt heisst, den
+            # vorhandenen Betriebspunkt behalten und nur die angehakten
+            # Seitenkanal-Paare zu beurteilen (das ist oben schon passiert).
+            if not self.cells.get("|", False):
+                self._report(
+                    "⏭️ Skipping base — keeping the persisted operating point"
+                )
+                yield
+                return
+
+            # Ist ausser der Basiszelle nichts angehakt, wird waehrend der
+            # Messung kein Seitenkanal gebraucht — dann darf die TTS-/VLM-Karte
+            # mitrechnen.
+            _sc_gewuenscht = any(
+                gewaehlt for schluessel, gewaehlt in self.cells.items()
+                if schluessel != "|"
+            )
+
+            def _run():
+                return calibrate_vllm_checkpoint(
+                    checkpoint=checkpoint,
+                    entry_name=entry_name,
+                    log_dir=log_dir,
+                    progress=progress_q.put,
+                    cancel_check=_cancelled,
+                    reserve_side_channel=_sc_gewuenscht,
+                    resweep=self.vllm_resweep,
+                    dry_run=self.vllm_dry_run,
+                )
+
+            task = asyncio.create_task(asyncio.to_thread(_run))
+            try:
+                while not task.done():
+                    while not progress_q.empty():
+                        self._report(progress_q.get_nowait())
+                    yield
+                    await asyncio.sleep(1.0)
                 while not progress_q.empty():
                     self._report(progress_q.get_nowait())
-                yield
-                await asyncio.sleep(1.0)
-            while not progress_q.empty():
-                self._report(progress_q.get_nowait())
-            result = task.result()
-            # Abschluss-Optik wie beim llamacpp-Lauf (Doppelstrich +
-            # Zusammenfassung + Trennstrich), Zahlen via format_number-SSOT.
-            from ..formatting import format_number
-            from ..logging_utils import CONSOLE_SEPARATOR
-            sweep = ", ".join(
-                f"k={k}: {format_number(v, 1)}"
-                for k, v in sorted(result.k_sweep.items())
-            )
-            self._report("═" * 20)
-            self._report(
-                f"✅ vLLM calibration complete for {entry_name}:"
-            )
-            self._report(
-                f"   {format_number(result.throughput_tok_s, 1)} tok/s "
-                f"(TP{result.spec.tp}×PP{result.spec.pp}, k={result.spec.k}, "
-                f"ctx {format_number(result.spec.mml)})"
-            )
-            self._report(f"   k-sweep: {sweep}")
-            if result.speed_label:
-                self._report(
-                    f"   Speed candidate: {result.speed_label} k={result.speed_k}, "
-                    f"{format_number(result.speed_tps, 1)} tok/s "
-                    f"(ctx {format_number(result.speed_mml)}, info only)"
+                result = task.result()
+                # Abschluss-Optik wie beim llamacpp-Lauf (Doppelstrich +
+                # Zusammenfassung + Trennstrich), Zahlen via format_number-SSOT.
+                from ..formatting import format_number
+                from ..logging_utils import CONSOLE_SEPARATOR
+                sweep = ", ".join(
+                    f"k={k}: {format_number(v, 1)}"
+                    for k, v in sorted(result.k_sweep.items())
                 )
-            self._report(
-                f"   Profile: {result.profile_path}" if result.profile_path
-                else "   Profile: not persisted (dry run)"
-            )
-            self._report(CONSOLE_SEPARATOR)
-        except Exception as e:  # noqa: BLE001 — Background-Lauf: Fehler
-            # muessen als Meldung ankommen, nicht still verschwinden
-            self._report(f"❌ vLLM calibration failed: {type(e).__name__}: {e}")
-        finally:
-            if not task.done():
-                stop_event.set()
-                try:
-                    await asyncio.wait_for(asyncio.shield(task), timeout=90)
-                except Exception:  # noqa: BLE001 — inkl. Timeout/Thread-Fehler
+                self._report("═" * 20)
+                self._report(
+                    f"✅ vLLM calibration complete for {entry_name}:"
+                )
+                self._report(
+                    f"   {format_number(result.throughput_tok_s, 1)} tok/s "
+                    f"(TP{result.spec.tp}×PP{result.spec.pp}, k={result.spec.k}, "
+                    f"ctx {format_number(result.spec.mml)})"
+                )
+                self._report(f"   k-sweep: {sweep}")
+                if result.speed_label:
                     self._report(
-                        "⚠️ vLLM calibration thread still winding down — "
-                        "a probe server may linger briefly"
+                        f"   Speed candidate: {result.speed_label} k={result.speed_k}, "
+                        f"{format_number(result.speed_tps, 1)} tok/s "
+                        f"(ctx {format_number(result.speed_mml)}, info only)"
                     )
-            while not progress_q.empty():
-                self._report(progress_q.get_nowait())
+                self._report(
+                    f"   Profile: {result.profile_path}" if result.profile_path
+                    else "   Profile: not persisted (dry run)"
+                )
+                self._report(CONSOLE_SEPARATOR)
+            except Exception as e:  # noqa: BLE001 — Background-Lauf: Fehler
+                # muessen als Meldung ankommen, nicht still verschwinden
+                self._report(f"❌ vLLM calibration failed: {type(e).__name__}: {e}")
+            finally:
+                if not task.done():
+                    stop_event.set()
+                    try:
+                        await asyncio.wait_for(asyncio.shield(task), timeout=90)
+                    except Exception:  # noqa: BLE001 — inkl. Timeout/Thread-Fehler
+                        self._report(
+                            "⚠️ vLLM calibration thread still winding down — "
+                            "a probe server may linger briefly"
+                        )
+                while not progress_q.empty():
+                    self._report(progress_q.get_nowait())
+        finally:
+            # Every way out (pairs only, a failure, a cancel) starts llama-swap again: before, a run with the
+            # base unticked returned early and left it stopped.
             if llama_swap_stopped:
                 try:
                     if start_llama_swap():
                         self._report(
                             "🔄 llama-swap restarted (loads the freshly "
                             "persisted operating point)"
-                            if not self.vllm_dry_run
-                            else "🔄 llama-swap restarted (dry run: operating "
-                                 "point unchanged)"
+                            if self.cells.get("|", False) and not self.vllm_dry_run
+                            else "🔄 llama-swap restarted (operating point unchanged)"
                         )
                 except OSError as start_err:  # systemctl could not be started
                     self._report(
                         f"⚠️ llama-swap restart failed: {start_err} — "
                         f"run llama-swap-restart manually"
                     )
+
+    async def _judge_side_channel_pairs(self) -> AsyncGenerator[None, None]:
+        """Each ticked pair of the vLLM matrix (every cell but the base): the describer's reserve (stress burn-in,
+        ``vlm_vram_cache``; the burn-in starts the describer itself, llama-swap is stopped) and the TTS engine's need
+        (TTS service) against the side-channel card(s), stored for the matrix (``sidechannel_vram_cache``)."""
+        from .. import sidechannel_vram_cache
+        from ..config import VLM_NUM_CTX
+        from ..nvidia_smi import query
+        from ..process_utils import get_tts_gpu_uuid
+        from ..tts_client import TTSSuiteUnreachable
+        from ..tts_service import gpu_engine_needs, unreachable_text
+        from ..vision_routing import vlm_calibration_choices
+        from ..vlm_stress_prewarm import resolve_vlm_reserve
+
+        pairs = [key for key, ticked in self.cells.items() if ticked and key != "|"]
+        if not pairs:
+            return
+        describers = {choice["key"]: choice for choice in vlm_calibration_choices()}
+        try:
+            tts_needs = gpu_engine_needs()
+        except TTSSuiteUnreachable as unreachable:
+            self._report(f"⚠️ {unreachable_text(unreachable)} — pairs with a TTS engine stay unjudged")
+            tts_needs = {}
+        tts_uuid = get_tts_gpu_uuid()
+        cards = {row["uuid"]: (int(row["index"]), int(row["memory.total"])) for row in query("index,uuid,memory.total") or []}
+        for key in pairs:
+            vlm_key, tts_key = key.split("|", 1)
+            self._report(f"🔥 Side-channel pair {key}: describer reserve + TTS need on the side-channel card...")
+            yield
+            if tts_key and (tts_key not in tts_needs or not tts_uuid):
+                self._report(f"   ⚠️ {tts_key}: no budget or card from the TTS service — pair {key} left unjudged")
+                continue
+            vlm_uuid, vlm_mb = None, 0
+            if vlm_key:
+                choice = describers.get(vlm_key)
+                if choice is None:
+                    self._report(f"   ⚠️ {vlm_key}: no -visiond profile any more — pair {key} left unjudged")
+                    continue
+                try:
+                    vlm_uuid, vlm_mb = await resolve_vlm_reserve(VLM_NUM_CTX, model_id_override=choice["model_id"])
+                except Exception as error:  # noqa: BLE001 — one pair must not stop the others; shown and logged
+                    log_exception("Calibration: side-channel pair reserve", error)
+                    self._report(f"   ⚠️ {choice['label']}: reserve not measurable: {error}")
+                    continue
+                if not vlm_uuid or vlm_mb <= 0:
+                    self._report(f"   ⚠️ {choice['label']}: reserve not measurable — pair {key} left unjudged")
+                    continue
+            on_card: dict[str, int] = {}
+            if vlm_uuid:
+                on_card[vlm_uuid] = on_card.get(vlm_uuid, 0) + vlm_mb
+            if tts_key:
+                on_card[tts_uuid] = on_card.get(tts_uuid, 0) + tts_needs[tts_key]
+            unknown = [uuid for uuid in on_card if uuid not in cards]
+            if unknown:
+                self._report(f"   ⚠️ card {unknown[0]} not found by nvidia-smi — pair {key} left unjudged")
+                continue
+            fullest = max(on_card, key=lambda uuid: on_card[uuid] / cards[uuid][1])
+            index, total = cards[fullest]
+            verdict = side_channel_pair_fits(on_card[fullest], total)
+            sidechannel_vram_cache.put(vlm_key, tts_key, on_card[fullest], index, total, verdict)
+            parts = " + ".join(part for part in (
+                f"VLM {vlm_mb}" if vlm_key else "", f"TTS {tts_needs[tts_key]}" if tts_key else "") if part)
+            self._report(f"   {'✅ fits' if verdict else '❌ does NOT fit'}: {parts} = {on_card[fullest]} of "
+                         f"{total} MiB on GPU{index}")
 
     async def _calibrate_context_impl(self):
         """Dispatch by backend. The ``yield`` points are where the caller drains lines and checks for a cancel."""
@@ -2204,7 +2256,7 @@ class CalibrationRun:
                             if _side_gpu is not None:
                                 _side_total = _side_gpu.total_mb
                                 _side_needed = tts_reserve_c + _vmb
-                                if _side_needed > _side_total:
+                                if not side_channel_pair_fits(_side_needed, _side_total):
                                     self._report(
                                         f"   ❌ {tts_label_c} × {vlm_label_c} "
                                         f"combo: needs {_side_needed} MB on "

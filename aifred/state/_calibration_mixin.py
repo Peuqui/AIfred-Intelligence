@@ -184,8 +184,8 @@ class CalibrationMixin(rx.State, mixin=True):
     @rx.var(cache=True, auto_deps=False,
             deps=["calibration_matrix", "backend_id", "ui_language", "agent_tuning"])
     def vllm_burnin_matrix_rows(self) -> list[CalibrationRow]:
-        """The VLM x TTS matrix of vLLM: a cell is a burn-in pair on the side-channel card, the base cell
-        the operating point (``lib/calibration/matrix.py``). Auto-deps are off: Reflex cannot see the
+        """The VLM x TTS matrix of vLLM: a cell is a describer/TTS pair on the side-channel card, the base
+        cell the operating point (``lib/calibration/matrix.py``). Auto-deps are off: Reflex cannot see the
         files the lib reads."""
         if self.backend_id != "vllm":
             return []

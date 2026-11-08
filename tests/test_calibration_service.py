@@ -182,3 +182,109 @@ def test_the_api_starts_follows_and_refuses(client: TestClient, monkeypatch: pyt
     assert [line.split(" | ", 1)[1] for line in later["lines"]] == ["step 2"]
     monkeypatch.setattr(calibration_gate, "_active", True)
     assert client.post("/calibration/run", json={"cells": ["|"]}).status_code == 409
+
+
+# ── The pairs of the vLLM matrix ─────────────────────────────────────────
+
+SIDE, OTHER = "GPU-side", "GPU-other"
+
+
+@pytest.fixture
+def pairs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """A describer with a 7.000 MiB reserve, two engines (3.000 and 30.000 MiB), one without a budget; the side card
+    has 32.768 MiB. The pair cache is a file of its own."""
+    from aifred.lib import sidechannel_vram_cache
+    from aifred.lib.vram_peak_cache import JsonPeakCache
+
+    world: dict[str, Any] = {"vlm_uuid": SIDE, "reserve": 7000, "measured": []}
+    monkeypatch.setattr(sidechannel_vram_cache, "_store", JsonPeakCache(tmp_path / "pairs.json", "pairs"))
+    monkeypatch.setattr("aifred.lib.vision_routing.vlm_calibration_choices",
+                        lambda: [{"key": "eyes", "model_id": "Eyes-4B", "label": "Eyes-4B"}])
+    monkeypatch.setattr("aifred.lib.tts_service.gpu_engine_needs", lambda: {"small": 3000, "huge": 30000})
+    monkeypatch.setattr("aifred.lib.process_utils.get_tts_gpu_uuid", lambda: SIDE)
+    monkeypatch.setattr("aifred.lib.nvidia_smi.query", lambda fields: [
+        {"index": "4", "uuid": SIDE, "memory.total": "32768"}, {"index": "0", "uuid": OTHER, "memory.total": "49152"}])
+
+    async def reserve(num_ctx: int, model_id_override: str | None = None) -> tuple[str | None, int]:
+        world["measured"].append(model_id_override)
+        return world["vlm_uuid"], world["reserve"]
+
+    monkeypatch.setattr("aifred.lib.vlm_stress_prewarm.resolve_vlm_reserve", reserve)
+    return world
+
+
+def _judge(cells: list[str]) -> list[str]:
+    lines: list[str] = []
+    run = CalibrationRun(_request(cells=dict.fromkeys(cells, True)), report=lines.append)
+
+    async def go() -> None:
+        async for _ in run._judge_side_channel_pairs():
+            pass
+
+    asyncio.run(go())
+    return lines
+
+
+def test_a_pair_fits_when_both_reserves_fit_the_side_card(pairs: dict[str, Any]) -> None:
+    from aifred.lib import sidechannel_vram_cache
+
+    lines = _judge(["|", "eyes|small", "eyes|huge", "eyes|", "|huge"])
+    assert sidechannel_vram_cache.fits("eyes", "small") is True  # 7.000 + 3.000 of 32.768
+    assert sidechannel_vram_cache.fits("eyes", "huge") is False  # 7.000 + 30.000
+    assert sidechannel_vram_cache.fits("eyes", "") is True
+    assert sidechannel_vram_cache.fits("", "huge") is True  # the engine alone fits
+    assert sidechannel_vram_cache.fits("", "") is None  # the base cell is the operating point, no pair
+    assert any("does NOT fit: VLM 7000 + TTS 30000 = 37000 of 32768 MiB on GPU4" in line for line in lines)
+    assert pairs["measured"] == ["Eyes-4B", "Eyes-4B", "Eyes-4B"]
+
+
+def test_on_different_cards_each_reserve_needs_only_its_own(pairs: dict[str, Any]) -> None:
+    from aifred.lib import sidechannel_vram_cache
+
+    pairs["vlm_uuid"] = OTHER
+    _judge(["eyes|huge"])
+    assert sidechannel_vram_cache.fits("eyes", "huge") is True  # 30.000 on the side card, 7.000 on the other
+
+
+def test_a_pair_that_cannot_be_judged_stays_open_and_says_why(pairs: dict[str, Any]) -> None:
+    from aifred.lib import sidechannel_vram_cache
+
+    pairs["reserve"] = 0
+    lines = _judge(["eyes|small", "|nobudget", "gone|small"])
+    assert sidechannel_vram_cache.fits("eyes", "small") is None
+    assert sidechannel_vram_cache.fits("", "nobudget") is None
+    assert sidechannel_vram_cache.fits("gone", "small") is None
+    assert sum("left unjudged" in line for line in lines) == 3
+
+
+def test_a_vllm_run_with_pairs_only_starts_llama_swap_again(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With the base unticked the run returns after the pairs; it left llama-swap stopped before."""
+    (tmp_path / "ckpt").mkdir()
+    (tmp_path / "llama-swap.yaml").write_text(
+        f"models:\n  {MODEL}-vllm:\n    cmd: vllm serve --model {tmp_path / 'ckpt'} --max-model-len 4096\n")
+    calls: list[str] = []
+    def systemctl(action: str) -> Any:
+        def run() -> bool:
+            calls.append(action)
+            return True
+        return run
+
+    monkeypatch.setattr("aifred.lib.process_utils.stop_llama_swap", systemctl("stop"))
+    monkeypatch.setattr("aifred.lib.process_utils.start_llama_swap", systemctl("start"))
+    monkeypatch.setattr(service, "_free_cards_for_calibration", lambda report: None)
+
+    async def no_pairs(self: CalibrationRun) -> AsyncGenerator[None, None]:
+        calls.append("pairs")
+        yield
+
+    monkeypatch.setattr(CalibrationRun, "_judge_side_channel_pairs", no_pairs)
+    lines: list[str] = []
+    run = CalibrationRun(_request(backend_type="vllm", model_id=f"{MODEL}-vllm", cells={"eyes|xtts": True}), report=lines.append)
+
+    async def go() -> None:
+        async for _ in run.steps():
+            pass
+
+    asyncio.run(go())
+    assert calls == ["stop", "pairs", "start"]
+    assert "🔄 llama-swap restarted (operating point unchanged)" in lines

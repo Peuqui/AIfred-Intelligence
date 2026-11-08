@@ -284,9 +284,8 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Reflex-Matrix kam nie zum Zug; Rendering vorher/nachher verglichen, nur dieser Zweig fehlt). Der Cloud-Anbieter hat
   einen Standard in `DEFAULT_SETTINGS` (`DEFAULT_CLOUD_API_PROVIDER`), vorher nur als Feld-Default im State.
   Abweichung: Den Hinweis „vLLM braucht Compute 7.0+“ zeigt Vue, wenn vLLM wirklich nicht geht; Reflex zeigte ihn,
-  sobald die schwächste Karte unter 7.0 lag, auch wenn eine andere vLLM konnte. Bekannt und für Paket 3 vorgemerkt:
-  Der Side-Channel-Burn-in speichert unter der Modell-ID des VLM, die Matrix liest unter dem Kurz-Schlüssel der
-  Kalibrier-Wahl, die VLM-Zeilen der vLLM-Matrix bleiben so leer (der Lauf ignoriert ohnehin die angehakten Zellen).
+  sobald die schwächste Karte unter 7.0 lag, auch wenn eine andere vLLM konnte. Der hier gefundene Fehler der
+  vLLM-Matrix (Paare blieben leer) ist mit Paket 3 behoben, siehe dort.
   Geprüft gegen die Testinstanz (llama.cpp: Basis grün, 32.768 Token, Vision 262.144) und lesend mit dem
   Produktionsmodell unter vLLM.
 - **Einstellungen, Teil 2, Paket 2: Wechsel und Neustarts (erledigt 08.11.2026):** In `BackendSettings.vue` wählt
@@ -349,6 +348,19 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   geschrieben. Ungeprüft bleiben die Varianten-Wege mit eigenen Prüfstarts (Sprachmodell teilt die Karte mit TTS oder
   Bildmodell) und der Burn-in eines Bildmodells ohne Cache-Wert: Dafür bräuchte es ein GGUF, das über die
   Side-Channel-Karte reicht, und auf dem Mini liegen nur das 4B und das 30B (beide passen auf eine Karte).
+  **Paare der vLLM-Matrix neu (Peuqui 08.11.2026: Regel wie bei llama.cpp):** Die gemeinsame Messung
+  (`sidechannel_burnin.py`, entfernt) hat nie funktioniert: Sie lud das Bildmodell nicht (`prewarm_vlm` ist im Modus
+  „bei Bedarf“ ein No-op, und llama-swap war gestoppt), maß die gerade laufende TTS-Engine statt der angehakten Paare,
+  speicherte unter der Modell-ID statt unter dem Schlüssel der Matrix und hätte ein „passt nicht“ mit `_sc["fits"]`
+  auf einer Dataclass gar nicht auswerten können. Jetzt beurteilt `_judge_side_channel_pairs` jedes angehakte Paar mit
+  der Regel der llama.cpp-Kombis (`side_channel_pair_fits`): Reserve des Bildmodells (gemessene Spitze aus dem
+  Stress-Burn-in plus `VLM_HEADROOM_MIB`; fehlt sie, misst der Burn-in, der das Bildmodell selbst startet) plus
+  `needed_mib` der TTS-Engine gegen die Karte(n); ein Paar, das sich nicht beurteilen lässt, bleibt offen und sagt
+  warum. Eine gemeinsame Messung unter Last ginge nur, wenn man der TTS-Suite die Karte vorgeben könnte. Dabei
+  behoben: Ein vLLM-Lauf nur mit Paaren kehrte vor dem Neustart zurück und ließ llama-swap gestoppt; jetzt startet
+  jeder Ausgang llama-swap wieder. Live: 4B allein 7.896, mit Qwen3-TTS 14.432, mit XTTS 11.008, Qwen3-TTS allein
+  6.536 MiB von 32.768 auf Karte 4, das 30B-Bildmodell auf der V100 nicht messbar (offen); llama-swap kam nach dem
+  Lauf von selbst wieder.
 - **Server-Start in lib (Vorarbeit für Schritt 6, 08.11.2026):** `lib/server_startup.py` hält, was AIfred einmal je
   Prozess startet (`start_process_tasks`: Debug-Log, Plattform, die Aufräum-Tasks, Audio-Index, Vision-Prewarm im
   Live-Modus, GPU-Erkennung, Ollama leeren), und die Lifespans `session_events_lifespan`, `message_hub_lifespan` (Hub,
