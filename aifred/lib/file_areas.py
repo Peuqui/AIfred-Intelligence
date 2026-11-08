@@ -7,8 +7,9 @@ the requester gets an entry here.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from .file_ops import DocumentOps, FolderOps
 from .user_error import Missing, Refused
 
 # The actions of the requester, named as VueFinder names its features (newfolder, upload …); "symlink" is AIfred's.
@@ -19,6 +20,10 @@ ACTIONS = frozenset({"newfolder", "rename", "delete", "upload", "download", "pre
 class FileArea:
     root: Callable[[], str]     # read on every call: a setting may move it
     actions: frozenset[str]
+    ops: type[FolderOps] = field(default=FolderOps)   # what the actions do there (DocumentOps: the index follows)
+
+    def work(self) -> FolderOps:
+        return self.ops(self.root())
 
     def require(self, action: str) -> None:
         if action not in self.actions:
@@ -29,6 +34,12 @@ def _voices_root() -> str:
     from .tts_client import get_tts_client
 
     return str(get_tts_client().voices_dir())
+
+
+def _documents_root() -> str:
+    from .config import DOCUMENTS_DIR
+
+    return str(DOCUMENTS_DIR)
 
 
 def _audio_root() -> str:
@@ -44,6 +55,9 @@ AREAS: dict[str, FileArea] = {
     # The TTS-Suite's voices folder (its /config): a folder per voice with its samples and transcript. No links: the
     # suite reads the folder from inside its container, a link to a path of this machine would not resolve there.
     "voices": FileArea(_voices_root, ACTIONS - {"symlink"}),
+    # The documents folder of the search (data/documents/): every change through file_manager, so the index follows;
+    # no links (an indexed path through a link would lead elsewhere than the file the index names).
+    "documents": FileArea(_documents_root, ACTIONS - {"symlink"}, DocumentOps),
 }
 
 

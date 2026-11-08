@@ -512,7 +512,8 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
       keine Links), „Diesen Ordner übernehmen“ für die Auswahl. Erster Bereich: die Audio-Sandbox, der Audio-Dialog wählt
       seine Quellen darüber (`/audio/sources/folders` ist weg). Weitere Bereiche: `voices` (Stimmenordner der TTS-Suite, „📁 Stimmen-Ordner“ auf der
       Audio-Seite, ohne Symlinks) und `sandbox-<sitzung>` (die Ergebnisse eines Chats, „📂“ in der Kopfleiste, nur für
-      den Besitzer der Sitzung, ansehen, herunterladen, umbenennen, löschen). VueFinder lädt erst, wenn ein Requester aufgeht (eigene
+      den Besitzer der Sitzung, ansehen, herunterladen, umbenennen, löschen). Und `documents`: „📁 Explorer“ auf der Dokumente-Seite (die Tabelle bleibt für den Index); jede Änderung
+      geht über `file_manager` (`lib/file_ops.DocumentOps`), damit der Suchindex mitzieht, ein Upload wird indexiert. VueFinder lädt erst, wenn ein Requester aufgeht (eigene
       Chunks, `includeDependenciesRecursively: false`, sonst zog die Gruppe Vue mit). Im Browser geprüft.)
   Dazu (erledigt 08.11.): Der Zug gab dem Toolkit den Gesprächsverlauf nicht mit (`b6e15474`, der Reflex-Chat gab
   ihn über den State, der Hub nie). Gerankt wurde aber auch vorher fast nie: Bei genau einer Suchanfrage verlor die

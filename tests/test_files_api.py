@@ -154,3 +154,57 @@ def test_a_sessions_sandbox_outputs_open_only_for_its_owner(client: TestClient, 
     upload = client.post(f"/files/sandbox-{mine}/upload", data={"path": f"sandbox-{mine}://"}, files={"file": ("x.txt", b"x")})
     assert upload.status_code == 403                                            # only the sandbox makes outputs
     session_storage._session_meta_cache.clear()
+
+
+def test_the_documents_area_changes_through_the_file_manager_so_the_index_follows(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aifred.lib import config, document_indexing, file_manager
+    from aifred.lib.file_manager import FileOpResult
+
+    documents = tmp_path / "documents"
+    (documents / "Akten").mkdir(parents=True)
+    (documents / "Akten" / "brief.pdf").write_bytes(b"%PDF")
+    monkeypatch.setattr(config, "DOCUMENTS_DIR", documents)
+    calls: list[tuple] = []
+
+    done = FileOpResult(True, "ok")
+
+    def record(name: str, result: FileOpResult = done):
+        async def asynchronous(*args, **kwargs):
+            calls.append((name, args))
+            return result
+
+        def synchronous(*args, **kwargs):
+            calls.append((name, args))
+            return result
+        return asynchronous if name.startswith("delete") else synchronous
+
+    for name in ("rename", "move_file", "copy_file", "create_folder", "delete_file", "delete_folder"):
+        monkeypatch.setattr(file_manager, name, record(name))
+    monkeypatch.setattr(file_manager, "save_upload", record("save_upload", FileOpResult(True, "ok", {"rel_path": "Akten/neu.pdf"})))
+    monkeypatch.setattr(document_indexing, "queue_files", lambda items: calls.append(("queue_files", tuple(items))))
+    monkeypatch.setattr(document_indexing, "local_item", lambda path: path)
+
+    assert _names(client.get("/files/documents", params={"path": "documents://Akten"}).json()) == ["brief.pdf"]
+    client.post("/files/documents/rename", json={"path": "documents://Akten", "item": "documents://Akten/brief.pdf", "name": "antwort.pdf"})
+    client.post("/files/documents/delete", json={"path": "documents://", "items": [{"path": "documents://Akten", "type": "dir"}]})
+    client.post("/files/documents/upload", data={"path": "documents://Akten"}, files={"file": ("neu.pdf", b"%PDF")})
+    assert [call[0] for call in calls] == ["rename", "delete_folder", "save_upload", "queue_files"]
+    assert calls[0][1] == ("Akten", "brief.pdf", "antwort.pdf") and calls[1][1] == ("", "Akten")
+    assert calls[3][1] == ("Akten/neu.pdf",)
+    assert "symlink" not in client.get("/files/documents/info").json()["actions"]
+
+
+def test_a_refusal_of_the_file_manager_reaches_the_requester_in_words(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aifred.lib import config, file_manager
+    from aifred.lib.file_manager import FileOpResult
+    from aifred.lib.user_error import Invalid
+
+    monkeypatch.setattr(config, "DOCUMENTS_DIR", tmp_path)
+    refusal = Invalid("type_not_allowed", name="x.exe", type=".exe", allowed=".pdf")
+    monkeypatch.setattr(file_manager, "save_upload", lambda *_args: FileOpResult(False, str(refusal), {}, refusal))
+    answer = client.post("/files/documents/upload", data={"path": "documents://"}, files={"file": ("x.exe", b"MZ")})
+    assert answer.status_code == 422 and "x.exe" in answer.json()["detail"]

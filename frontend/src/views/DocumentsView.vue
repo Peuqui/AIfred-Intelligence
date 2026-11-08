@@ -4,7 +4,7 @@
 // upload (button or dropped files; the server indexes them) and index files, a selection or the whole
 // folder (a job of the server, its progress shown here). A further source the enabled plugins offer
 // (Nextcloud …) opens in SourceBrowser; the progress of an indexing run is shared by both.
-import { computed, onMounted, ref } from "vue";
+import { computed, defineAsyncComponent, onMounted, ref } from "vue";
 import type { DocumentPreview, DocumentRow } from "../api/types";
 import IndexCare from "../components/IndexCare.vue";
 import ModalDialog from "../components/ModalDialog.vue";
@@ -20,6 +20,15 @@ onMounted(async () => {
 });
 const local = computed(() => docs.source === LOCAL);
 const caring = ref(false);
+
+// The documents folder in the file requester (move, copy, rename, upload …; the index follows through the server's
+// file manager). The table here stays for the index; it reads the folder again once the requester closes.
+const FileRequester = defineAsyncComponent(() => import("../components/FileRequester.vue"));
+const exploring = ref(false);
+async function closeExplorer(): Promise<void> {
+  exploring.value = false;
+  await docs.open(folder.value);
+}
 
 const folder = computed(() => docs.listing?.folder ?? "");
 // The folder as a trail of its parts, each a place to go back to.
@@ -134,8 +143,10 @@ const runOutcome = computed(() => {
     @dragleave.self="dragging = false"
     @drop.prevent="dropped"
   >
+    <FileRequester v-if="exploring" area="documents" :title="t('doc_explorer_title')" @close="closeExplorer" />
     <header class="bar">
       <h2>{{ t("doc_manager_title") }}</h2>
+      <button v-if="local" :title="t('doc_explorer_tooltip')" @click="exploring = true">📁 {{ t("doc_explorer") }}</button>
       <select
         v-if="docs.sources.length > 1"
         class="sources"
