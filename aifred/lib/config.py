@@ -1505,6 +1505,11 @@ MEDIA_DIR = DATA_DIR / "media"
 # the thread again); while it plays, its position is saved this often (resumed there next time).
 AUDIO_RESUME_PRE_ROLL_SEC = 3
 AUDIO_POSITION_SAVE_SEC = 30
+# The folder a new audio source may come from (the audio player's picker.root overrides it): a source is a symlink
+# under data/media/audio/ to a folder inside it, never outside (/api/audio/file serves what the sources hold).
+AUDIO_PICKER_ROOT_DEFAULT = "/mnt"
+# The audio player's list for the spoken reply: from this many entries on it is cut (tts_list.full_max_items overrides).
+AUDIO_TTS_LIST_MAX_DEFAULT = 5
 MEDIA_AUDIO_DIR = MEDIA_DIR / "audio"
 MEDIA_VIDEO_DIR = MEDIA_DIR / "video"
 MEDIA_AUDIO_DIR.mkdir(parents=True, exist_ok=True)

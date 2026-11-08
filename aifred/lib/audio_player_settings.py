@@ -41,6 +41,13 @@ def load_audio_player_settings() -> dict[str, Any]:
         return {}
 
 
+def save_audio_player_settings(settings: dict[str, Any]) -> None:
+    """Die einzige Schreibstelle der settings.json (OSError, wenn sie nicht geschrieben werden kann)."""
+    temporary = AUDIO_PLAYER_SETTINGS_PATH.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(AUDIO_PLAYER_SETTINGS_PATH)
+
+
 def build_configured_source_map() -> dict[str, Any]:
     """Source-Map-SSOT: auto-discovered lokale Ordner + settings-Streams.
 

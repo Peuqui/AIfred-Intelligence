@@ -51,6 +51,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
         agent_editor_mode: rx.Field[str]
+        ui_language: rx.Field[str]
 
         def _picker_open_for(
             self,
@@ -198,45 +199,14 @@ class AudioPlayerMixin(rx.State, mixin=True):
     # ── Audio Settings Modal ─────────────────────────────────────────
 
     def _refresh_audio_sources_view(self) -> None:
-        """Snapshot of all sources + per-source index stats for the UI."""
-        import json as _json
-        from pathlib import Path as _Path
+        """Snapshot of all sources + per-source index stats for the UI (``lib.audio_library.sources``)."""
+        from dataclasses import asdict
 
-        from ..lib.audio_index import audio_index
-        from ..lib.audio_sources import build_source_map
-        from ..lib.config import MEDIA_AUDIO_DIR
+        from ..lib.audio_library import sources
 
-        # Read http_stream entries from settings.json
-        settings_path = (
-            _Path(__file__).parent.parent / "plugins" / "tools"
-            / "audio_player" / "settings.json"
-        )
-        streams: dict[str, dict[str, str]] = {}
-        if settings_path.exists():
-            try:
-                with open(settings_path, encoding="utf-8") as f:
-                    cfg = _json.load(f)
-                streams = {
-                    label: src for label, src in cfg.get("sources", {}).items()
-                    if src.get("type") == "http_stream"
-                }
-            except (OSError, _json.JSONDecodeError):
-                pass
-
-        sources = build_source_map(MEDIA_AUDIO_DIR, streams)
-        stats = audio_index.stats()
-        view: list[dict[str, Any]] = []
-        for label, cfg in sources.items():
-            view.append({
-                "label": label,
-                "type": cfg.get("type", "?"),
-                "target": cfg.get("path") or cfg.get("url", ""),
-                "is_symlink": bool(cfg.get("is_symlink", False)),
-                "indexed": int(stats["per_source"].get(label, 0)),
-                "is_stream": cfg.get("type") == "http_stream",
-            })
-        view.sort(key=lambda v: v["label"].lower())
-        self.audio_sources_view = view
+        self.audio_sources_view = [
+            {**asdict(source), "is_stream": source.type == "http_stream"} for source in sources()
+        ]
 
     audio_settings_help_open: rx.Field[bool] = rx.field(False)
 
@@ -258,29 +228,12 @@ class AudioPlayerMixin(rx.State, mixin=True):
         self.audio_settings_status = ""
         self.audio_settings_busy = ""
         self.audio_settings_busy_source = ""
-        # Pre-fill the picker-root input with the current settings value
-        self.audio_picker_root_input = self._audio_picker_root()
-        cfg = self._read_audio_settings_json()
-        self.audio_tts_list_max_input = str(
-            cfg.get("tts_list", {}).get("full_max_items", 5)
-        )
+        # Pre-fill the inputs with the current settings (lib.audio_library)
+        from ..lib.audio_library import picker_root, tts_list_max
+
+        self.audio_picker_root_input = picker_root()
+        self.audio_tts_list_max_input = str(tts_list_max())
         self.audio_settings_open = True
-
-    def _read_audio_settings_json(self) -> dict[str, Any]:
-        # Lese-SSOT in der lib (geteilt mit Plugin, TTS-Filter, FreeEcho2)
-        from ..lib.audio_player_settings import load_audio_player_settings
-        return load_audio_player_settings()
-
-    def _write_audio_settings_json(self, cfg: dict[str, Any]) -> bool:
-        import json as _json
-
-        from ..lib.audio_player_settings import AUDIO_PLAYER_SETTINGS_PATH
-        try:
-            with open(AUDIO_PLAYER_SETTINGS_PATH, "w", encoding="utf-8") as f:
-                _json.dump(cfg, f, ensure_ascii=False, indent=2)
-            return True
-        except OSError:
-            return False
 
     @rx.event
     def toggle_audio_settings_help(self) -> None:
@@ -306,98 +259,51 @@ class AudioPlayerMixin(rx.State, mixin=True):
 
     @rx.event(background=True)
     async def audio_index_rebuild_source(self, source: str, force: bool = False):
-        """Trigger an index rebuild for one source (background, non-blocking)."""
-        import asyncio as _asyncio
-
-        from ..lib.audio_index import audio_index
-        from ..lib.audio_sources import build_source_map
-        from ..lib.config import MEDIA_AUDIO_DIR
+        """Read a source's files anew (``lib.audio_library.start_indexing``, one at a time for every interface)."""
+        from ..lib.audio_library import IndexingRunning, indexing, start_indexing
 
         async with self:
+            try:
+                run = start_indexing(source, force)
+            except (IndexingRunning, KeyError) as error:  # another one runs, or no such source
+                self.audio_settings_status = f"⚠️ {error}"
+                return
             self.audio_settings_busy = "indexing"
             self.audio_settings_busy_source = source
-            self.audio_settings_status = (
-                f"⏳ Indexiere {source}{' (force)' if force else ''}…"
-            )
-
-        sources = build_source_map(MEDIA_AUDIO_DIR, {})
-        cfg = sources.get(source)
-        if cfg is None or cfg.get("type") != "local_folder":
-            async with self:
-                self.audio_settings_busy = ""
-                self.audio_settings_busy_source = ""
-                self.audio_settings_status = f"⚠️ Source '{source}' nicht gefunden"
-            return
-
-        loop = _asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None,
-            lambda: audio_index.scan_source(source, cfg["path"], force=force),
-        )
+            self.audio_settings_status = indexing().message(self.ui_language)
+        await run
         async with self:
             self.audio_settings_busy = ""
             self.audio_settings_busy_source = ""
-            self.audio_settings_status = (
-                f"✅ {source}: scan={result.scanned} +{result.inserted} "
-                f"~{result.updated} -{result.deleted} in {result.elapsed_sec:.1f}s"
-            )
+            self.audio_settings_status = indexing().message(self.ui_language)
             self._refresh_audio_sources_view()
 
     @rx.event
     def audio_index_clear_source(self, source: str) -> None:
-        from ..lib.audio_index import audio_index
-        removed = audio_index.remove_source(source)
-        self.audio_settings_status = f"🗑️ {source}: {removed} Index-Eintraege geloescht"
+        from ..lib.audio_library import clear_index
+        from ..lib.i18n import t
+
+        try:
+            removed = clear_index(source)
+        except KeyError:  # no such source (a stale page)
+            self.audio_settings_status = f"⚠️ '{source}'?"
+            return
+        self.audio_settings_status = t("audio_source_cleared", lang=self.ui_language, source=source, count=removed)
         self._refresh_audio_sources_view()
 
     @rx.event
     def audio_remove_source(self, source: str) -> None:
-        """Delete a source = remove its symlink/folder under data/media/audio/.
-        Plus clear the index entries.
-        """
-        from ..lib.audio_index import audio_index
-        from ..lib.audio_sources import remove_local_source
-        from ..lib.config import MEDIA_AUDIO_DIR
+        """Take a known source out (``lib.audio_library.remove_source``) with its index."""
+        from ..lib.audio_library import remove_source
+        from ..lib.i18n import t
 
         try:
-            remove_local_source(MEDIA_AUDIO_DIR, source)
-        except FileNotFoundError:
-            self.audio_settings_status = f"⚠️ '{source}' nicht gefunden"
+            removed = remove_source(source)
+        except (KeyError, ValueError, OSError) as exc:  # unknown label, or the folder could not be removed
+            self.audio_settings_status = f"⚠️ '{source}': {exc}"
             return
-        except (ValueError, OSError) as exc:
-            self.audio_settings_status = f"⚠️ Konnte '{source}' nicht entfernen: {exc}"
-            return
-        removed = audio_index.remove_source(source)
-        self.audio_settings_status = (
-            f"🗑️ {source} entfernt + {removed} Index-Eintraege geloescht"
-        )
+        self.audio_settings_status = t("audio_source_removed", lang=self.ui_language, source=source, count=removed)
         self._refresh_audio_sources_view()
-
-    # Default sandbox root for the source-picker. User-configurable via
-    # the plugin settings.json (key: picker.root) — restricts the picker
-    # to a subtree the admin trusts (typically /mnt). Without sandboxing
-    # the user could symlink arbitrary system paths into data/media/
-    # audio/ and expose them via /api/audio/file.
-    _AUDIO_SOURCE_PICKER_ROOT_DEFAULT = "/mnt"
-
-    def _audio_picker_root(self) -> str:
-        """Resolve the picker sandbox root from settings.json (or default)."""
-        import json as _json
-        from pathlib import Path as _Path
-        path = (
-            _Path(__file__).parent.parent / "plugins" / "tools"
-            / "audio_player" / "settings.json"
-        )
-        if path.exists():
-            try:
-                with open(path, encoding="utf-8") as f:
-                    cfg = _json.load(f)
-                root = cfg.get("picker", {}).get("root", "")
-                if isinstance(root, str) and root.strip():
-                    return root.strip()
-            except (OSError, _json.JSONDecodeError):
-                pass
-        return self._AUDIO_SOURCE_PICKER_ROOT_DEFAULT
 
     @rx.event
     def open_audio_source_picker(self) -> None:
@@ -409,9 +315,11 @@ class AudioPlayerMixin(rx.State, mixin=True):
         specific subfolders) — but symlinks must keep their targets
         inside the sandbox, otherwise it's an escape vector.
         """
+        from ..lib.audio_library import picker_root
+
         self._picker_open_for(
             title="Neue Audio-Source hinzufügen",
-            root=self._audio_picker_root(),
+            root=picker_root(),
             start_at="",
             mode="pick_folder",
             caps={
@@ -436,112 +344,36 @@ class AudioPlayerMixin(rx.State, mixin=True):
 
     @rx.event
     def audio_save_tts_list_max(self) -> None:
-        """Persist tts_list.full_max_items (TTS list filter threshold)."""
-        try:
-            tts_max = int(self.audio_tts_list_max_input.strip())
-        except ValueError:
-            self.audio_settings_status = "⚠️ Threshold muss eine Zahl sein"
-            return
-        if tts_max < 1:
-            self.audio_settings_status = "⚠️ Threshold muss ≥ 1 sein"
-            return
-        cfg = self._read_audio_settings_json()
-        cfg.setdefault("tts_list", {})["full_max_items"] = tts_max
-        if not self._write_audio_settings_json(cfg):
-            self.audio_settings_status = "⚠️ Konnte settings.json nicht schreiben"
-            return
-        self.audio_settings_status = (
-            f"✅ TTS-Listen-Filter: ab {tts_max} Einträgen wird gekürzt"
-        )
+        """Persist tts_list.full_max_items (``lib.audio_library.change_settings``)."""
+        self._audio_change_settings(list_max=self.audio_tts_list_max_input)
 
     @rx.event
     def audio_save_picker_root(self) -> None:
-        """Persist picker.root to settings.json."""
-        import json as _json
-        from pathlib import Path as _Path
-        new_root = (self.audio_picker_root_input or "").strip()
-        if not new_root:
-            self.audio_settings_status = "⚠️ Sandbox-Root darf nicht leer sein"
-            return
-        target = _Path(new_root).expanduser()
-        if not target.is_absolute():
-            self.audio_settings_status = (
-                f"⚠️ Sandbox-Root muss ein absoluter Pfad sein: {new_root}"
-            )
-            return
-        if not target.is_dir():
-            self.audio_settings_status = (
-                f"⚠️ Pfad ist kein Ordner: {new_root}"
-            )
-            return
-        path = (
-            _Path(__file__).parent.parent / "plugins" / "tools"
-            / "audio_player" / "settings.json"
-        )
+        """Persist picker.root (``lib.audio_library.change_settings``)."""
+        self._audio_change_settings(root=self.audio_picker_root_input or "")
+
+    def _audio_change_settings(self, *, root: str | None = None, list_max: str | None = None) -> None:
+        from ..lib.audio_library import change_settings
+        from ..lib.i18n import t
+
         try:
-            cfg: dict[str, Any] = {}
-            if path.exists():
-                with open(path, encoding="utf-8") as f:
-                    cfg = _json.load(f)
-            cfg.setdefault("picker", {})["root"] = new_root
-            with open(path, "w", encoding="utf-8") as f:
-                _json.dump(cfg, f, ensure_ascii=False, indent=2)
-        except OSError as exc:
-            self.audio_settings_status = f"⚠️ Konnte settings.json nicht schreiben: {exc}"
+            change_settings(root=root, list_max=int(list_max.strip()) if list_max is not None else None)
+        except (ValueError, OSError) as exc:  # no number, no absolute folder, below 1, or settings.json not written
+            self.audio_settings_status = f"⚠️ {exc}"
             return
-        self.audio_settings_status = f"✅ Sandbox-Root → {new_root}"
+        self.audio_settings_status = t("audio_settings_saved", lang=self.ui_language)
 
     @rx.event  # type: ignore[arg-type]
     def audio_on_source_picked(self, rel_path: str, **_: Any) -> None:
-        """Picker callback — rel_path is relative to the picker's sandbox
-        root (read from settings.json). Reconstruct the absolute target
-        path and create a symlink under data/media/audio/.
-        """
-        from pathlib import Path as _Path
-
-        from ..lib.config import MEDIA_AUDIO_DIR
-
-        sandbox_root = self._audio_picker_root()
-        if not rel_path:
-            target_p = _Path(sandbox_root)
-        else:
-            target_p = _Path(sandbox_root) / rel_path.lstrip("/")
-        target_abs = str(target_p)
-
-        if not target_p.is_dir():
-            self.audio_settings_status = f"⚠️ Pfad ist kein Ordner: {target_abs}"
-            return
-
-        # Sandbox-escape protection: even if the user navigated to a
-        # symlink that points outside the sandbox, we refuse it as an
-        # audio source. Otherwise the picker's safe_resolve guard could
-        # be circumvented by chained-symlink tricks.
-        try:
-            resolved = target_p.resolve()
-            sandbox_resolved = _Path(sandbox_root).expanduser().resolve()
-            resolved.relative_to(sandbox_resolved)
-        except ValueError:
-            self.audio_settings_status = (
-                f"⚠️ Pfad zeigt außerhalb der Sandbox '{sandbox_root}'. "
-                f"Quelle wurde nicht angelegt (sandbox escape geblockt)."
-            )
-            return
-
-        # Generate a unique label from the basename
-        base = target_p.name or "source"
-        label = base
-        suffix = 1
-        while (MEDIA_AUDIO_DIR / label).exists() or (MEDIA_AUDIO_DIR / label).is_symlink():
-            suffix += 1
-            label = f"{base}_{suffix}"
+        """Picker callback — rel_path is relative to the sandbox root; ``lib.audio_library.add_source`` makes the
+        symlink under data/media/audio/ (only a folder that resolves inside the sandbox)."""
+        from ..lib.audio_library import add_source
+        from ..lib.i18n import t
 
         try:
-            (MEDIA_AUDIO_DIR / label).symlink_to(target_p)
-        except OSError as exc:
-            self.audio_settings_status = f"⚠️ Symlink-Fehler: {exc}"
+            label = add_source(rel_path)
+        except (ValueError, OSError) as exc:  # no folder, outside the sandbox, or the symlink failed
+            self.audio_settings_status = f"⚠️ {exc}"
             return
-        self.audio_settings_status = (
-            f"✅ Neue Source '{label}' → {target_abs}. "
-            f"Klicke 'Indexieren' um Tags einzulesen."
-        )
+        self.audio_settings_status = t("audio_source_added", lang=self.ui_language, source=label)
         self._refresh_audio_sources_view()

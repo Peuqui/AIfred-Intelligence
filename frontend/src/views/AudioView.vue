@@ -1,12 +1,13 @@
 <script setup lang="ts">
-// The speech page: speech output on or off, AIfred's list of speech engines (order, switch, unit; the first
+// The audio page: speech output on or off, AIfred's list of speech engines (order, switch, unit; the first
 // that can speaks), each chat agent's voice on an engine and the narrator's, whether speech recognition
-// answers. What exists (engines, places, voices) is the TTS service's catalog; when it does not answer the
+// answers, and the audio player's sources (AudioSources.vue). What exists (engines, places, voices) is the TTS service's catalog; when it does not answer the
 // list shows from the settings and says why.
 import { onMounted, ref, watch } from "vue";
 import { ApiError, api } from "../api/client";
 import type { AgentSpeech, NarratorVoice, SpeechChoices, SpeechList, SpeechRecognition } from "../api/types";
 import { t } from "../i18n";
+import AudioSources from "../components/AudioSources.vue";
 import { useSettings } from "../stores/settings";
 
 const settings = useSettings();
@@ -188,6 +189,8 @@ const picked = (event: Event): string => (event.target as HTMLSelectElement).val
       </div>
       <p class="hint">{{ t("stt_suite_hint") }}</p>
     </section>
+
+    <AudioSources />
   </main>
 </template>
 

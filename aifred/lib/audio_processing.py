@@ -81,13 +81,8 @@ def _get_tts_list_max_items() -> int:
     replaced with a spoken hint instead of being read aloud. Browser
     display is unaffected (filter only runs in TTS path).
     """
-    from .audio_player_settings import load_audio_player_settings
-    try:
-        return int(
-            load_audio_player_settings().get("tts_list", {}).get("full_max_items", 5)
-        )
-    except (TypeError, ValueError):
-        return 5
+    from .audio_library import tts_list_max
+    return tts_list_max()
 
 
 _LIST_ITEM_RE = re.compile(r'^[ \t]*(?:[-*+]|\d+[.)])\s+')

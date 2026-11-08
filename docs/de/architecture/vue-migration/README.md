@@ -332,7 +332,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   wieder), ein einmaliger Auftrag braucht einen gültigen Zeitpunkt (vorher wurde jeder Text gespeichert).
   Kanäle kommen aus dem Plugin-Register statt einer festen Liste; stille Ersatzwerte des Reflex-Formulars
   (Intervall 60 s, Datum 2026-01-01) gibt es nicht mehr.
-- **Sprach-Seite (erledigt 07.11.2026):** `SpeechView.vue` (🔊 in der Kopfleiste): Sprachausgabe und
+- **Sprach-Seite (erledigt 07.11.2026):** `SpeechView.vue` (seit 08.11. `AudioView.vue`, 🔊 in der Kopfleiste): Sprachausgabe und
   Autoplay (vorher auf der Einstellungsseite), AIfreds Liste der Engines (verschieben, schalten, Einheit je
   Engine, Status frisch lesen; ohne TTS-Suite aus den Einstellungen mit Grund), die Stimmen aller
   Chat-Agenten auf einer gewählten Engine (Schalter, Sprache, Stimme, Tempo, Tonhöhe) mit dem Vorleser in
@@ -442,6 +442,18 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   nur seinen ersten Titel, jetzt reisen sie mit dem Ereignis. Geprüft mit Tests (Python: Ereignis mit Warteschlange;
   vitest: Ordner, Vortritt der Sprachausgabe, Pause/Fortsetzen/Stopp). Offen: ein Durchlauf mit dem Werkzeug eines
   Agenten (braucht ein Sprachmodell) und die Seite der Audio-Quellen.
+- **Audio-Seite mit Quellen (erledigt 08.11.2026):** Aus der Sprach-Seite wird „🔊 Audio“ (`AudioView.vue`, `#/audio`),
+  darunter `AudioSources.vue`: jede Quelle mit Indexzahl, ein Ordner der Sandbox als neue Quelle (schlanker
+  Ordner-Auswähler über `file_browser`), einlesen (Lauf des Servers, einer zur Zeit, die Seite folgt ihm), Index
+  leeren, entfernen (mit Rückfrage; der Ordner, auf den sie zeigt, bleibt), Sandbox und Schwelle der Listen-Kürzung.
+  Die Regeln stehen in `lib/audio_library.py`, auch für die Reflex-Seite `/audio-settings`: Sie las und schrieb die
+  Einstellungsdatei an drei eigenen Stellen (jetzt `audio_player_settings.save_audio_player_settings`), ihre Meldungen
+  standen fest deutsch und mit Ersatzumlauten im State, der Standard 5 der Listen-Kürzung stand zweimal fest im Code
+  (jetzt `AUDIO_TTS_LIST_MAX_DEFAULT`, ein kaputter Wert ist ein Fehler statt eines stillen Ersatzes). Entfernen und
+  Einlesen nur für Namen, die die Quellenliste kennt; eine neue Quelle muss auch aufgelöst in der Sandbox liegen.
+  Geprüft im Browser mit einer Prüf-Sandbox aus drei WAV-Dateien (anlegen, 3 eingelesen, leeren, entfernen, Ordner
+  bleibt). Offen: im Ordner-Auswähler Ordner und Symlinks anlegen oder löschen (konnte der Reflex-Picker; gehört zum
+  geplanten gemeinsamen Dateimanager).
 - **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
 
 ## Schritte

@@ -59,6 +59,7 @@ from . import cameras
 from . import vigilantia
 from . import casus
 from . import enrollment
+from . import audio_library
 from . import app_shell  # last: its /app mount must follow every /app route
 
 from .browser_bus import browser_push, browser_queue_clear
