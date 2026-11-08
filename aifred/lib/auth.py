@@ -91,6 +91,12 @@ def require_service_token(service: str, provided: str | None) -> None:
         raise Refused("invalid_token")
 
 
+def require_bearer_token(service: str, authorization: str | None) -> None:
+    """``require_service_token`` for the token of an ``Authorization: Bearer <token>`` header."""
+    scheme, _, token = (authorization or "").partition(" ")
+    require_service_token(service, token if scheme.lower() == "bearer" else None)
+
+
 # ============================================================
 # SIGNED USERNAME COOKIE (web auto-login)
 # ============================================================

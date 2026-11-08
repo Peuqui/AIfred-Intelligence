@@ -335,8 +335,29 @@ an den Fenstergrenzen.
 
 Detektion und Embedding laufen über **InsightFace `buffalo_l`**
 (RetinaFace-Detection + ArcFace-Embedding in einem Pass). Beim ersten Aufruf
-lädt InsightFace das Modell (~280 MB) nach `~/.insightface/models/buffalo_l/`;
-die Initialisierung ist lazy, damit der Modul-Import billig bleibt.
+lädt InsightFace das Modell (~280 MB) nach `~/.insightface/models/buffalo_l/`.
+
+InsightFace läuft in einem **eigenen Arbeitsprozess**
+(`vision_filters/face_worker.py`), den die erste Erkennung startet; AIfred
+reicht ihm jedes Bild über ein Socket-Paar und bekommt die Gesichter zurück.
+Auf einer Karte sieht der Prozess nur diese Karte (`CUDA_VISIBLE_DEVICES` =
+ihre UUID) und belegt dort rund 930 MiB. Zwei Gründe für den eigenen Prozess:
+
+- **Die Karte lässt sich wirklich freiräumen.** GPU-Orc fragt AIfred wie die
+  STT- und die TTS-Suite: `GET /api/gpu/holders` nennt das Element
+  `face-worker` mit Karte und Speicher (laut nvidia-smi), `POST /api/gpu/release`
+  beendet den Prozess und meldet `released` erst, wenn nvidia-smi ihn nicht mehr
+  auf der Karte führt (sonst `failed`). Während einer Erkennung heißt die
+  Antwort `busy`, mit `force` wird trotzdem beendet (die laufende Erkennung
+  schlägt dann mit dem Grund fehl). Absicherung per
+  `Authorization: Bearer <GPU_RELEASE_API_TOKEN>`. Im AIfred-Prozess selbst
+  blieben nach dem Entladen 180 MiB CUDA-Kontext auf der Karte.
+- **Ein Absturz von onnxruntime trifft AIfred nicht**: Die nächste Erkennung
+  startet einen neuen Arbeitsprozess.
+
+Der Arbeitsprozess kommt nie auf eine Karte, solange GPU-Orcs Ampel rot ist
+(ein großes Modell lädt, oder die Karten werden freigehalten): Dann startet er
+auf der CPU und zieht bei der ersten Erkennung nach Grün zurück auf die Karte.
 
 Jedes erkannte Gesicht liefert ein 512-dim L2-normalisiertes Embedding. Der
 Abgleich ist Cosine-Similarity (ein Dot-Product auf den normalisierten Vektoren),

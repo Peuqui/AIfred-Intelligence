@@ -323,8 +323,28 @@ with glasses".
 
 Detection and embedding run via **InsightFace `buffalo_l`** (RetinaFace
 detection + ArcFace embedding in one pass). On first use, InsightFace downloads
-the model (~280 MB) to `~/.insightface/models/buffalo_l/`; initialisation is
-lazy so the module import stays cheap.
+the model (~280 MB) to `~/.insightface/models/buffalo_l/`.
+
+InsightFace runs in a **worker process of its own**
+(`vision_filters/face_worker.py`), started by the first detection; AIfred hands
+it every frame over a socket pair and gets the faces back. On a card the process
+sees only that card (`CUDA_VISIBLE_DEVICES` = its UUID) and takes about 930 MiB
+there. Two reasons for the process:
+
+- **The card can really be cleared.** GPU-Orc asks AIfred as it asks the STT and
+  TTS suites: `GET /api/gpu/holders` names the item `face-worker` with its card
+  and memory (from nvidia-smi), `POST /api/gpu/release` ends the process and
+  answers `released` only once nvidia-smi no longer lists it on the card (else
+  `failed`). During a detection the answer is `busy`; `force` ends it anyway (the
+  running detection then fails with the reason). Guarded by
+  `Authorization: Bearer <GPU_RELEASE_API_TOKEN>`. Inside AIfred's own process,
+  180 MiB of CUDA context stayed on the card after unloading.
+- **A crash of onnxruntime does not hit AIfred**: the next detection starts a
+  new worker.
+
+The worker never goes on a card while GPU-Orc's traffic light is red (a big
+model loading, or the cards held free): it then starts on the CPU and moves back
+onto the card at the first detection after green.
 
 Each detected face yields a 512-dim L2-normalised embedding. Matching is cosine
 similarity (a dot product on the normalised vectors), bulk-vectorised with NumPy.

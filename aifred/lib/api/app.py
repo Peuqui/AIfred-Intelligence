@@ -67,7 +67,7 @@ async def _unreadable_request(_request: Request, error: RequestValidationError) 
 # cookie the web login sets (see AuthenticatedStaticFiles for the static
 # twin) — browser calls are same-origin and carry it automatically.
 #
-# Exempt: inject + webhook + announce + tts (enforce their own service token
+# Exempt: inject + webhook + announce + tts + gpu (enforce their own service token
 # via require_service_token), the OAuth callback (arrives as a redirect
 # from the provider, cookie not guaranteed), the Vue login and registration (they set the cookie; /auth/me
 # answers null without one) and the
@@ -75,7 +75,7 @@ async def _unreadable_request(_request: Request, error: RequestValidationError) 
 
 _COOKIE_EXEMPT_PATHS = (
     "/chat/inject", "/agent/trigger", "/audio/announce", "/audio/announce/rooms",
-    "/tts/entries", "/auth/login", "/auth/register", "/auth/me",
+    "/tts/entries", "/gpu/holders", "/gpu/release", "/auth/login", "/auth/register", "/auth/me",
 )
 
 

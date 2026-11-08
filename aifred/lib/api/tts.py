@@ -10,7 +10,7 @@ import asyncio
 from fastapi import Header, Query
 from pydantic import BaseModel, Field
 
-from ..auth import require_service_token
+from ..auth import require_bearer_token
 from ..tts_client import TTSSuiteUnreachable
 from ..user_error import Unavailable
 from .app import api_app
@@ -27,11 +27,6 @@ class TTSEntry(BaseModel):
     detail: str | None = Field(description="Why the last start failed (status start_failed), None otherwise")
 
 
-def _require_tts_token(authorization: str | None) -> None:
-    scheme, _, token = (authorization or "").partition(" ")
-    require_service_token("tts_control", token if scheme.lower() == "bearer" else None)
-
-
 @api_app.get("/tts/entries", response_model=list[TTSEntry], tags=["TTS"])
 async def tts_entries(
     lang: str = Query(..., pattern="^(de|en)$"), authorization: str | None = Header(None),
@@ -40,7 +35,7 @@ async def tts_entries(
     from ..i18n import t
     from ..tts_service import entries, entry_label, status_key
 
-    _require_tts_token(authorization)
+    require_bearer_token("tts_control", authorization)
     try:
         listed = await asyncio.to_thread(entries, fresh=True)
     except TTSSuiteUnreachable as unreachable:

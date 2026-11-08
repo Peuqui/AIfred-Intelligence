@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from aifred.lib.frame_sources import Frame
-from aifred.lib.vision_filters.face_detect import FaceDetector, box_iou
+from aifred.lib.vision_filters.face_detect import FaceAnalyzer, box_iou
 
 
 def _frame() -> Frame:
@@ -50,11 +50,9 @@ class _FakeApp:
         return self._result_for_roi(img)
 
 
-def _detector(app, **kwargs) -> FaceDetector:
-    """Detector mit vorinitialisierter InsightFace-App (kein Modell-Laden)."""
-    det = FaceDetector(min_score=0.65, min_size_px=40, **kwargs)
-    det._app = app
-    return det
+def _detector(app, **kwargs) -> FaceAnalyzer:
+    """Analyzer mit gefakter InsightFace-App (kein Modell-Laden)."""
+    return FaceAnalyzer(app, min_score=0.65, min_size_px=40, **kwargs)
 
 
 def test_roi_boxes_come_back_in_full_frame_coordinates():

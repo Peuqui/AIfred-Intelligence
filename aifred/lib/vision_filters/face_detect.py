@@ -1,18 +1,21 @@
 """Face-Detection + Embedding via InsightFace buffalo_l.
 
-Wrapper um ``insightface.app.FaceAnalysis``. Macht **zwei** Schritte in
-einem Pass: RetinaFace-Detection und ArcFace-Embedding-Extraktion.
-Damit ist pro detektiertem Gesicht direkt ein 512-dim Embedding da,
-das gegen die in ``vision_store.face_embeddings`` registrierten
-Personen gematched werden kann.
+Zwei Teile, zwei Prozesse:
 
-Beim ersten Aufruf von ``detect()`` lädt InsightFace das buffalo_l-
-Modell (~280 MB) nach ``~/.insightface/models/buffalo_l/``. Initialisierung
-ist lazy — der Konstruktor öffnet das Modell noch nicht. So bleibt der
-Modul-Import billig (Tests, Unit-Calls bei nicht-Vision-Setups).
+* ``FaceAnalyzer`` hält ``insightface.app.FaceAnalysis`` und macht **zwei**
+  Schritte in einem Pass: RetinaFace-Detection und ArcFace-Embedding-
+  Extraktion. Damit ist pro detektiertem Gesicht direkt ein 512-dim
+  Embedding da, das gegen die in ``vision_store.face_embeddings``
+  registrierten Personen gematched werden kann. Er läuft nur im
+  Arbeitsprozess der Gesichtserkennung (``face_worker``).
+* ``FaceDetector`` ist die Seite in AIfred: Er reicht jedes Bild an den
+  Arbeitsprozess weiter und startet ihn beim ersten Gebrauch. Weil InsightFace
+  in einem eigenen Prozess liegt, lässt sich die Karte wirklich freigeben
+  (Prozess beenden, GPU-Orc fragt über ``/api/gpu/release``), und ein Absturz
+  von onnxruntime trifft AIfred nicht.
 
-Provider und GPU-ID sind konfigurierbar — auf einem GPU-armen System
-kann auf ``CPUExecutionProvider`` umgestellt werden.
+Beim ersten Laden holt InsightFace das buffalo_l-Modell (~280 MB) nach
+``~/.insightface/models/buffalo_l/``.
 """
 
 from __future__ import annotations
@@ -36,7 +39,7 @@ def _preload_cuda_runtime() -> bool:
     sie findet — ohne LD_LIBRARY_PATH-Setup wird die cuda-EP-DLL nicht
     geladen.
 
-    Gerufen, wenn die Gesichtserkennung CUDA nutzen soll (_detector_kwargs). Returnt
+    Gerufen im Arbeitsprozess, wenn er auf einer Karte läuft (FaceAnalyzer.load). Returnt
     True wenn alle nötigen Libs geladen wurden, False wenn nicht — der
     Caller entscheidet dann ob CUDA-EP überhaupt registriert wird.
 
@@ -126,65 +129,106 @@ def box_iou(
     return inter / union if union > 0 else 0.0
 
 
-class FaceDetector:
-    """Lazy-initialized InsightFace-Wrapper.
+CUDA_PROVIDER = "CUDAExecutionProvider"
+CPU_PROVIDER = "CPUExecutionProvider"
 
-    Eine Instanz pro Prozess ist genug — InsightFace ist thread-safe
-    für ``get()``-Calls. Bei Provider-Wechsel (z.B. CPU↔GPU) muss eine
-    neue Instanz erstellt werden.
-    """
+
+@dataclass(frozen=True)
+class AnalyzerSettings:
+    """What the face worker loads InsightFace with. ``providers`` are onnxruntime's; on a card the worker
+    sees only that card (``CUDA_VISIBLE_DEVICES``), on the CPU only the CPU provider."""
+
+    providers: tuple[str, ...]
+    model_name: str = "buffalo_l"
+    det_size: int = 640
+    # Qualitäts-Filter (0 = aus): Detections unter min_score oder mit
+    # einer Box-Kante unter min_size_px werden verworfen — InsightFace
+    # halluziniert knapp über seinem internen 0.5-Cutoff Gesichter in
+    # Texturen, und aus Mini-Boxen kommt kein brauchbares Embedding.
+    min_score: float = 0.0
+    min_size_px: int = 0
+    # Ab welcher Überdeckung zwei Funde aus überlappenden Regionen
+    # dasselbe Gesicht sind (nur ``detect_in_regions``).
+    roi_dedupe_iou: float = 0.3
+
+
+class FaceDetector:
+    """The face detection of this process. InsightFace runs in the face worker (``face_worker.FaceWorker``),
+    a process of its own started on first use; on the card ``gpu_id`` (nvidia-smi index) when ``providers``
+    name CUDA, else on the CPU."""
 
     def __init__(
         self,
         *,
+        providers: list[str],
+        gpu_id: int | None,
         model_name: str = "buffalo_l",
-        providers: list[str] | None = None,
-        gpu_id: int = 0,
         det_size: int = 640,
         min_score: float = 0.0,
         min_size_px: int = 0,
         roi_dedupe_iou: float = 0.3,
     ) -> None:
-        if providers is None:
-            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-        self._model_name = model_name
-        self._providers = providers
-        self._gpu_id = gpu_id
-        self._det_size = det_size
-        # Qualitäts-Filter (0 = aus): Detections unter min_score oder mit
-        # einer Box-Kante unter min_size_px werden verworfen — InsightFace
-        # halluziniert knapp über seinem internen 0.5-Cutoff Gesichter in
-        # Texturen, und aus Mini-Boxen kommt kein brauchbares Embedding.
+        from .face_worker import FaceWorker  # it runs FaceAnalyzer from this module
+
+        settings = AnalyzerSettings(
+            providers=tuple(providers), model_name=model_name, det_size=det_size,
+            min_score=float(min_score), min_size_px=int(min_size_px), roi_dedupe_iou=float(roi_dedupe_iou),
+        )
+        self.worker = FaceWorker(settings, card=gpu_id if CUDA_PROVIDER in providers else None)
+
+    def detect(self, frame: Frame) -> list[FaceDetection]:
+        """Faces + embeddings of one frame (see ``FaceAnalyzer.detect``)."""
+        return self.worker.analyze(frame, None)
+
+    def detect_in_regions(
+        self, frame: Frame, regions: list[tuple[int, int, int, int]],
+    ) -> list[FaceDetection]:
+        """Second pass on the regions of the frame (see ``FaceAnalyzer.detect_in_regions``)."""
+        if not regions:
+            return []
+        return self.worker.analyze(frame, list(regions))
+
+
+class FaceAnalyzer:
+    """InsightFace in the process that holds it: the face worker. ``app`` is the prepared ``FaceAnalysis``
+    (``load``); InsightFace ist thread-safe für ``get()``-Calls."""
+
+    def __init__(
+        self, app: Any, *, min_score: float = 0.0, min_size_px: int = 0, roi_dedupe_iou: float = 0.3,
+    ) -> None:
+        self._app = app
         self._min_score = float(min_score)
         self._min_size_px = int(min_size_px)
-        # Ab welcher Überdeckung zwei Funde aus überlappenden Regionen
-        # dasselbe Gesicht sind (nur ``detect_in_regions``).
         self._roi_dedupe_iou = float(roi_dedupe_iou)
-        self._app: Any | None = None
-        self._init_lock = Lock()
 
-    def _ensure_initialized(self) -> Any:
-        """Lädt InsightFace-Modell beim ersten Aufruf. Idempotent + thread-safe."""
-        if self._app is not None:
-            return self._app
-        with self._init_lock:
-            if self._app is not None:
-                return self._app
-            try:
-                from insightface.app import FaceAnalysis
-            except ImportError as e:
-                raise RuntimeError(
-                    "insightface is not installed — install via "
-                    "`pip install insightface onnxruntime-gpu`"
-                ) from e
-            logger.info(
-                "Initializing InsightFace %s (providers=%s, gpu_id=%d, det_size=%d)",
-                self._model_name, self._providers, self._gpu_id, self._det_size,
+    @classmethod
+    def load(cls, settings: AnalyzerSettings) -> FaceAnalyzer:
+        """Load InsightFace with ``settings``: on the one card the process sees (CUDA in the providers), else
+        on the CPU. CUDA asked for and its libraries not loadable is an error, not the CPU."""
+        on_card = CUDA_PROVIDER in settings.providers
+        if on_card and not _preload_cuda_runtime():
+            raise RuntimeError(
+                "Face detection should run on CUDA, but the CUDA libraries could not be preloaded. "
+                "Check nvidia-cudnn-cu12 / nvidia-cuda-runtime-cu12 in the venv."
             )
-            app = FaceAnalysis(name=self._model_name, providers=self._providers)
-            app.prepare(ctx_id=self._gpu_id, det_size=(self._det_size, self._det_size))
-            self._app = app
-            return app
+        try:
+            from insightface.app import FaceAnalysis
+        except ImportError as e:
+            raise RuntimeError(
+                "insightface is not installed — install via "
+                "`pip install insightface onnxruntime-gpu`"
+            ) from e
+        logger.info(
+            "Initializing InsightFace %s (providers=%s, det_size=%d)",
+            settings.model_name, list(settings.providers), settings.det_size,
+        )
+        app = FaceAnalysis(name=settings.model_name, providers=list(settings.providers))
+        # ctx_id 0 = the only card this process sees; below 0 = the CPU
+        app.prepare(ctx_id=0 if on_card else -1, det_size=(settings.det_size, settings.det_size))
+        return cls(
+            app, min_score=settings.min_score, min_size_px=settings.min_size_px,
+            roi_dedupe_iou=settings.roi_dedupe_iou,
+        )
 
     def detect(self, frame: Frame) -> list[FaceDetection]:
         """Detect faces + extract embeddings for one frame.
@@ -196,9 +240,8 @@ class FaceDetector:
         img = self._decode(frame.image_bytes)
         if img is None:
             return []
-        app = self._ensure_initialized()
         try:
-            raw = app.get(img)
+            raw = self._app.get(img)
         except Exception as e:  # onnxruntime's errors share no base class: this frame without faces, logged
             logger.warning("InsightFace get() failed on %s: %s", frame.source_id, e, exc_info=True)
             return []
@@ -232,7 +275,6 @@ class FaceDetector:
         img = self._decode(frame.image_bytes)
         if img is None:
             return []
-        app = self._ensure_initialized()
         height, width = img.shape[:2]
         found: list[FaceDetection] = []
         for x, y, w, h in regions:
@@ -244,7 +286,7 @@ class FaceDetector:
             if x2 - x1 < self._min_size_px or y2 - y1 < self._min_size_px:
                 continue
             try:
-                raw = app.get(img[y1:y2, x1:x2])
+                raw = self._app.get(img[y1:y2, x1:x2])
             except Exception as e:  # onnxruntime's errors share no base class: this region without faces, logged
                 logger.warning(
                     "InsightFace get() failed on ROI of %s: %s",
@@ -322,16 +364,12 @@ _default_detector: FaceDetector | None = None
 _default_lock = Lock()
 
 
-_CUDA = "CUDAExecutionProvider"
-_CPU = "CPUExecutionProvider"
-
-
 def _detector_kwargs() -> dict[str, Any]:
     """What the detector is built with: the vision settings (``face_recognition``: providers, gpu_id where "auto"
     picks a card and None or no card free means the CPU, det_size, model_name), without providers there config's
     FACE_DETECT_USE_GPU. Read when the detector is made, by whoever needs it first: until 08.11.2026 only the vision
     plugin's tools applied the settings, and a watcher that came first after a start ran on the CPU until the next.
-    CUDA asked for and its libraries not loadable is an error, not the CPU."""
+    Whether CUDA's libraries load is the face worker's question (``FaceAnalyzer.load``)."""
     from ..config import (
         FACE_DETECT_GPU_ID,
         FACE_DETECT_MIN_SCORE,
@@ -346,24 +384,18 @@ def _detector_kwargs() -> dict[str, Any]:
     kwargs: dict[str, Any] = {
         "min_score": FACE_DETECT_MIN_SCORE, "min_size_px": FACE_DETECT_MIN_SIZE_PX, "roi_dedupe_iou": FACE_DETECT_ROI_DEDUPE_IOU,
     }
+    gpu_id: int | None
     if "providers" in settings:
         providers = list(settings["providers"])
         gpu_id = resolve_gpu_id(settings.get("gpu_id"))
         if gpu_id is None:
-            providers = [provider for provider in providers if provider != _CUDA] or [_CPU]
-        else:
-            kwargs["gpu_id"] = gpu_id
+            providers = [provider for provider in providers if provider != CUDA_PROVIDER] or [CPU_PROVIDER]
     elif FACE_DETECT_USE_GPU:
-        providers = [_CUDA]
-        kwargs["gpu_id"] = FACE_DETECT_GPU_ID
+        providers, gpu_id = [CUDA_PROVIDER], FACE_DETECT_GPU_ID
     else:
-        providers = [_CPU]
-    if _CUDA in providers and not _preload_cuda_runtime():
-        raise RuntimeError(
-            "Face detection should run on CUDA, but the CUDA libraries could not be preloaded. "
-            "Check nvidia-cudnn-cu12 / nvidia-cuda-runtime-cu12 in the venv."
-        )
+        providers, gpu_id = [CPU_PROVIDER], None
     kwargs["providers"] = providers
+    kwargs["gpu_id"] = gpu_id
     if "det_size" in settings:
         kwargs["det_size"] = int(settings["det_size"])
     if "model_name" in settings:
@@ -379,6 +411,11 @@ def get_default_detector() -> FaceDetector:
     with _default_lock:
         if _default_detector is None:
             kwargs = _detector_kwargs()
-            logger.info("face_detect: providers %s, gpu_id %s", kwargs["providers"], kwargs.get("gpu_id", "–"))
+            logger.info("face_detect: providers %s, gpu_id %s", kwargs["providers"], kwargs["gpu_id"])
             _default_detector = FaceDetector(**kwargs)
         return _default_detector
+
+
+def running_detector() -> FaceDetector | None:
+    """The process's detector if one was built, without building one (the GPU release asks what runs)."""
+    return _default_detector

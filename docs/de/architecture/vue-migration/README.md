@@ -806,3 +806,8 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
    löschbar wie jeder Agent, außer er sitzt in der Voreinstellung eines Platzes (`deletion_refusal`); fest sind nur
    noch AIfred und Vision (`agent_tuning.PERMANENT_AGENTS`), jeder andere Agent von agents.json bekommt seinen Eimer
    in `runtime_settings.registered_agent_tuning`.
+   Gesichtserkennung (08.11.2026 im eigenen Arbeitsprozess, für GPU-Orc freigebbar): **beim Umschalten**
+   `GPU_RELEASE_API_TOKEN` in die `.env` der Produktion, dasselbe Token in eine Datei nur für den Dienstnutzer
+   (`~/.config/gpu-orc/aifred.token`) und in `~/.config/gpu-orc/config.yaml` einen Verbraucher `aifred`
+   (`type: gpu-release`, `url: http://127.0.0.1:8002/api`, `token_file`, `busy_wait_s: 5`; GPU-Orc ab 0.8.0),
+   danach `gpu-orc@mp` neu starten. Vorher nicht: `main` hat die Endpunkte nicht.

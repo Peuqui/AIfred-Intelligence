@@ -132,6 +132,8 @@ _CREDENTIAL_MAP: dict[tuple[str, str], str] = {
     ("announce", "api_token"): "ANNOUNCE_API_TOKEN",
     # TTS list API (service control page reads AIfred's TTS list)
     ("tts_control", "api_token"): "TTS_CONTROL_API_TOKEN",
+    # GPU release API (GPU-Orc ends the face worker to free its card)
+    ("gpu_release", "api_token"): "GPU_RELEASE_API_TOKEN",
     # Web session secret (signs username/auto-login cookies). Optional —
     # falls back to a persisted random secret if unset (see lib/auth.py).
     ("auth", "session_secret"): "AIFRED_SESSION_SECRET",

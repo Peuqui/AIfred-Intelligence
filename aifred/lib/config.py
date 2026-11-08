@@ -639,15 +639,16 @@ VISION_DEFAULT_REPEAT_PENALTY = 1.0
 # - True: bevorzugt CUDAExecutionProvider, fällt nur auf CPU zurück
 #   wenn cuDNN/CUDA nicht vorgeladen werden konnten
 FACE_DETECT_USE_GPU = False
-# Wenn ``FACE_DETECT_USE_GPU=True``: GPU-ID für die onnxruntime-
-# Session. CUDA_DEVICE_ORDER=FAST_FIRST sortiert nach Performance —
-# auf der MiniPC-Anlage:
-#   0,2 = Quadro RTX 8000 (48 GB, frei für LLMs)
-#   1,4 = Tesla P40 (24 GB, „Resterampe" im greedy cascade)
-#   3   = Tesla V100 (32 GB, TTS + Ollama-VLM festgetackert)
-# Default 4 = zweite P40: niedrigste Last, 300 MB InsightFace stören
-# da niemanden, RTX 8000 + V100 bleiben für die großen Modelle frei.
+# Wenn ``FACE_DETECT_USE_GPU=True`` (und die Vision-Einstellungen keine
+# Provider nennen): die Karte als nvidia-smi-Index. Der Arbeitsprozess der
+# Gesichtserkennung sieht nur diese Karte (CUDA_VISIBLE_DEVICES = ihre UUID).
 FACE_DETECT_GPU_ID = 4
+# Wie lange der Arbeitsprozess der Gesichtserkennung nach SIGKILL Zeit hat,
+# zu enden, und nvidia-smi, ihn nicht mehr auf der Karte zu führen. Danach
+# gilt die Freigabe als nicht nachgewiesen (``failed`` an GPU-Orc).
+FACE_WORKER_END_TIMEOUT_S = 10.0
+# Abstand der nvidia-smi-Abfragen beim Nachweis der Freigabe.
+FACE_WORKER_PROOF_POLL_S = 0.5
 # Qualitäts-Filter gegen Phantom-Gesichter: InsightFace' interner
 # RetinaFace-Cutoff liegt bei 0.5 — knapp darüber (0.5–0.6) halluziniert
 # er Gesichter in Texturen (Blattwerk, Astgabeln). Echte Gesichter

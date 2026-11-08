@@ -16,15 +16,9 @@ CUDA, CPU = "CUDAExecutionProvider", "CPUExecutionProvider"
 
 @pytest.fixture
 def world(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, Any]]:
-    state: dict[str, Any] = {"settings": {}, "card": 2, "preloaded": True, "preload_calls": 0}
-
-    def preload() -> bool:
-        state["preload_calls"] += 1
-        return bool(state["preloaded"])
-
+    state: dict[str, Any] = {"settings": {}, "card": 2}
     monkeypatch.setattr(vision_settings, "load_vision_settings", lambda: {"face_recognition": state["settings"]})
     monkeypatch.setattr(vision_gpu_select, "resolve_gpu_id", lambda setting: state["card"] if setting == "auto" else setting)
-    monkeypatch.setattr(face_detect, "_preload_cuda_runtime", preload)
     monkeypatch.setattr(face_detect, "_default_detector", None)
     yield state
     face_detect._default_detector = None
@@ -34,26 +28,24 @@ def test_the_settings_put_it_on_the_card_they_pick(world: dict[str, Any]) -> Non
     world["settings"] = {"providers": [CUDA, CPU], "gpu_id": "auto", "det_size": 480}
     kwargs = face_detect._detector_kwargs()
     assert (kwargs["providers"], kwargs["gpu_id"], kwargs["det_size"]) == ([CUDA, CPU], 2, 480)
-    assert world["preload_calls"] == 1     # the CUDA libraries are loaded for it, as on the config's way
 
 
 def test_without_a_card_it_runs_on_the_cpu(world: dict[str, Any]) -> None:
     world["settings"] = {"providers": [CUDA, CPU], "gpu_id": "auto"}
     world["card"] = None
     kwargs = face_detect._detector_kwargs()
-    assert kwargs["providers"] == [CPU] and "gpu_id" not in kwargs
-    assert world["preload_calls"] == 0
+    assert kwargs["providers"] == [CPU] and kwargs["gpu_id"] is None
 
 
 def test_without_providers_in_the_settings_the_config_decides(world: dict[str, Any]) -> None:
     assert face_detect._detector_kwargs()["providers"] == [CPU]     # FACE_DETECT_USE_GPU is False
 
 
-def test_cuda_without_its_libraries_is_an_error_not_the_cpu(world: dict[str, Any]) -> None:
-    world["settings"] = {"providers": [CUDA, CPU], "gpu_id": "auto"}
-    world["preloaded"] = False
+def test_cuda_without_its_libraries_is_an_error_not_the_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The face worker loads InsightFace: on a card without CUDA's libraries it refuses, it does not take the CPU."""
+    monkeypatch.setattr(face_detect, "_preload_cuda_runtime", lambda: False)
     with pytest.raises(RuntimeError, match="CUDA"):
-        face_detect._detector_kwargs()
+        face_detect.FaceAnalyzer.load(face_detect.AnalyzerSettings(providers=(CUDA, CPU)))
 
 
 def test_the_first_user_gets_a_detector_with_the_settings(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:

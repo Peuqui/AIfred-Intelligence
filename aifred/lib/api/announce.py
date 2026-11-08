@@ -12,7 +12,7 @@ from typing import Annotated
 from fastapi import Header
 from pydantic import BaseModel, Field, model_validator
 
-from ..auth import require_service_token
+from ..auth import require_bearer_token
 from ..config import (
     ANNOUNCE_PAUSE_MS,
 )
@@ -66,16 +66,10 @@ class AnnounceResponse(BaseModel):
     rooms: list[str]
 
 
-def _require_announce_token(authorization: str | None) -> None:
-    """Check the ``Authorization: Bearer <token>`` header against ANNOUNCE_API_TOKEN."""
-    scheme, _, token = (authorization or "").partition(" ")
-    require_service_token("announce", token if scheme.lower() == "bearer" else None)
-
-
 @api_app.get("/audio/announce/rooms", response_model=AnnounceRoomsResponse, tags=["Audio"])
 async def announce_rooms(authorization: str | None = Header(None)) -> dict[str, list[str]]:
     """The FreeEcho.2 rooms connected right now — the valid values of ``room``."""
-    _require_announce_token(authorization)
+    require_bearer_token("announce", authorization)
     return {"rooms": resolve_announce_targets("freeecho2", "*")}
 
 
@@ -83,7 +77,7 @@ async def announce_rooms(authorization: str | None = Header(None)) -> dict[str, 
 async def announce(request: AnnounceRequest, authorization: str | None = Header(None)) -> dict[str, object]:
     """Read the text (or the paragraphs of ``texts`` as ONE announcement) aloud in ``room``
     (404 for an unknown or not connected room)."""
-    _require_announce_token(authorization)
+    require_bearer_token("announce", authorization)
     paragraphs = request.paragraphs
     rooms = resolve_announce_targets("freeecho2", request.room)
     if not rooms:
