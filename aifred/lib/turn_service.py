@@ -565,18 +565,20 @@ def measure_prompt(messages: list[dict[str, Any]], toolkit: Any, model: str) -> 
 
 async def agent_toolkit(ctx: TurnContext, agent: str) -> tuple[str, Any]:
     """The agent's recalled memories and tools for this turn, within the rights of the message's
-    sender (a channel's tier and trust; the chat's own are the full ones)."""
+    sender (a channel's tier and trust; the chat's own are the full ones). The tools get the session's
+    conversation: the web search ranks its hits against it (until 08.11.2026 only the Reflex chat gave it)."""
     from .agent_memory import prepare_agent_toolkit
 
     origin = ctx.origin
+    history = session_llm_history(ctx.session_id)
     if origin is None:
         return await prepare_agent_toolkit(
             agent, ctx.user_text, lang=ctx.intent.language, memory_enabled=ctx.memory_enabled,
-            research_tools_enabled=True, session_id=ctx.session_id, source=ctx.source,
+            research_tools_enabled=True, session_id=ctx.session_id, llm_history=history, source=ctx.source,
         )
     return await prepare_agent_toolkit(
         agent, ctx.user_text, lang=ctx.intent.language, memory_enabled=ctx.memory_enabled,
-        research_tools_enabled=True, session_id=ctx.session_id, source=ctx.source,
+        research_tools_enabled=True, session_id=ctx.session_id, llm_history=history, source=ctx.source,
         max_tier=origin.max_tier, metadata=origin.metadata, trust=origin.trust,
     )
 

@@ -168,6 +168,23 @@ def test_an_incognito_session_answers_without_the_agents_memory(world: dict[str,
     assert any("Incognito" in line for line in _data()["debug_messages"])
 
 
+def test_the_tools_get_the_conversation_of_the_session(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    # The web search ranks its hits against it; until 08.11.2026 a server turn gave the tools none.
+    from aifred.lib import agent_memory
+
+    histories: list[list[dict[str, Any]]] = []
+
+    async def toolkit(*_args: Any, **kwargs: Any) -> tuple[str, None]:
+        histories.append(kwargs["llm_history"])
+        return "", None
+
+    monkeypatch.setattr(agent_memory, "prepare_agent_toolkit", toolkit)
+    asyncio.run(_turn("Wer war Kant?"))
+    asyncio.run(_turn("Und sein Hauptwerk?"))
+    assert [entry["role"] for entry in histories[1][:2]] == ["user", "assistant"]
+    assert "Kant" in histories[1][0]["content"]
+
+
 def test_a_turn_during_calibration_is_rejected_and_saves_nothing(world: dict[str, Any]) -> None:
     world["calibrating"] = True
     asyncio.run(_turn("Hallo"))
