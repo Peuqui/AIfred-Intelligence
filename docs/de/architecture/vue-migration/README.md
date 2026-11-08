@@ -371,8 +371,27 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   (eine Bildanzeige für Fotos, später Ereignisse und Gesichter). Gegen die echten Kameras geprüft (Reolink mit PTZ, Reolink
   Zoom): Bilder, Einzelbild, Briefing, Foto 3840 × 2160; der Kopf fährt (mittlere Bildabweichung 36,7 nach 2 s links,
   6,5 zurück in der Wächterposition). Die Testinstanz bekommt die Kameras über eine Kopie der Vision-Einstellungen mit
-  unscharfem Auge und die Zugangsdaten über `AIFRED_TEST_ENV_KEYS`. Offen in der Live-Ansicht: die Live-Analyse (VLM-Text,
-  Gesichter), die die Hintergrundüberwachung nicht mehr abschaltet.
+  unscharfem Auge und die Zugangsdaten über `AIFRED_TEST_ENV_KEYS`. Die Live-Analyse folgte als eigenes Paket (unten).
+- **Vision, Live-Analyse (erledigt 08.11.2026, Bildbeschreibung im Browser noch nicht gesehen):** Je Kamera in der Live-Ansicht 🧠 (das Bildmodell
+  beschreibt das Bild) und 👤 (Gesichter, mit der Einstellung des Auges auch Personen); die Beschreibungen über oder unter
+  dem Bild, erkannte Gesichter mit Ausschnitt, Name und Ähnlichkeit, „+ taggen“ führt zu den Personen, „Verwerfen“
+  nimmt die Zeile weg; Vision-Takt, ID-Takt und Teleprompter in der Leiste, solange eine Analyse läuft (Listen vom
+  Server: `VISION_PREVIEW_VLM_COOLDOWN_CHOICES`, `_FACE_THROTTLE_CHOICES`). Die Analyse ist ein Zustand des Servers
+  (`lib/vision_live_analysis.py`, `PUT /vision/live/analysis/{id}`, Zustand in `GET /vision/live`), jede Seite sieht
+  denselben; sie läuft, solange eine Seite ihren Strom verfolgt (`/vision/events/{id}`, 5 s nach dem letzten endet sie,
+  ebenso eine, der nie jemand folgt: `vision_event_bus.expect_viewer`). Die App hält Seiten am Leben (`KeepAlive`): Auf
+  einer anderen Seite ruht die Live-Ansicht, ohne Kamerabilder und Ströme (vorher liefen die Bilder weiter).
+  Die Config (Takt der Live-Ansicht, Mindest-Bildrate `VISION_LIVE_ANALYSIS_MIN_FPS`, Gesichts- und Personen-Einstellung
+  des Auges, Schwelle der Kamera über `vision_autostart.motion_threshold`, Profil) steht einmal, auch die Reflex-Vorschau
+  nutzt sie. Behoben: Beide Schalter aus stoppte den Wächter ganz, auch eine scharfe Kamera verlor ihre
+  Hintergrundüberwachung; nach dem letzten Zuschauer entschied eine zweite Regel (`restore_or_stop_after_preview`,
+  fragte `vision_mode` nicht). Jetzt gibt das Ende die Kamera an `apply_background_watch` zurück, der einen Stelle;
+  solange eine Analyse läuft, lassen Auge (scharf/unscharf) und Zeitfenster-Wächter die Kamera in Ruhe. Neu: Ein
+  geänderter Takt wirkt sofort auf laufende Analysen (Reflex: erst beim nächsten Start). Logik des Teleprompters in
+  `frontend/src/lib/liveFeed.ts` (mit Tests). Geprüft mit der Zoom-Kamera der Testinstanz: Gesichter an (der Wächter lud
+  das Gesichtsmodell auf der CPU), Takt geändert, aus, Seitenwechsel und geschlossener Tab beenden die Analyse, die
+  Ansicht danach wie vorher. Offen: die Bildbeschreibung im Browser mit echtem Modell (braucht eine Karte; der Pfad im
+  Wächter ist unverändert, die Live-Analyse schaltet ihn nur ein).
 - **Vision, Paket 3: Einstellungen (erledigt 07.11.2026):** `VisionSettings.vue` (Reiter ⚙️): das Auge (`lib/vigilantia.py`;
   scharf/unscharf startet und stoppt die Hintergrund-Wächter), Modus und Bildmodell samt Laden/Entladen, Gesichts- und
   Personenerkennung, Aufbewahrung; die Benachrichtigungs-Regeln als Tabelle Kategorie × Kanal mit Bild-Text

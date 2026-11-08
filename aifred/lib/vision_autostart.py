@@ -103,6 +103,13 @@ def _schedule_active_now(settings: dict[str, Any]) -> bool:
     return (start <= cur < end) if start < end else (cur >= start or cur < end)
 
 
+def motion_threshold(source_settings: dict[str, Any]) -> float:
+    """The camera's trigger threshold (share of the picture that must move), the default outside its range."""
+    value = source_settings.get("motion_min_area_ratio")
+    low, high = VISION_MOTION_MIN_AREA_RANGE
+    return float(value) if isinstance(value, (int, float)) and low <= value <= high else WatchConfig().motion_min_area_ratio
+
+
 def _build_background_config(
     source_record: dict[str, Any],
     plugin_settings: dict[str, Any],
@@ -127,9 +134,6 @@ def _build_background_config(
 
     source_id = str(source_record.get("source_id") or "")
     settings = source_record.get("settings") or {}
-    mma = settings.get("motion_min_area_ratio")
-    if not isinstance(mma, (int, float)) or not VISION_MOTION_MIN_AREA_RANGE[0] <= mma <= VISION_MOTION_MIN_AREA_RANGE[1]:
-        mma = defaults.motion_min_area_ratio
 
     # Pro-Kamera-Drossel (UI: "Min. Event-Abstand"). Eine belebte
     # Außenkamera und ein selten überwachter Schreibtisch brauchen
@@ -154,7 +158,7 @@ def _build_background_config(
 
     base = WatchConfig(
         fps=VISION_BACKGROUND_WATCH_FPS,
-        motion_min_area_ratio=float(mma),
+        motion_min_area_ratio=motion_threshold(settings),
         motion_ego_shift_px=float(_ego),
         save_event_frames=True,
         run_face_detect_on_motion=face_enabled,
@@ -249,37 +253,6 @@ async def start_background_watcher(source_id: str) -> bool:
         return False
 
 
-async def restore_or_stop_after_preview(source_id: str) -> None:
-    """Called when the last live-preview SSE viewer for a source
-    disconnects (popup closed). Tears down the popup's on-demand
-    VLM/face overlay and returns the source to its baseline state.
-
-    Two concepts, kept separate:
-
-    * Continuous-VLM is GPU-hungry and only a deliberate opt-in in the
-      live popup — it always ends here.
-    * Motion + (CPU) face recognition is the permanent surveillance and
-      belongs to the armed/``auto_start`` path, not the popup.
-
-    So: a source that is armed AND ``auto_start`` is restored to its
-    background watcher (motion + face per settings, VLM off); any other
-    source — opened ad-hoc in the popup without being armed — is stopped
-    entirely so nothing keeps running once the window is gone.
-    """
-    from .vision_store import VisionStore
-    from .vision_watcher import get_default_watcher
-
-    plugin = load_vision_settings()
-    armed = bool(plugin.get("vigilantia_armed", False))
-    record = VisionStore().get_source(source_id)
-    auto_start = bool(record.get("auto_start")) if record else False
-
-    if armed and auto_start:
-        await start_background_watcher(source_id)
-    else:
-        await get_default_watcher().stop(source_id)
-
-
 async def start_all_background_watchers() -> int:
     """Beim AIfred-Service-Boot aufgerufen. Startet alle Sources, die
     in der DB ``auto_start=True`` haben. Returnt Anzahl gestarteter
@@ -305,7 +278,10 @@ async def start_all_background_watchers() -> int:
     if not plugin.get("vigilantia_armed", False):
         logger.info("autostart: vigilantia disarmed — skipping all sources")
         return 0
-    targets = [r for r in sources if r.get("auto_start")]
+    from .vision_live_analysis import is_live
+
+    # A camera in a live analysis keeps it; it returns to the background watch when the analysis ends.
+    targets = [r for r in sources if r.get("auto_start") and not is_live(str(r.get("source_id") or ""))]
     if not targets:
         return 0
     from .vision_watcher import get_default_watcher
@@ -348,10 +324,14 @@ async def _start_newly_plugged_cameras(records: list[dict[str, Any]]) -> None:
 
 async def apply_background_watch(source_id: str) -> None:
     """Start or stop the camera's background watcher as its settings say right now: the eye armed (and the
-    vision not off), the camera's background switch on, inside its schedule. The schedule supervisor and
-    the settings page decide through here."""
+    vision not off), the camera's background switch on, inside its schedule. The schedule supervisor, the
+    settings page and the end of a live analysis decide through here; a camera in a live analysis is left alone."""
+    from .vision_live_analysis import is_live
     from .vision_store import VisionStore
     from .vision_watcher import get_default_watcher
+
+    if is_live(source_id):
+        return
 
     plugin = load_vision_settings()
     record = VisionStore().get_source(source_id) or {}
@@ -416,9 +396,10 @@ def ensure_schedule_supervisor() -> None:
 
 async def stop_all_background_watchers() -> int:
     """Entwaffnet die Alarmanlage — stoppt alle laufenden Watcher der
-    Sources mit ``auto_start=True``. Lässt UI-getriggerte Watcher
-    intakt, die zu Sources gehören, die NICHT auf auto_start stehen
-    (die werden durch das Vorschau-Popup verwaltet)."""
+    Sources mit ``auto_start=True``. Eine laufende Live-Analyse bleibt
+    (``vision_live_analysis``); endet sie, entscheidet
+    ``apply_background_watch``."""
+    from .vision_live_analysis import is_live
     from .vision_store import VisionStore
     from .vision_watcher import get_default_watcher
 
@@ -434,7 +415,7 @@ async def stop_all_background_watchers() -> int:
         if not record.get("auto_start"):
             continue
         source_id = record.get("source_id") or ""
-        if not source_id:
+        if not source_id or is_live(source_id):
             continue
         ok = await watcher.stop(source_id)
         if ok:

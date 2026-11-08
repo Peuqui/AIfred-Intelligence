@@ -44,8 +44,9 @@ _pending_teardown: dict[str, asyncio.Task[None]] = {}
 
 async def _teardown_after_grace(source_id: str) -> None:
     """Wait out the grace window, then — if still nobody is watching —
-    return the source to its baseline (restore armed surveillance or
-    stop it). Cancelled by a new subscriber before the window elapses."""
+    end the source's live analysis (``vision_live_analysis``: back to
+    the background watch). Cancelled by a new subscriber before the
+    window elapses."""
     try:
         await asyncio.sleep(_IDLE_GRACE_SEC)
     except asyncio.CancelledError:
@@ -55,12 +56,21 @@ async def _teardown_after_grace(source_id: str) -> None:
     from .logging_utils import log_message
     log_message(f"🛑 vision_event_bus idle teardown source={source_id}")
     try:
-        from .vision_autostart import restore_or_stop_after_preview
-        await restore_or_stop_after_preview(source_id)
+        from .vision_live_analysis import end_analysis
+        await end_analysis(source_id)
     except (ValueError, sqlite3.Error, OSError) as e:  # settings file or event database
         logger.warning("event-bus: preview teardown failed for %s: %s", source_id, e)
     finally:
         _pending_teardown.pop(source_id, None)
+
+
+def expect_viewer(source_id: str) -> None:
+    """A live analysis just started: unless a viewer follows it within the grace window, it ends (as when the last
+    one leaves). A page that never opens the stream must not leave it running."""
+    if not _subscribers.get(source_id) and source_id not in _pending_teardown:
+        _pending_teardown[source_id] = asyncio.create_task(
+            _teardown_after_grace(source_id), name=f"vlm_preview_teardown|{source_id}",
+        )
 
 
 def publish_vlm_event(source_id: str, event: dict[str, Any]) -> None:

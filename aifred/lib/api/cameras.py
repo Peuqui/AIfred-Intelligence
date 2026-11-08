@@ -48,11 +48,20 @@ class PreviewSettingsRow(BaseModel):
     face_throttle_sec: float
 
 
+class LiveAnalysisRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    vlm: bool = Field(description="The image model describes the picture")
+    faces: bool = Field(description="Faces (and with the eye's setting persons) are recognised")
+
+
 class LiveView(BaseModel):
     cameras: list[CameraRow]
     visible: list[str] = Field(description="The cameras the view shows")
+    analysis: dict[str, LiveAnalysisRow] = Field(description="The cameras in a live analysis (the server's, every page sees it)")
     settings: PreviewSettingsRow
     fps_choices: list[ChoiceOption]
+    cooldown_choices: list[ChoiceOption] = Field(description="Seconds between two descriptions of a live analysis")
+    face_throttle_choices: list[ChoiceOption] = Field(description="Seconds between two face events of a live analysis")
     ptz_speeds: list[ChoiceOption]
     ptz_default_speed: str
     ptz_heartbeat_ms: int = Field(description="How often a held key sends keepalive")
@@ -106,9 +115,22 @@ def _fps_label(fps: float, lang: str) -> str:
     return t("vision_fps", lang=lang, fps=format_number(fps, 0))
 
 
+def _interval_label(seconds: float, lang: str) -> str:
+    """Seconds of a pause; below one second also how many a second."""
+    from ..formatting import format_number
+    from ..i18n import t
+
+    digits = 0 if seconds == int(seconds) else 1
+    if seconds < 1:
+        return t("vision_interval_rate", lang=lang, seconds=format_number(seconds, digits), rate=format_number(1 / seconds, 0))
+    return t("vision_interval", lang=lang, seconds=format_number(seconds, digits))
+
+
 def _live() -> LiveView:
     from ..config import (
+        VISION_PREVIEW_FACE_THROTTLE_CHOICES,
         VISION_PREVIEW_FPS_CHOICES,
+        VISION_PREVIEW_VLM_COOLDOWN_CHOICES,
         VISION_PTZ_DEFAULT_SPEED,
         VISION_PTZ_HEARTBEAT_SEC,
         VISION_PTZ_SPEEDS,
@@ -116,6 +138,7 @@ def _live() -> LiveView:
     from ..i18n import t
     from ..prompt_loader import get_language
     from ..vision_cameras import cameras, preview_settings, visible_cameras
+    from ..vision_live_analysis import analysis
 
     lang = get_language()
     found = cameras()
@@ -123,8 +146,12 @@ def _live() -> LiveView:
     return LiveView(
         cameras=[CameraRow(**asdict(camera)) for camera in found],
         visible=visible_cameras(settings, found),
+        analysis={camera.id: LiveAnalysisRow(**asdict(state)) for camera in found if (state := analysis(camera.id)).on},
         settings=PreviewSettingsRow(**{key: value for key, value in asdict(settings).items() if key != "visible_sources"}),
         fps_choices=[ChoiceOption(id=f"{fps:g}", label=_fps_label(fps, lang)) for fps in VISION_PREVIEW_FPS_CHOICES],
+        cooldown_choices=[ChoiceOption(id=f"{value:g}", label=_interval_label(value, lang)) for value in VISION_PREVIEW_VLM_COOLDOWN_CHOICES],
+        face_throttle_choices=[ChoiceOption(id=f"{value:g}", label=_interval_label(value, lang))
+                               for value in VISION_PREVIEW_FACE_THROTTLE_CHOICES],
         ptz_speeds=[ChoiceOption(id=speed, label=t(f"vision_preview_ptz_speed_{speed}", lang=lang)) for speed in VISION_PTZ_SPEEDS],
         ptz_default_speed=VISION_PTZ_DEFAULT_SPEED,
         ptz_heartbeat_ms=round(VISION_PTZ_HEARTBEAT_SEC * 1000),
@@ -137,12 +164,29 @@ async def vision_live() -> LiveView:
     return await asyncio.to_thread(_live)
 
 
+@api_app.put("/vision/live/analysis/{source_id:path}", response_model=LiveAnalysisRow, tags=["Vision"])
+async def vision_live_analysis(source_id: str, wanted: LiveAnalysisRow) -> LiveAnalysisRow:
+    """Start, change or end a camera's live analysis (both off: back to its background watch). It lasts while a
+    page follows ``GET /vision/events/{id}`` (5 s after the last one leaves it ends); 404 for no such camera, 500
+    when the watcher does not start."""
+    from ..vision_live_analysis import LiveAnalysis, set_analysis
+
+    running = await set_analysis(source_id, LiveAnalysis(vlm=wanted.vlm, faces=wanted.faces))
+    log_message(f"👁️ Live analysis {source_id}: image model {'on' if running.vlm else 'off'}, faces {'on' if running.faces else 'off'}")
+    return LiveAnalysisRow(vlm=running.vlm, faces=running.faces)
+
+
 @api_app.patch("/vision/live", response_model=LiveView, tags=["Vision"])
 async def vision_live_change(change: PreviewChange) -> LiveView:
-    """Frame rate, layout, rhythm of the analysis or the cameras shown; 422 for a value outside its range."""
+    """Frame rate, layout, rhythm of the analysis or the cameras shown; 422 for a value outside its range. A running
+    live analysis takes a new pace at once."""
     from ..vision_cameras import save_preview_settings
+    from ..vision_live_analysis import renew_all
 
-    await asyncio.to_thread(save_preview_settings, **change.model_dump(exclude_none=True))
+    changes = change.model_dump(exclude_none=True)
+    await asyncio.to_thread(save_preview_settings, **changes)
+    if changes.keys() & {"fps", "vlm_cooldown_sec", "face_throttle_sec"}:
+        await renew_all()
     return await asyncio.to_thread(_live)
 
 

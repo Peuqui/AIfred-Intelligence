@@ -1338,5 +1338,9 @@
   "zone_editor_paint_hint": "The left mouse button paints the chosen kind, the right one erases.",
   "zone_editor_unsaved": "The changes to the mask are not saved yet.",
   "zone_editor_discard": "Discard",
-  "zone_editor_keep_editing": "Keep editing"
+  "zone_editor_keep_editing": "Keep editing",
+  "error_live_analysis_not_started": "The live analysis of {camera} did not start: {reason}",
+  "vision_interval": "{seconds} s",
+  "vision_interval_rate": "{seconds} s · {rate}/s",
+  "vision_preview_face_similarity": "{percent} %"
 }

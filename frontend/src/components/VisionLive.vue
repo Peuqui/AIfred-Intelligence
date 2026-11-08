@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // The live view: the cameras shown, each with its picture (a stream at the chosen frame rate, or a still image
-// renewed by hand), its resolution and briefing, the head of a camera that can move (held keys, home) and photos
-// in full resolution. What is shown and how often is kept by the server (data/vision_preview.json).
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+// renewed by hand), its resolution and briefing, the head of a camera that can move (held keys, home), photos
+// in full resolution and its live analysis (the image model describing, faces recognised; lib/vision_live_analysis.py),
+// which lasts while a page follows it. What is shown and how often is kept by the server (data/vision_preview.json).
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from "vue";
 import { ApiError, api, apiUrl } from "../api/client";
-import type { CameraRow, ChoiceOption, LiveView } from "../api/types";
-import { t } from "../i18n";
+import type { CameraRow, ChoiceOption, LiveAnalysisRow, LiveView } from "../api/types";
+import { formatNumber, t } from "../i18n";
+import { type Feed, emptyFeed, received } from "../lib/liveFeed";
 import ImageLightbox from "./ImageLightbox.vue";
 
 const live = ref<LiveView | null>(null);
@@ -100,6 +102,67 @@ const pad = [
   { direction: "zoom_out", label: "－", tip: "vision_preview_ptz_zoom_out" },
 ];
 const picked = (event: Event): string => (event.target as HTMLSelectElement).value;
+
+// ── The live analysis: switched per camera, followed over the camera's event stream while the view shows it ──
+const OFF: LiveAnalysisRow = { vlm: false, faces: false };
+const feeds = reactive<Record<string, Feed>>({});
+const streams = new Map<string, EventSource>();
+const analysisOf = (camera: CameraRow): LiveAnalysisRow => live.value?.analysis[camera.id] ?? OFF;
+const analysing = computed(() => Object.keys(live.value?.analysis ?? {}).length > 0);
+
+async function analyse(camera: CameraRow, change: Partial<LiveAnalysisRow>): Promise<void> {
+  busy.value = camera.id;
+  const running = await call(() => send<LiveAnalysisRow>(`vision/live/analysis/${camera.id}`, "PUT", { ...analysisOf(camera), ...change }));
+  busy.value = "";
+  if (!running || !live.value) return;
+  const { [camera.id]: _left, ...others } = live.value.analysis;
+  live.value.analysis = running.vlm || running.faces ? { ...others, [camera.id]: running } : others;
+}
+
+// The app keeps a page while another one is shown (KeepAlive): meanwhile the pictures and the analysis' streams rest,
+// so no camera streams and no analysis runs for a page nobody looks at (the server ends one nobody follows).
+const onScreen = ref(true);
+onDeactivated(() => {
+  onScreen.value = false;
+  follow();
+});
+onActivated(async () => {
+  if (onScreen.value) return;                 // the first showing: onMounted loads
+  onScreen.value = true;
+  await show(await call(() => api<LiveView>("vision/live")));
+  follow();
+});
+
+// One stream per camera in the view with a running analysis.
+function follow(): void {
+  const view = live.value;
+  const wanted = new Set(onScreen.value ? (view?.visible ?? []).filter((id) => view?.analysis[id]) : []);
+  for (const [id, stream] of streams) {
+    if (wanted.has(id)) continue;
+    stream.close();
+    streams.delete(id);
+  }
+  for (const id of wanted) {
+    if (streams.has(id)) continue;
+    feeds[id] ??= emptyFeed();
+    const stream = new EventSource(apiUrl(`vision/events/${id}`));
+    stream.onmessage = (message: MessageEvent<string>) => {
+      feeds[id] = received(feeds[id] ?? emptyFeed(), JSON.parse(message.data) as Record<string, unknown>);
+    };
+    streams.set(id, stream);
+  }
+}
+watch(() => [live.value?.visible, live.value?.analysis], follow);
+onBeforeUnmount(() => {
+  for (const stream of streams.values()) stream.close();
+  streams.clear();
+});
+const feedOf = (camera: CameraRow): Feed => feeds[camera.id] ?? emptyFeed();
+function forget(camera: CameraRow, key: number): void {
+  const feed = feedOf(camera);
+  feeds[camera.id] = { ...feed, faces: feed.faces.filter((face) => face.key !== key) };
+}
+const similarity = (value: number | null): string => (value === null ? "" : ` · ${t("vision_preview_face_similarity", { percent: formatNumber(value * 100) })}`);
 </script>
 
 <template>
@@ -114,6 +177,27 @@ const picked = (event: Event): string => (event.target as HTMLSelectElement).val
           <option v-for="choice in live.fps_choices" :key="choice.id" :value="choice.id">{{ choice.label }}</option>
         </select>
       </label>
+      <template v-if="analysing">
+        <label class="fps">
+          {{ t("vision_preview_cooldown_label") }}
+          <select :value="String(live.settings.vlm_cooldown_sec)" @change="change({ vlm_cooldown_sec: Number(picked($event)) })">
+            <option v-for="choice in live.cooldown_choices" :key="choice.id" :value="choice.id">{{ choice.label }}</option>
+          </select>
+        </label>
+        <label class="fps">
+          {{ t("vision_preview_face_throttle_label") }}
+          <select :value="String(live.settings.face_throttle_sec)" @change="change({ face_throttle_sec: Number(picked($event)) })">
+            <option v-for="choice in live.face_throttle_choices" :key="choice.id" :value="choice.id">{{ choice.label }}</option>
+          </select>
+        </label>
+        <label class="fps">
+          {{ t("vision_preview_teleprompter_mode_label") }}
+          <select :value="live.settings.teleprompter_mode" @change="change({ teleprompter_mode: picked($event) })">
+            <option value="overlay">{{ t("vision_preview_teleprompter_mode_overlay") }}</option>
+            <option value="below">{{ t("vision_preview_teleprompter_mode_below") }}</option>
+          </select>
+        </label>
+      </template>
       <button v-if="live.settings.fps === 0" :title="t('vision_preview_refresh_tooltip')" @click="renewed++">🔄</button>
       <button :title="t('vision_preview_rescan_tooltip')" @click="call(() => send<LiveView>('vision/cameras/rescan', 'POST')).then(show)">🔍</button>
     </div>
@@ -126,12 +210,18 @@ const picked = (event: Event): string => (event.target as HTMLSelectElement).val
           <strong>{{ camera.label }}</strong>
           <span v-if="camera.alias" class="hardware">{{ camera.hardware_name }}</span>
         </header>
-        <img
-          :src="picture(camera)"
-          :alt="camera.label"
-          :title="t(focus ? 'vision_preview_focus_shrink' : 'vision_preview_focus_enlarge')"
-          @click="focus = focus ? '' : camera.id"
-        />
+        <div class="picture">
+          <img
+            v-if="onScreen"
+            :src="picture(camera)"
+            :alt="camera.label"
+            :title="t(focus ? 'vision_preview_focus_shrink' : 'vision_preview_focus_enlarge')"
+            @click="focus = focus ? '' : camera.id"
+          />
+          <ol v-if="analysisOf(camera).vlm && live.settings.teleprompter_mode === 'overlay' && feedOf(camera).descriptions.length" class="prompter over">
+            <li v-for="(line, index) in feedOf(camera).descriptions.slice(-3)" :key="index"><span class="times">{{ line.times }}</span> {{ line.text }}</li>
+          </ol>
+        </div>
         <div class="tools">
           <span v-if="camera.ptz" class="pad">
             <button
@@ -149,10 +239,32 @@ const picked = (event: Event): string => (event.target as HTMLSelectElement).val
             </select>
           </span>
           <button :title="t('vision_preview_photo')" :disabled="busy === camera.id" @click="photo(camera)">📸</button>
+          <button :class="{ on: analysisOf(camera).vlm }" :title="t('vision_preview_watch_start')" :disabled="busy === camera.id" @click="analyse(camera, { vlm: !analysisOf(camera).vlm })">🧠</button>
+          <button :class="{ on: analysisOf(camera).faces }" :title="t('vision_preview_face_button')" :disabled="busy === camera.id" @click="analyse(camera, { faces: !analysisOf(camera).faces })">👤</button>
+          <button v-if="feedOf(camera).descriptions.length || feedOf(camera).faces.length" :title="t('vision_preview_teleprompter_clear')" @click="feeds[camera.id] = emptyFeed()">🧹</button>
           <select v-if="(resolutions[camera.id] ?? []).length > 1" :value="camera.resolution" @change="keep(camera, { resolution: picked($event) })">
             <option v-for="choice in resolutions[camera.id]" :key="choice.id" :value="choice.id">{{ choice.label }}</option>
           </select>
         </div>
+        <section v-if="analysisOf(camera).vlm && live.settings.teleprompter_mode === 'below'" class="prompter">
+          <strong>{{ t("vision_preview_teleprompter_label") }}</strong>
+          <ol>
+            <li v-for="(line, index) in feedOf(camera).descriptions" :key="index"><span class="times">{{ line.times }}</span> {{ line.text }}</li>
+          </ol>
+        </section>
+        <section v-if="analysisOf(camera).faces" class="prompter">
+          <strong>{{ t("vision_preview_faces_section_label") }}</strong>
+          <p v-if="!feedOf(camera).faces.length" class="empty">{{ t("vision_preview_faces_idle") }}</p>
+          <div v-for="face in feedOf(camera).faces" :key="face.key" class="face">
+            <img v-if="face.crop" :src="face.crop" alt="" @click="opened = { images: [face.crop], start: 0 }" />
+            <span class="who">
+              <span class="times">{{ face.time }}</span>
+              {{ face.name || t("vision_preview_face_unknown_label") }}{{ similarity(face.similarity) }}
+            </span>
+            <a v-if="!face.name" class="tag" href="#/vision/persons">{{ t("vision_preview_face_enroll_button") }}</a>
+            <button @click="forget(camera, face.key)">{{ t("vision_preview_face_discard_button") }}</button>
+          </div>
+        </section>
         <label class="briefing">
           <span>{{ t("vision_preview_briefing_label") }}</span>
           <textarea
@@ -192,8 +304,18 @@ button:disabled { opacity: 0.5; cursor: default; }
 .camera { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 10px; }
 .camera header { display: flex; align-items: baseline; gap: 8px; }
 .hardware { font-size: 0.75rem; color: var(--aifred-text-muted); }
-.camera > img { width: 100%; border-radius: 6px; background: #000; cursor: zoom-in; min-height: 120px; }
-.grid.single .camera > img { cursor: zoom-out; }
+.picture { position: relative; }
+.picture > img { display: block; width: 100%; border-radius: 6px; background: var(--aifred-media-bg); cursor: zoom-in; min-height: 120px; }
+.grid.single .picture > img { cursor: zoom-out; }
+button.on { border-color: var(--aifred-primary); color: var(--aifred-primary); }
+.prompter { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; }
+.prompter ol { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.prompter.over { position: absolute; left: 8px; right: 8px; bottom: 8px; padding: 6px 8px; border-radius: 6px; background: var(--aifred-backdrop); pointer-events: none; }
+.times { color: var(--aifred-text-muted); font-variant-numeric: tabular-nums; }
+.face { display: flex; align-items: center; gap: 8px; }
+.face img { width: 36px; height: 36px; object-fit: cover; border-radius: 4px; cursor: zoom-in; }
+.face .who { flex: 1; }
+.tag { color: var(--aifred-primary); font-size: 0.8rem; }
 .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .pad { display: inline-flex; flex-wrap: wrap; gap: 3px; align-items: center; }
 .pad button { touch-action: none; user-select: none; min-width: 32px; }

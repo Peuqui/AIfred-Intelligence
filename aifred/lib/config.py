@@ -895,9 +895,12 @@ VISION_PTZ_HEARTBEAT_SEC = 0.4
 
 # The live view (vision page): what its settings may be (data/vision_preview.json) and the choices it offers.
 VISION_PREVIEW_FPS_RANGE = (0.0, 30.0)              # 0 = a still image, renewed by hand
+VISION_LIVE_ANALYSIS_MIN_FPS = 2.0                  # a live analysis needs frames even while the view shows a still image
 VISION_PREVIEW_VLM_COOLDOWN_RANGE = (0.5, 300.0)    # seconds between two image analyses
 VISION_PREVIEW_FACE_THROTTLE_RANGE = (0.1, 60.0)    # seconds between two face events of a camera
 VISION_PREVIEW_FPS_CHOICES = [0.0, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 30.0]
+VISION_PREVIEW_VLM_COOLDOWN_CHOICES = [1.0, 2.0, 3.0, 5.0, 10.0, 30.0, 60.0]   # live analysis: seconds between two descriptions
+VISION_PREVIEW_FACE_THROTTLE_CHOICES = [0.1, 0.2, 0.5, 1.0, 2.0, 3.0]          # live analysis: seconds between two face events
 VISION_PREVIEW_VLM_COOLDOWN_CHOICES = [1.0, 2.0, 3.0, 5.0, 10.0, 30.0, 60.0]
 VISION_PREVIEW_FACE_THROTTLE_CHOICES = [0.1, 0.2, 0.5, 1.0, 2.0, 3.0]
 VISION_PTZ_MIN_MOVE_SEC = 0.15

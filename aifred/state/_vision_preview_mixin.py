@@ -490,104 +490,19 @@ class VisionPreviewMixin(rx.State, mixin=True):
         self.vision_preview_cache_buster += 1
 
     async def _apply_watch_mode(self, source_id: str) -> None:
-        """Watcher anhand der zwei UI-Toggles (Bild-Analyse +
-        Gesichts-Erkennung) konfigurieren. Beide Modi laufen über
-        denselben Watcher-Task — die Combo wird hier aus dem State
-        zusammengebaut, der Watcher wird bei jeder Toggle-Aktion
-        komplett neu gestartet (stop → start), weil WatchConfig
-        unveränderlich ist.
+        """Die zwei Schalter (Bild-Analyse, Gesichter) an die Live-Analyse des Servers geben
+        (``lib.vision_live_analysis``: Config, Neustart des Wächters, beide aus = zurück an die
+        Hintergrundüberwachung)."""
+        from ..lib.vision_live_analysis import LiveAnalysis, set_analysis
 
-        Wenn beide aus → Watcher wird gestoppt.
-        Wenn mindestens einer an → Watcher mit kombinierter Config.
-        """
-        from ..lib.config import VISION_MOTION_MIN_AREA_RATIO
-        from ..lib.vision_watch_types import WatchConfig
-        from ..lib.vision_watcher import get_default_watcher
-        watcher = get_default_watcher()
-
-        vlm_on = source_id in self.vision_preview_watching
-        face_on = source_id in self.vision_preview_face_active
-
-        # Cache-buster: ein Toggle bedeutet potenzielle Cam-Eviction
-        # — der Browser muss den MJPEG-Stream neu öffnen.
+        # A toggle may evict the camera: the browser opens the stream anew.
         self.vision_preview_cache_buster += 1
-
-        if not vlm_on and not face_on:
-            await watcher.stop(source_id)
-            return
-
-        cd = max(0.5, float(self.vision_preview_vlm_cooldown_sec))
-        preview_fps = float(self.vision_preview_fps or 0.0)
-        stream_fps = max(2.0, preview_fps)
-        # Continuous-Flag aus den Plugin-Settings — der Popup-Toggle
-        # aktiviert Face-Erkennung; ob die kontinuierlich oder nur
-        # motion-gated läuft, entscheidet der Settings-Schalter
-        # ``face_recognition.continuous`` (SSOT in settings.json).
-        # Default OFF = Türsteher-Modus (GPU-schonend), ON = Schreib-
-        # tisch-Modus (auch ruhige Personen werden erkannt).
-        continuous = face_on and bool(
-            getattr(self, "face_recognition_continuous", False)
-        )
-        # Per-Cam Motion-Schwelle aus der Source-Liste lesen (vom
-        # _refresh_sources eingefüttert). Default (config.py) wenn nichts
-        # gesetzt — Outdoor-Cams können das hochschrauben, um Wind
-        # in den Blättern zu ignorieren.
-        mma = VISION_MOTION_MIN_AREA_RATIO
-        for e in self.vision_preview_sources:
-            if e.get("id") == source_id:
-                try:
-                    mma = float(
-                        e.get("motion_min_area_ratio") or VISION_MOTION_MIN_AREA_RATIO
-                    )
-                except (TypeError, ValueError):
-                    mma = VISION_MOTION_MIN_AREA_RATIO
-                break
-        # Personenerkennung läuft parallel zur Gesichtserkennung — wie
-        # beim Auge (Hintergrund). Gekoppelt an den Face-Button (die
-        # Überwachungs-Paarung „wer ist da"), gesteuert von derselben
-        # SSoT wie der Hintergrund (settings.json).
-        person_on = face_on and bool(
-            getattr(self, "person_detect_enabled", False)
-        )
-        cfg = WatchConfig(
-            fps=stream_fps,
-            motion_min_area_ratio=mma,
-            run_vlm_continuous=vlm_on,
-            vlm_cooldown_sec=cd,
-            run_face_detect_on_motion=face_on,
-            run_person_detect_on_motion=person_on,
-            face_recognition_continuous=continuous,
-            min_event_interval_sec=max(
-                0.1, float(self.vision_preview_face_throttle_sec)
-            ),
-        )
-        # Kamera-Profil-Constraints (SSoT mit Autostart + Tool-Pfad): eine
-        # ai_camera erkennt on-device — MOG2-Gating/YOLO aus, Edge-AI-Poll
-        # triggert. Ohne das lief dieselbe Kamera im Popup mit Pixel-Motion,
-        # im Hintergrund aber mit Edge-AI-Trigger.
-        from ..lib.vision_autostart import profile_watch_overrides
-        from ..lib.vision_settings import load_vision_settings
-        record = None
+        wanted = LiveAnalysis(vlm=source_id in self.vision_preview_watching,
+                              faces=source_id in self.vision_preview_face_active)
         try:
-            from ..lib.vision_store import VisionStore
-            record = VisionStore().get_source(source_id)
-        except sqlite3.Error as e:
-            logger.warning("preview: source lookup failed for %s: %s", source_id, e)
-        overrides = profile_watch_overrides(
-            source_id, (record or {}).get("settings") or {}, load_vision_settings()
-        )
-        if overrides:
-            import dataclasses
-            cfg = dataclasses.replace(cfg, **overrides)
-        # Stop + Start, damit die neue Config greift. start() ist
-        # idempotent — wenn schon was läuft, returnt es; deshalb
-        # stoppen wir explizit vorher.
-        await watcher.stop(source_id)
-        try:
-            await watcher.start(source_id, cfg)
-        except Exception as e:  # the preview shows why the watcher did not start
-            logger.warning("watcher start failed for %s: %s", source_id, e, exc_info=True)
-            self.vision_preview_status = f"⚠️ Watcher: {e}"
+            await set_analysis(source_id, wanted)
+        except UserError as e:  # no such camera, or the watcher did not start: the preview shows why
+            self.vision_preview_status = f"⚠️ Watcher: {said(e, self.ui_language)}"
 
     @rx.event
     async def toggle_vision_preview_watch(self, source_id: str) -> None:

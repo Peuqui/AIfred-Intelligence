@@ -1338,5 +1338,9 @@
   "zone_editor_paint_hint": "Linke Maustaste malt den gewählten Typ, rechte radiert.",
   "zone_editor_unsaved": "Die Änderungen an der Maske sind noch nicht gespeichert.",
   "zone_editor_discard": "Verwerfen",
-  "zone_editor_keep_editing": "Weiter bearbeiten"
+  "zone_editor_keep_editing": "Weiter bearbeiten",
+  "error_live_analysis_not_started": "Die Live-Analyse von {camera} ließ sich nicht starten: {reason}",
+  "vision_interval": "{seconds} s",
+  "vision_interval_rate": "{seconds} s · {rate}/s",
+  "vision_preview_face_similarity": "{percent} %"
 }
