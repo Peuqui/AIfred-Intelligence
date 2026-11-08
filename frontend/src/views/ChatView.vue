@@ -12,6 +12,7 @@ import ImageEditor from "../components/ImageEditor.vue";
 import MessageBubble from "../components/MessageBubble.vue";
 import SessionList from "../components/SessionList.vue";
 import { t } from "../i18n";
+import { CHAT_ZOOM, chatZoom, zoomBy } from "../lib/devicePrefs";
 import { saveAs } from "../lib/download";
 import { renderMarkdown } from "../lib/markdown";
 import { useChat } from "../stores/chat";
@@ -93,14 +94,23 @@ async function remove(sessionId: string): Promise<void> {
   }
 }
 
-// The newest message stays in view while an answer streams.
+// The newest message stays in view while an answer streams, as long as the reader stands at the end: scrolled up
+// to read, the view stays where it is until they come back down (until 08.11.2026 every token pulled it down).
+const FOLLOW_SLACK_PX = 40;
 watch(
   () => [chat.history.length, chat.streaming?.text.length],
   async () => {
+    const view = messages.value;
+    const atEnd = !view || view.scrollHeight - view.scrollTop - view.clientHeight < FOLLOW_SLACK_PX;
     await nextTick();
-    if (messages.value) messages.value.scrollTop = messages.value.scrollHeight;
+    if (view && atEnd) view.scrollTop = view.scrollHeight;
   },
 );
+// A session opened shows its end.
+watch(() => chat.sessionId, async () => {
+  await nextTick();
+  if (messages.value) messages.value.scrollTop = messages.value.scrollHeight;
+});
 
 // The shell shows this page only once logged in; kept alive, it opens a session once per login.
 onMounted(() => void start());
@@ -113,6 +123,8 @@ onMounted(() => void start());
       <div class="toolbar">
         <h2>{{ chat.title || t("untitled_chat") }}</h2>
         <div class="choices">
+          <button class="zoom" :disabled="chatZoom <= CHAT_ZOOM.min" :title="t('chat_font_smaller')" @click="zoomBy(-1)">A−</button>
+          <button class="zoom" :disabled="chatZoom >= CHAT_ZOOM.max" :title="`${t('chat_font_larger')} (${chatZoom} %)`" @click="zoomBy(1)">A+</button>
           <button class="agent-choices" :title="t('agent_choices_title')" @click="choicesOpen = true">🎛️</button>
           <button
             v-if="settings.current?.enable_tts && hasReplies"
@@ -146,7 +158,7 @@ onMounted(() => void start());
           <VisionBadge />
         </div>
       </div>
-      <div ref="messages" class="messages">
+      <div ref="messages" class="messages" :style="{ zoom: chatZoom / 100 }">
         <MessageBubble
           v-for="entry in chat.history"
           :key="entry.timestamp + entry.role"
@@ -208,9 +220,9 @@ onMounted(() => void start());
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 1rem; }
 .choices { display: flex; align-items: center; gap: 10px; }
-.incognito, .regenerate, .agent-choices, .export, .clear, .remember { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
+.incognito, .regenerate, .agent-choices, .export, .clear, .remember, .zoom { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
 .regenerate:disabled, .export:disabled, .remember:disabled { opacity: 0.7; cursor: progress; }
-.clear:disabled { opacity: 0.5; cursor: default; }
+.clear:disabled, .zoom:disabled { opacity: 0.5; cursor: default; }
 .incognito.on { border-color: var(--aifred-accent-amber); }
 .messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
 .streaming { align-self: flex-start; max-width: min(860px, 92%); padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light); }

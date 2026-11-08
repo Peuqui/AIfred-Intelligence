@@ -461,11 +461,13 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
      `cleanup_old_tts_audio(0)` das Audio aller Sitzungen). Das alte `POST /api/chat/clear` geht denselben Weg.
   9. Registrieren eines Kontos aus der Whitelist.
   10. Sitzungen gesammelt löschen.
-  11. Auto-Scroll, der beim Hochscrollen pausiert.
+  11. ~~Auto-Scroll~~ (erledigt 08.11.: der Chat folgt dem Text nur, solange man am Ende steht; hochgescrollt bleibt die
+      Ansicht stehen, ein Schalter ist damit überflüssig).
   12. Manueller Kontext je Agent (Ollama) mit „Berechnung anzeigen“.
-  13. Schalter „Enter sendet“.
+  13. ~~Schalter „Enter sendet“~~ (erledigt 08.11.: am Eingabefeld, je Gerät im Browser gespeichert, `lib/devicePrefs.ts`;
+      Reflex hielt ihn global in settings.json, auf dem Handy will man aber oft Enter als Zeilenumbruch).
   14. Bilder in Chat-Blasen vergrößern (Lightbox).
-  15. Schriftgröße im Chat.
+  15. ~~Schriftgröße im Chat~~ (erledigt 08.11.: A− / A+ in der Kopfleiste, 80 bis 200 %, je Gerät wie in Reflex).
   16. Hilfe-Fenster (Diskussionsmodi, Reasoning/Thinking, Modell-Lebenszyklus, Vigilantia).
   17. Fortschrittsanzeige vor der ersten Antwort.
   18. Ordner und Symlinks im Ordner-Auswähler anlegen (gemeinsamer Dateimanager).

@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import type { Settings, SettingsUpdate, UploadedImage } from "../api/types";
 import { language, t } from "../i18n";
+import { enterSends } from "../lib/devicePrefs";
 import * as recorder from "../lib/recorder";
 import { speaking } from "../lib/speech";
 import DictationBadge, { type BadgePhase } from "./DictationBadge.vue";
@@ -39,9 +40,9 @@ function send(): void {
   text.value = "";
 }
 
-// Enter sends, Shift+Enter breaks the line (as in the Reflex UI).
+// Enter sends and Shift+Enter breaks the line, or (this device's choice) Enter breaks the line and the button sends.
 function onKey(event: KeyboardEvent): void {
-  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+  if (enterSends.value && event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     send();
   }
@@ -122,7 +123,10 @@ function audioPicked(event: Event): void {
       <button class="tool" :title="t('audio_file_upload')" @click="audioPicker?.click()">🎵</button>
       <span v-if="transcribing" class="transcribing">{{ t("dictation_running") }}</span>
       <span v-if="queued" class="queued">{{ t("messages_waiting", { count: queued }) }}</span>
-      <span class="hint">{{ t("enter_sends_hint") }}</span>
+      <label class="enter" :title="t('enter_sends_hint')">
+        <input v-model="enterSends" type="checkbox" />
+        {{ t("enter_sends") }}
+      </label>
       <button v-if="running || speaking" class="stop" @click="emit('stop')">⏹ {{ t("stop_turn") }}</button>
       <button class="send" :disabled="!canSend" @click="send">{{ t("send_text") }}</button>
     </div>
@@ -173,6 +177,8 @@ figure img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; b
 .uploading { font-size: 0.75rem; color: var(--aifred-text-muted); }
 .actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .hint, .queued { font-size: 0.75rem; color: var(--aifred-text-muted); margin-right: auto; }
+.enter { display: flex; align-items: center; gap: 4px; font-size: 0.75rem; color: var(--aifred-text-muted); margin-right: auto; cursor: pointer; }
+.enter input { accent-color: var(--aifred-primary); }
 .queued { color: var(--aifred-accent-amber); margin-right: 0; }
 button { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font: inherit; }
 .tool { background: none; border: 1px solid var(--aifred-border); padding: 4px 10px; }
