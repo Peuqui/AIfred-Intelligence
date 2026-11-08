@@ -3,7 +3,10 @@
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+
+from ..user_error import UserError
 
 API_VERSION = "3.1.0"
 
@@ -20,6 +23,34 @@ api_app = FastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json"
 )
+
+# ============================================================
+# Refusals in the UI language
+# ============================================================
+# Every text the API answers with is one the user may read: a UserError carries its i18n key, the handler words it in
+# the language the UI is set to; a request FastAPI cannot read names its fields the same way.
+
+
+def _ui_language() -> str:
+    from ..prompt_loader import get_language
+
+    return get_language()
+
+
+@api_app.exception_handler(UserError)
+async def _user_error(_request: Request, error: UserError) -> JSONResponse:
+    return JSONResponse({"detail": error.message(_ui_language())}, status_code=error.status)
+
+
+@api_app.exception_handler(RequestValidationError)
+async def _unreadable_request(_request: Request, error: RequestValidationError) -> JSONResponse:
+    from ..i18n import t
+
+    fields = sorted({".".join(str(part) for part in problem["loc"] if part not in ("body", "query", "path")) or "?"
+                     for problem in error.errors()})
+    return JSONResponse({"detail": t("error_unreadable_request", lang=_ui_language(), fields=", ".join(fields))},
+                        status_code=422)
+
 
 # NOTE: CORS middleware is NOT added here.
 # Reflex handles CORS via its own middleware when using api_transformer.
@@ -68,9 +99,9 @@ async def _require_login_cookie(request: Request, call_next):
     if not exempt:
         cookie = request.cookies.get(USERNAME_COOKIE_NAME, "")
         if verify_signed_username(cookie) is None:
-            return JSONResponse(
-                {"detail": "Login cookie required"}, status_code=403
-            )
+            from ..i18n import t
+
+            return JSONResponse({"detail": t("error_login_required", lang=_ui_language())}, status_code=403)
     return await call_next(request)
 
 

@@ -8,7 +8,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 
-from fastapi import HTTPException, Query
+from fastapi import Query
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.responses import StreamingResponse
 
@@ -77,12 +77,9 @@ async def casus_events(
     ``limit=1`` the picture at one position of the list (the slideshow over every page). 422 for an unknown filter."""
     from ..casus import page
 
-    try:
-        events, total = await asyncio.to_thread(
-            page, EventFilter(source=source, type=type, face=face), grouped=grouped, offset=offset, limit=limit,
-        )
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    events, total = await asyncio.to_thread(
+        page, EventFilter(source=source, type=type, face=face), grouped=grouped, offset=offset, limit=limit,
+    )
     return CasusPage(
         events=[CasusEvent(**event, has_frame=bool(event["frame_path"])) for event in events],
         total=total, offset=offset, page_size=VISION_CASUS_PAGE_SIZE,
@@ -143,10 +140,7 @@ async def casus_film(event_id: int) -> list[FilmPicture]:
     """The pictures of the event's occurrence, oldest first (the event alone without one); 404 for no event."""
     from ..casus import film
 
-    try:
-        pictures = await asyncio.to_thread(film, event_id)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"no event {event_id}") from error
+    pictures = await asyncio.to_thread(film, event_id)
     return [FilmPicture(id=picture_id, has_zoom=has_zoom) for picture_id, has_zoom in pictures]
 
 
@@ -172,12 +166,7 @@ async def casus_assign_face(event_id: int, assignment: FaceAssignment) -> None:
     event without a face."""
     from ..casus import assign_face
 
-    try:
-        await asyncio.to_thread(assign_face, event_id, assignment.face_id)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"no event {event_id}") from error
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    await asyncio.to_thread(assign_face, event_id, assignment.face_id)
     log_message(f"🗂️ Casus: event {event_id} → person {assignment.face_id}")
 
 
@@ -186,10 +175,7 @@ async def casus_delete_event(event_id: int) -> None:
     """Delete the event with its pictures; 404 for no event."""
     from ..casus import delete_event
 
-    try:
-        await asyncio.to_thread(delete_event, event_id)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"no event {event_id}") from error
+    await asyncio.to_thread(delete_event, event_id)
     log_message(f"🗂️ Casus: event {event_id} deleted")
 
 
@@ -199,10 +185,7 @@ async def casus_delete_matching(chosen: CasusFilter) -> Deleted:
     filter."""
     from ..casus import delete_matching
 
-    try:
-        deleted = await asyncio.to_thread(delete_matching, EventFilter(**chosen.model_dump()))
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    deleted = await asyncio.to_thread(delete_matching, EventFilter(**chosen.model_dump()))
     log_message(f"🗂️ Casus: {deleted} events deleted ({chosen.model_dump()})")
     return Deleted(deleted=deleted)
 
@@ -256,16 +239,9 @@ async def casus_runs() -> CasusRuns:
 async def casus_analyze(event_id: int) -> CasusRuns:
     """Let the image model describe one event (it loads the model if it must); answers at once, ``runs`` follows it.
     409 while another event is analysed, 404 for no event, 422 for an event without a picture."""
-    from ..casus import RunInProgress, start_analysis
+    from ..casus import start_analysis
 
-    try:
-        start_analysis(event_id)
-    except RunInProgress as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"no event {event_id}") from error
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    start_analysis(event_id)
     log_message(f"🗂️ Casus: event {event_id} goes to the image model")
     return _runs()
 
@@ -274,12 +250,9 @@ async def casus_analyze(event_id: int) -> CasusRuns:
 async def casus_describe_all() -> CasusRuns:
     """Describe every event without a description, once per occurrence, after checking that the image model fits on
     a card; answers at once, ``runs`` follows it. 409 while it runs."""
-    from ..casus import RunInProgress, start_describe_all
+    from ..casus import start_describe_all
 
-    try:
-        start_describe_all()
-    except RunInProgress as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
+    start_describe_all()
     log_message("🗂️ Casus: every event without a description goes to the image model")
     return _runs()
 

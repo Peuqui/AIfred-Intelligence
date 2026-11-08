@@ -7,10 +7,10 @@ import asyncio
 from dataclasses import asdict
 from typing import Literal
 
-from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_message
+from ..user_error import Invalid, Missing
 from .app import api_app
 from .schemas import ChoiceOption
 
@@ -140,10 +140,7 @@ async def vision_live_change(change: PreviewChange) -> LiveView:
     """Frame rate, layout, rhythm of the analysis or the cameras shown; 422 for a value outside its range."""
     from ..vision_cameras import save_preview_settings
 
-    try:
-        await asyncio.to_thread(save_preview_settings, **change.model_dump(exclude_none=True))
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    await asyncio.to_thread(save_preview_settings, **change.model_dump(exclude_none=True))
     return await asyncio.to_thread(_live)
 
 
@@ -163,10 +160,7 @@ async def vision_camera_resolutions(source_id: str) -> list[ChoiceOption]:
     from ..prompt_loader import get_language
     from ..vision_cameras import resolutions
 
-    try:
-        offered = await asyncio.to_thread(resolutions, source_id)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"unknown camera: {source_id}") from error
+    offered = await asyncio.to_thread(resolutions, source_id)
     lang = get_language()
     return [ChoiceOption(id=value, label=label or t("vision_resolution_default", lang=lang)) for value, label in offered]
 
@@ -179,28 +173,20 @@ async def vision_camera_change(source_id: str, change: CameraChange) -> CameraRo
     from ..vision_autostart import apply_background_watch
     from ..vision_cameras import camera, change_camera
 
-    try:
-        watch = await asyncio.to_thread(lambda: change_camera(source_id, **change.model_dump(exclude_none=True)))
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"unknown camera: {source_id}") from error
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    watch = await asyncio.to_thread(lambda: change_camera(source_id, **change.model_dump(exclude_none=True)))
     if watch:
         await apply_background_watch(source_id)
     changed = await asyncio.to_thread(camera, source_id)
     if changed is None:
-        raise HTTPException(status_code=404, detail=f"unknown camera: {source_id}")
+        raise Missing("unknown_camera", camera=source_id)
     log_message(f"📷 Camera {source_id}: {sorted(change.model_dump(exclude_none=True))} changed")
     return CameraRow(**asdict(changed))
 
 
 async def _ptz(action: str, source_id: str, *args: str) -> None:
-    from ..ptz_control import PTZError, ptz_driver
+    from ..ptz_control import ptz_driver
 
-    try:
-        await getattr(ptz_driver, action)(source_id, *args)
-    except PTZError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
+    await getattr(ptz_driver, action)(source_id, *args)
 
 
 @api_app.post("/vision/ptz/{source_id:path}/press", status_code=204, tags=["Vision"])
@@ -210,7 +196,7 @@ async def vision_ptz_press(source_id: str, press: PtzPress) -> None:
     from ..config import VISION_PTZ_SPEEDS
 
     if press.speed not in VISION_PTZ_SPEEDS:
-        raise HTTPException(status_code=422, detail=f"unknown speed {press.speed!r}")
+        raise Invalid("unknown_speed", speed=press.speed)
     await _ptz("press", source_id, press.direction, press.speed)
 
 
@@ -233,11 +219,8 @@ async def vision_ptz_home(source_id: str) -> None:
 @api_app.post("/vision/photo/{source_id:path}", response_model=PhotoTaken, tags=["Vision"])
 async def vision_photo(source_id: str) -> PhotoTaken:
     """A photo in full resolution (the camera's own snapshot when it has one), kept under the vigilantia folder."""
-    from ..vision_photo import PhotoError, take_photo
+    from ..vision_photo import take_photo
 
-    try:
-        url = await take_photo(source_id)
-    except PhotoError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
+    url = await take_photo(source_id)
     log_message(f"📸 Photo of {source_id}: {url}")
     return PhotoTaken(url=url)

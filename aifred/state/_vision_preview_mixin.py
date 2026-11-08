@@ -34,7 +34,8 @@ import reflex as rx
 from ..lib.config import VISION_PTZ_DEFAULT_SPEED, VISION_PTZ_SPEEDS
 from ..lib.ptz_control import PTZError, get_controller, ptz_driver
 from ..lib.toast import toast
-from ..lib.vision_photo import PhotoError, take_photo
+from ..lib.user_error import UserError, said
+from ..lib.vision_photo import take_photo
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,8 @@ class VisionPreviewMixin(rx.State, mixin=True):
         # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
+        ui_language: rx.Field[str]
+
         def _persist_source_setting(self, source_id: str, key: str, value: Any) -> None: ...
         def _refresh_vision_settings(self) -> None: ...
         async def _refresh_vlm_loaded(self) -> None: ...
@@ -378,8 +381,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
         # hier brauchen wir aber den rohen String, also direkt aus
         # der Translation-Quelle holen.
         from ..lib.i18n import TranslationManager
-        ui_lang = getattr(self, "ui_language", "de") or "de"
-        translations = TranslationManager._translations.get(ui_lang, {})
+        translations = TranslationManager._translations.get(self.ui_language, {})
         enroll_label = translations.get(
             "vision_preview_face_enroll_button", "+ tag"
         )
@@ -721,9 +723,9 @@ class VisionPreviewMixin(rx.State, mixin=True):
         Vorschau erscheint am Bild, ein Klick darauf öffnet das Foto."""
         try:
             url = await take_photo(source_id)
-        except (PhotoError, ValueError) as e:
+        except (UserError, ValueError) as e:  # no such camera, no picture, not saved
             logger.warning("photo failed for %s: %s", source_id, e)
-            return toast("warning", f"Foto: {e}")
+            return toast("warning", said(e, self.ui_language))
         self.vision_preview_photos = {
             **self.vision_preview_photos,
             source_id: [*self.vision_preview_photos.get(source_id, []), url],
@@ -743,7 +745,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
             self.ptz_held = source_id
         except (PTZError, ValueError) as e:
             logger.warning("PTZ press failed for %s: %s", source_id, e)
-            return toast("warning", f"PTZ: {e}")
+            return toast("warning", f"PTZ: {said(e, self.ui_language)}")
 
     @rx.event
     async def ptz_release(self, source_id: str) -> Any:
@@ -753,7 +755,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
             await ptz_driver.release(source_id)
         except (PTZError, ValueError) as e:
             logger.warning("PTZ release failed for %s: %s", source_id, e)
-            return toast("warning", f"PTZ: {e}")
+            return toast("warning", f"PTZ: {said(e, self.ui_language)}")
 
     @rx.event
     def set_ptz_speed(self, value: str | list[str]) -> None:
@@ -774,7 +776,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
         except (PTZError, ValueError) as e:
             logger.warning("PTZ heartbeat failed for %s: %s", self.ptz_held, e)
             self.ptz_held = ""
-            return toast("warning", f"PTZ: {e}")
+            return toast("warning", f"PTZ: {said(e, self.ui_language)}")
 
     @rx.event
     async def ptz_home(self, source_id: str) -> Any:
@@ -784,7 +786,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
             await ptz_driver.home(source_id)
         except (PTZError, ValueError) as e:
             logger.warning("PTZ home failed for %s: %s", source_id, e)
-            return toast("warning", f"PTZ: {e}")
+            return toast("warning", f"PTZ: {said(e, self.ui_language)}")
 
     @rx.event
     def refresh_vision_preview(self) -> None:

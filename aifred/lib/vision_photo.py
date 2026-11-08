@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .frame_hub import get_default_hub
 from .frame_sources import get as get_source
+from .user_error import Missing, UpstreamFailed
 from .vision_filters.zone_mask import load_zone_mask
 from .vision_output import OutputChain
 from .vision_snap import resolve_snap_channel, snap_frames
@@ -21,7 +22,7 @@ from .vision_utils import VIGILANTIA_DIR
 PHOTOS_DIR = VIGILANTIA_DIR / "photos"
 
 
-class PhotoError(RuntimeError):
+class PhotoError(UpstreamFailed):
     """Der Schnappschuss konnte nicht aufgenommen oder gespeichert werden."""
 
 
@@ -31,17 +32,20 @@ async def take_photo(source_id: str) -> str:
     if resolve_snap_channel(source_id) is not None:
         frames = await snap_frames(source_id, 1)
         if not frames:
-            raise PhotoError(f"Schnappschuss der Kamera {source_id} fehlgeschlagen")
+            raise PhotoError("photo_failed", camera=source_id)
         frame = frames[0]
     else:
         source = get_source(source_id)
         if source is None:
-            raise PhotoError(f"unbekannte Quelle: {source_id}")
-        frame = await get_default_hub().snapshot(source)
+            raise Missing("unknown_camera", camera=source_id)
+        try:
+            frame = await get_default_hub().snapshot(source)
+        except (TimeoutError, RuntimeError) as error:  # no frame in time, or the stream ended without one
+            raise PhotoError("photo_failed", camera=source_id) from error
     chain = OutputChain(PHOTOS_DIR)
     chain.set_zone_mask(source_id, load_zone_mask(source_id))
     finalized = await chain.finalize(frame, save=True)
     if not finalized.path:
-        raise PhotoError(f"Foto von {source_id} konnte nicht gespeichert werden")
+        raise PhotoError("photo_not_saved", camera=source_id)
     relative = Path(finalized.path).relative_to(VIGILANTIA_DIR)
     return f"/_upload/vigilantia/{relative.as_posix()}"

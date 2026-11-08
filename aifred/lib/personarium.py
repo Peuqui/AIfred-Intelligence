@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from .user_error import Conflict, Invalid, Missing
 from .vision_store import VisionStore
 
 logger = logging.getLogger(__name__)
@@ -39,12 +40,13 @@ def persons() -> list[dict[str, Any]]:
 
 
 def rename(face_id: int, name: str) -> None:
-    """KeyError for no such person, ValueError for an empty name or one another person has."""
+    """Missing for no such person, Invalid for an empty name, Conflict for one another person has (the store's
+    check, in the same transaction as the change)."""
     clean = name.strip()
     if not clean:
-        raise ValueError("a person needs a name")
+        raise Invalid("person_needs_name")
     if not VisionStore().rename_face(face_id, clean):
-        raise KeyError(face_id)
+        raise Missing("no_person", person=face_id)
     _recognisers_reload()
 
 
@@ -54,7 +56,7 @@ def delete(face_id: int) -> tuple[str, int]:
     store = VisionStore()
     face = store.get_face_by_id(face_id)
     if face is None:
-        raise KeyError(face_id)
+        raise Missing("no_person", person=face_id)
     deleted = store.delete_face_with_assets(face_id)
     _recognisers_reload()
     return str(face["name"]), int(deleted["embeddings_deleted"])
@@ -65,7 +67,7 @@ def embeddings(face_id: int) -> list[dict[str, Any]]:
     such person."""
     store = VisionStore()
     if store.get_face_by_id(face_id) is None:
-        raise KeyError(face_id)
+        raise Missing("no_person", person=face_id)
     rows = sorted(store.list_embeddings(face_id), key=lambda row: int(row.get("id") or 0), reverse=True)
     return [{"id": int(row["id"]), "quality": float(row.get("quality_score") or 0.0),
              "created_at": str(row.get("created_at") or "")[:19].replace("T", " "),
@@ -75,7 +77,7 @@ def embeddings(face_id: int) -> list[dict[str, Any]]:
 def delete_embedding(embedding_id: int) -> None:
     """KeyError for no such embedding."""
     if not VisionStore().delete_embedding(embedding_id):
-        raise KeyError(embedding_id)
+        raise Missing("no_embedding", embedding=embedding_id)
     _recognisers_reload()
 
 
@@ -108,9 +110,8 @@ def open_faces() -> list[Card]:
 def _members(card_ids: list[int]) -> dict[int, list[int]]:
     """The events behind the cards ``card_ids`` (a card that is no longer open: KeyError)."""
     cards = {card.id: card.member_ids for card in open_faces()}
-    missing = [card_id for card_id in card_ids if card_id not in cards]
-    if missing:
-        raise KeyError(missing[0])
+    if any(card_id not in cards for card_id in card_ids):
+        raise Missing("open_face_gone")
     return {card_id: cards[card_id] for card_id in card_ids}
 
 
@@ -193,7 +194,7 @@ class Rematch:
         return text
 
 
-class RematchRunning(RuntimeError):
+class RematchRunning(Conflict):
     """The faces are being recognised again already."""
 
 
@@ -210,7 +211,7 @@ def start_rematch() -> asyncio.Task[None]:
     rest stays open. :class:`RematchRunning` while it runs."""
     global _rematch
     if _rematch.running:
-        raise RematchRunning("the open faces are being recognised again already")
+        raise RematchRunning("rematch_running")
     _rematch = Rematch(running=True)
     run = asyncio.create_task(_recognise_again())
     _runs.add(run)

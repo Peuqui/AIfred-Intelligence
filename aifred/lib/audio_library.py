@@ -16,6 +16,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from .user_error import Conflict, Invalid, Missing
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,7 +46,7 @@ def _local_folder(label: str) -> dict[str, Any]:
 
     cfg = build_configured_source_map().get(label)
     if cfg is None or cfg.get("type") != "local_folder":
-        raise KeyError(label)
+        raise Missing("no_audio_source", source=label)
     return dict(cfg)
 
 
@@ -74,11 +76,11 @@ def change_settings(*, root: str | None = None, list_max: int | None = None) -> 
     if root is not None:
         folder = Path(root.strip()).expanduser()
         if not folder.is_absolute() or not folder.is_dir():
-            raise ValueError(f"the sandbox must be an absolute folder: {root!r}")
+            raise Invalid("sandbox_not_folder", path=root)
         settings.setdefault("picker", {})["root"] = str(folder)
     if list_max is not None:
         if list_max < 1:
-            raise ValueError("the threshold is at least 1")
+            raise Invalid("number_too_small", value=list_max, low=1)
         settings.setdefault("tts_list", {})["full_max_items"] = list_max
     save_audio_player_settings(settings)
 
@@ -90,7 +92,7 @@ def folders(rel_path: str = "") -> tuple[str, list[tuple[str, str, bool]]]:
 
     listed = browse(BrowseRequest(root=picker_root(), rel_path=rel_path, show_files=False))
     if not listed.success:
-        raise ValueError(listed.error)
+        raise Invalid("folder_unreadable", path=rel_path, reason=listed.error)
     return listed.rel_path, [(entry.name, entry.rel_path, entry.is_symlink) for entry in listed.entries if entry.is_dir]
 
 
@@ -103,14 +105,14 @@ def add_source(rel_path: str) -> str:
     root = picker_root()
     folder, error = safe_resolve(root, rel_path)
     if folder is None:
-        raise ValueError(error or f"not in the sandbox: {rel_path!r}")
+        raise Invalid("folder_unreadable", path=rel_path, reason=error or "")
     if not folder.is_dir():
-        raise ValueError(f"not a folder: {rel_path!r}")
+        raise Invalid("not_a_folder", path=rel_path)
     # A symlink chain inside the sandbox may still point out of it: the resolved folder decides.
     try:
         folder.resolve().relative_to(Path(root).expanduser().resolve())
     except ValueError as error:
-        raise ValueError(f"the folder leads outside the sandbox {root!r}") from error
+        raise Invalid("leads_outside_sandbox", path=rel_path) from error
     base = folder.name or "source"
     label, number = base, 1
     while (MEDIA_AUDIO_DIR / label).exists() or (MEDIA_AUDIO_DIR / label).is_symlink():
@@ -169,7 +171,7 @@ class Indexing:
                  deleted=format_number(self.deleted, 0), seconds=format_number(self.seconds, 1))
 
 
-class IndexingRunning(RuntimeError):
+class IndexingRunning(Conflict):
     """A source is being read already."""
 
 
@@ -186,7 +188,7 @@ def start_indexing(label: str, force: bool = False) -> asyncio.Task[None]:
     while one runs, KeyError for an unknown label."""
     global _indexing
     if _indexing.running:
-        raise IndexingRunning(f"{_indexing.running} is being read")
+        raise IndexingRunning("indexing_running", source=_indexing.running)
     folder = _local_folder(label)["path"]
     _indexing = Indexing(running=label)
     run = asyncio.create_task(_read(label, str(folder), force))

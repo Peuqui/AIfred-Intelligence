@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 from aifred.lib.face_enroll import _best_detection_for_event
+from aifred.lib.user_error import Invalid
 from aifred.lib.vision_filters.face_detect import FaceDetection
 
 
@@ -83,14 +84,16 @@ def test_tele_snap_is_used_when_the_event_says_so(frames):
 def test_event_without_detect_frame_is_refused(frames):
     """Kein Rateweg mehr: ohne Angabe wird nicht gelernt."""
     event = _event(frame_path=frames["wide"], zoom_frame_path=frames["zoom"])
-    with pytest.raises(ValueError, match="detect_frame_path"):
+    with pytest.raises(Invalid) as refused:
         asyncio.run(_best_detection_for_event(event, _RecordingDetector()))
+    assert refused.value.key == "face_frame_unknown"
 
 
 def test_deleted_frame_is_reported_as_such(tmp_path):
     event = _event(detect_frame_path=str(tmp_path / "weg.jpg"))
-    with pytest.raises(ValueError, match="no longer on disk"):
+    with pytest.raises(Invalid) as refused:
         asyncio.run(_best_detection_for_event(event, _RecordingDetector()))
+    assert refused.value.key == "face_frame_gone"
 
 
 def test_bbox_from_the_wrong_frame_is_rejected(frames):
@@ -98,12 +101,14 @@ def test_bbox_from_the_wrong_frame_is_rejected(frames):
     nicht das naechstbeste Gesicht gelernt."""
     det = _RecordingDetector(bbox=(400, 300, 80, 80))   # ganz woanders
     event = _event(detect_frame_path=frames["wide"])
-    with pytest.raises(ValueError, match="does not match"):
+    with pytest.raises(Invalid) as refused:
         asyncio.run(_best_detection_for_event(event, det))
+    assert refused.value.key == "face_box_mismatch"
 
 
 def test_event_without_bbox_is_refused(frames):
     event = {"id": 7, "source_id": "cam/door", "frame_path": frames["wide"],
              "classification": {"detect_frame_path": frames["wide"]}}
-    with pytest.raises(ValueError, match="no face bbox"):
+    with pytest.raises(Invalid) as refused:
         asyncio.run(_best_detection_for_event(event, _RecordingDetector()))
+    assert (refused.value.key, refused.value.values) == ("face_box_missing", {"event": 7})

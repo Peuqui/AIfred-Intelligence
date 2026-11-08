@@ -12,6 +12,7 @@ from starlette.testclient import TestClient
 
 from aifred.lib import frame_sources, ptz_control, vision_cameras, vision_store
 from aifred.lib.frame_sources.base import SourceInfo
+from aifred.lib.user_error import Invalid
 
 
 class _Camera:
@@ -77,8 +78,9 @@ def test_the_views_settings_are_checked_and_an_empty_choice_stays_empty(client: 
 
 def test_a_broken_settings_file_is_an_error_not_a_default(client: TestClient, tmp_path: Path) -> None:
     (tmp_path / "vision_preview.json").write_text(json.dumps({"fps": 99}))
-    with pytest.raises(ValueError, match="fps must lie in"):
+    with pytest.raises(Invalid) as refused:
         vision_cameras.preview_settings()
+    assert (refused.value.key, refused.value.values["value"]) == ("number_range", 99)
 
 
 def test_a_camera_offers_its_drivers_modes_and_keeps_only_one_of_them(client: TestClient) -> None:

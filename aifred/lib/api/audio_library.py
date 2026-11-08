@@ -4,7 +4,7 @@ one at a time) or emptied; the sandbox and the list threshold of the spoken repl
 
 import asyncio
 
-from fastapi import HTTPException, Query
+from fastapi import Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_message
@@ -74,10 +74,6 @@ def _library() -> AudioLibrary:
                         tts_list_max=tts_list_max(), indexing=state.running, message=state.message(_lang()))
 
 
-def _unknown(label: str) -> HTTPException:
-    return HTTPException(status_code=404, detail=f"no audio source {label!r}")
-
-
 @api_app.get("/audio/sources", response_model=AudioLibrary, tags=["Audio"])
 async def audio_sources() -> AudioLibrary:
     return await asyncio.to_thread(_library)
@@ -88,10 +84,7 @@ async def audio_source_folders(path: str = Query("", description="Relative to th
     """The folders of one place in the sandbox; 422 for a path that leaves it or cannot be listed."""
     from ..audio_library import folders
 
-    try:
-        place, listed = await asyncio.to_thread(folders, path)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    place, listed = await asyncio.to_thread(folders, path)
     return AudioFolders(path=place, folders=[AudioFolder(name=name, path=rel, is_symlink=link) for name, rel, link in listed])
 
 
@@ -102,10 +95,7 @@ async def audio_source_add(adding: AudioSourceAdd) -> AudioDone:
     from ..audio_library import add_source
     from ..i18n import t
 
-    try:
-        label = await asyncio.to_thread(add_source, adding.path)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    label = await asyncio.to_thread(add_source, adding.path)
     log_message(f"🔊 Audio source {label!r} → {adding.path!r}")
     return AudioDone(message=t("audio_source_added", lang=_lang(), source=label))
 
@@ -117,10 +107,7 @@ async def audio_source_remove(label: str) -> AudioDone:
     from ..audio_library import remove_source
     from ..i18n import t
 
-    try:
-        removed = await asyncio.to_thread(remove_source, label)
-    except KeyError as error:
-        raise _unknown(label) from error
+    removed = await asyncio.to_thread(remove_source, label)
     log_message(f"🔊 Audio source {label!r} removed ({removed} index entries)")
     return AudioDone(message=t("audio_source_removed", lang=_lang(), source=label, count=removed))
 
@@ -130,10 +117,7 @@ async def audio_source_clear(label: str) -> AudioDone:
     from ..audio_library import clear_index
     from ..i18n import t
 
-    try:
-        removed = await asyncio.to_thread(clear_index, label)
-    except KeyError as error:
-        raise _unknown(label) from error
+    removed = await asyncio.to_thread(clear_index, label)
     return AudioDone(message=t("audio_source_cleared", lang=_lang(), source=label, count=removed))
 
 
@@ -141,14 +125,9 @@ async def audio_source_clear(label: str) -> AudioDone:
 async def audio_source_index(label: str, start: AudioIndexStart) -> AudioLibrary:
     """Read a source's files anew into the index; answers at once, ``GET /audio/sources`` follows it. 409 while one
     runs, 404 for an unknown label."""
-    from ..audio_library import IndexingRunning, start_indexing
+    from ..audio_library import start_indexing
 
-    try:
-        start_indexing(label, start.force)
-    except IndexingRunning as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
-    except KeyError as error:
-        raise _unknown(label) from error
+    start_indexing(label, start.force)
     return await asyncio.to_thread(_library)
 
 
@@ -157,8 +136,5 @@ async def audio_settings_change(change: AudioSettingsChange) -> AudioLibrary:
     """The sandbox (an absolute folder) and the list threshold (at least 1); 422 otherwise, nothing is written."""
     from ..audio_library import change_settings
 
-    try:
-        await asyncio.to_thread(lambda: change_settings(root=change.picker_root, list_max=change.tts_list_max))
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    await asyncio.to_thread(lambda: change_settings(root=change.picker_root, list_max=change.tts_list_max))
     return await asyncio.to_thread(_library)

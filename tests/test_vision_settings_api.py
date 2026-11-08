@@ -261,7 +261,7 @@ def test_a_new_camera_needs_a_new_name_and_its_secrets_go_to_the_env(rtsp: tuple
     assert json.loads(settings_file.read_text())["rtsp_cameras"][1] == {"name": "Garten", "host": "192.0.2.20", "cred": "garten",
                                                                          "profile": "webcam", "port": 554}
     taken = client.post("/vision/rtsp-cameras", json={"name": "Garten", "host": "192.0.2.21"})
-    assert taken.status_code == 409 and taken.json()["detail"].startswith("Eine Kamera mit diesem Namen gibt es schon")
+    assert taken.status_code == 409 and taken.json()["detail"].startswith("Eine Kamera „Garten“ gibt es schon")
     assert json.loads(settings_file.read_text())["rtsp_cameras"][1]["host"] == "192.0.2.20"      # the old one untouched
 
 

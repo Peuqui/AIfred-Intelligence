@@ -24,6 +24,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from .user_error import Conflict, Invalid
+
 if TYPE_CHECKING:
     from .remote_describers import HostOverview
 
@@ -161,7 +163,7 @@ def _edit(change: Callable[[list[Entry]], None]) -> None:
 
 def _check_index(entries: list[Entry], index: int) -> None:
     if not 0 <= index < len(entries):
-        raise ValueError(f"the list has no entry at position {index} (it changed, reload the page)")
+        raise Invalid("list_position_gone", position=index)
 
 
 def move_entry(index: int, delta: int) -> None:
@@ -186,7 +188,7 @@ def enable_entry(index: int, enabled: bool) -> None:
 # ── The burn-in of a describer of another machine ─────────────────────────────
 # One at a time for every interface: it unloads every model on that machine and loads the chosen one there.
 
-class BurnInRunning(RuntimeError):
+class BurnInRunning(Conflict):
     """Another burn-in runs (one at a time)."""
 
 
@@ -208,9 +210,9 @@ def start_burn_in(source: str) -> asyncio.Task[None]:
     from .remote_describers import split
 
     if _measuring:
-        raise BurnInRunning(f"{_measuring} is being burnt in")
+        raise BurnInRunning("burn_in_running", source=_measuring)
     if source in (LOCAL, MAIN) or split(source) is None:
-        raise ValueError(f"{source!r} is no describer of another machine")
+        raise Invalid("not_a_remote_describer", source=source)
     _measuring = source
     _failed.pop(source, None)
     _run = asyncio.create_task(_burn_in(source))

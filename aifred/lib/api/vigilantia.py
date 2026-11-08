@@ -6,10 +6,10 @@ cameras' own settings are ``PATCH /vision/cameras/{id}`` (``api/cameras.py``).""
 import asyncio
 from dataclasses import asdict
 
-from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_message
+from ..user_error import Invalid
 from .app import api_app
 from .schemas import ChoiceOption
 
@@ -85,10 +85,7 @@ async def vision_settings_change(change: VigilantiaChange) -> VigilantiaRow:
     from ..vigilantia import change as change_settings
 
     changes = change.model_dump(exclude_none=True)
-    try:
-        await change_settings(**changes)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    await change_settings(**changes)
     log_message(f"👁️ Vision settings: {sorted(changes)} changed")
     return await asyncio.to_thread(_row)
 
@@ -99,10 +96,7 @@ async def vision_armed(change: ArmedChange) -> VigilantiaRow:
     409 when the vision plugin is off."""
     from ..vigilantia import set_armed
 
-    try:
-        changed = await set_armed(change.armed)
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
+    changed = await set_armed(change.armed)
     log_message(f"👁️ Eye {'armed' if change.armed else 'disarmed'}: {changed} watcher(s)")
     return await asyncio.to_thread(_row)
 
@@ -121,10 +115,7 @@ async def vision_model_load(state: ModelState) -> ModelState:
     409 without a model chosen."""
     from ..vigilantia import load_model
 
-    try:
-        loaded = await load_model(state.loaded)
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
+    loaded = await load_model(state.loaded)
     log_message(f"👁️ Image model {'loaded' if loaded else 'not loaded'} (asked: {'load' if state.loaded else 'unload'})")
     return ModelState(loaded=loaded)
 
@@ -178,11 +169,8 @@ async def vision_alert_rule_change(category: str, change: AlertRuleChange) -> Al
     from ..alert_bus import change_vision_rule
 
     if (change.sink is None) != (change.sink_on is None):
-        raise HTTPException(status_code=422, detail="sink and sink_on come together")
-    try:
-        await asyncio.to_thread(change_vision_rule, category, sink=change.sink, sink_on=change.sink_on, vlm=change.vlm)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+        raise Invalid("sink_needs_switch")
+    await asyncio.to_thread(change_vision_rule, category, sink=change.sink, sink_on=change.sink_on, vlm=change.vlm)
     log_message(f"🔔 Alert rule {category}: {change.model_dump(exclude_none=True)}")
     return await asyncio.to_thread(_rules)
 
@@ -247,20 +235,11 @@ async def vision_rtsp_cameras() -> RtspCameras:
 
 @api_app.post("/vision/rtsp-cameras", response_model=RtspCameras, status_code=201, tags=["Vision"])
 async def vision_rtsp_camera_add(camera: NewRtspCamera) -> RtspCameras:
-    """A new camera; 409 for a name another camera has (``detail`` in the page's language), 422 for a field it cannot
-    take."""
-    from ..rtsp_cameras import NameTaken, add_rtsp_camera
+    """A new camera; 409 for a name another camera has, 422 for a field it cannot take."""
+    from ..rtsp_cameras import add_rtsp_camera
 
     fields = camera.model_dump(exclude_none=True, exclude={"name", "user", "password"})
-    try:
-        await asyncio.to_thread(add_rtsp_camera, camera.name, fields, camera.user, camera.password)
-    except NameTaken as error:
-        from ..i18n import t
-        from ..prompt_loader import get_language
-
-        raise HTTPException(status_code=409, detail=t("vision_rtsp_name_taken", lang=get_language())) from error
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    await asyncio.to_thread(add_rtsp_camera, camera.name, fields, camera.user, camera.password)
     log_message(f"📷 RTSP camera {camera.name!r} added ({sorted(fields)})")
     return await asyncio.to_thread(_rtsp)
 
@@ -271,12 +250,7 @@ async def vision_rtsp_camera_change(name: str, connection: RtspConnection) -> Rt
     from ..rtsp_cameras import change_rtsp_camera
 
     fields = connection.model_dump(exclude_unset=True, exclude={"user", "password"})
-    try:
-        await asyncio.to_thread(change_rtsp_camera, name, fields, connection.user, connection.password)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"no RTSP camera {name!r}") from error
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    await asyncio.to_thread(change_rtsp_camera, name, fields, connection.user, connection.password)
     log_message(f"📷 RTSP camera {name!r} changed ({sorted(fields)})")
     return await asyncio.to_thread(_rtsp)
 
@@ -286,10 +260,7 @@ async def vision_rtsp_camera_delete(name: str) -> RtspCameras:
     """Take the camera out; its credentials leave the .env when no other camera uses them, its events stay."""
     from ..rtsp_cameras import delete_rtsp_camera
 
-    try:
-        await asyncio.to_thread(delete_rtsp_camera, name)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"no RTSP camera {name!r}") from error
+    await asyncio.to_thread(delete_rtsp_camera, name)
     log_message(f"📷 RTSP camera {name!r} taken out")
     return await asyncio.to_thread(_rtsp)
 
@@ -347,10 +318,7 @@ async def vision_describer_move(move: DescriberMove) -> Describers:
     """An entry one place up or down; 422 for a position the list no longer has."""
     from ..describer_list import move_entry
 
-    try:
-        await asyncio.to_thread(move_entry, move.index, move.delta)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    await asyncio.to_thread(move_entry, move.index, move.delta)
     log_message(f"🖼️ Describer list: entry {move.index} moved by {move.delta}")
     return await asyncio.to_thread(_describers)
 
@@ -360,10 +328,7 @@ async def vision_describer_switch(switch: DescriberSwitch) -> Describers:
     """An entry on or off; 422 for a position the list no longer has."""
     from ..describer_list import enable_entry
 
-    try:
-        await asyncio.to_thread(enable_entry, switch.index, switch.enabled)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    await asyncio.to_thread(enable_entry, switch.index, switch.enabled)
     log_message(f"🖼️ Describer list: entry {switch.index} {'on' if switch.enabled else 'off'}")
     return await asyncio.to_thread(_describers)
 
@@ -373,12 +338,7 @@ async def vision_describer_burn_in(burn_in: DescriberBurnIn) -> Describers:
     """Start the burn-in of a describer of another machine: it unloads every model there, loads this one with the
     stress picture and keeps the peak of the cards minus what they held before. Answers at once; ``GET`` follows it
     (``measuring``, then the row's note). 409 while another one runs, 422 for a source of no other machine."""
-    from ..describer_list import BurnInRunning, start_burn_in
+    from ..describer_list import start_burn_in
 
-    try:
-        start_burn_in(burn_in.source)
-    except BurnInRunning as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    start_burn_in(burn_in.source)
     return await asyncio.to_thread(_describers)

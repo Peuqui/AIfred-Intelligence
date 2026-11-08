@@ -4,11 +4,10 @@ comes over ``/vision/enroll/preview/{source}`` (the tele lens where the camera h
 
 import asyncio
 
-from fastapi import HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..enrollment import NoFace, Session, SessionGone
+from ..enrollment import Session
 from ..logging_utils import log_message
 from .app import api_app
 from .schemas import ChoiceOption
@@ -66,19 +65,12 @@ def _session(session: Session) -> EnrollSession:
     )
 
 
-def _gone(error: SessionGone) -> HTTPException:
-    return HTTPException(status_code=409, detail=f"the enrollment session {error.args[0]} is no longer the current one")
-
-
 @api_app.post("/vision/enroll", response_model=EnrollSession, tags=["Vision"])
 async def enroll_start(start: EnrollStart) -> EnrollSession:
     """A new session (it replaces any other): more poses for a person, or a new one. 404 for no such person."""
     from ..enrollment import start as start_session
 
-    try:
-        return _session(await asyncio.to_thread(start_session, start.face_id))
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"face {start.face_id} not found") from error
+    return _session(await asyncio.to_thread(start_session, start.face_id))
 
 
 @api_app.get("/vision/enroll/preview/{source_id:path}", tags=["Vision"])
@@ -86,10 +78,7 @@ async def enroll_preview(source_id: str) -> Response:
     """The camera's freshest picture for a face (JPEG; the tele lens where it has one). 404 for no such camera."""
     from ..enrollment import fresh_face_frame
 
-    try:
-        frame = await fresh_face_frame(source_id)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"unknown camera: {source_id}") from error
+    frame = await fresh_face_frame(source_id)
     return Response(content=bytes(frame.image_bytes), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
@@ -99,27 +88,14 @@ async def enroll_capture(token: str, request: EnrollCaptureRequest) -> EnrollSes
     otherwise). 409 for a session no longer current, 404 for no such camera, 422 when no face is in the picture."""
     from ..enrollment import capture
 
-    try:
-        return _session(await capture(token, request.source_id))
-    except SessionGone as error:
-        raise _gone(error) from error
-    except NoFace as error:
-        from ..i18n import t
-        from ..prompt_loader import get_language
-
-        raise HTTPException(status_code=422, detail=t("multipose_no_face", lang=get_language())) from error
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"unknown camera: {request.source_id}") from error
+    return _session(await capture(token, request.source_id))
 
 
 @api_app.post("/vision/enroll/{token}/skip", response_model=EnrollSession, tags=["Vision"])
 async def enroll_skip(token: str) -> EnrollSession:
     from ..enrollment import skip
 
-    try:
-        return _session(skip(token))
-    except SessionGone as error:
-        raise _gone(error) from error
+    return _session(skip(token))
 
 
 @api_app.delete("/vision/enroll/{token}/captures/last", response_model=EnrollSession, tags=["Vision"])
@@ -127,22 +103,14 @@ async def enroll_undo(token: str) -> EnrollSession:
     """Take the last capture back; its pose is asked for again."""
     from ..enrollment import undo
 
-    try:
-        return _session(undo(token))
-    except SessionGone as error:
-        raise _gone(error) from error
+    return _session(undo(token))
 
 
 @api_app.get("/vision/enroll/{token}/captures/{index}", tags=["Vision"])
 async def enroll_capture_crop(token: str, index: int) -> Response:
     from ..enrollment import crop
 
-    try:
-        return Response(content=crop(token, index), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
-    except SessionGone as error:
-        raise _gone(error) from error
-    except IndexError as error:
-        raise HTTPException(status_code=404, detail=f"no capture {index}") from error
+    return Response(content=crop(token, index), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 @api_app.post("/vision/enroll/{token}/finish", response_model=EnrollFinished, tags=["Vision"])
@@ -153,12 +121,7 @@ async def enroll_finish(token: str, request: EnrollFinish) -> EnrollFinished:
     from ..i18n import t
     from ..prompt_loader import get_language
 
-    try:
-        face_id, name, count = await asyncio.to_thread(finish, token, request.name)
-    except SessionGone as error:
-        raise _gone(error) from error
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    face_id, name, count = await asyncio.to_thread(finish, token, request.name)
     log_message(f"👤 {count} poses of {name} learned")
     return EnrollFinished(face_id=face_id, message=t("multipose_saved", lang=get_language(), name=name, count=count))
 

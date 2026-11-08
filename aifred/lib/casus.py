@@ -13,6 +13,7 @@ import logging
 from dataclasses import dataclass, replace
 from typing import Any
 
+from .user_error import Conflict, Invalid, Missing
 from .vision_store import VisionStore
 
 logger = logging.getLogger(__name__)
@@ -45,11 +46,11 @@ class EventFilter:
     def query(self) -> dict[str, Any]:
         """The filter as ``VisionStore`` takes it. ValueError for a type or person filter it does not know."""
         if self.type not in TYPE_FILTERS:
-            raise ValueError(f"unknown event type filter {self.type!r}")
+            raise Invalid("unknown_filter", value=self.type)
         face_id: int | None = None
         if self.face not in (FACE_ALL, FACE_UNCONFIRMED):
             if not self.face.isdigit():
-                raise ValueError(f"unknown person filter {self.face!r}")
+                raise Invalid("unknown_filter", value=self.face)
             face_id = int(self.face)
         return {
             "source_id": self.source or None,
@@ -106,7 +107,7 @@ def film(event_id: int) -> list[tuple[int, bool]]:
     store = VisionStore()
     event = store.get_event(event_id)
     if event is None:
-        raise KeyError(event_id)
+        raise Missing("no_event", event=event_id)
     ids = list(reversed(store.list_cluster_event_ids(str(event.get("cluster_id") or "")))) or [event_id]
     return [(each, bool(store.get_event_frame_path(each, zoom=True))) for each in ids]
 
@@ -117,18 +118,18 @@ def assign_face(event_id: int, face_id: int | None) -> None:
     store = VisionStore()
     event = store.get_event(event_id)
     if event is None:
-        raise KeyError(event_id)
+        raise Missing("no_event", event=event_id)
     if event["event_type"] not in TAGGABLE_TYPES:
-        raise ValueError(f"event {event_id} shows no face ({event['event_type']})")
+        raise Invalid("event_without_face", event=event_id)
     if face_id is not None and store.get_face_by_id(face_id) is None:
-        raise ValueError(f"no person with the id {face_id}")
+        raise Invalid("no_person", person=face_id)
     store.set_event_face_id(event_id, face_id)
 
 
 def delete_event(event_id: int) -> None:
     """Delete an event with its pictures. KeyError for an event that does not exist."""
     if not VisionStore().delete_event(event_id):
-        raise KeyError(event_id)
+        raise Missing("no_event", event=event_id)
 
 
 def delete_matching(events_filter: EventFilter) -> int:
@@ -139,7 +140,7 @@ def delete_matching(events_filter: EventFilter) -> int:
 # ── The image model on events: one event, or every event without a description ─────────────────────────────────
 
 
-class RunInProgress(RuntimeError):
+class RunInProgress(Conflict):
     """The run of this kind already goes on (one at a time)."""
 
 
@@ -205,12 +206,12 @@ def start_analysis(event_id: int) -> asyncio.Task[None]:
     for an event without a picture."""
     global _analysis
     if _analysis.running:
-        raise RunInProgress(f"event {_analysis.running} is being analysed")
+        raise RunInProgress("analysis_running", event=_analysis.running)
     event = VisionStore().get_event(event_id)
     if event is None:
-        raise KeyError(event_id)
+        raise Missing("no_event", event=event_id)
     if not event.get("frame_path"):
-        raise ValueError(f"event {event_id} kept no picture")
+        raise Invalid("event_without_picture", event=event_id)
     _analysis = Analysis(running=event_id, last=_analysis.last, error=_analysis.error)
     return _keep(asyncio.create_task(_analyse(event_id)))
 
@@ -234,7 +235,7 @@ def start_describe_all() -> asyncio.Task[None]:
     checking that the image model fits on a card). :class:`RunInProgress` while one runs."""
     global _describe_all
     if _describe_all.running:
-        raise RunInProgress("every event is being described already")
+        raise RunInProgress("describe_all_running")
     _describe_all = DescribeAll(running=True, phase="checking")
     return _keep(asyncio.create_task(_describe_every_event()))
 

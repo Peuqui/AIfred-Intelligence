@@ -230,6 +230,17 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   `tests/test_frontend_i18n_keys.py` verlangt jeden Schlüssel, den das Frontend wörtlich nennt, in
   beiden Sprachdateien, bei `tCount` auch den Plural. Die Reflex-Schlüssel `doc_files_suffix` und
   `doc_file_suffix_one` gehen mit Reflex.
+- **API-Meldungen in der UI-Sprache (in Arbeit 08.11.2026, Peuqui: „deutsch wenn deutsch, englisch wenn
+  englisch“):** Eine Ablehnung ist ein `UserError` (`aifred/lib/user_error.py`) mit i18n-Schlüssel und
+  Werten; die Art bestimmt den Status (`Invalid` 422, `BadRequest` 400, `Missing` 404, `Conflict` 409,
+  `Refused` 403, `Unavailable` 503, `UpstreamFailed` 502, `NotDone` 500) und ist zugleich die eingebaute
+  Ausnahme, die Aufrufer bisher fingen (`Missing` ein `KeyError` …). Geworfen wird dort, wo die Regel
+  lebt (meist lib); der Handler in `api/app.py` antwortet mit `error_<key>` in der UI-Sprache, ebenso für
+  unlesbare Anfragen (`error_unreadable_request`) und die Login-Pflicht. Die Endpunkte fangen nichts mehr
+  um, die Reflex-Kopie formuliert über `said(error, lang)`. Logs und `str()` bleiben englisch.
+  `tests/test_user_error_texts.py` verlangt für jeden Aufruf einer `UserError`-Art den Text in beiden
+  Sprachen mit genau den Platzhaltern, die der Aufruf füllt. Umgestellt: Vision (Einstellungen, Regeln,
+  RTSP, Beschreiber, Ereignisse, Personen, Posen, PTZ, Foto) und Audio-Seite; die übrigen API-Module folgen.
 - **Einstellungen, Teil 2 (offen):** Backend-Wechsel, Kalibrierung, Neustarts von Backend und AIfred,
   Grundeinstellungen laden. Neustarts treffen die gemeinsamen Dienste (llama-swap,
   Produktionsdienst): nur mit Peuqui abgestimmt testen.

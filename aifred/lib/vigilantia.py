@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .user_error import Conflict, Invalid
 from .vision_settings import load_vision_settings, save_vision_settings
 
 VISION_MODES = ("on-demand", "live")
@@ -72,7 +73,7 @@ async def set_armed(armed: bool) -> int:
     )
 
     if armed and not vigilantia().plugin_enabled:
-        raise ValueError("the vision plugin is off: the eye cannot be armed")
+        raise Conflict("eye_needs_plugin")
     _write({"vigilantia_armed": armed})
     return await (start_all_background_watchers() if armed else stop_all_background_watchers())
 
@@ -86,9 +87,9 @@ async def change(
     from .vision_cleanup import RETENTION_DAYS_RANGE
 
     if mode is not None and mode not in VISION_MODES:
-        raise ValueError(f"mode must be one of {VISION_MODES}, got {mode!r}")
+        raise Invalid("unknown_mode", value=mode)
     if retention_days is not None and not RETENTION_DAYS_RANGE[0] <= retention_days <= RETENTION_DAYS_RANGE[1]:
-        raise ValueError(f"retention_days must lie in {RETENTION_DAYS_RANGE}, got {retention_days}")
+        raise Invalid("number_range", value=retention_days, low=RETENTION_DAYS_RANGE[0], high=RETENTION_DAYS_RANGE[1])
     before = vigilantia()
     faces = {key: value for key, value in (("enabled", face_enabled), ("continuous", face_continuous),
                                            ("retention_days", retention_days)) if value is not None}
@@ -131,7 +132,7 @@ async def load_model(load: bool) -> bool:
 
     model = vigilantia().model
     if not model:
-        raise ValueError("no image model is chosen")
+        raise Conflict("no_image_model")
     if load:
         keep_alive = str((load_vision_settings().get("vlm") or {}).get("keep_alive", VISION_VLM_KEEP_ALIVE_DEFAULT))
         await prewarm_vlm(keep_alive_override=keep_alive)

@@ -16,6 +16,7 @@ import logging
 from typing import Any
 
 from .config import VISION_EMBEDDING_DUPLICATE_SIM
+from .user_error import Invalid, Missing
 from .vision_filters.face_detect import box_iou
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ async def _best_detection_for_event(event: dict[str, Any], detector: Any) -> Any
     cls = dict(event.get("classification") or {})
     bbox_raw = cls.get("bbox")
     if not isinstance(bbox_raw, list) or len(bbox_raw) != 4:
-        raise ValueError(f"event {event.get('id')} has no face bbox")
+        raise Invalid("face_box_missing", event=event.get("id"))
     event_bbox = tuple(int(v) for v in bbox_raw)
 
     # Das Bild, auf dem die Erkennung tatsächlich lief — das Event sagt es
@@ -45,12 +46,9 @@ async def _best_detection_for_event(event: dict[str, Any], detector: Any) -> Any
     # findet die Detektion sie nicht wieder.
     frame_path = str(cls.get("detect_frame_path") or "")
     if not frame_path:
-        raise ValueError(
-            f"event {event.get('id')} does not say which frame its bbox "
-            "belongs to (detect_frame_path)"
-        )
+        raise Invalid("face_frame_unknown", event=event.get("id"))
     if not Path(frame_path).exists():
-        raise ValueError("frame no longer on disk (cleanup)")
+        raise Invalid("face_frame_gone", event=event.get("id"))
 
     frame = Frame(
         source_id=str(event.get("source_id") or ""),
@@ -59,12 +57,12 @@ async def _best_detection_for_event(event: dict[str, Any], detector: Any) -> Any
     )
     detections = await asyncio.to_thread(detector.detect, frame)
     if not detections:
-        raise ValueError("no face found in stored frame")
+        raise Invalid("face_not_in_frame", event=event.get("id"))
     # Die Detektion, die zur damals gespeicherten Box gehört — bei einem
     # Gesicht trivial, bei mehreren entscheidet die Box-Überlappung.
     best = max(detections, key=lambda d: box_iou(tuple(d.bbox), event_bbox))  # type: ignore[arg-type]
     if box_iou(tuple(best.bbox), event_bbox) < 0.3:  # type: ignore[arg-type]
-        raise ValueError("stored bbox does not match any detected face")
+        raise Invalid("face_box_mismatch", event=event.get("id"))
     return best
 
 
@@ -204,7 +202,7 @@ async def enroll_face_from_event(
     store = VisionStore()
     event = store.get_event(int(event_id))
     if not event:
-        raise ValueError(f"event {event_id} not found")
+        raise Missing("no_event", event=event_id)
     cls = dict(event.get("classification") or {})
 
     detector = get_default_detector()
@@ -215,14 +213,14 @@ async def enroll_face_from_event(
         assert name is not None
         clean = name.strip()
         if not clean:
-            raise ValueError("empty name")
+            raise Invalid("person_needs_name")
         is_new = store.get_face_by_name(clean) is None
         face_id = store.get_or_create_face(clean, enrolled_by="personarium")
         resolved_name = clean
     else:
         rec = store.get_face_by_id(int(face_id))
         if not rec:
-            raise ValueError(f"face {face_id} not found")
+            raise Invalid("no_person", person=face_id)
         resolved_name = str(rec.get("name") or "")
 
     # Ein fast gleiches Embedding bringt nichts Neues und gewichtet nur diese

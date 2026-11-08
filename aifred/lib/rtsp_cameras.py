@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .user_error import Conflict, Invalid, Missing
 from .vision_settings import load_vision_settings, save_vision_settings
 
 PROFILES = ("webcam", "ai_camera")    # a plain stream, or a camera with its own detection (Reolink)
@@ -22,8 +23,8 @@ FIELDS = (*_TEXT_FIELDS, *_INT_FIELDS, "ptz")
 _CRED = re.compile(r"[a-z0-9_]+")
 
 
-class NameTaken(ValueError):
-    """Another camera has this name (the interfaces say it: i18n ``vision_rtsp_name_taken``)."""
+class NameTaken(Conflict):
+    """Another camera has this name."""
 
 
 def _credential(cred: str) -> str:
@@ -55,7 +56,7 @@ def rtsp_cameras() -> list[dict[str, Any]]:
 def _checked(fields: dict[str, Any]) -> dict[str, Any]:
     unknown = set(fields) - set(FIELDS)
     if unknown:
-        raise ValueError(f"unknown camera fields: {sorted(unknown)}")
+        raise Invalid("unknown_fields", fields=", ".join(sorted(unknown)))
     checked: dict[str, Any] = {}
     for key, value in fields.items():
         if key in _INT_FIELDS:
@@ -64,20 +65,20 @@ def _checked(fields: dict[str, Any]) -> dict[str, Any]:
                 continue
             low, high = _INT_FIELDS[key]
             if not isinstance(value, int) or isinstance(value, bool) or not low <= value <= high:
-                raise ValueError(f"{key} must be a whole number {low}–{high}, got {value!r}")
+                raise Invalid("number_range", value=value, low=low, high=high)
             checked[key] = value
         elif key == "ptz":
             checked[key] = bool(value)
         else:
             checked[key] = str(value).strip()
     if "host" in checked and not checked["host"]:
-        raise ValueError("a camera needs its host")
+        raise Invalid("camera_needs_host")
     if "path" in checked:
         checked["path"] = checked["path"].lstrip("/")
     if checked.get("cred") and not _CRED.fullmatch(checked["cred"]):
-        raise ValueError("a credential name has only small letters, digits and _")
+        raise Invalid("credential_name")
     if "profile" in checked and checked["profile"] not in PROFILES:
-        raise ValueError(f"profile must be one of {PROFILES}")
+        raise Invalid("unknown_profile", value=checked["profile"])
     return checked
 
 
@@ -105,12 +106,12 @@ def add_rtsp_camera(name: str, fields: dict[str, Any], user: str = "", password:
     nothing is written then)."""
     name = name.strip()
     if not name:
-        raise ValueError("a camera needs a name")
+        raise Invalid("camera_needs_name")
     if any(str(entry.get("name")) == name for entry in _entries()):
-        raise NameTaken(name)
+        raise NameTaken("camera_name_taken", name=name)
     checked = _checked({"profile": PROFILES[0], "port": 554, **fields})
     if "host" not in checked:
-        raise ValueError("a camera needs its host")
+        raise Invalid("camera_needs_host")
     entry = {"name": name, **{key: value for key, value in checked.items() if value not in (None, "")}}
     _save([*_entries(), entry])
     if entry.get("cred"):
@@ -123,14 +124,14 @@ def change_rtsp_camera(name: str, fields: dict[str, Any], user: str = "", passwo
     cameras = _entries()
     entry = next((camera for camera in cameras if str(camera.get("name")) == name), None)
     if entry is None:
-        raise KeyError(name)
+        raise Missing("no_rtsp_camera", name=name)
     for key, value in _checked(fields).items():
         if value in (None, ""):
             entry.pop(key, None)
         else:
             entry[key] = value
     if "host" not in entry:
-        raise ValueError("a camera needs its host")
+        raise Invalid("camera_needs_host")
     _save(cameras)
     if entry.get("cred"):
         _keep_secrets(str(entry["cred"]), user, password)
@@ -144,7 +145,7 @@ def delete_rtsp_camera(name: str) -> None:
     cameras = _entries()
     entry = next((camera for camera in cameras if str(camera.get("name")) == name), None)
     if entry is None:
-        raise KeyError(name)
+        raise Missing("no_rtsp_camera", name=name)
     rest = [camera for camera in cameras if camera is not entry]
     _save(rest)
     cred = str(entry.get("cred") or "")

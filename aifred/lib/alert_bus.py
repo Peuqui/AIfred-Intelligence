@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from .user_error import Invalid
+
 logger = logging.getLogger(__name__)
 
 # Severity ordering for `min_severity` rule filtering.
@@ -583,9 +585,9 @@ def change_vision_rule(category: str, *, sink: str | None = None, sink_on: bool 
     from .plugin_registry import all_channels
 
     if category not in VISION_RULE_CATEGORIES:
-        raise ValueError(f"unknown alert category {category!r}")
+        raise Invalid("unknown_alert_category", category=category)
     if sink is not None and sink not in all_channels():
-        raise ValueError(f"no channel {sink!r}")
+        raise Invalid("unknown_channel", channel=sink)
     path = _rules_path()
     rules = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
     rule = next((entry for entry in rules if isinstance(entry, dict) and entry.get("producer") == "vision"

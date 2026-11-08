@@ -9,6 +9,7 @@ import pytest
 
 from aifred.lib import vision_photo
 from aifred.lib.frame_sources import Frame
+from aifred.lib.user_error import Missing
 from aifred.lib.vision_output import OutputChain
 
 SOURCE = "cam/rtsp_test"
@@ -76,5 +77,6 @@ def test_camera_without_snap_api_uses_the_hub_frame(monkeypatch, _env):
 def test_unknown_source_without_snap_is_an_error(monkeypatch):
     monkeypatch.setattr(vision_photo, "resolve_snap_channel", lambda source_id: None)
     monkeypatch.setattr(vision_photo, "get_source", lambda source_id: None)
-    with pytest.raises(vision_photo.PhotoError):
+    with pytest.raises(Missing) as refused:
         asyncio.run(vision_photo.take_photo("cam/gibt-es-nicht"))
+    assert refused.value.key == "unknown_camera"

@@ -25,6 +25,7 @@ from typing import Any
 import numpy as np
 
 from .config import DATA_DIR
+from .user_error import Conflict
 
 # Default-Speicherort. Tests übergeben einen tmp-Path im Konstruktor.
 DEFAULT_DB_PATH = DATA_DIR / "vision" / "vision.db"
@@ -417,7 +418,7 @@ class VisionStore:
                 (new_name, face_id),
             ).fetchone()
             if existing:
-                raise ValueError(f"face name already taken: {new_name}")
+                raise Conflict("person_name_taken", name=new_name)
             cur = conn.execute(
                 "UPDATE faces SET name = ?, updated_at = ? WHERE id = ?",
                 (new_name, now, face_id),

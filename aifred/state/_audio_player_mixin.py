@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 
+from ..lib.user_error import said
+
 # ── Runtime-only Player-Persistenz ──────────────────────────────────
 # Modul-globaler Dict, keyed by session_id. Snapshot der media_*-Vars
 # zwischen Tab-Reloads. Lebt im Server-Prozess — bei Service-Restart
@@ -266,7 +268,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
             try:
                 run = start_indexing(source, force)
             except (IndexingRunning, KeyError) as error:  # another one runs, or no such source
-                self.audio_settings_status = f"⚠️ {error}"
+                self.audio_settings_status = f"⚠️ {said(error, self.ui_language)}"
                 return
             self.audio_settings_busy = "indexing"
             self.audio_settings_busy_source = source
@@ -285,8 +287,8 @@ class AudioPlayerMixin(rx.State, mixin=True):
 
         try:
             removed = clear_index(source)
-        except KeyError:  # no such source (a stale page)
-            self.audio_settings_status = f"⚠️ '{source}'?"
+        except KeyError as error:  # no such source (a stale page)
+            self.audio_settings_status = f"⚠️ {said(error, self.ui_language)}"
             return
         self.audio_settings_status = t("audio_source_cleared", lang=self.ui_language, source=source, count=removed)
         self._refresh_audio_sources_view()
@@ -300,7 +302,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
         try:
             removed = remove_source(source)
         except (KeyError, ValueError, OSError) as exc:  # unknown label, or the folder could not be removed
-            self.audio_settings_status = f"⚠️ '{source}': {exc}"
+            self.audio_settings_status = f"⚠️ {said(exc, self.ui_language)}"
             return
         self.audio_settings_status = t("audio_source_removed", lang=self.ui_language, source=source, count=removed)
         self._refresh_audio_sources_view()
@@ -359,7 +361,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
         try:
             change_settings(root=root, list_max=int(list_max.strip()) if list_max is not None else None)
         except (ValueError, OSError) as exc:  # no number, no absolute folder, below 1, or settings.json not written
-            self.audio_settings_status = f"⚠️ {exc}"
+            self.audio_settings_status = f"⚠️ {said(exc, self.ui_language)}"
             return
         self.audio_settings_status = t("audio_settings_saved", lang=self.ui_language)
 
@@ -373,7 +375,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
         try:
             label = add_source(rel_path)
         except (ValueError, OSError) as exc:  # no folder, outside the sandbox, or the symlink failed
-            self.audio_settings_status = f"⚠️ {exc}"
+            self.audio_settings_status = f"⚠️ {said(exc, self.ui_language)}"
             return
         self.audio_settings_status = t("audio_source_added", lang=self.ui_language, source=label)
         self._refresh_audio_sources_view()

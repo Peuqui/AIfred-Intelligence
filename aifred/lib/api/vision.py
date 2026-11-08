@@ -6,11 +6,11 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from fastapi import HTTPException
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_message
+from ..user_error import BadRequest, Invalid, Missing, UpstreamFailed
 
 # resolve_source_resolution lives in vision_utils.py — shared with the
 # plugin tools so popup-UI resolution and tool-call resolution match.
@@ -36,13 +36,13 @@ async def vision_snapshot_endpoint(
 
     src = get_source(source_id)
     if src is None:
-        raise HTTPException(status_code=404, detail=f"unknown source: {source_id}")
+        raise Missing("unknown_camera", camera=source_id)
     w, h = _resolve_resolution(source_id, width, height)
     hub = get_default_hub()
     try:
         frame = await hub.snapshot(src, width=w, height=h)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"snapshot failed: {e}") from e
+    except (TimeoutError, RuntimeError) as e:  # no frame in time, or the stream ended without one
+        raise UpstreamFailed("photo_failed", camera=source_id) from e
     return Response(
         content=frame.image_bytes,
         media_type=f"image/{frame.format}",
@@ -200,7 +200,7 @@ async def vision_stream_endpoint(
 
     src = get_source(source_id)
     if src is None:
-        raise HTTPException(status_code=404, detail=f"unknown source: {source_id}")
+        raise Missing("unknown_camera", camera=source_id)
     # NOTE: deliberately NOT calling src.is_available() here. That
     # method opens cv2.VideoCapture to probe, which races against the
     # previous stream's release() during a stream-switch — the probe
@@ -331,7 +331,7 @@ async def vision_face_details(face_id: int) -> FaceDetailResponse:
     store = VisionStore()
     face = store.get_face_by_id(face_id)
     if not face:
-        raise HTTPException(status_code=404, detail=f"face {face_id} not found")
+        raise Missing("no_person", person=face_id)
     events = store.list_face_events(face_id, limit=50)
     emb_count = len(store.list_embeddings(face_id))
     return FaceDetailResponse(
@@ -353,12 +353,7 @@ async def vision_face_rename(face_id: int, request: FaceRenameRequest) -> System
     person has."""
     from ..personarium import rename
 
-    try:
-        await asyncio.to_thread(rename, face_id, request.name)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"face {face_id} not found") from error
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
+    await asyncio.to_thread(rename, face_id, request.name)
     return SystemActionResponse(success=True, message=f"renamed to '{request.name.strip()}'")
 
 
@@ -374,10 +369,7 @@ async def vision_face_delete(face_id: int) -> SystemActionResponse:
     from ..personarium import delete
     from ..prompt_loader import get_language
 
-    try:
-        name, embeddings_deleted = await asyncio.to_thread(delete, face_id)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"face {face_id} not found") from error
+    name, embeddings_deleted = await asyncio.to_thread(delete, face_id)
     log_message(f"👤 Person {face_id} ({name}) deleted with {embeddings_deleted} embeddings")
     return SystemActionResponse(success=True, message=t("personarium_deleted", lang=get_language(), name=name,
                                                          count=embeddings_deleted))
@@ -395,10 +387,7 @@ async def vision_face_embeddings(face_id: int) -> list[FaceEmbedding]:
     """A person's embeddings, newest first (without the vector); 404 for no such person."""
     from ..personarium import embeddings
 
-    try:
-        return [FaceEmbedding(**row) for row in await asyncio.to_thread(embeddings, face_id)]
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"face {face_id} not found") from error
+    return [FaceEmbedding(**row) for row in await asyncio.to_thread(embeddings, face_id)]
 
 
 @api_app.delete(
@@ -410,10 +399,7 @@ async def vision_embedding_delete(embedding_id: int) -> SystemActionResponse:
     """Delete one embedding (a poor sample: wrong pose, bad light) without the person; 404 for no such one."""
     from ..personarium import delete_embedding
 
-    try:
-        await asyncio.to_thread(delete_embedding, embedding_id)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"embedding {embedding_id} not found") from error
+    await asyncio.to_thread(delete_embedding, embedding_id)
     return SystemActionResponse(success=True, message="embedding deleted")
 
 
@@ -460,10 +446,7 @@ async def vision_open_faces_dismiss(dismissing: OpenFacesDismiss) -> ActionDone:
     from ..personarium import dismiss
     from ..prompt_loader import get_language
 
-    try:
-        dismissed = await asyncio.to_thread(dismiss, dismissing.cards)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"no open face {error.args[0]}") from error
+    dismissed = await asyncio.to_thread(dismiss, dismissing.cards)
     return ActionDone(message=t("personarium_dismissed", lang=get_language(), count=dismissed))
 
 
@@ -476,13 +459,8 @@ async def vision_open_face_assign(card_id: int, assigning: OpenFaceAssign) -> Ac
     from ..prompt_loader import get_language
 
     if (assigning.face_id is None) == (assigning.name is None):
-        raise HTTPException(status_code=422, detail="either face_id or name")
-    try:
-        done = await assign(card_id, face_id=assigning.face_id, name=assigning.name)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=f"no open face {card_id}") from error
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+        raise Invalid("person_or_name")
+    done = await assign(card_id, face_id=assigning.face_id, name=assigning.name)
     log_message(f"👤 Open face {card_id} → {done.name} ({'learned' if done.learned else 'assigned'})")
     return ActionDone(message=done.message(get_language()))
 
@@ -509,12 +487,9 @@ async def vision_face_rematch_state() -> RematchState:
 async def vision_face_rematch() -> RematchState:
     """Recognise every open face again against the embeddings: sure matches are assigned (no new embeddings), the
     rest stays open. Answers at once, ``GET`` follows it; 409 while it runs."""
-    from ..personarium import RematchRunning, start_rematch
+    from ..personarium import start_rematch
 
-    try:
-        start_rematch()
-    except RematchRunning as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
+    start_rematch()
     return _rematch_state()
 
 
@@ -532,10 +507,10 @@ async def vision_frame(id: int, w: int = 0, zoom: int = 0) -> Response:
     from ..vision_store import VisionStore
     path_str = VisionStore().get_event_frame_path(id, zoom=bool(zoom))
     if not path_str:
-        raise HTTPException(status_code=404, detail=f"no frame for event {id}")
+        raise Missing("event_without_picture", event=id)
     frame_file = Path(path_str)
     if not frame_file.is_file():
-        raise HTTPException(status_code=404, detail="frame file missing on disk")
+        raise Missing("event_picture_gone", event=id)
     data = frame_file.read_bytes()
     if w and w > 0:
         import cv2
@@ -607,7 +582,7 @@ async def save_zone_mask(payload: ZoneMaskPayload) -> SystemActionResponse:
             or len(payload.cells) != payload.cols * payload.rows
             or any(ch not in "0123" for ch in payload.cells)
         ):
-            raise HTTPException(status_code=400, detail="invalid grid")
+            raise BadRequest("zone_grid")
         masks[payload.source_id] = {
             "cols": payload.cols,
             "rows": payload.rows,
@@ -682,10 +657,7 @@ async def zone_editor_page(source_id: str = "") -> HTMLResponse:
     editor = (
         Path(__file__).resolve().parents[3] / "assets" / "zone_editor.html"
     )
-    try:
-        html = editor.read_text(encoding="utf-8")
-    except OSError as e:
-        raise HTTPException(status_code=500, detail=f"editor missing: {e}") from e
+    html = editor.read_text(encoding="utf-8")
     # Kamera-Anzeigename (Alias > display_name > source_id) auflösen, damit
     # der Header den Standort zeigt statt der rohen source_id.
     src_name = ""

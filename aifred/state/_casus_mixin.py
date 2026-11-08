@@ -18,6 +18,7 @@ import reflex as rx
 
 from ..lib.casus import TYPE_FILTERS, EventFilter
 from ..lib.config import VISION_CASUS_PAGE_SIZE as _CASUS_PAGE_SIZE
+from ..lib.user_error import UserError
 
 logger = logging.getLogger(__name__)
 
@@ -195,8 +196,8 @@ class CasusMixin(rx.State, mixin=True):
             run = start_analysis(eid)
         except RunInProgress:  # started here or on the Vue page: one at a time
             return
-        except (KeyError, ValueError) as e:  # no such event, or it kept no picture
-            self.casus_status = f"⚠️ {e}"
+        except UserError as e:  # no such event, or it kept no picture
+            self.casus_status = f"⚠️ {e.message(self.ui_language)}"
             return
         self.casus_analyzing_event_id = eid
         self.casus_status = ""

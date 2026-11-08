@@ -149,7 +149,8 @@ class MultiposeMixin(rx.State, mixin=True):
     @rx.event
     async def multipose_capture(self) -> None:
         """Aktuelle Pose aufnehmen (``lib.enrollment.capture``: größtes Gesicht des frischesten Bildes)."""
-        from ..lib.enrollment import NoFace, SessionGone, capture
+        from ..lib.enrollment import capture
+        from ..lib.user_error import UserError, said
 
         if self.multipose_busy or self.multipose_step >= len(POSES):
             return
@@ -160,11 +161,8 @@ class MultiposeMixin(rx.State, mixin=True):
         self.multipose_status = ""
         try:
             self._multipose_show(await capture(self._multipose_token, self.multipose_source_id))
-        except NoFace:
-            from ..lib.i18n import t
-            self.multipose_status = "⚠️ " + t("multipose_no_face", lang=self.ui_language)
-        except (SessionGone, KeyError) as e:  # the session replaced elsewhere, the camera gone
-            self.multipose_status = f"⚠️ {e}"
+        except UserError as e:  # no face, the session replaced elsewhere, the camera gone
+            self.multipose_status = f"⚠️ {said(e, self.ui_language)}"
         except Exception as e:  # camera and face model: the dialog shows why
             logger.warning("multipose capture failed: %s", e, exc_info=True)
             self.multipose_status = f"⚠️ {e}"
@@ -174,22 +172,24 @@ class MultiposeMixin(rx.State, mixin=True):
     def multipose_retry_current(self) -> None:
         """Letzte Capture verwerfen + Schritt zurücksetzen."""
         from ..lib.enrollment import SessionGone, undo
+        from ..lib.user_error import said
 
         self.multipose_status = ""
         try:
             self._multipose_show(undo(self._multipose_token))
         except SessionGone as e:
-            self.multipose_status = f"⚠️ {e}"
+            self.multipose_status = f"⚠️ {said(e, self.ui_language)}"
 
     @rx.event
     def multipose_skip_current(self) -> None:
         """Aktuelle Pose überspringen (kein Capture)."""
         from ..lib.enrollment import SessionGone, skip
+        from ..lib.user_error import said
 
         try:
             self._multipose_show(skip(self._multipose_token))
         except SessionGone as e:
-            self.multipose_status = f"⚠️ {e}"
+            self.multipose_status = f"⚠️ {said(e, self.ui_language)}"
 
     # ── Save ──────────────────────────────────────────────────────
 
@@ -197,16 +197,17 @@ class MultiposeMixin(rx.State, mixin=True):
     def multipose_finish(self) -> None:
         """Alle Captures speichern (``lib.enrollment.finish``: Person anlegen wenn neu, Embeddings + Ausschnitte,
         Erkenner neu laden)."""
-        from ..lib.enrollment import SessionGone, finish
+        from ..lib.enrollment import finish
         from ..lib.i18n import t
+        from ..lib.user_error import UserError, said
 
         if not self.multipose_captures:
             return
         try:
             _face_id, name, count = finish(self._multipose_token, self.multipose_name)
-        except (SessionGone, ValueError, sqlite3.Error, OSError) as e:  # session gone, no name, store or crop file
+        except (UserError, sqlite3.Error, OSError) as e:  # session gone, no capture or name, store or crop file
             logger.warning("multipose finish failed: %s", e)
-            self.multipose_status = f"⚠️ {e}"
+            self.multipose_status = f"⚠️ {said(e, self.ui_language)}"
             return
         self.multipose_status = t("multipose_saved", lang=self.ui_language, name=name, count=count)
         self.multipose_open = False

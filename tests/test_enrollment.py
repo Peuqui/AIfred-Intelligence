@@ -16,6 +16,7 @@ from starlette.testclient import TestClient
 
 from aifred.lib import enrollment, face_crop_store, vision_store
 from aifred.lib.vision_filters import face_detect, face_recognize
+from aifred.lib.user_error import Missing
 from aifred.lib.vision_store import VisionStore
 
 
@@ -41,7 +42,7 @@ def camera(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, list]:
 
     async def fresh(source_id: str) -> SimpleNamespace:
         if source_id != "cam/door":
-            raise KeyError(source_id)
+            raise Missing("unknown_camera", camera=source_id)
         return SimpleNamespace(image_bytes=_picture())
 
     monkeypatch.setattr(enrollment, "fresh_face_frame", fresh)

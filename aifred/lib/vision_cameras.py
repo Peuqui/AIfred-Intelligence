@@ -26,6 +26,7 @@ from .config import (
     VISION_QUIET_HOURS_DEFAULT,
     VISION_SCHEDULE_DEFAULT,
 )
+from .user_error import Invalid, Missing
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +125,7 @@ def resolutions(source_id: str) -> list[tuple[str, str]]:
 
     source = get(source_id)
     if source is None:
-        raise KeyError(source_id)
+        raise Missing("unknown_camera", camera=source_id)
     offered: list[tuple[str, str]] = [(DEFAULT_RESOLUTION, "")]
     detect = getattr(source, "detect_resolutions", None)
     if not callable(detect) or not source.info().available:
@@ -153,7 +154,7 @@ def change_camera(source_id: str, **change: Any) -> bool:
                              "quiet_enabled", "quiet_start", "quiet_end", "schedule_enabled", "schedule_start",
                              "schedule_end", "min_event_interval_sec"}
     if unknown:
-        raise ValueError(f"unknown camera settings: {sorted(unknown)}")
+        raise Invalid("unknown_fields", fields=", ".join(sorted(unknown)))
     settings: dict[str, Any] = {}
     for key in ("alerts_enabled", "quiet_enabled", "schedule_enabled"):
         if key in change:
@@ -162,27 +163,27 @@ def change_camera(source_id: str, **change: Any) -> bool:
         settings["alias"] = str(change["alias"]).strip()
     if "resolution" in change:
         if change["resolution"] not in {value for value, _ in resolutions(source_id)}:
-            raise ValueError(f"{source_id} offers no resolution {change['resolution']!r}")
+            raise Invalid("no_such_resolution", camera=source_id, resolution=change["resolution"])
         settings["resolution"] = change["resolution"]
     if "alert_types" in change:
         kinds = list(change["alert_types"])
         if not set(kinds) <= set(VISION_ALERT_TYPES):
-            raise ValueError(f"alert types must be among {VISION_ALERT_TYPES}, got {kinds}")
+            raise Invalid("unknown_fields", fields=", ".join(sorted(set(kinds) - set(VISION_ALERT_TYPES))))
         settings["alert_types"] = [kind for kind in VISION_ALERT_TYPES if kind in kinds]
     for key in ("quiet_start", "quiet_end"):
         if key in change:
             if not 0 <= int(change[key]) <= 23:
-                raise ValueError(f"{key} must be an hour 0–23, got {change[key]}")
+                raise Invalid("number_range", value=change[key], low=0, high=23)
             settings[key] = int(change[key])
     for key in ("schedule_start", "schedule_end"):
         if key in change:
             if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(change[key])):
-                raise ValueError(f"{key} must be HH:MM, got {change[key]!r}")
+                raise Invalid("time_format", value=change[key])
             settings[key] = str(change[key])
     if "min_event_interval_sec" in change:
         interval = float(change["min_event_interval_sec"])
         if not VISION_MIN_EVENT_INTERVAL_RANGE[0] <= interval <= VISION_MIN_EVENT_INTERVAL_RANGE[1]:
-            raise ValueError(f"min_event_interval_sec must lie in {VISION_MIN_EVENT_INTERVAL_RANGE}, got {interval}")
+            raise Invalid("number_range", value=interval, low=VISION_MIN_EVENT_INTERVAL_RANGE[0], high=VISION_MIN_EVENT_INTERVAL_RANGE[1])
         settings["min_event_interval_sec"] = interval
     store = VisionStore()
     if settings:
@@ -227,11 +228,11 @@ def _check(settings: PreviewSettings) -> None:
                         ("face_throttle_sec", VISION_PREVIEW_FACE_THROTTLE_RANGE)):
         value = getattr(settings, key)
         if not isinstance(value, (int, float)) or not bounds[0] <= value <= bounds[1]:
-            raise ValueError(f"live view setting {key} must lie in {bounds}, got {value!r}")
+            raise Invalid("number_range", value=value, low=bounds[0], high=bounds[1])
     if settings.teleprompter_mode not in TELEPROMPTER_MODES:
-        raise ValueError(f"live view setting teleprompter_mode must be one of {TELEPROMPTER_MODES}")
+        raise Invalid("unknown_mode", value=settings.teleprompter_mode)
     if settings.visible_sources is not None and not isinstance(settings.visible_sources, list):
-        raise ValueError("live view setting visible_sources must be a list of camera ids")
+        raise Invalid("unreadable_request", fields="visible_sources")
 
 
 def save_preview_settings(**changes: Any) -> PreviewSettings:
@@ -240,7 +241,7 @@ def save_preview_settings(**changes: Any) -> PreviewSettings:
     current = asdict(preview_settings())
     unknown = set(changes) - set(current)
     if unknown:
-        raise ValueError(f"unknown live view settings: {sorted(unknown)}")
+        raise Invalid("unknown_fields", fields=", ".join(sorted(unknown)))
     settings = PreviewSettings(**{**current, **changes})
     _check(settings)
     PREVIEW_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)

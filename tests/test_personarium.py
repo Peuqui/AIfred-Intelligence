@@ -15,6 +15,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from aifred.lib import face_enroll, personarium, vision_store
+from aifred.lib.user_error import Conflict, Invalid
 from aifred.lib.vision_filters import face_recognize
 from aifred.lib.vision_store import VisionStore
 
@@ -94,9 +95,11 @@ def test_rename_and_delete_are_checked_and_make_the_recognisers_load_again(store
     personarium.rename(int(anna["id"]), "  Anna B.  ")
     assert _name_of(store, int(anna["id"])) == "Anna B."
     assert _epoch() == before + 1
-    for bad in ("", "Bert"):
-        with pytest.raises(ValueError):
-            personarium.rename(int(anna["id"]), bad)
+    with pytest.raises(Invalid):
+        personarium.rename(int(anna["id"]), "  ")
+    with pytest.raises(Conflict):
+        personarium.rename(int(anna["id"]), "Bert")
+    personarium.rename(int(anna["id"]), "Anna B.")      # its own name is no conflict
     with pytest.raises(KeyError):
         personarium.rename(9999, "X")
     assert personarium.delete(int(anna["id"])) == ("Anna B.", 2)

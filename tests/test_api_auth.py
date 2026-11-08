@@ -73,7 +73,10 @@ class TestApiCookieGate:
     def test_rejects_without_cookie(self, client):
         resp = client.get("/api/health")
         assert resp.status_code == 403
-        assert resp.json()["detail"] == "Login cookie required"
+        from aifred.lib.i18n import t
+        from aifred.lib.prompt_loader import get_language
+
+        assert resp.json()["detail"] == t("error_login_required", lang=get_language())   # in the UI's language
 
     def test_rejects_expired_cookie(self, client):
         client.cookies.set(USERNAME_COOKIE_NAME, _forge(f"ki.{int(time.time()) - 1}"))

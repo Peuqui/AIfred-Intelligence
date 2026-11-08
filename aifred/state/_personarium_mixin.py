@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 
+from ..lib.user_error import UserError, said
+
 logger = logging.getLogger(__name__)
 
 
@@ -154,7 +156,7 @@ class PersonariumMixin(rx.State, mixin=True):
             delete_embedding(int(embedding_id))
         except (KeyError, sqlite3.Error) as e:  # already gone, or the store failed
             logger.warning("delete embedding failed: %s", e)
-            self.personarium_status = f"⚠️ {e}"
+            self.personarium_status = f"⚠️ {said(e, self.ui_language)}"
             return
         self._reload_personarium_embeddings()
         self._refresh_personarium_faces()
@@ -187,9 +189,9 @@ class PersonariumMixin(rx.State, mixin=True):
             return
         try:
             rename(face_id, new_name)
-        except (KeyError, ValueError, sqlite3.Error) as e:  # gone, a name another person has, or the store failed
+        except (UserError, sqlite3.Error) as e:  # gone, an empty name or one another person has, or the store failed
             logger.warning("personarium rename failed: %s", e)
-            self.personarium_status = f"⚠️ {e}"
+            self.personarium_status = f"⚠️ {said(e, self.ui_language)}"
             return
         self.personarium_status = t("personarium_renamed", lang=self.ui_language, name=new_name)
         self.personarium_edit_face_id = 0
@@ -259,7 +261,7 @@ class PersonariumMixin(rx.State, mixin=True):
             count = dismiss(card_ids)
         except (KeyError, sqlite3.Error) as e:  # a card assigned meanwhile, or the store failed
             logger.warning("personarium dismiss failed: %s", e)
-            self.personarium_status = f"⚠️ {e}"
+            self.personarium_status = f"⚠️ {said(e, self.ui_language)}"
             self._refresh_personarium_untagged()
             return
         self.personarium_status = t("personarium_dismissed", lang=self.ui_language, count=count)
@@ -358,7 +360,7 @@ class PersonariumMixin(rx.State, mixin=True):
                 done = await assign(event_id, face_id=int(choice))
         except Exception as e:  # the Personarium shows why: face model, files and store
             logger.warning("personarium tag+learn failed: %s", e, exc_info=True)
-            self.personarium_status = f"⚠️ {e}"
+            self.personarium_status = f"⚠️ {said(e, self.ui_language)}"
             self.personarium_tag_busy = False
             return
         self.personarium_status = done.message(self.ui_language)

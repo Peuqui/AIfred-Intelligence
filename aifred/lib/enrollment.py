@@ -15,15 +15,17 @@ from typing import Any
 
 import numpy as np
 
+from .user_error import Conflict, Invalid, Missing
+
 POSES = ("frontal", "left", "right", "up", "down")   # the order the session asks for them; i18n multipose_pose_<key>
 
 
-class SessionGone(LookupError):
+class SessionGone(Conflict):
     """The session the page names is no longer the current one (finished, cancelled, or another one started)."""
 
 
-class NoFace(ValueError):
-    """The face model found no face in the camera's picture (the interfaces say it: i18n ``multipose_no_face``)."""
+class NoFace(Invalid):
+    """The face model found no face in the camera's picture."""
 
 
 @dataclass
@@ -60,7 +62,7 @@ def start(face_id: int = 0) -> Session:
 
         face = VisionStore().get_face_by_id(face_id)
         if face is None:
-            raise KeyError(face_id)
+            raise Missing("no_person", person=face_id)
         name = str(face["name"])
     _session = Session(token=secrets.token_urlsafe(12), face_id=face_id, name=name)
     return _session
@@ -68,7 +70,7 @@ def start(face_id: int = 0) -> Session:
 
 def current(token: str) -> Session:
     if _session is None or _session.token != token:
-        raise SessionGone(token)
+        raise SessionGone("enroll_session_gone")
     return _session
 
 
@@ -84,7 +86,7 @@ async def fresh_face_frame(source_id: str) -> Any:
         return frames[0]
     source = get_source(source_id)
     if source is None:
-        raise KeyError(source_id)
+        raise Missing("unknown_camera", camera=source_id)
     return await get_default_hub().snapshot(source)
 
 
@@ -98,7 +100,7 @@ async def capture(token: str, source_id: str) -> Session:
     frame = await fresh_face_frame(source_id)
     faces = await asyncio.to_thread(get_default_detector().detect, frame)
     if not faces:
-        raise NoFace(source_id)
+        raise NoFace("no_face")
     # The largest face: with several people in front of the camera, the one who stepped up for it.
     face = max(faces, key=lambda found: found.bbox[2] * found.bbox[3])
     picture = bytes(frame.image_bytes)
@@ -128,8 +130,11 @@ def undo(token: str) -> Session:
 
 
 def crop(token: str, index: int) -> bytes:
-    """The crop of one capture (JPEG). :class:`SessionGone`, IndexError."""
-    return current(token).captures[index].crop
+    """The crop of one capture (JPEG). :class:`SessionGone`, Missing for no such capture."""
+    captures = current(token).captures
+    if not 0 <= index < len(captures):
+        raise Missing("no_capture")
+    return captures[index].crop
 
 
 def finish(token: str, name: str = "") -> tuple[int, str, int]:
@@ -143,13 +148,13 @@ def finish(token: str, name: str = "") -> tuple[int, str, int]:
 
     session = current(token)
     if not session.captures:
-        raise ValueError("no pose was captured")
+        raise Invalid("no_pose_captured")
     store = VisionStore()
     face_id, person = session.face_id, session.name
     if not face_id:
         person = name.strip()
         if not person:
-            raise ValueError("a new person needs a name")
+            raise Invalid("person_needs_name")
         face_id = store.get_or_create_face(person, enrolled_by="multipose")
     crops = get_default_store()
     for taken in session.captures:

@@ -50,6 +50,7 @@ from .onvif_soap import (
     xml_escape,
 )
 from .reolink_ai import ReolinkAIError
+from .user_error import Conflict
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +64,9 @@ _NS_PTZ = "http://www.onvif.org/ver20/ptz/wsdl"
 _NS_SCHEMA = "http://www.onvif.org/ver10/schema"
 
 
-class PTZError(OnvifError):
-    """ONVIF-Anfrage fehlgeschlagen (HTTP-Fehler oder SOAP-Fault)."""
+class PTZError(Conflict, OnvifError):
+    """The head cannot be moved (no PTZ, no credentials, the camera refused or did not answer); the API answers 409
+    with the text in the UI language."""
 
 
 def _clamp(v: float) -> float:
@@ -101,11 +103,11 @@ class PTZController:
                 timeout=_HTTP_TIMEOUT_S,
             )
         except requests.RequestException as e:
-            raise PTZError(f"ONVIF request to {self.host} failed: {e}") from e
+            raise PTZError("ptz_failed", camera=self.host, reason=str(e)) from e
         try:
             return parse_response(resp.content, resp.status_code, self.host)
         except OnvifError as e:
-            raise PTZError(str(e)) from e
+            raise PTZError("ptz_failed", camera=self.host, reason=str(e)) from e
 
     def profile_token(self) -> str:
         """Erstes Media-Profile-Token holen (gecacht)."""
@@ -122,7 +124,7 @@ class PTZController:
             None,
         )
         if not token:
-            raise PTZError(f"No media profile found on {self.host}")
+            raise PTZError("ptz_no_profile", camera=self.host)
         self._token = token
         return token
 
@@ -274,7 +276,7 @@ class PtzDriver:
         factor = VISION_PTZ_SPEEDS[speed]
         controller = get_controller(source_id)
         if controller is None:
-            raise PTZError(f"{source_id} hat keine PTZ-Steuerung (rtsp_cameras: ptz)")
+            raise PTZError("no_ptz", camera=source_id)
         await asyncio.to_thread(
             controller.continuous_move,
             *(v * factor for v in vector),
@@ -332,14 +334,14 @@ class PtzDriver:
             timer.cancel()
         cam = find_camera_config(source_id)
         if not cam or not cam.get("ptz"):
-            raise PTZError(f"{source_id} hat keine PTZ-Steuerung (rtsp_cameras: ptz)")
+            raise PTZError("no_ptz", camera=source_id)
         client = vision_snap.get_client(source_id)
         if client is None:
-            raise PTZError(f"{source_id}: keine Kamera-Zugangsdaten (rtsp_cameras: cred)")
+            raise PTZError("no_ptz_credentials", camera=source_id)
         try:
             await client.ptz_goto_guard(int(cam.get("channel", 0)))
         except ReolinkAIError as e:
-            raise PTZError(str(e)) from e
+            raise PTZError("ptz_failed", camera=source_id, reason=str(e)) from e
         log_message(f"PTZ home (Wächterposition) {source_id}")
 
     async def stop(self, source_id: str) -> None:
