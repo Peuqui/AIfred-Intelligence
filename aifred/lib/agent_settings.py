@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .agent_tuning import CANONICAL_AGENTS, default_tuning
+from .agent_tuning import PERMANENT_AGENTS, default_tuning
 
 __all__ = [
-    "CANONICAL_AGENTS",
+    "PERMANENT_AGENTS",
     "PERSISTED_TUNING_FIELDS",
     "THINKING_OFF",
     "THINKING_ON",
@@ -54,17 +54,17 @@ PERSISTED_TUNING_FIELDS = (
 def settings_agent(agent: str) -> str:
     """Validate an agent id and return the id of its tuning bucket.
 
-    Every registered agent (canonical or custom) owns its bucket — buckets
-    for new agents materialize on first write, reads before that serve the
-    agent's defaults. Unregistered names raise (typo guard).
+    Every registered agent owns its bucket — buckets for new agents
+    materialize on first write, reads before that serve the agent's
+    defaults. Unregistered names raise (typo guard), a deleted one too.
     """
-    if agent in CANONICAL_AGENTS:
+    if agent in PERMANENT_AGENTS:
         return agent
     from .agent_config import get_agent_config
     if get_agent_config(agent) is None:
         raise ValueError(
-            f"Unknown agent: {agent}. Must be one of {CANONICAL_AGENTS} "
-            f"or a registered custom agent."
+            f"Unknown agent: {agent}. Must be one of {PERMANENT_AGENTS} "
+            f"or an agent of agents.json."
         )
     return agent
 

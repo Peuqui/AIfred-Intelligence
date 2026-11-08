@@ -167,9 +167,12 @@ def _default_agents() -> dict[str, dict]:
 
 def config_from_raw(data: dict) -> AgentConfig:
     """The AgentConfig of an entry of agents.json; KeyError names a required field it lacks (display_name, emoji,
-    description, role)."""
+    description, role), Invalid a role other than VALID_ROLES."""
     raw_aliases = data.get("aliases") or []
     aliases = [str(a).strip().lower() for a in raw_aliases if isinstance(a, str) and a.strip()]
+    if data["role"] not in VALID_ROLES:
+        # The roles of the Reflex time (main, critic, judge, custom): scripts/migrate_agent_roles.py turns them into "agent".
+        raise Invalid("agent_role_unknown", agent=data["display_name"], role=data["role"])
     return AgentConfig(
         display_name=data["display_name"],
         emoji=data["emoji"],
@@ -384,9 +387,11 @@ def create_agent(
 
 def deletion_refusal(agent_id: str) -> UserError | None:
     """Why the agent cannot be deleted, None when it can. The base agent never is, nor a system agent
-    (it backs an internal workflow). Sokrates and Salomo can be once Reflex is gone: its state still
-    reaches into their tuning by name (docs/de/architecture/vue-migration/README.md, step 6)."""
-    from .agent_tuning import CANONICAL_AGENTS
+    (it backs an internal workflow), nor one that sits on a seat of the settings' default (a new chat would start
+    every debate with an agent that is gone). Since 08.11.2026 Sokrates and Salomo can be deleted like any other."""
+    from .debate_seats import default_seats
+    from .i18n import t
+    from .prompt_loader import get_language
 
     config = get_agent_config(agent_id)
     if config is None:
@@ -395,8 +400,9 @@ def deletion_refusal(agent_id: str) -> UserError | None:
         return Invalid("base_agent_stays", agent=config.display_name)
     if config.role == ROLE_SYSTEM:
         return Invalid("system_agent_stays", agent=config.display_name)
-    if agent_id in CANONICAL_AGENTS:
-        return Invalid("agent_needed_by_reflex", agent=config.display_name)
+    for seat, holder in default_seats().items():
+        if holder == agent_id:
+            return Invalid("agent_on_default_seat", agent=config.display_name, seat=t(f"debate_seat_{seat}", lang=get_language()))
     return None
 
 

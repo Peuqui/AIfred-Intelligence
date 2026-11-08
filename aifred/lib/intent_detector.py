@@ -93,43 +93,19 @@ def _parse_mode_switch(mode_field: str) -> dict[str, Any]:
 
 
 def format_mode_switch_summary(updates: dict[str, Any], lang: str = "de") -> str:
-    """Format a human-readable summary of a mode switch for confirmation messages."""
-    if not updates:
-        return ""
+    """A mode switch in words for its confirmation (mode, addressed agent, participants): the names of the modes and
+    agents as the interface shows them (until 08.11.2026 a second list here, with a mode "sokrates" long gone)."""
+    from .agent_config import agent_display_name
+    from .i18n import t
+
     parts: list[str] = []
-    if lang == "de":
-        multi_labels = {
-            "standard": "Standard",
-            "sokrates": "Sokrates",
-            "tribunal": "Tribunal",
-            "symposion": "Symposion",
-            "critical_review": "Kritische Prüfung",
-            "auto_consensus": "Auto-Konsens",
-        }
-    else:
-        multi_labels = {
-            "standard": "standard",
-            "sokrates": "Sokrates",
-            "tribunal": "Tribunal",
-            "symposion": "Symposion",
-            "critical_review": "critical review",
-            "auto_consensus": "auto consensus",
-        }
     if "multi_agent_mode" in updates:
-        parts.append(f"Mode: {multi_labels.get(updates['multi_agent_mode'], updates['multi_agent_mode'])}")
+        parts.append(f"{t('mode_switch_mode', lang=lang)}: {t('multi_agent_' + updates['multi_agent_mode'], lang=lang)}")
     if "active_agent" in updates:
-        from .agent_config import get_agent_config
-        _cfg = get_agent_config(updates["active_agent"])
-        _name = _cfg.display_name if _cfg else updates["active_agent"].capitalize()
-        parts.append(f"Agent: {_name}")
+        parts.append(f"{t('mode_switch_agent', lang=lang)}: {agent_display_name(updates['active_agent'])}")
     if "symposion_agents" in updates:
-        from .agent_config import get_agent_config
-        names = []
-        for agent_id in updates["symposion_agents"]:
-            cfg = get_agent_config(agent_id)
-            names.append(cfg.display_name if cfg else agent_id.capitalize())
-        label = "Teilnehmer" if lang == "de" else "Participants"
-        parts.append(f"{label}: {', '.join(names)}")
+        names = ", ".join(agent_display_name(agent) for agent in updates["symposion_agents"])
+        parts.append(f"{t('symposion_agents', lang=lang)}: {names}")
     return " · ".join(parts)
 
 

@@ -339,7 +339,7 @@ async def _detect_intent(view: RuntimeSettings, llm_client: Any, user_text: str)
         user_text, automatik, llm_client, automatik_num_ctx=num_ctx,
     )
     report_phase("")
-    switch = format_mode_switch_summary(mode_switch) if mode_switch else "–"
+    switch = format_mode_switch_summary(mode_switch, lang="en") if mode_switch else "–"   # a debug line: English
     debug(f"🎯 {format_intent_result(addressed_to, language)}, Switch: {switch}, PureCmd: {'yes' if pure else 'no'}")
     return _Intent(addressed_to, language, mode_switch, pure, load_time)
 
@@ -366,7 +366,7 @@ def _apply_mode_switch(session_id: str, config: dict[str, Any], intent: _Intent)
 
     update_session_config(session_id, **intent.mode_switch)
     config = {**config, **intent.mode_switch}
-    debug(f"🔧 Mode switch: {format_mode_switch_summary(intent.mode_switch, lang=intent.language)}")
+    debug(f"🔧 Mode switch: {format_mode_switch_summary(intent.mode_switch, lang='en')}")
     session_events.publish(session_id, "session_config", _public_config(config))
     return config
 
@@ -375,11 +375,12 @@ def _confirm_mode_switch(session_id: str, config: dict[str, Any], intent: _Inten
     """A message that only switched the mode gets a confirmation instead of an answer."""
     from .agent_config import get_agent_label
     from .formatting import build_assistant_chat_entry
+    from .i18n import t
     from .intent_detector import format_mode_switch_summary
 
     parts = [format_mode_switch_summary(intent.mode_switch, lang=intent.language)]
     if "active_agent" not in intent.mode_switch:
-        parts.append(f"Agent: {get_agent_label(config['active_agent'])}")
+        parts.append(f"{t('mode_switch_agent', lang=intent.language)}: {get_agent_label(config['active_agent'])}")
     text = f"✅ **{' · '.join(parts)}**"
     entry = build_assistant_chat_entry(text, "system")
     entry["mode"] = "mode_switch"

@@ -14,10 +14,11 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+
+from fake_tuning import default_agents_tuning
 from starlette.testclient import TestClient
 
 from aifred.lib import agent_choices, config, settings
-from aifred.lib.agent_tuning import default_agent_tuning
 from aifred.lib.gguf_utils import ReasoningInfo
 from aifred.lib.runtime_settings import RuntimeSettings
 
@@ -30,7 +31,7 @@ CATALOG = {BIG: "Big (30B)", SMALL: "Small (4B)", EYES: "Eyes (4B)"}
 
 
 def _view() -> RuntimeSettings:
-    tuning = default_agent_tuning()
+    tuning = default_agents_tuning()
     tuning["aifred"].model_id = SMALL
     tuning["vision"].model_id = EYES
     return RuntimeSettings(

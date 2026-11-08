@@ -14,10 +14,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+from fake_tuning import default_agents_tuning
 from starlette.testclient import TestClient
 
 from aifred.lib import backend_switch, calibration_gate, model_vram_cache, settings
-from aifred.lib.agent_tuning import default_agent_tuning
 from aifred.lib.backend_switch import choose_cloud_main_model, choose_vision_model, drop_unavailable_models
 from aifred.lib.gpu_detection import GPUInfo
 from aifred.lib.runtime_settings import RuntimeSettings
@@ -27,7 +28,7 @@ BIG, SMALL, EYES = "Big-30B", "Small-4B", "Eyes-4B-VL"
 
 
 def _view(backend_type: str = "llamacpp") -> RuntimeSettings:
-    tuning = default_agent_tuning()
+    tuning = default_agents_tuning()
     tuning["aifred"].model_id = BIG
     tuning["sokrates"].model_id = SMALL
     tuning["vision"].model_id = EYES

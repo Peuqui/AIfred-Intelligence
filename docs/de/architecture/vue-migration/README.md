@@ -798,5 +798,8 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
 6. Reflex entfernen: Mixins, `aifred/ui/`, `scripts/patch-reflex.py`, Reflex-Patches in `CLAUDE.md`;
    Server startet direkt (Granian/Uvicorn), nginx `/aifred/` auf den Server, Einzeilen-Installer.
    Daten der Produktion dabei: `role` in `data/agents.json` von `main`/`critic`/`judge`/`custom` auf
-   `agent` (Stand 07.11.2026 noch die alten Etiketten; alles außer `system` gilt schon als Chat-Agent),
-   Sokrates und Salomo löschbar machen (`deletion_refusal`, `CANONICAL_AGENTS`).
+   `agent` — **beim Umschalten einmal `venv/bin/python scripts/migrate_agent_roles.py`** (legt eine Sicherung daneben;
+   seit 08.11.2026 lehnt `agent_config.config_from_raw` die alten Rollen ab). Sokrates und Salomo sind seit 08.11.2026
+   löschbar wie jeder Agent, außer er sitzt in der Voreinstellung eines Platzes (`deletion_refusal`); fest sind nur
+   noch AIfred und Vision (`agent_tuning.PERMANENT_AGENTS`), jeder andere Agent von agents.json bekommt seinen Eimer
+   in `runtime_settings.registered_agent_tuning`.

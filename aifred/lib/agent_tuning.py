@@ -27,9 +27,10 @@ from .config import (
     VISION_DEFAULT_TOP_P,
 )
 
-# The four built-in agents. Custom agents (agents.json) get equal buckets at
-# runtime; this tuple only drives defaults and the fixed multi-agent modes.
-CANONICAL_AGENTS = ("aifred", "sokrates", "salomo", "vision")
+# The agents that are always there: AIfred (the base agent) and Vision (a system agent). Every other agent of
+# agents.json gets an equal bucket at runtime (runtime_settings.load_runtime_settings); until 08.11.2026 Sokrates and
+# Salomo were fixed here, because the Reflex state reached into their buckets by name.
+PERMANENT_AGENTS = ("aifred", "vision")
 
 
 @dataclass
@@ -94,8 +95,8 @@ def default_tuning(agent: str) -> AgentTuning:
 
 
 def default_agent_tuning() -> dict[str, AgentTuning]:
-    """Initial ``agent_tuning`` state value (canonical buckets)."""
-    return {agent: default_tuning(agent) for agent in CANONICAL_AGENTS}
+    """The buckets of the agents that are always there; the others come from agents.json."""
+    return {agent: default_tuning(agent) for agent in PERMANENT_AGENTS}
 
 
 # ── UI row models (rendered via rx.foreach in the settings accordion) ──

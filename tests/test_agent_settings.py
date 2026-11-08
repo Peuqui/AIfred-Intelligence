@@ -3,7 +3,7 @@
 import pytest
 
 from aifred.lib.agent_settings import (
-    CANONICAL_AGENTS,
+    PERMANENT_AGENTS,
     get_agent_base_model_id,
     get_agent_setting,
     get_persisted_tuning,
@@ -14,10 +14,11 @@ from aifred.lib.agent_tuning import default_agent_tuning, default_tuning
 
 
 class _FakeState:
-    """Bare container standing in for AIState (agent_tuning + globals)."""
+    """Bare container standing in for the runtime settings (agent_tuning + globals): the permanent buckets and those
+    of the default chat agents, as runtime_settings.registered_agent_tuning builds them from agents.json."""
 
     def __init__(self, **kwargs):
-        self.agent_tuning = default_agent_tuning()
+        self.agent_tuning = {**default_agent_tuning(), "sokrates": default_tuning("sokrates"), "salomo": default_tuning("salomo")}
         for key, value in kwargs.items():
             setattr(self, key, value)
 
@@ -25,15 +26,15 @@ class _FakeState:
 def _mock_codine(monkeypatch):
     from aifred.lib import agent_config
     monkeypatch.setattr(
-        agent_config, "get_agent_config", lambda aid: object() if aid == "codine" else None
+        agent_config, "get_agent_config", lambda aid: object() if aid in ("codine", "sokrates", "salomo") else None
     )
 
 
 # ── settings_agent ────────────────────────────────────────────────
 
 
-def test_canonical_agents_own_their_bucket():
-    for agent in CANONICAL_AGENTS:
+def test_the_permanent_agents_own_their_bucket():
+    for agent in PERMANENT_AGENTS:
         assert settings_agent(agent) == agent
 
 
@@ -52,9 +53,9 @@ def test_unregistered_agent_raises(monkeypatch):
 # ── default buckets ──────────────────────────────────────────────
 
 
-def test_default_agent_tuning_has_canonical_buckets():
+def test_default_agent_tuning_has_the_permanent_buckets():
     tuning = default_agent_tuning()
-    assert set(tuning) == set(CANONICAL_AGENTS)
+    assert set(tuning) == set(PERMANENT_AGENTS)
 
 
 def test_vision_defaults_differ():

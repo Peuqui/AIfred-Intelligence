@@ -66,7 +66,7 @@ def load_runtime_settings() -> RuntimeSettings:
         ui_language=saved["ui_language"],
         enable_tts=bool(saved["enable_tts"]),
         automatik_model_id="",
-        agent_tuning=default_agent_tuning(),
+        agent_tuning=registered_agent_tuning(),
         tts_autoplay=bool(saved["tts_autoplay"]),
         tts_agents=saved["tts_agents"],
         max_debate_rounds=saved["max_debate_rounds"],
@@ -79,6 +79,16 @@ def load_runtime_settings() -> RuntimeSettings:
         load_agent_model_params(view, agent, tuning.model_id)
     apply_default_models(view, had_backend_settings)
     return view
+
+
+def registered_agent_tuning() -> dict[str, AgentTuning]:
+    """A bucket for every agent of agents.json (with its defaults), the permanent ones first; a deleted agent has none."""
+    from .agent_config import load_agents
+
+    tuning = default_agent_tuning()
+    for agent in load_agents():
+        tuning.setdefault(agent, default_tuning(agent))
+    return tuning
 
 
 # ── A context window set by hand: the chat agents' until the server restarts ──

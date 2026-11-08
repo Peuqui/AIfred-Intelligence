@@ -9,14 +9,15 @@ from typing import Any
 
 import pytest
 
+from fake_tuning import default_agents_tuning
+
 from aifred.lib import runtime_settings as rs
-from aifred.lib.agent_tuning import default_agent_tuning
 
 
 def _view(backend: str = "llamacpp", **tuning: dict[str, Any]) -> rs.RuntimeSettings:
     view = rs.RuntimeSettings(
         backend_type=backend, backend_url="", ui_language="de",
-        enable_tts=False, automatik_model_id="", agent_tuning=default_agent_tuning(),
+        enable_tts=False, automatik_model_id="", agent_tuning=default_agents_tuning(),
         tts_autoplay=False, tts_agents={}, max_debate_rounds=3, consensus_type="majority",
     )
     for agent, fields in tuning.items():

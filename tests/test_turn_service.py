@@ -8,6 +8,8 @@ from typing import Any
 
 import pytest
 
+from fake_tuning import default_agents_tuning
+
 from fake_reading import FakeReading
 
 from aifred.lib import (
@@ -20,7 +22,6 @@ from aifred.lib import (
     vision_routing,
     vision_utils,
 )
-from aifred.lib.agent_tuning import default_agent_tuning
 from aifred.lib.llm_pipeline import PipelineResult
 from aifred.lib.runtime_settings import RuntimeSettings
 
@@ -47,7 +48,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
 
     view = RuntimeSettings(
         backend_type="ollama", backend_url="http://x", ui_language="de",
-        enable_tts=False, automatik_model_id="", agent_tuning=default_agent_tuning(),
+        enable_tts=False, automatik_model_id="", agent_tuning=default_agents_tuning(),
         tts_autoplay=False, tts_agents={}, max_debate_rounds=3, consensus_type="majority",
     )
     view.agent_tuning["aifred"].model_id = "qwen3:8b"
