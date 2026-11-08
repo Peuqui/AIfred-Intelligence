@@ -268,9 +268,29 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   letzten Werkzeugläufe aus dem Audit-Log. Dünn über `storage_manager` und `security.load_audit_entries`
   (`/api/storage/files…`, `/api/storage/showcase`, `/api/audit`, Modul `api/housekeeping.py`). Geprüft gegen die
   Testinstanz mit einem Prüfexport: gelistet, über den Link geöffnet, über die Seite gelöscht; Audit-Zeile gezeigt.
-- **Einstellungen, Teil 2 (offen):** Backend-Wechsel, Kalibrierung, Neustarts von Backend und AIfred,
-  Grundeinstellungen laden. Neustarts treffen die gemeinsamen Dienste (llama-swap,
-  Produktionsdienst): nur mit Peuqui abgestimmt testen.
+- **Einstellungen, Teil 2, Paket 1: lesend (erledigt 08.11.2026):** `BackendSettings.vue` auf der Einstellungsseite:
+  das Backend mit den Backends, die die Karten können, der Cloud-Anbieter mit dem Stand seines Schlüssels, die
+  GPU-Details (eine Zeile je Kartentyp), aufgeklappt die Kalibrierung: je Modell, das die Agenten nutzen, wer darauf
+  läuft, Kontext, Schichten-Split und Speed-Split (Ollama: Kontext je RoPE-Faktor), dazu die Matrix von AIfreds Modell
+  als Punkte. Umgezogen aus den Mixins nach lib, Reflex ruft sie: `lib/calibration/matrix.py` (Zellstatus für
+  llama.cpp und vLLM, Zelle → Profil-ID, Fehlervermerk löschen; vorher drei Kopien der Namensbildung),
+  `lib/calibration/model_info.py` (strukturiert statt Konsolentext, Reflex formuliert daraus dieselben Zeilen wie
+  bisher, ein Test hält das fest), `lib/backend_overview.py` (verträgliche Backends, GPU-Karten,
+  `gpu_detection.server_gpu_info` einmal je Prozess; die Labels aus `config.BACKEND_LABELS` statt vier Kopien),
+  `agent_choices.models_in_use`. Endpunkte `GET /backend`, `GET /calibration` (Modul `api/backend.py`). Entfernt:
+  `vllm_sidechannel_summary` (las niemand) und `not_applicable` der Matrixzellen (immer falsch, der Strich-Zweig der
+  Reflex-Matrix kam nie zum Zug; Rendering vorher/nachher verglichen, nur dieser Zweig fehlt). Der Cloud-Anbieter hat
+  einen Standard in `DEFAULT_SETTINGS` (`DEFAULT_CLOUD_API_PROVIDER`), vorher nur als Feld-Default im State.
+  Abweichung: Den Hinweis „vLLM braucht Compute 7.0+“ zeigt Vue, wenn vLLM wirklich nicht geht; Reflex zeigte ihn,
+  sobald die schwächste Karte unter 7.0 lag, auch wenn eine andere vLLM konnte. Bekannt und für Paket 3 vorgemerkt:
+  Der Side-Channel-Burn-in speichert unter der Modell-ID des VLM, die Matrix liest unter dem Kurz-Schlüssel der
+  Kalibrier-Wahl, die VLM-Zeilen der vLLM-Matrix bleiben so leer (der Lauf ignoriert ohnehin die angehakten Zellen).
+  Geprüft gegen die Testinstanz (llama.cpp: Basis grün, 32.768 Token, Vision 262.144) und lesend mit dem
+  Produktionsmodell unter vLLM.
+- **Einstellungen, Teil 2, offen:** Paket 2 (Backend-Wechsel, Cloud-Anbieter, Neustarts von Backend und AIfred als
+  lib-Dienst, Grundeinstellungen laden) und Paket 3 (`CalibrationService`: der Lauf aus dem Mixin, Fortschritt und
+  Abbruch als Rückruf, Häkchen und Start in Vue). Neustarts und Kalibrierung treffen die gemeinsamen Dienste
+  (llama-swap, Produktionsdienst, alle Karten): nur mit Peuqui abgestimmt testen.
 - **Temperatur nur noch von Hand (erledigt 07.11.2026, Peuqui):** Jeder Agent antwortet mit seiner
   eigenen Temperatur (`agent_settings.resolve_agent_temperature`); der Modus auto, die Temperaturen je
   Absicht (`INTENT_TEMPERATURE_*`) und der Aufschlag für Sokrates und Salomo (`temperature_offset`) sind

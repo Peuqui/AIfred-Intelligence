@@ -294,6 +294,24 @@ def model_catalog(view: RuntimeSettings) -> dict[str, str]:
     return discover_models(view.backend_type, backend_url=view.backend_url)
 
 
+def models_in_use(view: TuningTarget, lang: str) -> list[tuple[str, list[str]]]:
+    """Every model the agents run on (base ids, AIfred's first) with the names of who runs on it: the
+    chat agents (one without a model of its own runs on AIfred's), the Automatik and the Vision agent."""
+    from .agent_config import get_agent_config
+    from .i18n import t
+
+    vision = get_agent_config("vision")
+    users = [(get_agent_base_model_id(view, agent), f"{emoji} {name}") for agent, name, emoji in chat_agents()]
+    users.append((view.automatik_model_id or get_agent_base_model_id(view, "aifred"), t("automatik_agent_name", lang=lang)))
+    if vision:
+        users.append((get_agent_setting(view, "vision", "model_id"), f"{vision.emoji or '📷'} {vision.display_name}"))
+    models: dict[str, list[str]] = {get_agent_base_model_id(view, "aifred"): []}
+    for model_id, name in users:
+        if model_id:
+            models.setdefault(model_id, []).append(name)
+    return [(model_id, names) for model_id, names in models.items() if model_id and names]
+
+
 def agent_row(view: TuningTarget, agent: str, display_name: str, emoji: str, lang: str) -> AgentChoices:
     thinking, options = thinking_choices(view, agent, lang)
     return AgentChoices(

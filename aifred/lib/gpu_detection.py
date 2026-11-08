@@ -331,6 +331,12 @@ def detect_gpu() -> GPUInfo | None:
     return _detector.detect()
 
 
+def server_gpu_info() -> GPUInfo | None:
+    """The GPUs of this server, detected on the first call; the process keeps that result (a card added
+    while it runs shows after a restart)."""
+    return _detector.gpu_info or _detector.detect()
+
+
 def is_backend_compatible(backend: str) -> bool:
     """Convenience function to check backend compatibility"""
     return _detector.is_backend_compatible(backend)

@@ -92,17 +92,12 @@ class BackendMixin(rx.State, mixin=True):
     backend_url: rx.Field[str] = rx.field(config.DEFAULT_OLLAMA_URL)
 
     # Cloud API Settings (only relevant when backend_type == "cloud_api")
-    cloud_api_provider: rx.Field[str] = rx.field("qwen")  # "claude", "qwen", "kimi"
+    cloud_api_provider: rx.Field[str] = rx.field(config.DEFAULT_CLOUD_API_PROVIDER)
     cloud_api_provider_label: rx.Field[str] = rx.field("Qwen (DashScope)")
     cloud_api_key_configured: rx.Field[bool] = rx.field(False)
 
     # Backend ID/Label Mapping (static - all possible backends)
-    available_backends_dict: rx.Field[dict[str, str]] = rx.field(default_factory=lambda: {
-        "ollama": "Ollama",
-        "llamacpp": "llama.cpp",
-        "vllm": "vLLM",
-        "cloud_api": "Cloud APIs",
-    })
+    available_backends_dict: rx.Field[dict[str, str]] = rx.field(default_factory=lambda: dict(config.BACKEND_LABELS))
 
     # ── Model Settings ────────────────────────────────────────────
     # Per-agent model/model_id live in agent_tuning (AgentConfigMixin).
@@ -141,12 +136,8 @@ class BackendMixin(rx.State, mixin=True):
     gpu_count: rx.Field[int] = rx.field(1)
     gpu_vram_gb: rx.Field[float] = rx.field(0)
     gpu_all_names: rx.Field[list[str]] = rx.field(default_factory=list)
-    available_backends: rx.Field[list[str]] = rx.field(default_factory=lambda: [
-        "ollama", "llamacpp", "vllm", "cloud_api",
-    ])
-    available_backends_list: rx.Field[list[str]] = rx.field(default_factory=lambda: [
-        "Ollama", "llama.cpp", "vLLM", "Cloud APIs",
-    ])
+    available_backends: rx.Field[list[str]] = rx.field(default_factory=lambda: list(config.BACKEND_LABELS))
+    available_backends_list: rx.Field[list[str]] = rx.field(default_factory=lambda: list(config.BACKEND_LABELS.values()))
 
     # ── vLLM YaRN Settings ────────────────────────────────────────
     enable_yarn: rx.Field[bool] = rx.field(False)
@@ -189,13 +180,7 @@ class BackendMixin(rx.State, mixin=True):
     @rx.var
     def gpu_compatible_text(self) -> str:
         """Compatible backends as display text (excluding cloud_api)."""
-        display_names = {
-            "ollama": "Ollama",
-            "llamacpp": "llama.cpp",
-            "vllm": "vLLM",
-        }
-        names = [display_names.get(b, b) for b in self.available_backends if b != "cloud_api"]
-        return ", ".join(names) if names else ""
+        return ", ".join(config.BACKEND_LABELS[backend] for backend in self.available_backends if backend != "cloud_api")
 
     @rx.var
     def backend_supports_dynamic_models(self) -> bool:
@@ -347,8 +332,8 @@ class BackendMixin(rx.State, mixin=True):
                     # GPU Detection (once per server)
                     log_message("🔍 Detecting GPU capabilities...")
                     try:
-                        from ..lib.gpu_detection import detect_gpu
-                        gpu_info = detect_gpu()
+                        from ..lib.gpu_detection import server_gpu_info
+                        gpu_info = server_gpu_info()
                         if gpu_info:
                             _global_backend_state["gpu_info"] = gpu_info
 
@@ -519,9 +504,8 @@ class BackendMixin(rx.State, mixin=True):
                     self.add_debug(f"🎮 GPU: {self.gpu_display_text}")
 
                     if gpu_info.recommended_backends:
-                        self.available_backends = gpu_info.recommended_backends.copy()
-                        if "cloud_api" not in self.available_backends:
-                            self.available_backends.append("cloud_api")
+                        from ..lib.backend_overview import available_backends
+                        self.available_backends = available_backends(gpu_info)
                         self.available_backends_list = [
                             self.available_backends_dict.get(bid, bid)
                             for bid in self.available_backends

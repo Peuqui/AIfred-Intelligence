@@ -23,6 +23,7 @@ from ..lib.logging_utils import CONSOLE_SEPARATOR, log_exception, log_message
 
 if TYPE_CHECKING:
     from ..lib.agent_tuning import AgentTuning
+    from ..lib.calibration.matrix import CalibrationMatrix
 
 # Meldungs-Puffer des Kalibrier-Background-Tasks. Der Wrapper
 # (calibrate_context) drainiert ihn alle ~2 s in seinem
@@ -62,36 +63,32 @@ def _write_variant_cache_entry(
 
 
 class CalibrationCell(TypedDict):
-    """One checkbox cell in the calibration picker matrix.
-
-    Module-level TypedDict so Reflex can introspect the nested foreach
-    over ``row["cells"]`` — without an explicit element type the inner
-    iterator trips with ``ForeachVarError: Could not foreach over var
-    of type Any``.
-
-    ``already_calibrated`` and ``calibration_failed`` are mutually
-    exclusive at render time: a failure entry is cleared as soon as
-    a successful re-calibration writes the cache (see
-    :func:`aifred.lib.model_vram_cache.add_llamacpp_calibration`).
-
-    ``not_applicable`` marks a cell that cannot be measured at all —
-    used only by the vLLM burn-in matrix, whose cells are VLM/TTS pairs:
-    the "no VLM / no TTS" cell has no pair to burn in. Rendered as a dash
-    instead of a checkbox so the cell is not read as "unmeasured yet".
-    """
+    """One checkbox cell of the calibration picker (``rx.foreach`` needs the element type): the tick of
+    this session and the status from ``lib/calibration/matrix.py``. Failed wins over done."""
     key: str
     checked: bool
     already_calibrated: bool
     calibration_failed: bool
-    not_applicable: bool
 
 
 class CalibrationRow(TypedDict):
-    """One row in the calibration picker matrix (one VLM choice). The
-    first cell is the "no TTS" column, the remaining cells follow the
-    TTS engines in registry order."""
+    """One row of the calibration picker (one VLM choice); the cells follow the TTS columns."""
     label: str
     cells: list[CalibrationCell]
+
+
+def _picker_rows(matrix: CalibrationMatrix | None, ticked: dict[str, bool]) -> list[CalibrationRow]:
+    """The matrix of the lib with this session's ticks."""
+    if matrix is None:
+        return []
+    return [
+        {"label": row.label, "cells": [
+            {"key": cell.key, "checked": ticked.get(cell.key, False),
+             "already_calibrated": cell.status == "done", "calibration_failed": cell.status == "failed"}
+            for cell in row.cells
+        ]}
+        for row in matrix.rows
+    ]
 
 
 # Verify ("probe") lines from flow._fmt_verify always start with a
@@ -103,18 +100,6 @@ class CalibrationRow(TypedDict):
 # ``.<iteration>]`` shape keeps math-projection lines (which don't
 # have that suffix) from being miscategorised as probes.
 _VERIFY_LINE_RE = re.compile(r"^\[\[?.+\.\d+\]")
-
-
-def _calibration_engine_keys() -> list[str]:
-    """Columns of the calibration matrix: the installed local GPU engines. A service that does not
-    answer gives no TTS column (the picker's header names the reason): a computed var must not throw."""
-    from aifred.lib.tts_client import TTSSuiteUnreachable
-    from aifred.lib.tts_service import installed_gpu_engine_keys
-
-    try:
-        return installed_gpu_engine_keys()
-    except TTSSuiteUnreachable:
-        return []
 
 
 def _free_cards_for_calibration(report: Any) -> None:
@@ -293,136 +278,25 @@ class CalibrationMixin(rx.State, mixin=True):
         return bool(broker.get("cloud_qwen", "api_key")) or bool(os.environ.get("DASHSCOPE_API_KEY"))
 
     # ------------------------------------------------------------------
-    # TTS engine picker (per-click selection, not persisted)
+    # Calibration picker (the ticks are per click, not persisted; the status comes from the lib)
     # ------------------------------------------------------------------
 
     @rx.var(cache=True, auto_deps=False,
             deps=["calibration_matrix", "backend_id", "ui_language", "agent_tuning"])
     def vllm_burnin_matrix_rows(self) -> list[CalibrationRow]:
-        """Dieselbe VLM x TTS-Matrix wie bei llama.cpp — andere Bedeutung.
-
-        Bei llama.cpp ist eine Zelle ein zu kalibrierendes llama-swap-Profil.
-        Bei vLLM waere das sinnlos: ``side_channel_uuids()`` haelt die
-        TTS-/VLM-Karte aus der Topologie-Leiter, jede Zelle maesse dasselbe
-        bei ~80 Minuten Laufzeit. Hier steht eine Zelle deshalb fuer ein
-        BURN-IN-PAAR: VLM und TTS teilen sich diese eine Karte, und die
-        Frage ist, ob sie zusammen unter Last darauf passen.
-
-        Gruen = gemeinsam vermessen UND es passte. Rot = vermessen und es
-        passte NICHT (die Karte wuerde unter Last ueberlaufen).
-        """
+        """The VLM x TTS matrix of vLLM: a cell is a burn-in pair on the side-channel card, the base cell
+        the operating point (``lib/calibration/matrix.py``). Auto-deps are off: Reflex cannot see the
+        files the lib reads."""
         if self.backend_id != "vllm":
             return []
-        from aifred.lib import sidechannel_vram_cache
-        from aifred.lib.i18n import t as _t
-        from aifred.lib.vision_routing import vlm_calibration_choices
-
-        from aifred.lib.operating_points import is_vllm_calibrated
-
-        engines = _calibration_engine_keys()
-        model_id = self.agent_tuning["aifred"].model_id or ""
-        base_calibrated = bool(model_id) and is_vllm_calibrated(model_id)
-
-        def _row(vlm_key: str, label: str) -> CalibrationRow:
-            cells: list[CalibrationCell] = []
-            for tts_key in ["", *engines]:
-                key = sidechannel_vram_cache.pair_key(vlm_key, tts_key)
-                # The "no VLM / no TTS" cell stands for the base operating
-                # point, not for a side-channel pair: it is green when the
-                # selected model has a profile for this hardware.
-                verdict = (
-                    base_calibrated or None
-                    if not vlm_key and not tts_key
-                    else sidechannel_vram_cache.fits(vlm_key, tts_key)
-                )
-                cells.append({
-                    "key": key,
-                    "checked": self.calibration_matrix.get(key, False),
-                    "already_calibrated": verdict is True,
-                    "calibration_failed": verdict is False,
-                    # Ohne VLM und ohne TTS gibt es kein Paar auf der
-                    # Side-Channel-Karte — nichts zu vermessen.
-                    # Basiszelle ist auch hier anhakbar — wie bei
-                    # llama.cpp bedeutet sie "Basis neu vermessen".
-                    "not_applicable": False,
-                })
-            return {"label": label, "cells": cells}
-
-        rows = [_row("", _t("calibration_matrix_no_vlm"))]
-        for choice in vlm_calibration_choices():
-            rows.append(_row(choice["key"], choice["label"]))
-        return rows
-
-    @rx.var(cache=True, auto_deps=False, deps=["agent_tuning", "backend_id", "ui_language"])
-    def vllm_sidechannel_summary(self) -> list[str]:
-        """Zeilen fuer den vLLM-Kalibrations-Popover: was auf der
-        Side-Channel-Karte liegt und was davon schon vermessen ist.
-
-        vLLM rechnet nur auf den Karten, die ``side_channel_uuids()``
-        uebrig laesst — statt der llama.cpp-Matrix (VLM x TTS als
-        Kalibrierziele) zeigt der Popover deshalb nur, WAS sich diese eine
-        Karte teilt und ob deren gemeinsamer Bedarf schon gemessen wurde.
-
-        Bewusst ohne ``running_gpu_engine``: das ist ein
-        HTTP-Health-Check mit Timeout und haette in einer rx.var die
-        UI blockiert. Die installierten Engines und die Cache-Werte
-        reichen fuer die Anzeige.
-        """
-        if self.backend_id != "vllm":
-            return []
-        from aifred.lib import vlm_vram_cache
-        from aifred.lib.formatting import format_number
-        from aifred.lib.i18n import t as _t
-        from aifred.lib.tts_client import TTSSuiteUnreachable
-        from aifred.lib.tts_service import (
-            engine_label_short,
-            gpu_engine_needs,
-            installed_gpu_engine_keys,
-            unreachable_text,
-        )
-        from aifred.lib.vision_prewarm import get_active_vlm_model
-
-        lines: list[str] = []
-        vlm = get_active_vlm_model() or ""
-        if vlm:
-            hit = vlm_vram_cache.get_any(vlm)
-            if hit:
-                peak, ctx = hit
-                measured = (f"{format_number(peak)} MiB @ "
-                            f"{format_number(ctx)} ctx")
-            else:
-                measured = _t("calibration_not_measured")
-            lines.append(f"VLM: {vlm} — {measured}")
-        else:
-            lines.append(f"VLM: {_t('calibration_none_active')}")
-        try:
-            engine_keys = installed_gpu_engine_keys()
-            labels = {key: engine_label_short(key) for key in engine_keys}
-            reserves = gpu_engine_needs()
-        except TTSSuiteUnreachable as unreachable:
-            lines.append(f"TTS: {unreachable_text(unreachable)}")
-            return lines
-        for engine_key in engine_keys:
-            reserve = reserves.get(engine_key)
-            measured = (f"{format_number(reserve)} MiB" if reserve is not None
-                        else _t("calibration_not_measured"))
-            lines.append(f"TTS: {labels[engine_key]} — {measured}")
-        return lines
+        from aifred.lib.calibration.matrix import matrix
+        return _picker_rows(matrix("vllm", self.agent_tuning["aifred"].model_id or ""), self.calibration_matrix)
 
     @rx.var(cache=True, auto_deps=False, deps=["agent_tuning", "backend_id"])
     def vllm_model_calibrated(self) -> bool:
-        """Traegt das aktuell gewaehlte vLLM-Modell einen Betriebspunkt
-        DIESER Hardware? Speist den gruenen Punkt am Kalibrieren-Knopf.
-
-        Das Gegenstueck zum gruenen Punkt der llama.cpp-Matrix, nur ohne
-        Matrix: vLLM rechnet ausschliesslich auf den Karten, die
-        ``side_channel_uuids()`` uebrig laesst — was auf der TTS-/VLM-Karte
-        laeuft, aendert das Ergebnis nicht. Es gibt deshalb genau einen
-        Zustand je Modell statt einer VLM x TTS-Matrix.
-
-        Auto-deps ist aus: Reflex kann die Dateipruefung in
-        ``is_vllm_calibrated`` nicht introspizieren.
-        """
+        """Does the chosen vLLM model have an operating point of THIS hardware? The green dot at the
+        calibrate button (vLLM has one state per model, no matrix of profiles). Auto-deps are off:
+        Reflex cannot see the file check in ``is_vllm_calibrated``."""
         if self.backend_id != "vllm":
             return False
         model_id = self.agent_tuning["aifred"].model_id or ""
@@ -433,147 +307,30 @@ class CalibrationMixin(rx.State, mixin=True):
 
     @rx.var(cache=True, auto_deps=False, deps=["ui_language"])
     def calibration_matrix_header(self) -> list[str]:
-        """Column labels for the calibration picker matrix — first cell
-        is the row-header placeholder, then one label per TTS column
-        ("Kein TTS" / "No TTS" + each installed GPU TTS engine).
-        Computed so the UI can render the header row with a single
-        ``rx.foreach``."""
-        from aifred.lib.i18n import t
-        from aifred.lib.tts_client import TTSSuiteUnreachable
-        from aifred.lib.tts_service import (
-            engine_label_short,
-            installed_gpu_engine_keys,
-            unreachable_text,
-        )
-        try:
-            engine_labels = [engine_label_short(key) for key in installed_gpu_engine_keys()]
-        except TTSSuiteUnreachable as unreachable:
-            engine_labels = [unreachable_text(unreachable)]
-        return ["", t("calibration_matrix_no_tts"), *engine_labels]
+        """The header row of the picker: the corner, "no TTS", one label per engine (or why the TTS
+        service gave none)."""
+        from aifred.lib.calibration.matrix import engine_columns
+        columns, problem = engine_columns(None)
+        return ["", *(column.label for column in columns), *([problem] if problem else [])]
 
     @rx.var(cache=True, auto_deps=False, deps=["agent_tuning", "calibration_matrix", "ui_language"])
     def calibration_matrix_rows(self) -> list[CalibrationRow]:
-        """One entry per VLM choice (including "no VLM"). Each entry
-        carries ``{label, cells}`` where ``cells`` is a list of dicts
-        ``{key, checked, already_calibrated, calibration_failed}`` — one
-        per TTS column.
+        """The llama.cpp matrix of AIfred's model with this session's ticks.
 
-        ``key`` is the matrix key in the form ``"<vlm_key>|<tts_key>"``
-        (empty side for "none"). The UI binds each cell's checkbox to
-        ``calibration_matrix[key]`` and toggles via
-        :meth:`set_calibration_matrix_cell`.
-
-        ``already_calibrated`` reflects the real cache state — the
-        green dot appears only when ``gpu_model`` is set on the cache
-        entry. ``calibration_failed`` lights up red when a prior
-        calibration attempt left a ``failure_status`` record.
-
-        Caching is verbindlich (``cache=True``) — ``cache=False`` would
-        recompute on every Reflex tick and ship a state delta to the
-        browser per cycle, which React reconciles by re-mounting the
-        chat-bubble subtree and wipes the user's text selection (the
-        exact regression commit 531c84d fixed for debug_messages).
-
-        Auto-deps is off because Reflex can't introspect the
-        ``is_*_calibrated``/``is_calibration_failed`` helpers (cross-
-        module + ``load_cache`` file IO). Explicit deps: the model id
-        (changes when the user picks a different model) and the matrix
-        dict (changes on every cell click — also clears stale failure
-        flags via :meth:`set_calibration_matrix_cell`, so cache state
-        is re-read on each interaction)."""
-        from aifred.lib.model_vram_cache import (
-            is_calibration_failed,
-            is_model_calibrated,
-            is_tts_variant_calibrated,
-            is_vlm_variant_calibrated,
-            load_cache,
-        )
-        from aifred.lib.vision_routing import vlm_calibration_choices
-        vlm_choices = vlm_calibration_choices()
-
-        model_id = self.agent_tuning["aifred"].model_id or ""
-        engines = _calibration_engine_keys()
-        cache = load_cache() if model_id else {}
-
-        def _combo_done(vlm_key: str, tts_key: str) -> bool:
-            if not model_id:
-                return False
-            full_id = f"{model_id}-tts-{tts_key}-vlm-{vlm_key}"
-            entry = cache.get(full_id)
-            return bool(entry and entry.get("gpu_model"))
-
-        def _failed(variant_id: str) -> bool:
-            return bool(model_id) and is_calibration_failed(variant_id)
-
-        rows: list[CalibrationRow] = []
-
-        # "Kein VLM" row — covers BASE + plain TTS variants.
-        no_vlm_cells: list[CalibrationCell] = []
-        no_vlm_cells.append({
-            "key": "|",
-            "checked": self.calibration_matrix.get("|", False),
-            "already_calibrated": is_model_calibrated(model_id) if model_id else False,
-            "calibration_failed": _failed(model_id) if model_id else False,
-            "not_applicable": False,
-        })
-        for engine_key in engines:
-            done = bool(model_id) and is_tts_variant_calibrated(model_id, engine_key)
-            no_vlm_cells.append({
-                "key": f"|{engine_key}",
-                "checked": self.calibration_matrix.get(f"|{engine_key}", False),
-                "already_calibrated": done,
-                "calibration_failed": _failed(f"{model_id}-tts-{engine_key}"),
-                "not_applicable": False,
-            })
-        from aifred.lib.i18n import t as _t
-        rows.append({"label": _t("calibration_matrix_no_vlm"), "cells": no_vlm_cells})
-
-        # One row per VLM choice — first cell is VLM-only, then each
-        # column is a VLM × TTS combination.
-        for choice in vlm_choices:
-            vlm_key = choice["key"]
-            vlm_label = choice["label"]
-            cells: list[CalibrationCell] = []
-            vlm_only_done = (
-                bool(model_id) and is_vlm_variant_calibrated(model_id, vlm_key)
-            )
-            cells.append({
-                "key": f"{vlm_key}|",
-                "checked": self.calibration_matrix.get(f"{vlm_key}|", False),
-                "already_calibrated": vlm_only_done,
-                "calibration_failed": _failed(f"{model_id}-vlm-{vlm_key}"),
-                "not_applicable": False,
-            })
-            for engine_key in engines:
-                combo_key = f"{vlm_key}|{engine_key}"
-                cells.append({
-                    "key": combo_key,
-                    "checked": self.calibration_matrix.get(combo_key, False),
-                    "already_calibrated": _combo_done(vlm_key, engine_key),
-                    "calibration_failed": _failed(
-                        f"{model_id}-tts-{engine_key}-vlm-{vlm_key}"
-                    ),
-                    "not_applicable": False,
-                })
-            rows.append({"label": vlm_label, "cells": cells})
-
-        return rows
+        Caching is required: ``cache=False`` would recompute on every Reflex tick and ship a delta per
+        cycle, which React reconciles by re-mounting the chat bubbles and wipes the user's text
+        selection (the regression commit 531c84d fixed for debug_messages). Auto-deps are off because
+        Reflex cannot see the files the lib reads; ticking a cell changes ``calibration_matrix`` and so
+        reads the cache again."""
+        from aifred.lib.calibration.matrix import matrix
+        return _picker_rows(matrix("llamacpp", self.agent_tuning["aifred"].model_id or ""), self.calibration_matrix)
 
     @rx.event
     def open_calibration_picker(self) -> None:
-        """Initialize the matrix map with one entry per cell on first
-        open. The picker stays sticky within a session — close it,
-        reopen it, the checkboxes are still where the user left them.
-        Newly installed engines show up as fresh unchecked entries."""
-        from aifred.lib.vision_routing import vlm_calibration_choices
-        cur = dict(self.calibration_matrix)
-        engines = _calibration_engine_keys()
-        vlm_keys = ["", *(c["key"] for c in vlm_calibration_choices())]
-        tts_keys = ["", *engines]
-        for v in vlm_keys:
-            for t in tts_keys:
-                cur.setdefault(f"{v}|{t}", False)
-        self.calibration_matrix = cur
+        """Give every cell an entry on opening. The ticks stay within a session (close and reopen the
+        picker, they are where the user left them); newly installed engines show up unticked."""
+        from aifred.lib.calibration.matrix import all_cell_keys
+        self.calibration_matrix = {**dict.fromkeys(all_cell_keys(), False), **self.calibration_matrix}
 
     @rx.event
     def reset_vlm_vram_cache(self) -> None:
@@ -637,36 +394,10 @@ class CalibrationMixin(rx.State, mixin=True):
             self._clear_failure_for_matrix_key(key)
 
     def _clear_failure_for_matrix_key(self, key: str) -> None:
-        """Translate a matrix cell key (``"<vlm>|<tts>"``) into the
-        corresponding model_vram_cache variant id and drop any stored
-        failure_status. No-op if the cache has no entry or no failure
-        for that id."""
-        from aifred.lib.model_vram_cache import load_cache, save_cache
-        from aifred.lib.vision_routing import vlm_calibration_choices
+        """Drop the failure record of the cell's profile (rule: ``matrix.clear_failure``)."""
+        from aifred.lib.calibration.matrix import clear_failure
+        clear_failure(self.agent_tuning["aifred"].model_id or "", key)
 
-        model_id = self.agent_tuning["aifred"].model_id or ""
-        if not model_id or "|" not in key:
-            return
-        vlm_key, tts_key = key.split("|", 1)
-        valid_vlms = {c["key"] for c in vlm_calibration_choices()}
-        if vlm_key and vlm_key not in valid_vlms:
-            return
-        if vlm_key and tts_key:
-            variant_id = f"{model_id}-tts-{tts_key}-vlm-{vlm_key}"
-        elif vlm_key:
-            variant_id = f"{model_id}-vlm-{vlm_key}"
-        elif tts_key:
-            variant_id = f"{model_id}-tts-{tts_key}"
-        else:
-            variant_id = model_id
-
-        cache = load_cache()
-        entry = cache.get(variant_id)
-        if not entry or not entry.get("failure_status"):
-            return
-        entry.pop("failure_status", None)
-        cache[variant_id] = entry
-        save_cache(cache)
 
     @rx.var(cache=True, deps=["_agents_json_revision"])
     def calibration_ai_label(self) -> str:
@@ -3243,140 +2974,39 @@ class CalibrationMixin(rx.State, mixin=True):
     # Calibration info display
     # ------------------------------------------------------------------
 
-    def _show_model_calibration_info(self, model_id: str):
-        """Show calibration info in debug console.
-
-        Displays calibrated context values or a warning
-        if the model hasn't been calibrated yet.
-        """
-        if not model_id:
-            return
-
+    def _show_model_calibration_info(self, model_id: str) -> None:
+        """The calibration of ``model_id`` in the debug console (rule: ``calibration.model_info``):
+        llama.cpp the context, the layer split and the speed split, Ollama the context per RoPE factor."""
+        from ..lib.calibration.model_info import LayerSplit, model_calibration
         from ..lib.formatting import format_number
 
-        # model_id is always base ID (SSOT — no suffix stripping needed)
-        if self.backend_type == "llamacpp":
-            from ..lib.model_vram_cache import get_llamacpp_calibration
-            from ..lib.calibration import parse_llamaswap_config
-            from ..lib.config import LLAMASWAP_CONFIG_PATH
-            # YAML is the source of truth — that's the ctx the server
-            # actually starts with. Cache may be stale if YAML was edited
-            # manually or by a partial calibration run.
-            yaml_models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-            yaml_ctx = yaml_models.get(model_id, {}).get("current_context", 0)
-            cached = get_llamacpp_calibration(model_id)
-            if yaml_ctx > 0:
-                if cached and cached != yaml_ctx:
-                    # Cache and YAML disagree — show YAML (truth) and warn
-                    self.add_debug(
-                        f"   🎯 Configured: {format_number(yaml_ctx)} tokens "
-                        f"(cache shows {format_number(cached)} — re-calibrate to sync)"
-                    )
-                else:
-                    self.add_debug(f"   🎯 Calibrated: {format_number(yaml_ctx)} tokens")
-            elif cached:
-                self.add_debug(f"   🎯 Calibrated: {format_number(cached)} tokens")
-            else:
-                self.add_debug("   ⚠️ Not calibrated - please run calibration for optimal context")
-
-            # Show tensor-split (layer distribution) from llama-swap config
-            total_gpus = self._show_tensor_split_info(model_id, format_number)
-
-            # Show speed variant from the llama-swap config (source of truth).
-            # The cached speed_split/speed_split_rest pair is a compact
-            # "cuda0 : sum-of-remaining-GPUs" encoding (e.g. 19:42) that does
-            # NOT map to a per-GPU split — only the -speed config entry holds
-            # the real layout (e.g. 19:20:13:9:0). Reading the cache compact
-            # form here previously rendered a bogus "19:42:0:0:0 (2/5 GPUs)".
-            self._show_speed_split_info(model_id, format_number, total_gpus)
+        if self.backend_type not in ("llamacpp", "ollama"):
+            return
+        info = model_calibration(self.backend_type, model_id)
+        if info is None:
             return
 
-        if self.backend_type != "ollama":
-            return
+        def split_text(split: LayerSplit) -> str:
+            return f"{':'.join(f'{layers:g}' for layers in split.layers)} ({split.active_cards}/{split.total_cards} GPUs)"
 
-        from ..lib.model_vram_cache import get_ollama_calibrated_max_context
-
-        native_ctx = get_ollama_calibrated_max_context(model_id, rope_factor=1.0)
-        rope_1_5x_ctx = get_ollama_calibrated_max_context(model_id, rope_factor=1.5)
-        rope_2x_ctx = get_ollama_calibrated_max_context(model_id, rope_factor=2.0)
-
-        if native_ctx is not None or rope_1_5x_ctx is not None or rope_2x_ctx is not None:
-            parts = []
-            if native_ctx is not None:
-                parts.append(f"Native: {format_number(native_ctx)}")
-            if rope_1_5x_ctx is not None:
-                parts.append(f"RoPE 1.5x: {format_number(rope_1_5x_ctx)}")
-            if rope_2x_ctx is not None:
-                parts.append(f"RoPE 2x: {format_number(rope_2x_ctx)}")
+        if info.rope_contexts:
+            parts = [f"{'Native' if rope.factor == 1.0 else f'RoPE {rope.factor:g}x'}: {format_number(rope.context)}"
+                     for rope in info.rope_contexts]
             self.add_debug(f"   🎯 Calibrated: {', '.join(parts)}")
+        elif info.cache_context:
+            self.add_debug(
+                f"   🎯 Configured: {format_number(info.context)} tokens "
+                f"(cache shows {format_number(info.cache_context)} — re-calibrate to sync)"
+            )
+        elif info.context:
+            self.add_debug(f"   🎯 Calibrated: {format_number(info.context)} tokens")
         else:
             self.add_debug("   ⚠️ Not calibrated - please run calibration for optimal context")
-
-    def _show_tensor_split_info(self, model_id: str, format_number) -> int:
-        """Show base tensor-split from llama-swap config in debug console.
-
-        Returns total GPU count from tensor-split (0 if not found).
-        """
-        from ..lib.config import LLAMASWAP_CONFIG_PATH
-        from ..lib.calibration import (
-            parse_llamaswap_config,
-            parse_tensor_split,
-        )
-
-        models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-        model_info = models.get(model_id)
-        if not model_info:
-            return 0
-
-        ratios = parse_tensor_split(model_info["full_cmd"])
-        if not ratios:
-            return 0
-
-        # Format as integer layers (ratios are already layer counts)
-        split_str = ":".join(f"{r:g}" for r in ratios)
-        active = sum(1 for r in ratios if r > 0)
-        total = len(ratios)
-        self.add_debug(
-            f"   📊 Layer split: {split_str} ({active}/{total} GPUs)"
-        )
-        return total
-
-    def _show_speed_split_info(self, model_id: str, format_number, total_gpus: int = 0) -> None:
-        """Show the speed-variant tensor-split from the llama-swap config.
-
-        Reads the ``{model_id}-speed`` entry directly (like the base split in
-        _show_tensor_split_info) instead of reconstructing it from the cache's
-        compact speed_split/speed_split_rest fields, which only store cuda0 and
-        the summed remainder — not the per-GPU layout. Shows nothing if no
-        speed variant exists in the config.
-
-        ``total_gpus`` is the system's physical GPU count (from the base split)
-        so the count reads as e.g. "4/5 GPUs" — the speed entry lists only its
-        active GPUs, which would otherwise show a misleading "4/4".
-        """
-        from ..lib.config import LLAMASWAP_CONFIG_PATH
-        from ..lib.calibration import (
-            parse_llamaswap_config,
-            parse_tensor_split,
-        )
-
-        models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-        speed_info = models.get(f"{model_id}-speed")
-        if not speed_info:
-            return
-
-        ratios = parse_tensor_split(speed_info["full_cmd"])
-        if not ratios:
-            return
-
-        split_str = ":".join(f"{r:g}" for r in ratios)
-        active = sum(1 for r in ratios if r > 0)
-        total = total_gpus or len(ratios)
-        ctx = int(speed_info.get("current_context", 0))
-        ctx_str = f", ctx={format_number(ctx)}" if ctx else ""
-        self.add_debug(
-            f"   ⚡ Speed split: {split_str} ({active}/{total} GPUs){ctx_str}"
-        )
+        if info.split:
+            self.add_debug(f"   📊 Layer split: {split_text(info.split)}")
+        if info.speed:
+            context = f", ctx={format_number(info.speed.context)}" if info.speed.context else ""
+            self.add_debug(f"   ⚡ Speed split: {split_text(info.speed)}{context}")
 
     # ------------------------------------------------------------------
     # Backend restart

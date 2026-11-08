@@ -65,11 +65,6 @@ def _matrix_header() -> rx.Component:
 def _matrix_row(row: ObjectVar[CalibrationRow]) -> rx.Component:
     """Eine Matrixzeile: Zeilenkopf plus je Spalte eine Zelle aus Checkbox
     und Statuspunkt (gruen = fertig, rot = fehlgeschlagen).
-
-    ``not_applicable`` ersetzt beides durch einen Strich: In der
-    vLLM-Burn-in-Matrix steht eine Zelle fuer ein VLM/TTS-Paar, und
-    ohne beides gibt es kein Paar. Eine leere Zelle laese sich sonst
-    als "noch nicht vermessen" lesen.
     """
     return rx.hstack(
         rx.box(
@@ -80,41 +75,32 @@ def _matrix_row(row: ObjectVar[CalibrationRow]) -> rx.Component:
         rx.foreach(
             row["cells"].to(list[CalibrationCell]),  # a TypedDict key is Var[object] for mypy
             lambda cell: rx.box(
-                rx.cond(
-                    cell["not_applicable"].to(bool),
-                    rx.text(
-                        "—",
-                        font_size="11px",
-                        color="gray",
-                        title=t("calibration_cell_not_applicable"),
+                rx.hstack(
+                    rx.checkbox(
+                        checked=cell["checked"].to(bool),
+                        on_change=lambda val, k=cell["key"]: AIState.set_calibration_matrix_cell([k, val]),
+                        size="1",
+                        color_scheme="orange",
+                        variant="soft",
                     ),
-                    rx.hstack(
-                        rx.checkbox(
-                            checked=cell["checked"].to(bool),
-                            on_change=lambda val, k=cell["key"]: AIState.set_calibration_matrix_cell([k, val]),
-                            size="1",
-                            color_scheme="orange",
-                            variant="soft",
-                        ),
-                        rx.box(
-                            width="6px",
-                            height="6px",
-                            border_radius="50%",
-                            background=rx.cond(
-                                cell["calibration_failed"].to(bool),
-                                COLORS["danger"],
-                                rx.cond(
-                                    cell["already_calibrated"].to(bool),
-                                    COLORS["accent_success"],
-                                    "transparent",
-                                ),
+                    rx.box(
+                        width="6px",
+                        height="6px",
+                        border_radius="50%",
+                        background=rx.cond(
+                            cell["calibration_failed"].to(bool),
+                            COLORS["danger"],
+                            rx.cond(
+                                cell["already_calibrated"].to(bool),
+                                COLORS["accent_success"],
+                                "transparent",
                             ),
-                            flex_shrink="0",
                         ),
-                        spacing="2",
-                        align="center",
-                        justify="center",
+                        flex_shrink="0",
                     ),
+                    spacing="2",
+                    align="center",
+                    justify="center",
                 ),
                 flex="1",
                 min_width="60px",

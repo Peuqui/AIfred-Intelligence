@@ -116,6 +116,9 @@ TTS_AUTOPLAY_DEFAULT = False
 
 DICTATION_ENGINES = ("stt_suite", "browser")
 
+# Provider of the backend "cloud_api" on a fresh install: a key of CLOUD_API_PROVIDERS.
+DEFAULT_CLOUD_API_PROVIDER = "qwen"
+
 DEFAULT_SETTINGS = {
     # NOTE: Model names are defined in BACKEND_DEFAULT_MODELS below (backend-specific)
     # They will be merged in settings.py get_default_settings()
@@ -123,6 +126,7 @@ DEFAULT_SETTINGS = {
     "user_gender": "male",  # Salutation of the user: "male" / "female"
     "ui_language": DEFAULT_LANGUAGE,  # UI + prompt language: "de" / "en"
     "backend_type": "ollama",  # Default backend: "ollama", "vllm", "llamacpp"
+    "cloud_api_provider": DEFAULT_CLOUD_API_PROVIDER,
     # Calibration mode: "legacy" (deterministic algorithm) or "ai-<model>"
     # (LLM-driven via DashScope/Qwen). UI auto-selects "legacy" when no
     # DashScope API key is configured.

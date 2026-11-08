@@ -290,6 +290,10 @@ def get_measurement_count(model_name: str) -> int:
     return 0
 
 
+# The RoPE factors an Ollama calibration measures (one context each, see _ollama_ctx_field).
+OLLAMA_ROPE_FACTORS = (1.0, 1.5, 2.0)
+
+
 def _ollama_ctx_field(rope_factor: float) -> tuple[str, str]:
     """Map a RoPE factor to its calibration field name + log label (SSOT)."""
     if rope_factor == 1.5:

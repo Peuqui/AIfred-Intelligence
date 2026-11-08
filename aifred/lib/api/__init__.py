@@ -25,6 +25,8 @@ Endpoints (all prefixed with /api):
 - GET  /tts/entries         - The TTS escalation list in order, with live status (Bearer token)
 - GET  /documents/source/{key}/file/{id} - Download from a further document source (login cookie)
 - GET  /service-status     - Model, STT and TTS state with time left (login cookie)
+- GET  /backend             - Backend in use, the ones the GPUs can run, cloud providers, GPUs
+- GET  /calibration         - Calibration of the agents' models, matrix of AIfred's model
 - POST /system/restart-ollama   - Restart Ollama service
 - POST /system/restart-aifred   - Restart AIfred service
 - POST /system/reset-defaults   - Reset to default settings
@@ -62,6 +64,7 @@ from . import enrollment
 from . import audio_library
 from . import plugins
 from . import housekeeping
+from . import backend
 from . import app_shell  # last: its /app mount must follow every /app route
 
 from .browser_bus import browser_push, browser_queue_clear
