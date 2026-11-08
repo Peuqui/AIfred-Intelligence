@@ -8,6 +8,7 @@ from ..config import (
     DEBATE_ROUNDS_MAX,
     DEBATE_ROUNDS_MIN,
     DICTATION_ENGINES,
+    USER_EMOJI_CHOICES,
 )
 from ..logging_utils import log_message
 from ..settings import persisted_settings
@@ -39,6 +40,7 @@ class SettingsResponse(BaseModel):
     ui_language: Language
     user_name: str
     user_gender: Gender
+    user_emoji: str = Field(description="The user's sign beside their chat bubble")
     enable_tts: bool = Field(description="Speech output is on")
     tts_autoplay: bool = Field(description="A reply is read aloud while it is written")
     dictation_engine: str = Field(description="Who recognizes a dictation: one of config.DICTATION_ENGINES")
@@ -48,6 +50,7 @@ class SettingsResponse(BaseModel):
     # Not settings: what the interface may offer (config.py).
     debate_rounds_min: int = DEBATE_ROUNDS_MIN
     debate_rounds_max: int = DEBATE_ROUNDS_MAX
+    user_emoji_choices: list[str] = Field(default_factory=lambda: list(USER_EMOJI_CHOICES))
 
 
 class SettingsUpdate(BaseModel):
@@ -59,6 +62,7 @@ class SettingsUpdate(BaseModel):
     ui_language: Language | None = None
     user_name: str | None = None
     user_gender: Gender | None = None
+    user_emoji: str | None = None
     enable_tts: bool | None = None
     tts_autoplay: bool | None = None
     dictation_engine: str | None = None
@@ -104,6 +108,8 @@ async def update_settings(update: SettingsUpdate) -> SettingsResponse:
     changes = update.model_dump(exclude_none=True)
     if "user_name" in changes:
         changes["user_name"] = changes["user_name"].strip()
+    if changes.get("user_emoji", USER_EMOJI_CHOICES[0]) not in USER_EMOJI_CHOICES:
+        raise Invalid("unknown_user_emoji", emoji=changes["user_emoji"])
     if changes.get("dictation_engine", DICTATION_ENGINES[0]) not in DICTATION_ENGINES:
         raise Invalid("unknown_dictation_engine", engine=changes["dictation_engine"])
     if changes and not write_settings(changes):

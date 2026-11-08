@@ -114,6 +114,7 @@ DEFAULT_SETTINGS = {
     # They will be merged in settings.py get_default_settings()
     "user_name": "",  # User's name (leave empty - set via UI, saved in settings.json)
     "user_gender": "male",  # Salutation of the user: "male" / "female"
+    "user_emoji": "🙋",  # The user's sign beside their bubble (one of USER_EMOJI_CHOICES; the Reflex page's)
     "ui_language": DEFAULT_LANGUAGE,  # UI + prompt language: "de" / "en"
     "backend_type": "ollama",  # Default backend: "ollama", "vllm", "llamacpp"
     "cloud_api_provider": DEFAULT_CLOUD_API_PROVIDER,
@@ -432,6 +433,12 @@ AUTOMATIK_LLM_NUM_CTX = 12288  # 12K context for all Automatik tasks
 # The multi-agent modes a session can be in (UI choice, mode switch by voice or text, API).
 MULTI_AGENT_MODES = ("standard", "critical_review", "auto_consensus", "tribunal", "symposion")
 # How many rounds a debate may have at most (settings.json "max_debate_rounds", both UIs and the API).
+# What the user may pick as the sign of their chat bubble (settings page). No pince-nez exists as an emoji: 🧐 is
+# the monocle.
+USER_EMOJI_CHOICES = (
+    "🙋", "🙋‍♂️", "🙋‍♀️", "🧐", "🤓", "👓", "🕶️", "🧑‍⚕️", "👨‍⚕️", "👩‍⚕️", "🧑‍💼", "🧑‍💻", "🧑‍🔬", "🧑‍🎓",
+    "🧔", "👴", "👵", "🤴", "👸", "🧙", "🕵️", "🦸", "👤", "🦉", "🦊", "🐻", "🐧", "🐱", "🐶",
+)
 DEBATE_ROUNDS_MIN = 1
 DEBATE_ROUNDS_MAX = 10
 

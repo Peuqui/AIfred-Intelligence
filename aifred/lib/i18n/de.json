@@ -1328,6 +1328,7 @@
   "error_no_thinking_choice": "Das Modell von {agent} bietet die Denkstufe „{value}“ nicht.",
   "error_no_speed_variant": "Das Modell von {agent} hat keine schnelle Variante.",
   "error_unknown_dictation_engine": "Unbekannte Diktat-Engine: {engine}",
+  "error_unknown_user_emoji": "Unbekanntes Zeichen für den Benutzer: {emoji}",
   "error_memory_unavailable": "Das Gedächtnis der Agenten ist nicht erreichbar (läuft ChromaDB?).",
   "error_memory_summary_line": "Die Zusammenfassung muss eine Zeile mit höchstens {limit} Zeichen sein.",
   "error_no_memory": "{agent} hat keine Erinnerung {memory}.",

@@ -1328,6 +1328,7 @@
   "error_no_thinking_choice": "The model of {agent} offers no thinking “{value}”.",
   "error_no_speed_variant": "The model of {agent} has no speed variant.",
   "error_unknown_dictation_engine": "Unknown dictation engine: {engine}",
+  "error_unknown_user_emoji": "Unknown sign for the user: {emoji}",
   "error_memory_unavailable": "The agents' memory is not available (is ChromaDB running?).",
   "error_memory_summary_line": "The summary must be one line of at most {limit} characters.",
   "error_no_memory": "{agent} has no memory {memory}.",

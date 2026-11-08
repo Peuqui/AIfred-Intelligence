@@ -37,6 +37,18 @@ function named(event: Event): void {
           <button :class="{ on: settings.current.user_gender === 'female' }" :aria-pressed="settings.current.user_gender === 'female'" @click="settings.change({ user_gender: 'female' })">♀</button>
         </span>
       </div>
+      <!-- The sign beside the user's chat bubble. -->
+      <div class="signs" role="radiogroup">
+        <button
+          v-for="sign in settings.current.user_emoji_choices"
+          :key="sign"
+          :class="{ on: settings.current.user_emoji === sign }"
+          :aria-pressed="settings.current.user_emoji === sign"
+          @click="settings.change({ user_emoji: sign })"
+        >
+          {{ sign }}
+        </button>
+      </div>
     </section>
 
     <section>
@@ -70,6 +82,9 @@ button { cursor: pointer; min-width: 32px; }
 button:disabled { opacity: 0.5; cursor: default; }
 .gender { display: inline-flex; gap: 4px; }
 .gender button.on { border-color: var(--aifred-primary); color: var(--aifred-primary); }
+.signs { display: flex; flex-wrap: wrap; gap: 4px; }
+.signs button { font-size: 1.2rem; padding: 2px 6px; background: none; border: 1px solid var(--aifred-border); border-radius: 6px; cursor: pointer; }
+.signs button.on { border-color: var(--aifred-primary); background: var(--aifred-input-bg); }
 .count { min-width: 2ch; text-align: center; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); width: 16px; height: 16px; }
 .notice { margin: 0; color: var(--aifred-accent-amber); }

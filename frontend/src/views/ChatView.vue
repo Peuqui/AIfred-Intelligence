@@ -241,7 +241,15 @@ h2 { margin: 0; font-size: 1rem; }
 .incognito.on { border-color: var(--aifred-accent-amber); }
 /* The box keeps 70 % of the screen whatever the sizes; only its content takes the chat's size (the interface's
    size, set on the page, is taken out again). */
-.messages { height: calc(70vh / var(--ui-zoom)); overflow-y: auto; padding-right: 4px; overflow-wrap: anywhere; }
+.messages {
+  height: calc(70vh / var(--ui-zoom));
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  padding: 10px;
+  background: var(--aifred-chat-panel-bg);
+  border: 1px solid var(--aifred-border);
+  border-radius: 8px;
+}
 .bubbles { display: flex; flex-direction: column; gap: 10px; zoom: calc(var(--chat-zoom) / var(--ui-zoom)); }
 .streaming { align-self: flex-start; max-width: min(860px, 92%); padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light); }
 .streaming header { font-size: 0.8rem; font-weight: 600; color: var(--aifred-primary); }
