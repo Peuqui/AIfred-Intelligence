@@ -15,6 +15,7 @@ import { t } from "../i18n";
 import { CHAT_ZOOM, chatZoom, zoomBy } from "../lib/devicePrefs";
 import { saveAs } from "../lib/download";
 import { renderMarkdown } from "../lib/markdown";
+import { successorSession } from "../lib/sessionSuccessor";
 import { useChat } from "../stores/chat";
 import { useSessions } from "../stores/sessions";
 import { useSettings } from "../stores/settings";
@@ -86,11 +87,13 @@ async function create(): Promise<void> {
   await chat.open(await sessions.create());
 }
 
-async function remove(sessionId: string): Promise<void> {
-  await sessions.remove(sessionId);
-  if (sessionId === chat.sessionId) {
-    const next = sessions.list[0];
-    await chat.open(next ? next.session_id : await sessions.create());
+// The open session among the deleted: the nearest remaining one below it opens, else above, else a new one.
+async function remove(sessionIds: string[]): Promise<void> {
+  const order = sessions.list.map((session) => session.session_id);
+  await sessions.remove(sessionIds);
+  if (chat.sessionId && sessionIds.includes(chat.sessionId)) {
+    const next = successorSession(order, chat.sessionId, new Set(sessionIds));
+    await chat.open(next ?? (await sessions.create()));
   }
 }
 

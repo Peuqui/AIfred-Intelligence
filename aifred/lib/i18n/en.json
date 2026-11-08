@@ -823,6 +823,8 @@
   "storage_refresh": "Refresh",
   "storage_empty": "No managed files present.",
   "select_all": "Select all",
+  "sessions_select": "Select several",
+  "sessions_select_done": "End the selection",
   "delete_selected": "Delete selected",
   "clear_selection": "Clear selection",
   "audit_log_subtitle": "Last 50 tool executions",

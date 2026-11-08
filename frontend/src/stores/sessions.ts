@@ -16,8 +16,9 @@ export const useSessions = defineStore("sessions", () => {
     return session_id;
   }
 
-  async function remove(sessionId: string): Promise<void> {
-    await api<void>(`sessions/${sessionId}`, { method: "DELETE" });
+  // Several sessions at once (one of them is the single 🗑 of a line).
+  async function remove(sessionIds: string[]): Promise<void> {
+    await api<void>("sessions/delete", { method: "POST", body: JSON.stringify({ session_ids: sessionIds }) });
     await refresh();
   }
 

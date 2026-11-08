@@ -463,7 +463,10 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
      eine Absage für „nicht freigegeben“ und „schon vergeben“, das Formular verrät nicht, welche Namen es gibt).
      Die Pflege von Whitelist und Konten (`add_to_whitelist`, `list_accounts`, `delete_account` …) benutzte schon
      Reflex nicht; sie ist als toter Code weg, die Whitelist bleibt `data/allowed_users.json`.
-  10. Sitzungen gesammelt löschen.
+  10. ~~Sitzungen gesammelt löschen~~ (erledigt 08.11.: ☑ in der Sitzungsliste, Häkchen, alle wählen, Auswahl löschen,
+      alle löschen mit Rückfrage; `POST /api/sessions/delete`, nichts geht, wenn eine fremd ist). Dabei die Regel der
+      Reflex-Liste zurück: Geht die offene Sitzung, öffnet die nächste darunter, sonst darüber (`lib/sessionSuccessor.ts`
+      mit den alten Tests); Vue öffnete bisher immer die neueste.
   11. ~~Auto-Scroll~~ (erledigt 08.11.: der Chat folgt dem Text nur, solange man am Ende steht; hochgescrollt bleibt die
       Ansicht stehen, ein Schalter ist damit überflüssig).
   12. Manueller Kontext je Agent (Ollama) mit „Berechnung anzeigen“.

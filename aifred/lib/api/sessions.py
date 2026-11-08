@@ -190,6 +190,26 @@ async def sessions_delete(session_id: str, request: Request) -> Response:
     return Response(status_code=204)
 
 
+class SessionsToDelete(BaseModel):
+    session_ids: list[str] = Field(min_length=1)
+
+
+@api_app.post("/sessions/delete", status_code=204, tags=["Sessions"])
+async def sessions_delete_many(request: Request, deleting: SessionsToDelete) -> Response:
+    """Delete several of the user's sessions at once (the list's selection, or all); 404 and nothing deleted when
+    one of them is not the user's."""
+    from ..session_storage import delete_session
+    from ..turn_service import end_session_activity
+
+    for session_id in deleting.session_ids:
+        owned_session(request, session_id)
+    user = current_user(request)
+    for session_id in deleting.session_ids:
+        end_session_activity(session_id)
+        delete_session(session_id, expected_owner=user)
+    return Response(status_code=204)
+
+
 @api_app.post("/sessions/{session_id}/clear", status_code=204, tags=["Sessions"])
 async def sessions_clear(session_id: str, request: Request) -> Response:
     """Empty the chat: the running turn and the reading end, histories, debug lines and title go, so do the chat's

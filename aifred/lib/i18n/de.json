@@ -823,6 +823,8 @@
   "storage_refresh": "Aktualisieren",
   "storage_empty": "Keine verwaltbaren Dateien vorhanden.",
   "select_all": "Alle auswählen",
+  "sessions_select": "Mehrere auswählen",
+  "sessions_select_done": "Auswahl beenden",
   "delete_selected": "Ausgewählte löschen",
   "clear_selection": "Auswahl aufheben",
   "audit_log_subtitle": "Letzte 50 Tool-Ausführungen",

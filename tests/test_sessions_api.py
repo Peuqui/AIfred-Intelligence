@@ -154,3 +154,12 @@ def test_an_entry_of_an_older_session_file_opens_with_its_fields(client: TestCli
     session_storage.update_chat_data(MINE, chat_history=[{"role": "user", "content": "alt", "used_sources": []}])
     (entry,) = client.get(f"/sessions/{MINE}").json()["chat_history"]
     assert (entry["content"], entry["agent"], entry["used_sources"]) == ("alt", "", [])
+
+
+def test_several_sessions_go_at_once_but_only_the_users_own(client: TestClient) -> None:
+    second = client.post("/sessions").json()["session_id"]
+    assert client.post("/sessions/delete", json={"session_ids": [MINE, THEIRS]}).status_code == 404
+    assert session_storage.load_session(MINE) is not None                  # nothing of a refused request goes
+    assert client.post("/sessions/delete", json={"session_ids": [MINE, second]}).status_code == 204
+    assert client.get("/sessions").json() == []
+    assert session_storage.load_session(THEIRS) is not None
