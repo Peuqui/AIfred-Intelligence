@@ -280,19 +280,19 @@ h2 { margin: 0; font-size: 1rem; }
   height: calc(70vh / var(--ui-zoom));
   overflow-y: auto;
   overflow-wrap: anywhere;
-  padding: 10px;
+  /* No padding on top: the pinned question sticks where it sits (top: 0), so it does not move a pixel before it stops. */
+  padding: 0 10px 10px;
   background: var(--aifred-chat-panel-bg);
   border: 1px solid var(--aifred-border);
   border-radius: 8px;
 }
 .bubbles { display: flex; flex-direction: column; gap: 10px; zoom: calc(var(--chat-zoom) / var(--ui-zoom)); }
-/* --pinned-height: the turn's question (measured, above); a turn without one keeps the box's padding. */
-.turn { --pinned-height: 10px; display: flex; flex-direction: column; gap: 10px; }
-/* formatting.py writes the title lines with top: 0 into the answer's HTML; only !important outranks that. The question
-   sits at -10px (over the box's padding), so its lower edge is its height less 10px. */
-.turn :deep(details[open] > summary) { top: calc(var(--pinned-height) - 10px) !important; }
+/* --pinned-height: the turn's question (measured, above); a turn without one has none. */
+.turn { --pinned-height: 0px; display: flex; flex-direction: column; gap: 10px; }
+/* formatting.py writes the title lines with top: 0 into the answer's HTML; only !important outranks that. */
+.turn :deep(details[open] > summary) { top: var(--pinned-height) !important; }
 /* Above the collapsibles' headers, which stick too (formatting.py writes them with z-index 2 into the answer). */
-.turn > .pinned { position: sticky; top: -10px; z-index: 3; box-shadow: 0 4px 10px var(--aifred-page-bg); }
+.turn > .pinned { position: sticky; top: 0; z-index: 3; box-shadow: 0 4px 10px var(--aifred-page-bg); }
 .streaming { align-self: flex-start; max-width: min(860px, 92%); padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light); }
 .streaming header { font-size: 0.8rem; font-weight: 600; color: var(--aifred-primary); }
 .tool { margin: 4px 0 0; font-size: 0.8rem; color: var(--aifred-accent-cyan); }
