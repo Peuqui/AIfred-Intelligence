@@ -392,7 +392,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Zoom): Bilder, Einzelbild, Briefing, Foto 3840 × 2160; der Kopf fährt (mittlere Bildabweichung 36,7 nach 2 s links,
   6,5 zurück in der Wächterposition). Die Testinstanz bekommt die Kameras über eine Kopie der Vision-Einstellungen mit
   unscharfem Auge und die Zugangsdaten über `AIFRED_TEST_ENV_KEYS`. Die Live-Analyse folgte als eigenes Paket (unten).
-- **Vision, Live-Analyse (erledigt 08.11.2026, Bildbeschreibung im Browser noch nicht gesehen):** Je Kamera in der Live-Ansicht 🧠 (das Bildmodell
+- **Vision, Live-Analyse (erledigt 08.11.2026):** Je Kamera in der Live-Ansicht 🧠 (das Bildmodell
   beschreibt das Bild) und 👤 (Gesichter, mit der Einstellung des Auges auch Personen); die Beschreibungen über oder unter
   dem Bild, erkannte Gesichter mit Ausschnitt, Name und Ähnlichkeit, „+ taggen“ führt zu den Personen, „Verwerfen“
   nimmt die Zeile weg; Vision-Takt, ID-Takt und Teleprompter in der Leiste, solange eine Analyse läuft (Listen vom
@@ -410,8 +410,10 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   geänderter Takt wirkt sofort auf laufende Analysen (Reflex: erst beim nächsten Start). Logik des Teleprompters in
   `frontend/src/lib/liveFeed.ts` (mit Tests). Geprüft mit der Zoom-Kamera der Testinstanz: Gesichter an (der Wächter lud
   das Gesichtsmodell auf der CPU), Takt geändert, aus, Seitenwechsel und geschlossener Tab beenden die Analyse, die
-  Ansicht danach wie vorher. Offen: die Bildbeschreibung im Browser mit echtem Modell (braucht eine Karte; der Pfad im
-  Wächter ist unverändert, die Live-Analyse schaltet ihn nur ein).
+  Ansicht danach wie vorher. Mit vllm-research abgestimmt (06:27) auch mit echtem Modell: Qwen3VL-4B-visiond auf
+  Karte 4 (GPU-Orc), erste Beschreibung nach 13 s, über und unter dem Bild. Dabei gefunden (bestehend, Reflex und Vue):
+  Der Power-Knopf des Bildmodells (`vision_prewarm.is_vlm_loaded`/`unload_vlm_model`) fragt nur Ollama; läuft der
+  Beschreiber über ein llama-swap-Profil (`-visiond`), meldet er „nicht geladen“ und entlädt nicht.
 - **Vision, Paket 3: Einstellungen (erledigt 07.11.2026):** `VisionSettings.vue` (Reiter ⚙️): das Auge (`lib/vigilantia.py`;
   scharf/unscharf startet und stoppt die Hintergrund-Wächter), Modus und Bildmodell samt Laden/Entladen, Gesichts- und
   Personenerkennung, Aufbewahrung; die Benachrichtigungs-Regeln als Tabelle Kategorie × Kanal mit Bild-Text

@@ -309,7 +309,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .grid.single .picture > img { cursor: zoom-out; }
 button.on { border-color: var(--aifred-primary); color: var(--aifred-primary); }
 .prompter { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; }
-.prompter ol { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.prompter ol, ol.prompter { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
 .prompter.over { position: absolute; left: 8px; right: 8px; bottom: 8px; padding: 6px 8px; border-radius: 6px; background: var(--aifred-backdrop); pointer-events: none; }
 .times { color: var(--aifred-text-muted); font-variant-numeric: tabular-nums; }
 .face { display: flex; align-items: center; gap: 8px; }
