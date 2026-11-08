@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
     from ..lib.envelope import InboundMessage, OutboundMessage
     from ..lib.function_calling import Tool
+    from ..lib.logging_utils import LogCategory
 
 
 def load_plugin_instructions(
@@ -486,7 +487,7 @@ class BaseChannel(ABC):
         """
         return {"text": text}
 
-    def channel_log(self, msg: str, level: str = "info") -> None:
+    def channel_log(self, msg: str, level: LogCategory = "info") -> None:
         """Log to log file, stderr (→ journalctl), and the session's debug
         console when a ``session_scope`` is active.
 

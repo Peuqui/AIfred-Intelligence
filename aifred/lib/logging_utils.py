@@ -9,6 +9,7 @@ What a session's debug console shows goes through the debug bus (lib/debug_bus.p
 import os
 import traceback
 from datetime import datetime
+from typing import Literal
 
 from .config import DATA_DIR, FILE_DEBUG_ENABLED
 
@@ -21,6 +22,9 @@ _LOGS_DIR = DATA_DIR / "logs"
 _LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 DEBUG_LOG_FILE = str(_LOGS_DIR / "aifred_debug.log")
+
+# The kind of a log line: info stays unmarked, the others stand in the line (``… | WARNING | …``) to be searched for.
+LogCategory = Literal["info", "warning", "error", "stats"]
 _debug_log_initialized = False
 DEBUG_LOG_MAX_SIZE_MB = 1  # Max 1 MB, then rotate
 
@@ -67,8 +71,9 @@ def initialize_debug_log(force_reset: bool = False) -> None:
         print(f"⚠️ Debug log initialization failed: {e}", flush=True)
 
 
-def log_message(message: str, category: str = "info") -> None:
-    """A line in the debug log file (with FILE_DEBUG_ENABLED), stamped HH:MM:SS.mmm; the first call initializes
+def log_message(message: str, category: LogCategory = "info") -> None:
+    """A line in the debug log file (with FILE_DEBUG_ENABLED), stamped HH:MM:SS.mmm, a category other than info
+    after the stamp (until 08.11.2026 it was passed everywhere and written nowhere); the first call initializes
     the file. ``message`` comes without timestamp."""
     # Auto-initialize on first call
     if not _debug_log_initialized:
@@ -81,7 +86,8 @@ def log_message(message: str, category: str = "info") -> None:
         try:
             timestamp_file = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # HH:MM:SS.mmm
             with open(DEBUG_LOG_FILE, 'a', encoding='utf-8') as f:
-                f.write(f"{timestamp_file} | {message}\n")
+                marker = "" if category == "info" else f"{category.upper()} | "
+                f.write(f"{timestamp_file} | {marker}{message}\n")
         except OSError as e:
             print(f"⚠️ Debug log file error: {e}", flush=True)
 

@@ -20,7 +20,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from .logging_utils import log_message
+from .logging_utils import LogCategory, log_message
 
 
 class MpvIpcClient:
@@ -42,7 +42,7 @@ class MpvIpcClient:
         command_timeout_sec: float,
         error_factory: Callable[[str], Exception],
         log_prefix: str,
-        read_error_log_level: str,
+        read_error_log_level: LogCategory,
         on_eof: Callable[[], Awaitable[None]],
     ) -> None:
         self._command_timeout_sec = command_timeout_sec

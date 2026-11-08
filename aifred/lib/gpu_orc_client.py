@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 
 from .config import GPU_ORC_MODEL_SERVER, GPU_ORC_STATUS_TIMEOUT_S, GPU_ORC_URL
-from .logging_utils import log_message
+from .logging_utils import LogCategory, log_message
 from .service_status import notify_changed
 
 # Outcomes after which the item holds its card no longer (``kept`` = the request protected it).
@@ -177,10 +177,10 @@ class GpuOrcClient:
         return answer
 
 
-def describe(result: FreeResult) -> list[tuple[str, str]]:
+def describe(result: FreeResult) -> list[tuple[str, LogCategory]]:
     """Lines for a log or a progress report, each with its log category (``info`` | ``warning``): every
     release, every thing that stayed on the cards, and whether the cards are free."""
-    lines = []
+    lines: list[tuple[str, LogCategory]] = []
     for action in result.actions:
         if action.outcome == "kept":
             continue

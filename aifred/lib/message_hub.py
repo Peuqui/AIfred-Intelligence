@@ -17,10 +17,10 @@ import time
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 
-from .logging_utils import log_exception, log_message
+from .logging_utils import LogCategory, log_exception, log_message
 
 
-def _hub_log(msg: str, level: str = "info") -> None:
+def _hub_log(msg: str, level: LogCategory = "info") -> None:
     """Log to both debug-log file AND stdout (→ journalctl)."""
     log_message(msg, level)
     print(f"[MessageHub] {msg}", file=sys.stderr, flush=True)
