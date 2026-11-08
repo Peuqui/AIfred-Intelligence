@@ -5,6 +5,7 @@
 import { computed, ref } from "vue";
 import type { AgentSummary, DebateMode, SessionConfig, SessionConfigUpdate } from "../api/types";
 import { t } from "../i18n";
+import HelpButton from "./help/HelpButton.vue";
 
 const props = defineProps<{ config: SessionConfig; agents: AgentSummary[]; modes: DebateMode[] }>();
 const emit = defineEmits<{ configure: [changes: SessionConfigUpdate] }>();
@@ -29,6 +30,7 @@ function toggleGuest(agent: string): void {
         <option v-for="mode in modes" :key="mode.mode" :value="mode.mode">{{ t(`multi_agent_${mode.mode}`) }}</option>
       </select>
     </label>
+    <HelpButton topic="debate" />
     <label v-for="seat in seats" :key="seat" class="seat">
       {{ t(`debate_seat_${seat}`) }}
       <select :value="config.debate_seats[seat]" @change="emit('configure', { debate_seats: { [seat]: picked($event) } })">

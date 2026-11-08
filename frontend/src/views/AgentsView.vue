@@ -11,6 +11,7 @@ import AgentBundles from "../components/AgentBundles.vue";
 import AgentChoicesRow from "../components/AgentChoicesRow.vue";
 import AgentEditor from "../components/AgentEditor.vue";
 import ModalDialog from "../components/ModalDialog.vue";
+import HelpButton from "../components/help/HelpButton.vue";
 import { t } from "../i18n";
 import { useAgentChoices } from "../stores/agentChoices";
 import { useAgents } from "../stores/agents";
@@ -48,6 +49,7 @@ async function confirmDelete(): Promise<void> {
   <main class="agents">
     <header class="bar">
       <h2>{{ t("nav_agents") }}</h2>
+      <HelpButton topic="thinking" />
       <button :title="t('agent_editor_export_tooltip')" @click="bundles = 'export'">📦</button>
       <button :title="t('agent_editor_import_tooltip')" @click="bundles = 'import'">📥</button>
       <button @click="creating = { id: '', display_name: '', emoji: '🤖', description: '' }">＋ {{ t("agent_editor_new") }}</button>

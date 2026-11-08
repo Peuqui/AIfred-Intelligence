@@ -1,14 +1,28 @@
 <script setup lang="ts">
-// A dialog over the page: the page behind it is dimmed, a click beside the dialog or Escape closes it.
+// A dialog over the page: the page behind it is dimmed, a click beside the dialog or Escape closes it. A dialog
+// opened from another (a help from the quick choices) lies on top; Escape closes only the topmost.
 import { onBeforeUnmount, onMounted } from "vue";
 
 const emit = defineEmits<{ close: [] }>();
 
+const me = Symbol("dialog");
+
 function key(event: KeyboardEvent): void {
-  if (event.key === "Escape") emit("close");
+  if (event.key === "Escape" && openDialogs.at(-1) === me) emit("close");
 }
-onMounted(() => window.addEventListener("keydown", key));
-onBeforeUnmount(() => window.removeEventListener("keydown", key));
+onMounted(() => {
+  openDialogs.push(me);
+  window.addEventListener("keydown", key);
+});
+onBeforeUnmount(() => {
+  openDialogs.splice(openDialogs.indexOf(me), 1);
+  window.removeEventListener("keydown", key);
+});
+</script>
+
+<script lang="ts">
+// The dialogs open now, the newest last (shared by every dialog of the page).
+const openDialogs: symbol[] = [];
 </script>
 
 <template>

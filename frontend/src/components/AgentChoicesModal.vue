@@ -6,6 +6,7 @@ import { computed, onMounted } from "vue";
 import { t } from "../i18n";
 import { useAgentChoices } from "../stores/agentChoices";
 import AgentChoicesRow from "./AgentChoicesRow.vue";
+import HelpButton from "./help/HelpButton.vue";
 import ModalDialog from "./ModalDialog.vue";
 
 const emit = defineEmits<{ close: [] }>();
@@ -20,6 +21,7 @@ const vision = computed(() => store.choices?.agents.find((row) => row.id === "vi
   <ModalDialog @close="emit('close')">
     <header class="head">
       <strong>🎛️ {{ t("agent_choices_title") }}</strong>
+      <HelpButton topic="thinking" />
       <button class="close" :title="t('dialog_close')" @click="emit('close')">×</button>
     </header>
     <p v-if="store.notice" class="notice">⚠️ {{ store.notice }}</p>
@@ -61,7 +63,8 @@ const vision = computed(() => store.choices?.agents.find((row) => row.id === "vi
 </template>
 
 <style scoped>
-.head { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.head { display: flex; align-items: center; gap: 12px; }
+.head strong { margin-right: auto; }
 .close { background: none; border: none; color: inherit; font-size: 1.3rem; cursor: pointer; }
 .rows { width: min(720px, 88vw); }
 .notice { margin: 0; color: var(--aifred-accent-amber); }
