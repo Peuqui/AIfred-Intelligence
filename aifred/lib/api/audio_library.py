@@ -4,7 +4,6 @@ one at a time) or emptied; the sandbox and the list threshold of the spoken repl
 
 import asyncio
 
-from fastapi import Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_message
@@ -25,17 +24,6 @@ class AudioLibrary(BaseModel):
     tts_list_max: int = Field(description="From how many entries a list in the spoken reply is cut")
     indexing: str = Field(description="The source being read now ('' = none)")
     message: str = Field(description="The reading's state or its last outcome in words")
-
-
-class AudioFolder(BaseModel):
-    name: str
-    path: str = Field(description="Relative to the sandbox")
-    is_symlink: bool
-
-
-class AudioFolders(BaseModel):
-    path: str
-    folders: list[AudioFolder]
 
 
 class AudioSourceAdd(BaseModel):
@@ -77,15 +65,6 @@ def _library() -> AudioLibrary:
 @api_app.get("/audio/sources", response_model=AudioLibrary, tags=["Audio"])
 async def audio_sources() -> AudioLibrary:
     return await asyncio.to_thread(_library)
-
-
-@api_app.get("/audio/sources/folders", response_model=AudioFolders, tags=["Audio"])
-async def audio_source_folders(path: str = Query("", description="Relative to the sandbox")) -> AudioFolders:
-    """The folders of one place in the sandbox; 422 for a path that leaves it or cannot be listed."""
-    from ..audio_library import folders
-
-    place, listed = await asyncio.to_thread(folders, path)
-    return AudioFolders(path=place, folders=[AudioFolder(name=name, path=rel, is_symlink=link) for name, rel, link in listed])
 
 
 @api_app.post("/audio/sources", response_model=AudioDone, status_code=201, tags=["Audio"])

@@ -62,6 +62,7 @@ from . import audio_library
 from . import plugins
 from . import housekeeping
 from . import backend
+from . import files
 from . import app_shell  # last: its /app mount must follow every /app route
 
 

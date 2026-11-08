@@ -4,3 +4,9 @@ declare module "markdown-it-texmath" {
   const texmath: (md: MarkdownIt, options: { engine: unknown; delimiters: string | string[] }) => void;
   export default texmath;
 }
+
+// VueFinder's translations ship without types: one object of English text → translation.
+declare module "vuefinder/dist/locales/*" {
+  const locale: Record<string, unknown>;
+  export default locale;
+}

@@ -1,17 +1,19 @@
 <script setup lang="ts">
 // The audio player's sources: every folder under data/media/audio/ (mostly a symlink to a folder of the sandbox) and
-// the streams of the plugin's settings, each with how many files its index holds; a folder of the sandbox added (a
-// small folder browser), a source read anew into the index (a run of the server, followed until it ends), its index
-// emptied, the source removed (asked first; the folder it points to stays). Below, the plugin's two settings: the
-// sandbox and from how many entries a list in the spoken reply is cut.
-import { onBeforeUnmount, onMounted, ref } from "vue";
+// the streams of the plugin's settings, each with how many files its index holds; a folder of the sandbox added (the
+// file requester over the area "audio", where folders and links are made too), a source read anew into the index (a
+// run of the server, followed until it ends), its index emptied, the source removed (asked first; the folder it points
+// to stays). Below, the plugin's two settings: the sandbox and from how many entries a list in the spoken reply is cut.
+import { defineAsyncComponent, onBeforeUnmount, onMounted, ref } from "vue";
 import { ApiError, PROGRESS_POLL_MS, api } from "../api/client";
-import type { AudioFolders, AudioLibrary } from "../api/types";
+import type { AudioLibrary } from "../api/types";
 import { formatNumber, t, tCount } from "../i18n";
 
 const library = ref<AudioLibrary | null>(null);
 const notice = ref("");
-const browsing = ref<AudioFolders | null>(null);
+const choosing = ref(false);
+// Loaded when it opens: the file requester brings VueFinder and its libraries.
+const FileRequester = defineAsyncComponent(() => import("./FileRequester.vue"));
 const removing = ref("");
 const root = ref("");
 const listMax = ref(0);
@@ -49,16 +51,11 @@ async function reload(message?: string): Promise<void> {
   if (message) notice.value = message;
 }
 
-async function browse(path: string): Promise<void> {
-  browsing.value = (await call(() => api<AudioFolders>(`audio/sources/folders?path=${encodeURIComponent(path)}`))) ?? browsing.value;
-}
-async function pick(): Promise<void> {
-  if (!browsing.value) return;
-  const done = await call(() => send<{ message: string }>("audio/sources", "POST", { path: browsing.value?.path ?? "" }));
-  if (done) browsing.value = null;
+async function pick(path: string): Promise<void> {
+  const done = await call(() => send<{ message: string }>("audio/sources", "POST", { path }));
+  if (done) choosing.value = false;
   await reload(done?.message);
 }
-const parent = (path: string): string => path.split("/").slice(0, -1).join("/");
 
 async function read(label: string, force: boolean): Promise<void> {
   const state = await call(() => send<AudioLibrary>(`${source(label)}/index`, "POST", { force }));
@@ -91,24 +88,13 @@ onBeforeUnmount(() => {
   <section v-if="library" class="sources">
     <div class="head">
       <strong>{{ t("audio_sources_title") }}</strong>
-      <button v-if="!browsing" @click="browse('')">{{ t("audio_source_add") }}</button>
+      <button @click="choosing = true">{{ t("audio_source_add") }}</button>
     </div>
     <p class="hint">{{ t("audio_sources_help") }}</p>
     <p v-if="library.message" class="status">{{ library.message }}</p>
     <p v-if="notice" class="notice">{{ notice }}</p>
 
-    <div v-if="browsing" class="browser">
-      <div class="line">
-        <code>{{ library.picker_root }}/{{ browsing.path }}</code>
-        <span class="grow"></span>
-        <button class="primary" @click="pick">{{ t("audio_source_pick") }}</button>
-        <button @click="browsing = null">{{ t("audio_source_cancel") }}</button>
-      </div>
-      <button v-if="browsing.path" class="folder" @click="browse(parent(browsing.path))">{{ t("audio_source_up") }}</button>
-      <button v-for="folder in browsing.folders" :key="folder.path" class="folder" @click="browse(folder.path)">
-        {{ folder.is_symlink ? "🔗" : "📁" }} {{ folder.name }}
-      </button>
-    </div>
+    <FileRequester v-if="choosing" area="audio" :title="t('audio_source_add')" pick @pick="pick" @close="choosing = false" />
 
     <div v-for="entry in library.sources" :key="entry.label" class="entry">
       <span class="label">{{ entry.type === "http_stream" ? "📻" : entry.is_symlink ? "🔗" : "📁" }} <strong>{{ entry.label }}</strong></span>
@@ -151,8 +137,6 @@ onBeforeUnmount(() => {
 .target { flex: 1; min-width: 160px; font-size: 0.78rem; color: var(--aifred-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .count { font-size: 0.8rem; color: var(--aifred-text-secondary); }
 .actions { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
-.browser { display: flex; flex-direction: column; gap: 4px; padding: 8px; border: 1px solid var(--aifred-border); border-radius: 8px; max-height: 320px; overflow-y: auto; }
-.folder { text-align: left; }
 .setting .name { min-width: 260px; font-weight: 600; font-size: 0.88rem; }
 .wide { min-width: 260px; }
 .number { width: 80px; }

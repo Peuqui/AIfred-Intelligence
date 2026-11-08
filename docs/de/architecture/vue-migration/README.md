@@ -498,7 +498,16 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
       „Generiere Antwort …“, bis Text oder eine Werkzeugzeile kommt; das „Warte auf Eingabe …“ der Reflex-Leiste
       entfällt. Vorher warf die Recherche die Zähler des Scrapers weg. `tests/test_turn_phases.py` prüft, dass Vue
       jede Phase des Servers kennt. Im Browser geprüft mit Web-Suche am 30B-Modell.)
-  18. Ordner und Symlinks im Ordner-Auswähler anlegen (gemeinsamer Dateimanager).
+  18. ~~Ordner und Symlinks im Ordner-Auswähler~~ (erledigt 08.11.: ein wiederverwendbarer Datei-Requester,
+      `FileRequester.vue` mit **VueFinder** 4.7.6 (MIT, Peuqui: nicht neu erfinden), über einem Bereich des Servers:
+      `lib/file_areas.py` legt Wurzel und erlaubte Aktionen fest (der Client nennt nur den Bereich), `lib/file_browser.py`
+      macht die Arbeit (Pfade lexikalisch in der Wurzel, ein Symlink nur auf einen Ordner innerhalb, Löschen nimmt den
+      Link, nie sein Ziel), `lib/api/files.py` spricht den Vertrag von VueFinders RemoteDriver unter
+      `/api/files/{bereich}`. Blättern, Ordner, Umbenennen, Löschen, Kopieren, Verschieben, Hochladen (nichts wird
+      überschrieben), Download, Vorschau, Suche mit Größenfilter; „Verknüpfung erstellen“ im Kontextmenü (VueFinder kennt
+      keine Links), „Diesen Ordner übernehmen“ für die Auswahl. Erster Bereich: die Audio-Sandbox, der Audio-Dialog wählt
+      seine Quellen darüber (`/audio/sources/folders` ist weg). VueFinder lädt erst, wenn ein Requester aufgeht (eigene
+      Chunks, `includeDependenciesRecursively: false`, sonst zog die Gruppe Vue mit). Im Browser geprüft.)
   Dazu (erledigt 08.11.): Der Zug gab dem Toolkit den Gesprächsverlauf nicht mit (`b6e15474`, der Reflex-Chat gab
   ihn über den State, der Hub nie). Gerankt wurde aber auch vorher fast nie: Bei genau einer Suchanfrage verlor die
   Suche Titel und Ausschnitte, und ohne sie übersprang `run_web_search` das Ranking (`MultiAPISearchTool` hat jetzt

@@ -85,27 +85,14 @@ def change_settings(*, root: str | None = None, list_max: int | None = None) -> 
     save_audio_player_settings(settings)
 
 
-def folders(rel_path: str = "") -> tuple[str, list[tuple[str, str, bool]]]:
-    """The folders of one place in the sandbox: ``(its path, [(name, path, is_symlink)])``. ValueError for a path that
-    leaves the sandbox or cannot be listed."""
-    from .file_browser import BrowseRequest, browse
-
-    listed = browse(BrowseRequest(root=picker_root(), rel_path=rel_path, show_files=False))
-    if not listed.success:
-        raise Invalid("folder_unreadable", path=rel_path, reason=listed.error)
-    return listed.rel_path, [(entry.name, entry.rel_path, entry.is_symlink) for entry in listed.entries if entry.is_dir]
-
-
 def add_source(rel_path: str) -> str:
     """A folder of the sandbox as a new source: a symlink under data/media/audio/ named after it (a number added
     while the name is taken). Returns the label. ValueError for no folder or one that resolves outside the sandbox."""
     from .config import MEDIA_AUDIO_DIR
-    from .file_browser import safe_resolve
+    from .file_browser import resolve
 
     root = picker_root()
-    folder, error = safe_resolve(root, rel_path)
-    if folder is None:
-        raise Invalid("folder_unreadable", path=rel_path, reason=error or "")
+    folder = resolve(root, rel_path)
     if not folder.is_dir():
         raise Invalid("not_a_folder", path=rel_path)
     # A symlink chain inside the sandbox may still point out of it: the resolved folder decides.

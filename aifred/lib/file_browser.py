@@ -1,289 +1,217 @@
-"""Generic file/folder browser backend — sandboxed under a configurable root.
+"""Files and folders under a root, for the file requester (lib/api/files.py, VueFinder) and the audio sources.
 
-Provides the data layer for the Reflex file-picker UI. Capability-flags
-let callers decide which operations are allowed (read-only browse,
-create-folder, delete, rename, upload). Different consumers get
-different sandboxes:
-
-- Document-Manager → root = data/documents/
-- Audio-Source picker → root = data/media/audio/
-- Future video-source picker → root = data/media/video/
-
-Symlinks are followed for content listing (so NAS-mount symlinks are
-transparent), but path-traversal protection works on the *user-facing*
-relative path, not the resolved target — a user who clicks
-``data/media/audio/nas_music/Klassik/...`` stays inside the sandbox
-even though the actual files live on `/mnt/auto/vuplus/...`.
+Every path a client sends is relative to the area's root and checked lexically: no ``..``, nothing outside. A
+symlink under the root may point anywhere (an admin's NAS mount is exactly that); a new one only to a folder inside
+the root, else it would open the whole filesystem. Deleting a symlink removes the link, never its target; deleting
+a folder removes its content without following a symlink inside it. Errors are UserErrors with the reason in words.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import mimetypes
+import shutil
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from .user_error import Conflict, Invalid, Missing, NotDone
 
-@dataclass
-class BrowseRequest:
-    root: str                   # absolute path; everything must stay under this
-    rel_path: str = ""          # current location, relative to root
-    file_filter: list[str] = field(default_factory=list)  # extensions like [".mp3"]; empty = all
-    show_files: bool = True     # False → folder-only mode
-    show_hidden: bool = False   # show entries starting with "."
-    sort_by: str = "name"       # "name" | "mtime" | "size"
-
-
-@dataclass
-class BrowseEntry:
-    name: str
-    rel_path: str               # relative to root
-    abs_path: str               # resolved absolute path (target if symlink)
-    is_dir: bool
-    is_symlink: bool
-    size: int | None = None
-    mtime: int | None = None
-    error: str | None = None  # set if entry can't be inspected (broken symlink etc.)
-
-
-@dataclass
-class BrowseResult:
-    success: bool
-    rel_path: str               # the listing's location, relative to root
-    entries: list[BrowseEntry] = field(default_factory=list)
-    error: str = ""             # populated when success=False
-    writable: bool = False      # True if the current folder accepts new entries
-
-
-# Pseudo-filesystems that should never be entered (huge fake files,
-# circular symlinks, kernel state). Only relevant when root='/'.
+# Pseudo-filesystems never entered (huge fake files, circular links, kernel state); only reachable with root "/".
 _DANGEROUS_PREFIXES = ("/proc", "/sys", "/dev", "/run", "/var/run", "/var/lock")
 
 
-def _is_safe_to_enter(abs_path: Path) -> bool:
-    """Reject pseudo-filesystems and similar danger zones."""
-    s = str(abs_path)
-    return not any(s == p or s.startswith(p + "/") for p in _DANGEROUS_PREFIXES)
+@dataclass(frozen=True)
+class Entry:
+    name: str
+    rel_path: str          # relative to the root, "/"-separated
+    is_dir: bool
+    is_symlink: bool
+    size: int | None       # None: folders and entries that cannot be read (a broken link)
+    mtime: int | None
+    writable: bool
 
 
-def safe_resolve(root: str, rel_path: str) -> tuple[Path | None, str | None]:
-    """Validate that rel_path stays inside root.
-
-    Path-traversal logic uses POSIX joining + lexical check on the
-    user-facing relative path. We do NOT call Path.resolve() on the
-    user-facing path because that would follow symlinks into their
-    target — and a symlink under root pointing to /mnt/foo is exactly
-    what we want to allow (admin-controlled mount). The sandbox is
-    enforced on the *prefix*, not the resolved target.
-
-    Returns (resolved_path, None) on success or (None, error_msg).
-    """
-    root_p = Path(root).expanduser().resolve()
-    if not root_p.is_dir():
-        return None, f"root not found or not a directory: {root}"
-
-    rel_norm = (rel_path or "").strip().lstrip("/")
-    if not rel_norm:
-        return root_p, None
-
-    # Block traversal components in the user-supplied path
-    parts = PurePosixPath(rel_norm).parts
-    if ".." in parts:
-        return None, f"path traversal denied: {rel_path!r}"
-
-    user_path = root_p / rel_norm
-    # We do NOT resolve() here — symlinks under root may point outside,
-    # which is fine. We only verify that the *lexical* prefix matches.
-    if not user_path.exists():
-        return None, f"path not found: {rel_path}"
-
-    return user_path, None
+def root_folder(root: str) -> Path:
+    folder = Path(root).expanduser().resolve()
+    if not folder.is_dir():
+        raise Invalid("sandbox_not_folder", path=root)
+    return folder
 
 
-def browse(req: BrowseRequest) -> BrowseResult:
-    """List a folder under the request's sandbox root."""
-    target, err = safe_resolve(req.root, req.rel_path)
-    if err or target is None:
-        return BrowseResult(success=False, rel_path=req.rel_path, error=err or "unknown error")
+def resolve(root: str, rel_path: str, *, must_exist: bool = True) -> Path:
+    """The path of ``rel_path`` under ``root``, checked lexically (symlinks below the root are not resolved: they may
+    lead to a mount elsewhere)."""
+    base = root_folder(root)
+    rel = (rel_path or "").strip().strip("/")
+    if not rel:
+        return base
+    parts = PurePosixPath(rel).parts
+    if ".." in parts or any(part in ("", ".") for part in parts):
+        raise Invalid("leads_outside_sandbox", path=rel_path)
+    path = base.joinpath(*parts)
+    if any(str(path) == prefix or str(path).startswith(prefix + "/") for prefix in _DANGEROUS_PREFIXES):
+        raise Invalid("leads_outside_sandbox", path=rel_path)
+    if must_exist and not (path.exists() or path.is_symlink()):
+        raise Missing("path_not_found", path=rel_path)
+    return path
 
-    if not _is_safe_to_enter(target):
-        return BrowseResult(
-            success=False, rel_path=req.rel_path,
-            error=f"refusing to enter pseudo-filesystem: {target}",
-        )
 
-    if not target.is_dir():
-        return BrowseResult(success=False, rel_path=req.rel_path, error="not a directory")
+def relative(root: str, path: Path) -> str:
+    return path.relative_to(root_folder(root)).as_posix()
 
-    entries: list[BrowseEntry] = []
-    extensions = {ext.lower() for ext in req.file_filter} if req.file_filter else None
 
+def _check_name(name: str) -> str:
+    name = name.strip()
+    if not name or name in (".", "..") or "/" in name or "\0" in name:
+        raise Invalid("invalid_entry_name", name=name)
+    return name
+
+
+def _entry(root: str, path: Path) -> Entry:
+    import os
+
+    is_symlink = path.is_symlink()
     try:
-        children = list(target.iterdir())
-    except OSError as exc:
-        return BrowseResult(success=False, rel_path=req.rel_path, error=f"listing failed: {exc}")
+        stat = path.stat()   # follows links
+        is_dir = path.is_dir()
+        size = None if is_dir else stat.st_size
+        mtime = int(stat.st_mtime)
+    except OSError:          # a broken link
+        is_dir, size, mtime = False, None, None
+    return Entry(path.name, relative(root, path), is_dir, is_symlink, size, mtime, os.access(path, os.W_OK))
 
-    for child in children:
-        if not req.show_hidden and child.name.startswith("."):
+
+def list_folder(root: str, rel_path: str, *, show_hidden: bool = False) -> tuple[list[Entry], bool]:
+    """The entries of a folder, folders first, by name; and whether new entries can be made in it."""
+    import os
+
+    folder = resolve(root, rel_path)
+    if not folder.is_dir():
+        raise Invalid("not_a_folder", path=rel_path)
+    try:
+        children = [child for child in folder.iterdir() if show_hidden or not child.name.startswith(".")]
+    except OSError as error:
+        raise Invalid("folder_unreadable", path=rel_path, reason=str(error)) from error
+    entries = sorted((_entry(root, child) for child in children), key=lambda entry: (not entry.is_dir, entry.name.lower()))
+    return entries, os.access(folder, os.W_OK)
+
+
+def search(root: str, rel_path: str, text: str, *, deep: bool) -> list[Entry]:
+    """Entries whose name contains ``text`` (any case), in the folder or, ``deep``, below it (not into symlinks)."""
+    folder = resolve(root, rel_path)
+    wanted = text.lower()
+    found: list[Entry] = []
+    pending = [folder]
+    while pending:
+        current = pending.pop()
+        try:
+            children = list(current.iterdir())
+        except OSError:
             continue
-
-        # Determine type without crashing on broken symlinks
-        is_symlink = child.is_symlink()
-        is_dir = False
-        size: int | None = None
-        mtime: int | None = None
-        entry_error: str | None = None
-
-        try:
-            stat = child.stat()  # follows symlinks
-            is_dir = child.is_dir()
-            if not is_dir:
-                size = stat.st_size
-            mtime = int(stat.st_mtime)
-        except OSError as exc:
-            entry_error = f"stat failed: {exc}"
-            # For broken symlinks, fall back to lstat-based info
-            try:
-                lstat = child.lstat()
-                mtime = int(lstat.st_mtime)
-            except OSError:
-                pass
-
-        if not is_dir and entry_error is None:
-            # File: apply extension filter and show_files toggle
-            if not req.show_files:
+        for child in children:
+            if child.name.startswith("."):
                 continue
-            if extensions and child.suffix.lower() not in extensions:
-                continue
+            if wanted in child.name.lower():
+                found.append(_entry(root, child))
+            if deep and child.is_dir() and not child.is_symlink():
+                pending.append(child)
+    return sorted(found, key=lambda entry: (not entry.is_dir, entry.rel_path.lower()))
 
-        rel = (
-            str(PurePosixPath(req.rel_path) / child.name)
-            if req.rel_path else child.name
-        )
 
-        try:
-            abs_resolved = str(child.resolve())
-        except (OSError, RuntimeError):
-            abs_resolved = str(child)
+def _free(target: Path, name: str) -> Path:
+    if target.exists() or target.is_symlink():
+        raise Conflict("entry_exists", name=name)
+    return target
 
-        entries.append(BrowseEntry(
-            name=child.name,
-            rel_path=rel,
-            abs_path=abs_resolved,
-            is_dir=is_dir,
-            is_symlink=is_symlink,
-            size=size,
-            mtime=mtime,
-            error=entry_error,
-        ))
 
-    # Sort: directories first, then by chosen criterion
-    if req.sort_by == "mtime":
-        entries.sort(key=lambda e: (not e.is_dir, -(e.mtime or 0)))
-    elif req.sort_by == "size":
-        entries.sort(key=lambda e: (not e.is_dir, -(e.size or 0)))
-    else:  # default: name
-        entries.sort(key=lambda e: (not e.is_dir, e.name.lower()))
+def _done(work: str, error: OSError) -> NotDone:
+    return NotDone("file_operation_failed", work=work, reason=error.strerror or str(error))
 
-    # Check if the current folder accepts new entries (mkdir/symlink).
-    # os.access can give false negatives on NFS (it doesn't query the
-    # remote ACL), but it correctly catches the common cases: read-only
-    # mounts, foreign-owned folders. False positives = user clicks and
-    # gets the actual error from the server — same as today.
-    import os as _os
+
+def create_folder(root: str, rel_path: str, name: str) -> Path:
+    target = _free(resolve(root, rel_path) / _check_name(name), name)
     try:
-        is_writable = _os.access(target, _os.W_OK)
-    except OSError:
-        is_writable = False
-
-    return BrowseResult(
-        success=True, rel_path=req.rel_path, entries=entries, writable=is_writable,
-    )
+        target.mkdir()
+    except OSError as error:
+        raise _done("mkdir", error) from error
+    return target
 
 
-def create_folder(root: str, rel_path: str, name: str) -> tuple[bool, str]:
-    """Create a new folder under (root/rel_path). Used when caps.can_create_folder."""
-    if not name or "/" in name or name.startswith("."):
-        return False, "invalid folder name"
-    parent, err = safe_resolve(root, rel_path)
-    if err or parent is None:
-        return False, err or "invalid parent"
-    target = parent / name
-    if target.exists():
-        return False, "already exists"
+def write_file(root: str, rel_path: str, name: str, data: bytes) -> Path:
+    """A new file (an upload); a name in use is refused, nothing is overwritten."""
+    target = _free(resolve(root, rel_path) / _check_name(name), name)
     try:
-        target.mkdir(parents=False)
-    except OSError as exc:
-        return False, f"mkdir failed: {exc}"
-    return True, str(target.relative_to(Path(root).resolve()))
+        target.write_bytes(data)
+    except OSError as error:
+        raise _done("write", error) from error
+    return target
 
 
-def delete_entry(root: str, rel_path: str) -> tuple[bool, str]:
-    """Delete a file or empty folder under root. Used when caps.can_delete."""
-    if not rel_path:
-        return False, "cannot delete root"
-    target, err = safe_resolve(root, rel_path)
-    if err or target is None:
-        return False, err or "invalid path"
+def rename(root: str, rel_path: str, name: str) -> Path:
+    source = resolve(root, rel_path)
+    if source == root_folder(root):
+        raise Invalid("leads_outside_sandbox", path=rel_path)
+    target = _free(source.parent / _check_name(name), name)
     try:
-        if target.is_symlink() or target.is_file():
+        source.rename(target)
+    except OSError as error:
+        raise _done("rename", error) from error
+    return target
+
+
+def delete(root: str, rel_path: str) -> None:
+    """A file, a symlink (the link, never its target) or a folder with its content (not following links in it)."""
+    target = resolve(root, rel_path)
+    if target == root_folder(root):
+        raise Invalid("leads_outside_sandbox", path=rel_path)
+    try:
+        if target.is_symlink() or not target.is_dir():
             target.unlink()
-        elif target.is_dir():
-            target.rmdir()  # only empty dirs — recursive delete is callers job
         else:
-            return False, "unsupported entry type"
-    except OSError as exc:
-        return False, f"delete failed: {exc}"
-    return True, str(target)
+            shutil.rmtree(target)
+    except OSError as error:
+        raise _done("delete", error) from error
 
 
-def create_symlink(
-    root: str,
-    rel_path: str,
-    name: str,
-    target_abs: str,
-    target_must_be_under_root: bool = True,
-) -> tuple[bool, str]:
-    """Create a symlink under (root/rel_path) pointing to target_abs.
-
-    Args:
-        root: sandbox root.
-        rel_path: relative path inside root where the symlink is placed.
-        name: filename of the symlink (no slashes, no dot-prefix).
-        target_abs: absolute path the symlink points at.
-        target_must_be_under_root: if True (default, fail-closed), refuse
-            targets that resolve outside the sandbox root. Callers that
-            legitimately need to link out (e.g. an admin NAS-mount picker)
-            must opt out explicitly by passing False — because the browse
-            layer does NOT resolve symlinks, a link to an arbitrary absolute
-            path would otherwise expose the whole filesystem.
-
-    Returns:
-        (success, message_or_relpath)
-    """
-    if not name or "/" in name or name.startswith("."):
-        return False, "invalid symlink name"
-    parent, err = safe_resolve(root, rel_path)
-    if err or parent is None:
-        return False, err or "invalid parent"
-    link_path = parent / name
-    if link_path.exists() or link_path.is_symlink():
-        return False, "name already in use"
-    target_p = Path(target_abs).expanduser()
-    if not target_p.is_absolute():
-        return False, "target must be an absolute path"
-    if not target_p.is_dir():
-        return False, f"target is not a directory: {target_abs}"
-    if target_must_be_under_root:
+def transfer(root: str, sources: list[str], destination: str, *, keep: bool) -> None:
+    """Copy (``keep``) or move the entries into a folder of the root; a name in use there is refused."""
+    folder = resolve(root, destination)
+    if not folder.is_dir():
+        raise Invalid("not_a_folder", path=destination)
+    for rel in sources:
+        source = resolve(root, rel)
+        target = _free(folder / source.name, source.name)
+        if source.is_dir() and not source.is_symlink() and (folder == source or source in folder.parents):
+            raise Invalid("folder_into_itself", path=rel)
         try:
-            target_resolved = target_p.resolve()
-            root_resolved = Path(root).expanduser().resolve()
-            target_resolved.relative_to(root_resolved)
-        except ValueError:
-            return False, (
-                f"target {target_abs} is outside the sandbox root {root} — "
-                f"refusing symlink that would enable sandbox escape"
-            )
+            if not keep:
+                shutil.move(str(source), str(target))
+            elif source.is_symlink():
+                target.symlink_to(source.readlink())
+            elif source.is_dir():
+                shutil.copytree(source, target, symlinks=True)
+            else:
+                shutil.copy2(source, target)
+        except OSError as error:
+            raise _done("copy" if keep else "move", error) from error
+
+
+def create_symlink(root: str, rel_path: str, name: str, target_rel: str) -> Path:
+    """A link in ``rel_path`` to the folder ``target_rel`` of the root. Where the folder really is decides: one reached
+    through a link that leads out is refused, a new link out would make the whole filesystem reachable."""
+    link = _free(resolve(root, rel_path) / _check_name(name), name)
+    target = resolve(root, target_rel)
+    if not target.is_dir():
+        raise Invalid("not_a_folder", path=target_rel)
     try:
-        link_path.symlink_to(target_p)
-    except OSError as exc:
-        return False, f"symlink failed: {exc}"
-    return True, str(link_path.relative_to(Path(root).resolve()))
+        target.resolve().relative_to(root_folder(root))
+    except ValueError as error:
+        raise Invalid("leads_outside_sandbox", path=target_rel) from error
+    try:
+        link.symlink_to(target)
+    except OSError as error:
+        raise _done("symlink", error) from error
+    return link
+
+
+def mime_type(path: Path) -> str | None:
+    return None if path.is_dir() else mimetypes.guess_type(path.name)[0]

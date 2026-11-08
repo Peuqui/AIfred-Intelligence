@@ -15,6 +15,7 @@ from starlette.testclient import TestClient
 
 from aifred.lib import audio_index as audio_index_module
 from aifred.lib import audio_library, audio_player_settings, config
+from aifred.lib.user_error import Missing
 
 
 class _Index:
@@ -63,9 +64,11 @@ def test_a_folder_of_the_sandbox_becomes_a_source_and_nothing_leads_outside(worl
     assert (world["media"] / "Hörbücher").resolve() == (world["sandbox"] / "Hörbücher").resolve()
     assert audio_library.add_source("Musik/Jazz") == "Jazz"
     assert audio_library.add_source("Hörbücher") == "Hörbücher_2"          # the name was taken
-    for bad in ("escape", "../outside", "nothing"):
+    for bad in ("escape", "../outside"):
         with pytest.raises(ValueError):
             audio_library.add_source(bad)
+    with pytest.raises(Missing):              # no such folder: not found (the API answers 404), not invalid
+        audio_library.add_source("nothing")
     assert not (world["media"] / "escape").exists()
 
 
@@ -118,9 +121,6 @@ def client(world: dict) -> Iterator[TestClient]:
 def test_the_sources_over_the_api(client: TestClient, world: dict) -> None:
     library = client.get("/audio/sources").json()
     assert [source["label"] for source in library["sources"]] == ["Musik", "Radio"] and library["indexing"] == ""
-    folders = client.get("/audio/sources/folders", params={"path": "Musik"}).json()
-    assert folders == {"path": "Musik", "folders": [{"name": "Jazz", "path": "Musik/Jazz", "is_symlink": False}]}
-    assert client.get("/audio/sources/folders", params={"path": "../outside"}).status_code == 422
     added = client.post("/audio/sources", json={"path": "Hörbücher"})
     assert added.status_code == 201 and "Hörbücher" in added.json()["message"]
     assert client.post("/audio/sources", json={"path": "escape"}).status_code == 422

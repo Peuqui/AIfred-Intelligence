@@ -15,9 +15,21 @@ export default defineConfig({
     rolldownOptions: {
       output: {
         codeSplitting: {
+          // A group takes only what its test names: by default it pulled in Vue itself (imported by VueFinder), and
+          // the chat page loaded the requester's chunk at once.
+          includeDependenciesRecursively: false,
           groups: [
             { name: "katex", test: /node_modules[\\/]katex/ },
             { name: "highlight", test: /node_modules[\\/]highlight\.js/ },
+            // The file requester's VueFinder, loaded only when a requester opens, in three parts below the size limit: its
+            // text preview's CodeMirror (VueFinder imports it when a text is shown), the libraries it ships bundled in
+            // dist/, and VueFinder itself with the packages it imports.
+            { name: "codemirror", test: /node_modules[\\/]vuefinder[\\/]dist[\\/]CodeMirrorEditor/ },
+            { name: "finder-libs", test: /node_modules[\\/]vuefinder[\\/]dist[\\/](dist-|papaparse)/ },
+            {
+              name: "finder",
+              test: /node_modules[\\/](vuefinder|@uppy|vue-advanced-cropper|@viselect|vanilla-lazyload|overlayscrollbars|nanostores|@nanostores|vue-sonner|@floating-ui|@tanstack)[\\/]/,
+            },
             { name: "vendor", test: /node_modules/ },
           ],
         },
