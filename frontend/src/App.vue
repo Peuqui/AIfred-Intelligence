@@ -4,6 +4,7 @@
 import { onMounted, watch } from "vue";
 import { RouterLink, RouterView } from "vue-router";
 import { api } from "./api/client";
+import HubNoticeToast from "./components/HubNoticeToast.vue";
 import LoginForm from "./components/LoginForm.vue";
 import MediaPlayer from "./components/MediaPlayer.vue";
 import ServiceStatusBar from "./components/ServiceStatusBar.vue";
@@ -50,6 +51,7 @@ onMounted(async () => {
     </header>
     <ServiceStatusBar />
     <MediaPlayer />
+    <HubNoticeToast />
     <RouterView v-slot="{ Component }">
       <KeepAlive><component :is="Component" class="page" /></KeepAlive>
     </RouterView>

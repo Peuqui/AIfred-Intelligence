@@ -436,7 +436,7 @@ def channel(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> _Channel:
     monkeypatch.setattr(message_processor, "routing_table", SimpleNamespace(get_route=lambda *_args: SimpleNamespace(session_id=SESSION)))
     monkeypatch.setattr(message_processor, "channel_display_label", lambda _channel: "Telegram")
     monkeypatch.setattr(message_processor, "_mapped_user_name", lambda *_args: None)
-    monkeypatch.setattr(message_processor, "write_hub_notification", lambda *_args, status: world.setdefault("hub", []).append(status))
+    monkeypatch.setattr(message_processor, "push_hub_notification", lambda *_args, status: world.setdefault("hub", []).append(status))
     monkeypatch.setattr(security, "resolve_tier_for_sender", lambda *_args: 1)
     monkeypatch.setattr(security, "resolve_trust_label", lambda *_args: "owner")
     return plugin

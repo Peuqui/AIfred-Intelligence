@@ -30,7 +30,7 @@ def recorded(monkeypatch) -> list[list[dict]]:
 
     monkeypatch.setattr(mp, "routing_table", _FakeRoutingTable())
     monkeypatch.setattr(mp, "create_empty_session", lambda *a, **k: None)
-    monkeypatch.setattr(mp, "write_hub_notification", lambda *a, **k: None)
+    monkeypatch.setattr(mp, "push_hub_notification", lambda *a, **k: None)
     monkeypatch.setattr(
         mp, "update_chat_data",
         lambda session_id, chat_history, **k: written.append(chat_history),
@@ -80,7 +80,7 @@ def llm_recorded(monkeypatch) -> list[list[dict]]:
     written: list[list[dict]] = []
     monkeypatch.setattr(mp, "routing_table", _FakeRoutingTable())
     monkeypatch.setattr(mp, "create_empty_session", lambda *a, **k: None)
-    monkeypatch.setattr(mp, "write_hub_notification", lambda *a, **k: None)
+    monkeypatch.setattr(mp, "push_hub_notification", lambda *a, **k: None)
     monkeypatch.setattr(
         mp, "update_chat_data",
         lambda session_id, chat_history, **k: written.append(k["llm_history"]),

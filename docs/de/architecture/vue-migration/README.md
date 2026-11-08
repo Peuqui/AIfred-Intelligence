@@ -448,7 +448,11 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
      gekürzt zu werden; jede Zeile zeigt, was die Blase zeigt (`tts_text_filter`, vorher landete der Denkprozess
      mit in der Zusammenfassung); Systemagenten nach ihrer Rolle, nicht nach dem Namen „vision“. Live geprüft mit
      dem 30B-Modell.
-  6. Hinweise des Message Hub und des Schedulers, die Sitzungsliste lädt neue Kanal-Sitzungen nach.
+  6. ~~Hinweise des Message Hub und des Schedulers~~ (erledigt 08.11.: `message_processor.push_hub_notification`
+     schiebt die Phase in den Strom jeder Sitzung, der eine Seite folgt, die neueste ersetzt die ältere; Vue zeigt
+     sie oben (`HubNoticeToast.vue`, ein Klick öffnet die Sitzung) und lädt die Sitzungsliste nach). Vorher schrieb
+     der Server `data/message_hub/notification.json`, das nur der Reflex-Poll las. Server-Seite per Test geprüft;
+     im Browser nicht, die Testinstanz startet keinen Hub.
   7. Systemagenten und Automatik-LLM im Editor (Prompts, Modell und Reasoning des Kalibrier-Agenten).
   8. ~~„Chat löschen“~~ (erledigt 08.11.: 🗑️ in der Kopfleiste, `POST /api/sessions/{id}/clear`,
      `session_storage.clear_chat`, `turn_service.end_session_activity` für Zug, Lesung und Wiedergabe, auch beim

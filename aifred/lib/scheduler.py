@@ -662,8 +662,8 @@ async def _deliver_announce(job: Job, response_text: str, session_id: str) -> No
             f"Scheduler: announce for job '{job.name}' did not deliver "
             f"(channel {channel_name!r})", "error",
         )
-        from .message_processor import write_hub_notification
-        write_hub_notification(
+        from .message_processor import push_hub_notification
+        push_hub_notification(
             session_id=session_id,
             session_title=f"Job: {job.name} — Zustellung fehlgeschlagen",
             channel=channel_name,
@@ -674,8 +674,8 @@ async def _deliver_announce(job: Job, response_text: str, session_id: str) -> No
 
 def _deliver_review(job: Job, response_text: str, session_id: str) -> None:
     """Write notification for UI review."""
-    from .message_processor import write_hub_notification
-    write_hub_notification(
+    from .message_processor import push_hub_notification
+    push_hub_notification(
         session_id=session_id,
         session_title=f"Job: {job.name}",
         channel="scheduler",

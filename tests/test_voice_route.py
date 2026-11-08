@@ -185,7 +185,7 @@ def session_store(monkeypatch):
 
     monkeypatch.setattr(mp, "routing_table", _FakeRoutingTable())
     monkeypatch.setattr(mp, "create_empty_session", lambda *a, **k: None)
-    monkeypatch.setattr(mp, "write_hub_notification", lambda *a, **k: None)
+    monkeypatch.setattr(mp, "push_hub_notification", lambda *a, **k: None)
     monkeypatch.setattr(mp, "update_chat_data", fake_update)
     import aifred.lib.session_storage as ss
     monkeypatch.setattr(ss, "load_session", lambda sid: {"data": store})

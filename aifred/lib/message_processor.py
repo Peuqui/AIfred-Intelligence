@@ -11,7 +11,6 @@ import contextvars
 import secrets
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from pathlib import Path
 
 from .agent_config import BASE_AGENT
 from .config import MESSAGE_HUB_OWNER
@@ -24,32 +23,23 @@ from .session_storage import create_empty_session, update_chat_data
 from .turn_service import TurnOrigin, TurnReply, TurnRequest, run_turn
 
 # Global notification file for Message Hub events (read by UI timer)
-_NOTIFICATION_FILE = None
+# The phases of a message of a channel (or a job) the open pages show as a hint: what came in from whom, that it is
+# being answered, that it is done or failed; and that the session list has a new or changed session.
+HUB_NOTIFICATION_KIND = "hub_notification"
 
 
-def _get_notification_path() -> Path:
-    global _NOTIFICATION_FILE
-    if _NOTIFICATION_FILE is None:
-        from .config import DATA_DIR
-        _NOTIFICATION_FILE = DATA_DIR / "message_hub" / "notification.json"
-        _NOTIFICATION_FILE.parent.mkdir(parents=True, exist_ok=True)
-    return _NOTIFICATION_FILE
-
-
-def write_hub_notification(
+def push_hub_notification(
     session_id: str, session_title: str, channel: str, sender: str,
     status: str = "received",
 ) -> None:
-    """Write a notification for the UI to pick up.
+    """Show every open page the phase of a channel's message (``received`` | ``processing`` | ``done`` | ``error``).
 
-    status: ``received`` | ``processing`` | ``done`` | ``error``.
-    All notifications carry the same toast id (``hub`` in the UI),
-    so a later status overwrites the previous toast — including the
-    long-lived ``received``/``processing`` toasts which would otherwise
-    linger for two minutes (their hard duration cap).
+    Goes to the stream of every session a page follows, the newest replacing the older ones (one hint, not a
+    history); a later phase replaces the earlier one on the page too. Safe from the hub's thread (session_events
+    hands a publish over to the server's loop).
     """
-    import json
-    path = _get_notification_path()
+    from . import session_events
+
     notification = {
         "session_id": session_id,
         "session_title": session_title,
@@ -57,21 +47,8 @@ def write_hub_notification(
         "sender": sender,
         "status": status,
     }
-    path.write_text(json.dumps(notification), encoding="utf-8")
-
-
-def read_and_clear_hub_notification() -> dict | None:
-    """Read and delete the notification file. Returns dict or None."""
-    import json
-    path = _get_notification_path()
-    if not path.exists():
-        return None
-    try:
-        data: dict = json.loads(path.read_text(encoding="utf-8"))
-        path.unlink()
-        return data
-    except (json.JSONDecodeError, OSError):
-        return None
+    for followed in session_events.sessions_with_subscribers():
+        session_events.publish(followed, HUB_NOTIFICATION_KIND, notification, replaces=frozenset({HUB_NOTIFICATION_KIND}))
 
 
 # ============================================================
@@ -139,7 +116,7 @@ def hub_notification_scope(
     the next scope in the same task takes over.
     """
     def _write(status: str) -> None:
-        write_hub_notification(session_id, session_title, channel, sender, status=status)
+        push_hub_notification(session_id, session_title, channel, sender, status=status)
 
     inherited = _pending_inherit.get()
     if inherited:
@@ -834,7 +811,7 @@ def record_autonomous_turn(
         llm_history = [*data.get("llm_history", []), llm_entry]
         update_chat_data(session_id, chat_history, llm_history=llm_history, owner=owner)
 
-    write_hub_notification(session_id, title, channel, "system", status="done")
+    push_hub_notification(session_id, title, channel, "system", status="done")
     return session_id
 
 

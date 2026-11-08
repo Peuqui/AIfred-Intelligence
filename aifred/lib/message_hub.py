@@ -258,9 +258,9 @@ class MessageHub:
                         f"permanently dead. Last error: {exc}"
                     )
                     _hub_log(f"Message Hub: {error_msg}", "error")
-                    # Write notification so the UI can show it
-                    from .message_processor import write_hub_notification
-                    write_hub_notification(
+                    # Tell the open pages
+                    from .message_processor import push_hub_notification
+                    push_hub_notification(
                         session_id="",
                         session_title=f"Worker '{worker.name}' crashed",
                         channel=worker.name,

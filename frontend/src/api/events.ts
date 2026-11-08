@@ -5,7 +5,7 @@ import { apiUrl } from "./client";
 export type SessionEventHandler = (kind: string, data: Record<string, unknown>) => void;
 
 // Every kind the server sends (lib/turn_service.py, lib/reply_speech.py, lib/dictation.py,
-// lib/api/sessions.py, lib/debug_bus.py, lib/api/service_status.py). The browser only hears the kinds listed here.
+// lib/api/sessions.py, lib/debug_bus.py, lib/api/service_status.py, lib/message_processor.py). The browser only hears the kinds listed here.
 export const SESSION_EVENT_KINDS = [
   "turn_started",
   "turn_rejected",
@@ -36,6 +36,7 @@ export const SESSION_EVENT_KINDS = [
   "dictation_text",
   "dictation_finished",
   "service_status",
+  "hub_notification",
 ] as const;
 
 export function followSession(sessionId: string, afterId: number, handle: SessionEventHandler): EventSource {

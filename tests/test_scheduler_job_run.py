@@ -260,7 +260,7 @@ class TestRooms:
 
     def test_no_puck_connected_shows_up_as_failed(self, rooms, monkeypatch):
         shown = []
-        monkeypatch.setattr("aifred.lib.message_processor.write_hub_notification",
+        monkeypatch.setattr("aifred.lib.message_processor.push_hub_notification",
                             lambda **kwargs: shown.append(kwargs["status"]))
         asyncio.run(sched._deliver_announce(_echo_job(recipient="Keller"), "Text", "s"))
         assert shown == ["error"]
