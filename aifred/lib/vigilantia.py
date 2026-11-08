@@ -30,15 +30,26 @@ class Vigilantia:
     retention_days: int       # how long frames, faces and events are kept
 
 
+def _mode(settings: dict) -> str:
+    mode = str(settings.get("vision_mode", VISION_MODES[0]))
+    if mode not in VISION_MODES:
+        raise ValueError(f"vision_mode must be one of {VISION_MODES}, is {mode!r}")
+    return mode
+
+
+def vision_mode() -> str:
+    """The stored mode (VISION_MODES): on-demand loads the image model when asked, live keeps it loaded. A mode the
+    settings do not know is an error (ValueError), not a default; every reader of the mode asks here."""
+    return _mode(load_vision_settings())
+
+
 def vigilantia() -> Vigilantia:
     """The stored settings. A mode the eye does not know is an error (ValueError), not a default."""
     from .plugin_registry import is_plugin_enabled
     from .vision_cleanup import retention_days
 
     settings = load_vision_settings()
-    mode = str(settings.get("vision_mode", VISION_MODES[0]))
-    if mode not in VISION_MODES:
-        raise ValueError(f"vision_mode must be one of {VISION_MODES}, is {mode!r}")
+    mode = _mode(settings)
     faces = settings.get("face_recognition") or {}
     watch = settings.get("watch") or {}
     return Vigilantia(

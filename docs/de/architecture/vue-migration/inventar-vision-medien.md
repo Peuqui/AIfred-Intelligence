@@ -464,7 +464,7 @@ Vorschau-Fenster und Hauptfenster teilen denselben State (gleicher Client-Token,
 - `save_rtsp_camera` überschreibt beim Anlegen eine bestehende Kamera gleichen Namens ohne Rückfrage (VS:1000–1010); `delete_rtsp_camera` lässt Zugangsdaten in `.env` und den Datensatz in vision.db stehen (VS:1029–1041); `cred` geht ungeprüft in den Namen der `.env`-Schlüssel (VS:950–954).
 - `settings.json` der Vision wird von vielen Stellen gelesen-geändert-geschrieben (VS, `describer_list.save`, aV:559–584) ohne Sperre; gleichzeitige Änderungen (Zonen-Editor und Modal) können einander überschreiben.
 - Zugriffe auf Privates aus anderen Modulen: `vision_routing._normalize` (VS:326), `vision_autostart._schedule_active_now` (VS:775–776), `TranslationManager._translations` (VP:382; aV:666).
-- Legacy-Reste gegen die No-Legacy-Regel: Umdeuten von `vision_mode="off"` (VS:191–194), Prüfungen auf `"off"` in `vision_autostart.py:300, 359`, Stunden-Ganzzahlen in Zeitfenstern (VS:33–38, 758–764). Ruhezeit speichert ganze Stunden (VS:703–708), das Aktiv-Fenster `"HH:MM"` — zwei Formate für dasselbe Konzept.
+- Legacy-Reste gegen die No-Legacy-Regel: Umdeuten von `vision_mode="off"` (VS:191–194), Prüfungen auf `"off"` in `vision_autostart.py:300, 359` (entfernt 08.11.2026, der Modus kommt nur noch aus `vigilantia.vision_mode`), Stunden-Ganzzahlen in Zeitfenstern (VS:33–38, 758–764). Ruhezeit speichert ganze Stunden (VS:703–708), das Aktiv-Fenster `"HH:MM"` — zwei Formate für dasselbe Konzept.
 - `asyncio.get_event_loop()` in einer Coroutine (AP:332), statt `asyncio.to_thread`.
 
 ### 7.5 Fest eingetragene Texte und Formatierung

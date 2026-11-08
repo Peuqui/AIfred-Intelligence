@@ -38,6 +38,7 @@ from ....lib.vision_analyzer import (
     DEFAULT_NUM_CTX,
     analyze_sequence,
 )
+from ....lib.vigilantia import vision_mode
 from ....lib.vision_filters.face_detect import get_default_detector
 from ....lib.vision_gpu_select import resolve_gpu_id
 from ....lib.vision_settings import VISION_SETTINGS_PATH, load_vision_settings
@@ -117,29 +118,6 @@ def _ok(**payload: Any) -> str:
     return json.dumps({"success": True, **payload})
 
 
-def _vision_mode() -> str:
-    """Read the global vision-mode toggle: ``"off"`` / ``"on-demand"`` / ``"live"``.
-
-    * ``off``       — Vision is disabled; all tools return an error indicating
-                      the user must enable it in settings. No VRAM-Reservation
-                      during calibration, no watch tasks accepted.
-    * ``on-demand`` — Default. Snapshot/analyze run on demand; watch tasks
-                      require explicit ``vision_start_watch`` calls. VLM is
-                      held with ``keep_alive`` (typically 30 min).
-    * ``live``      — Like on-demand, plus VLM is kept permanently loaded
-                      (caller patches ``keep_alive=-1`` for analyze calls).
-                      Use for Türsteher / always-on surveillance.
-    """
-    raw = load_vision_settings().get("vision_mode", "on-demand")
-    if not isinstance(raw, str):
-        return "on-demand"
-    mode = raw.lower().strip()
-    if mode not in ("off", "on-demand", "live"):
-        logger.warning("invalid vision_mode setting %r — falling back to on-demand", raw)
-        return "on-demand"
-    return mode
-
-
 @dataclass
 class VisionPlugin:
     name: str = "vision"
@@ -191,11 +169,6 @@ class VisionPlugin:
     _CAPTURE_SOURCES = ("browser", "freeecho2")
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
-        # Globaler Toggle: bei vision_mode=off präsentiert das Plugin gar keine
-        # Tools — der LLM sieht das Plugin damit als „nicht verfügbar" und
-        # versucht nicht, Bild-Operationen zu starten.
-        if _vision_mode() == "off":
-            return []
         tools = [
             self._tool_list_sources(ctx),
             self._tool_rescan_sources(ctx),
@@ -464,7 +437,7 @@ class VisionPlugin:
             # In "live"-Mode (Türsteher/Always-On) override keep_alive auf -1,
             # damit das VLM permanent im VRAM bleibt. Muss int sein — Ollama
             # parsed strings als Duration ("30m") und scheitert an "-1".
-            keep_alive: Any = -1 if _vision_mode() == "live" else str(
+            keep_alive: Any = -1 if vision_mode() == "live" else str(
                 vlm_cfg.get("keep_alive", DEFAULT_KEEP_ALIVE)
             )
             # Wer beschreibt (SSOT vision_routing): Kamerabilder nach Regel B

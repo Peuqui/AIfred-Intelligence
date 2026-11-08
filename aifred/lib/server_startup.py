@@ -46,8 +46,9 @@ async def start_process_tasks() -> None:
     # to block server startup behind it. On-demand mode
     # deliberately skips this — the whole point of
     # on-demand is lazy loading.
-    from .vision_prewarm import get_vision_mode, prewarm_vlm
-    if get_vision_mode() == "live":
+    from .vigilantia import vision_mode
+    from .vision_prewarm import prewarm_vlm
+    if vision_mode() == "live":
         log_message("🎥 Vision pre-warm: starting (mode=live)")
         asyncio.create_task(prewarm_vlm())
 

@@ -19,6 +19,7 @@ from .prompt_loader import (
     get_vision_identity_context_prompt,
     get_vision_ir_context_prompt,
 )
+from .vigilantia import vision_mode
 from .vision_analyzer import (
     DEFAULT_KEEP_ALIVE,
     DEFAULT_MODEL,
@@ -27,7 +28,6 @@ from .vision_analyzer import (
 )
 from .vision_event_bus import publish_vlm_event
 from .vision_output import OutputChain
-from .vision_prewarm import get_vision_mode
 from .vision_routing import Describer, camera_describer, describe_with_second_attempt
 from .vision_settings import load_vision_settings
 from .vision_store import VisionStore
@@ -77,7 +77,7 @@ class ContinuousVlm:
         )
 
         vlm_cfg: dict[str, Any] = load_vision_settings().get("vlm") or {}
-        keep_alive: Any = -1 if get_vision_mode() == "live" else str(
+        keep_alive: Any = -1 if vision_mode() == "live" else str(
             vlm_cfg.get("keep_alive", DEFAULT_KEEP_ALIVE)
         )
         # ``inference_start`` ist der Hauptzeitstempel im Live-Event — die

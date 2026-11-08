@@ -272,9 +272,6 @@ async def start_all_background_watchers() -> int:
         logger.warning("autostart: source listing failed: %s", e)
         return 0
     plugin = load_vision_settings()
-    if plugin.get("vision_mode") == "off":
-        logger.info("autostart: vision_mode='off' — skipping all sources")
-        return 0
     if not plugin.get("vigilantia_armed", False):
         logger.info("autostart: vigilantia disarmed — skipping all sources")
         return 0
@@ -336,7 +333,7 @@ async def apply_background_watch(source_id: str) -> None:
     plugin = load_vision_settings()
     record = VisionStore().get_source(source_id) or {}
     wanted = (
-        plugin.get("vision_mode") != "off" and bool(plugin.get("vigilantia_armed", False))
+        bool(plugin.get("vigilantia_armed", False))
         and bool(record.get("auto_start")) and _schedule_active_now(record.get("settings") or {})
     )
     watcher = get_default_watcher()
@@ -361,7 +358,7 @@ async def schedule_supervisor() -> None:
         try:
             await asyncio.sleep(60)
             plugin = load_vision_settings()
-            if plugin.get("vision_mode") == "off" or not plugin.get("vigilantia_armed", False):
+            if not plugin.get("vigilantia_armed", False):
                 continue
             records = VisionStore().list_sources()
             await _start_newly_plugged_cameras(records)

@@ -52,12 +52,6 @@ def is_vision_active() -> bool:
     return is_plugin_enabled("vision")
 
 
-def get_vision_mode() -> str:
-    """Current vision_mode value, lower-cased. One of off/on-demand/live."""
-    cfg = load_vision_settings()
-    return str(cfg.get("vision_mode", "on-demand")).lower().strip()
-
-
 def get_active_vlm_model() -> str | None:
     """Currently configured VLM model id (e.g. ``qwen3-vl:4b-instruct-q8_0``).
     ``None`` if vision is off."""

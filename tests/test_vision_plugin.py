@@ -577,18 +577,14 @@ class TestPluginMeta:
 
 
 class TestVisionMode:
-    def test_mode_off_returns_no_tools(self, patched_plugin, ctx, monkeypatch):
-        monkeypatch.setattr(vp, "_vision_mode", lambda: "off")
-        assert vp.plugin.get_tools(ctx) == []
-
     def test_mode_on_demand_returns_all_tools(self, patched_plugin, ctx, monkeypatch):
-        monkeypatch.setattr(vp, "_vision_mode", lambda: "on-demand")
+        monkeypatch.setattr(vp, "vision_mode", lambda: "on-demand")
         names = {t.name for t in vp.plugin.get_tools(ctx)}
         assert "vision_snapshot" in names
         assert len(names) == 9
 
     def test_mode_live_returns_all_tools(self, patched_plugin, ctx, monkeypatch):
-        monkeypatch.setattr(vp, "_vision_mode", lambda: "live")
+        monkeypatch.setattr(vp, "vision_mode", lambda: "live")
         names = {t.name for t in vp.plugin.get_tools(ctx)}
         assert len(names) == 9
 
@@ -613,7 +609,7 @@ class TestVisionMode:
         import ollama
 
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
-        monkeypatch.setattr(vp, "_vision_mode", lambda: "live")
+        monkeypatch.setattr(vp, "vision_mode", lambda: "live")
 
         register(FakeSource("cam/test-live"))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
@@ -639,7 +635,7 @@ class TestVisionMode:
         import ollama
 
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
-        monkeypatch.setattr(vp, "_vision_mode", lambda: "on-demand")
+        monkeypatch.setattr(vp, "vision_mode", lambda: "on-demand")
 
         register(FakeSource("cam/test-od"))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
