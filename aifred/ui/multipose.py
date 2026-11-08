@@ -20,13 +20,14 @@ from reflex.vars import ObjectVar
 from reflex_components_lucide.icon import Icon
 from reflex_components_moment.moment import Moment
 
+from ..lib.config import VISION_ENROLL_PREVIEW_MS
 from ..state import AIState
 from .helpers import overlay_modal, t
 
 
 def _capture_thumb(cap: ObjectVar[dict[str, Any]]) -> rx.Component:
     return rx.image(
-        src=cap["preview_data_url"],
+        src=cap["crop_url"],
         style={
             "width": "56px",
             "height": "56px",
@@ -275,7 +276,7 @@ def multipose_modal() -> rx.Component:
                 # vertragen ein flotteres Tick — responsiv genug zum
                 # Posieren beim Einlernen. Der Handler no-opt bei
                 # geschlossenem Modal / laufendem Capture.
-                interval=800,
+                interval=VISION_ENROLL_PREVIEW_MS,
                 on_change=AIState.multipose_live_tick,
                 display="none",
             ),

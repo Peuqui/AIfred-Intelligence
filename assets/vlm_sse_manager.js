@@ -195,7 +195,6 @@ console.log('[AIfred-VLM] script file fetched + parsed');
         band: band,
         text: label,
         crop_url: data.crop_url || '',
-        embedding_b64: data.embedding_b64 || '',
         event_id: data.id || 0,
         enroll_label: window.__aifredFaceEnrollLabel || '+ taggen',
         discard_label: window.__aifredFaceDiscardLabel || 'Verwerfen',

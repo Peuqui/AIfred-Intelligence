@@ -10,6 +10,7 @@ import { RouterLink } from "vue-router";
 import { ApiError, PROGRESS_POLL_MS, api } from "../api/client";
 import type { FaceEmbedding, FaceSummary, OpenFace, RematchState } from "../api/types";
 import { formatNumber, t } from "../i18n";
+import EnrollPoses from "./EnrollPoses.vue";
 
 const persons = ref<FaceSummary[]>([]);
 const open = ref<OpenFace[]>([]);
@@ -23,6 +24,7 @@ const busy = ref(0);                      // the card being learned (the face mo
 const selected = ref<number[]>([]);
 const confirmAll = ref(false);
 const rematch = ref<RematchState | null>(null);
+const enrolling = ref<{ faceId: number; name: string } | null>(null);   // the poses dialog: a person, or 0 = a new one
 let polling: number | null = null;
 
 async function call<T>(work: () => Promise<T>): Promise<T | null> {
@@ -112,6 +114,11 @@ function follow(state: RematchState): void {
     }, PROGRESS_POLL_MS);
   }
 }
+async function enrolled(message: string): Promise<void> {
+  enrolling.value = null;
+  await reloadThenSay(message);
+  if (shown.value) embeddings.value = (await call(() => api<FaceEmbedding[]>(`vision/face/${shown.value}/embeddings`))) ?? [];
+}
 async function startRematch(): Promise<void> {
   const state = await call(() => send<RematchState>("vision/face/rematch", "POST"));
   if (state) follow(state);
@@ -132,7 +139,10 @@ const value = (event: Event): string => (event.target as HTMLInputElement | HTML
 <template>
   <section class="persons">
     <p v-if="notice" class="notice">{{ notice }}</p>
-    <p class="hint">{{ t("personarium_subtitle") }}</p>
+    <div class="line">
+      <p class="hint grow">{{ t("personarium_subtitle") }}</p>
+      <button @click="enrolling = { faceId: 0, name: '' }">📸 {{ t("multipose_new_person") }}</button>
+    </div>
     <p v-if="!persons.length" class="hint">{{ t("personarium_empty") }}</p>
     <article v-for="person in persons" :key="person.id" class="person">
       <div class="line">
@@ -149,6 +159,7 @@ const value = (event: Event): string => (event.target as HTMLInputElement | HTML
         <span class="grow"></span>
         <RouterLink class="button" :to="{ path: '/vision/events', query: { face: String(person.id) } }" :title="t('personarium_events_link')">🗂️</RouterLink>
         <button :class="{ on: shown === person.id }" :title="t('personarium_manage_embeddings')" @click="toggleEmbeddings(person)">🧬</button>
+        <button :title="t('personarium_multipose_add')" @click="enrolling = { faceId: person.id, name: person.name }">📸</button>
         <button :title="t('personarium_rename')" @click="Object.assign(renaming, { id: person.id, name: person.name })">✏️</button>
         <button v-if="deleting !== person.id" class="danger" :title="t('personarium_delete')" @click="deleting = person.id">🗑️</button>
         <template v-else>
@@ -214,6 +225,7 @@ const value = (event: Event): string => (event.target as HTMLInputElement | HTML
         </div>
       </template>
     </template>
+    <EnrollPoses v-if="enrolling" :face-id="enrolling.faceId" :name="enrolling.name" @close="enrolling = null" @saved="enrolled" />
   </section>
 </template>
 

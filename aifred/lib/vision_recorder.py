@@ -8,7 +8,6 @@ inkrementelle Cluster-Zuordner (``cluster_id`` je Frame).
 
 from __future__ import annotations
 
-import base64
 import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -188,7 +187,6 @@ class EventRecorder:
             "similarity": round(float(match.similarity), 3),
             "confidence_band": match.confidence_band,
             "crop_url": crop_url,
-            "embedding_b64": base64.b64encode(det.embedding.tobytes()).decode("ascii"),
         })
         return event_id
 

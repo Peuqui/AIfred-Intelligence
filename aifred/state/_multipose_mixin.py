@@ -17,45 +17,35 @@ from __future__ import annotations
 import base64
 import logging
 import sqlite3
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import reflex as rx
+
+from ..lib.enrollment import POSES
 
 logger = logging.getLogger(__name__)
 
 
-# Posen-Definitionen. Reihenfolge = Step-Reihenfolge im Modal.
-# Labels sind in der UI via t() lokalisiert; die ``key``-Strings sind
-# stabil und werden in der DB nirgends gespeichert (Embeddings sind
-# pose-agnostisch — die Pose-Info dient nur der Anleitung).
-POSE_STEPS: list[dict[str, str]] = [
-    {"key": "frontal", "label_key": "multipose_pose_frontal"},
-    {"key": "left", "label_key": "multipose_pose_left"},
-    {"key": "right", "label_key": "multipose_pose_right"},
-    {"key": "up", "label_key": "multipose_pose_up"},
-    {"key": "down", "label_key": "multipose_pose_down"},
-]
-
 class MultiposeMixin(rx.State, mixin=True):
-    """UI state for the Multi-Pose enrollment modal."""
+    """UI state for the Multi-Pose enrollment modal (the session itself lives in ``lib.enrollment``)."""
+
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here (mypy checks them against the real ones where AIState combines
+        # the mixins).
+        ui_language: rx.Field[str]
 
     multipose_open: rx.Field[bool] = rx.field(False)
     # 0 = neue Person, > 0 = bestehende Identity erweitern
     multipose_target_face_id: rx.Field[int] = rx.field(0)
     multipose_name: rx.Field[str] = rx.field("")
     multipose_source_id: rx.Field[str] = rx.field("")
-    # Step-Pointer (0..len(POSE_STEPS)-1). Wenn step == len(POSE_STEPS),
-    # ist die Sequenz durch und der Save-Button erscheint.
+    # Die Einlern-Sitzung im Server (lib.enrollment); eine zur Zeit, eine neue ersetzt sie.
+    _multipose_token: str = ""
+    # Step-Pointer (0..len(POSES)-1). Wenn step == len(POSES), ist die Sequenz durch und der Save-Button erscheint.
     multipose_step: rx.Field[int] = rx.field(0)
-    # Pro Capture: {"key": str, "preview_data_url": str, "embedding_b64": str,
-    #               "detection_score": float}
+    # Pro Capture: {"key": Pose, "crop_url": Ausschnitt (im Server), "detection_score": float} — kein Embedding.
     multipose_captures: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)
-    # Vorschau der letzten Aufnahme im Modal (data:image/jpeg;base64,…).
-    # Wird nach erfolgreichem Capture gesetzt — der User sieht direkt,
-    # was gespeichert wurde, und kann ggf. „wiederholen".
-    multipose_preview_data_url: rx.Field[str] = rx.field("")
-    # Vorschau VOR dem Capture (Live-Bild des Hubs, damit der User den
-    # Bildausschnitt sieht, bevor er auslöst).
+    # Vorschau VOR dem Capture (Live-Bild der Kamera, damit der User den Bildausschnitt sieht, bevor er auslöst).
     multipose_live_preview_url: rx.Field[str] = rx.field("")
     multipose_status: rx.Field[str] = rx.field("")
     multipose_busy: rx.Field[bool] = rx.field(False)
@@ -71,19 +61,19 @@ class MultiposeMixin(rx.State, mixin=True):
     @rx.var
     def multipose_progress_label(self) -> str:
         """„2 / 5" — Fortschritt anzeigen."""
-        return f"{min(self.multipose_step + 1, len(POSE_STEPS))} / {len(POSE_STEPS)}"
+        return f"{min(self.multipose_step + 1, len(POSES))} / {len(POSES)}"
 
     @rx.var
     def multipose_current_pose_key(self) -> str:
         """i18n-Key für die Anweisung der aktuellen Pose. Wenn alle
         Posen durch sind, ein "summary"-Key."""
-        if self.multipose_step >= len(POSE_STEPS):
+        if self.multipose_step >= len(POSES):
             return "multipose_pose_done"
-        return POSE_STEPS[self.multipose_step]["label_key"]
+        return f"multipose_pose_{POSES[self.multipose_step]}"
 
     @rx.var
     def multipose_finished(self) -> bool:
-        return self.multipose_step >= len(POSE_STEPS)
+        return self.multipose_step >= len(POSES)
 
     @rx.var
     def multipose_can_save(self) -> bool:
@@ -95,17 +85,31 @@ class MultiposeMixin(rx.State, mixin=True):
 
     # ── Lifecycle ────────────────────────────────────────────────
 
+    def _multipose_show(self, session: Any) -> None:
+        """Den Stand der Sitzung (``lib.enrollment.Session``) übernehmen."""
+        self.multipose_step = session.step
+        self.multipose_captures = [
+            {"key": taken.pose, "crop_url": f"/api/vision/enroll/{session.token}/captures/{index}",
+             "detection_score": taken.score}
+            for index, taken in enumerate(session.captures)
+        ]
+
     @rx.event
     async def open_multipose(self, face_id: int = 0, name: str = "") -> None:
-        """Modal öffnen. ``face_id=0`` → neue Person, sonst bestehende
-        Identity erweitern. ``name`` ist nur für die Anzeige relevant —
-        Persistiert wird über ``face_id``."""
+        """Modal öffnen und eine Einlern-Sitzung beginnen. ``face_id=0`` → neue Person, sonst bestehende
+        Identity erweitern (``name`` nur für die Anzeige)."""
+        from ..lib.enrollment import start
+
+        try:
+            session = start(int(face_id))
+        except KeyError:  # the person went meanwhile
+            self.multipose_status = f"⚠️ face {face_id} not found"
+            return
+        self._multipose_token = session.token
+        self._multipose_show(session)
         self.multipose_open = True
         self.multipose_target_face_id = int(face_id)
         self.multipose_name = name
-        self.multipose_step = 0
-        self.multipose_captures = []
-        self.multipose_preview_data_url = ""
         self.multipose_live_preview_url = ""
         self.multipose_status = ""
         self.multipose_busy = False
@@ -113,15 +117,12 @@ class MultiposeMixin(rx.State, mixin=True):
 
     @rx.event
     async def close_multipose(self) -> None:
+        from ..lib.enrollment import cancel
+
+        cancel(self._multipose_token)
         self.multipose_open = False
         self.multipose_captures = []
-        self.multipose_preview_data_url = ""
         self.multipose_live_preview_url = ""
-        # Snap-Client NICHT schließen: er ist pro Kamera GETEILT (Watcher +
-        # Snapshot nutzen ihn auch) und lebt persistent — eine Session pro
-        # Kamera. Freigabe nur beim App-Shutdown (vision_snap.close_clients
-        # im Lifespan). Früher wurde hier geschlossen, was bei aktivem Watcher
-        # dessen Session mitgerissen hätte.
 
     @rx.event
     async def multipose_live_tick(self) -> None:
@@ -147,125 +148,69 @@ class MultiposeMixin(rx.State, mixin=True):
 
     @rx.event
     async def multipose_capture(self) -> None:
-        """Aktuelle Pose aufnehmen: Snapshot vom Hub, Face-Detect,
-        Embedding in die Capture-Liste. Erweitert ``multipose_step``
-        um 1, wenn das größte Gesicht erfolgreich detektiert wurde."""
-        if self.multipose_busy:
+        """Aktuelle Pose aufnehmen (``lib.enrollment.capture``: größtes Gesicht des frischesten Bildes)."""
+        from ..lib.enrollment import NoFace, SessionGone, capture
+
+        if self.multipose_busy or self.multipose_step >= len(POSES):
             return
         if not self.multipose_source_id:
             self.multipose_status = "⚠️ Keine Bildquelle ausgewählt."
             return
-        if self.multipose_step >= len(POSE_STEPS):
-            return
         self.multipose_busy = True
         self.multipose_status = ""
         try:
-            jpeg_bytes, detection = await self._snapshot_and_detect(
-                self.multipose_source_id
-            )
+            self._multipose_show(await capture(self._multipose_token, self.multipose_source_id))
+        except NoFace:
+            from ..lib.i18n import t
+            self.multipose_status = "⚠️ " + t("multipose_no_face", lang=self.ui_language)
+        except (SessionGone, KeyError) as e:  # the session replaced elsewhere, the camera gone
+            self.multipose_status = f"⚠️ {e}"
         except Exception as e:  # camera and face model: the dialog shows why
             logger.warning("multipose capture failed: %s", e, exc_info=True)
             self.multipose_status = f"⚠️ {e}"
-            self.multipose_busy = False
-            return
-        if detection is None:
-            self.multipose_status = (
-                "⚠️ Kein Gesicht erkannt — bitte mittig vor die Kamera."
-            )
-            self.multipose_busy = False
-            return
-        # Crop für die Vorschau: das größte Gesicht aus dem JPEG ausschneiden.
-        preview_data_url = self._make_preview_data_url(jpeg_bytes, detection.bbox)
-        emb_b64 = base64.b64encode(
-            detection.embedding.astype("float32").tobytes()
-        ).decode("ascii")
-        current_step = self.multipose_step
-        pose_key = (
-            POSE_STEPS[current_step]["key"]
-            if current_step < len(POSE_STEPS) else "extra"
-        )
-        self.multipose_captures = self.multipose_captures + [
-            {
-                "key": pose_key,
-                "preview_data_url": preview_data_url,
-                "embedding_b64": emb_b64,
-                "detection_score": float(detection.detection_score),
-            }
-        ]
-        self.multipose_preview_data_url = preview_data_url
-        self.multipose_step = current_step + 1
-        self.multipose_status = ""
         self.multipose_busy = False
 
     @rx.event
     def multipose_retry_current(self) -> None:
         """Letzte Capture verwerfen + Schritt zurücksetzen."""
-        if not self.multipose_captures:
-            return
-        self.multipose_captures = self.multipose_captures[:-1]
-        self.multipose_step = max(0, self.multipose_step - 1)
-        self.multipose_preview_data_url = ""
+        from ..lib.enrollment import SessionGone, undo
+
         self.multipose_status = ""
+        try:
+            self._multipose_show(undo(self._multipose_token))
+        except SessionGone as e:
+            self.multipose_status = f"⚠️ {e}"
 
     @rx.event
     def multipose_skip_current(self) -> None:
         """Aktuelle Pose überspringen (kein Capture)."""
-        if self.multipose_step < len(POSE_STEPS):
-            self.multipose_step += 1
+        from ..lib.enrollment import SessionGone, skip
+
+        try:
+            self._multipose_show(skip(self._multipose_token))
+        except SessionGone as e:
+            self.multipose_status = f"⚠️ {e}"
 
     # ── Save ──────────────────────────────────────────────────────
 
     @rx.event
     def multipose_finish(self) -> None:
-        """Alle Captures als Embeddings in den VisionStore schreiben.
-        Neue Identity (face_id=0) → ``add_face`` + Embeddings, sonst
-        nur Embeddings."""
+        """Alle Captures speichern (``lib.enrollment.finish``: Person anlegen wenn neu, Embeddings + Ausschnitte,
+        Erkenner neu laden)."""
+        from ..lib.enrollment import SessionGone, finish
+        from ..lib.i18n import t
+
         if not self.multipose_captures:
             return
         try:
-            import numpy as np
-
-            from ..lib.vision_store import VisionStore
-            store = VisionStore()
-            face_id = int(self.multipose_target_face_id)
-            if face_id <= 0:
-                name = (self.multipose_name or "").strip()
-                if not name:
-                    self.multipose_status = "⚠️ Bitte Namen eingeben."
-                    return
-                face_id = store.get_or_create_face(name, enrolled_by="multipose")
-            from ..lib.face_crop_store import get_default_store
-            crop_store = get_default_store()
-            for cap in self.multipose_captures:
-                emb_bytes = base64.b64decode(cap["embedding_b64"])
-                emb = np.frombuffer(emb_bytes, dtype=np.float32)
-                # Crop pro Embedding ablegen (für den Embedding-Manager) — das
-                # Vorschau-Crop liegt bereits als data-URL vor.
-                crop_url = ""
-                durl = str(cap.get("preview_data_url", ""))
-                if durl.startswith("data:image") and "," in durl:
-                    try:
-                        crop_jpeg = base64.b64decode(durl.split(",", 1)[1])
-                        crop_url = crop_store.save_raw(crop_jpeg, face_id)
-                    except (ValueError, OSError) as e:  # no crop: the embedding is stored without one
-                        logger.warning("multipose: crop of face %s not stored: %s", face_id, e)
-                        crop_url = ""
-                store.add_embedding(
-                    face_id, emb,
-                    quality_score=float(cap.get("detection_score", 0.0)),
-                    crop_url=crop_url,
-                )
-        except (sqlite3.Error, ValueError, OSError) as e:  # store, embedding bytes or crop file
+            _face_id, name, count = finish(self._multipose_token, self.multipose_name)
+        except (SessionGone, ValueError, sqlite3.Error, OSError) as e:  # session gone, no name, store or crop file
             logger.warning("multipose finish failed: %s", e)
             self.multipose_status = f"⚠️ {e}"
             return
-        from ..lib.vision_filters.face_recognize import bump_enrollment_epoch
-        bump_enrollment_epoch()
-        count = len(self.multipose_captures)
-        self.multipose_status = f"✓ {count} Pose(n) gespeichert."
+        self.multipose_status = t("multipose_saved", lang=self.ui_language, name=name, count=count)
         self.multipose_open = False
         self.multipose_captures = []
-        self.multipose_preview_data_url = ""
 
     # ── Internals ────────────────────────────────────────────────
 
@@ -301,88 +246,14 @@ class MultiposeMixin(rx.State, mixin=True):
             await self._refresh_live_preview()
 
     async def _refresh_live_preview(self) -> None:
-        """Ein Snapshot der gewählten Source als Live-Preview im Modal."""
+        """Ein frisches Bild der gewählten Kamera (``lib.enrollment.fresh_face_frame``) als Live-Preview im Modal."""
+        from ..lib.enrollment import fresh_face_frame
+
         if not self.multipose_source_id:
             return
         try:
-            jpeg_bytes = await self._snapshot_jpeg(self.multipose_source_id)
-            self.multipose_live_preview_url = self._jpeg_to_data_url(jpeg_bytes)
+            frame = await fresh_face_frame(self.multipose_source_id)
+            self.multipose_live_preview_url = "data:image/jpeg;base64," + base64.b64encode(bytes(frame.image_bytes)).decode("ascii")
         except Exception as e:  # camera: the preview stays empty, logged
             logger.warning("multipose live-preview failed: %s", e, exc_info=True)
             self.multipose_live_preview_url = ""
-
-    async def _fresh_frame(self, source_id: str) -> Any:
-        """Frischestes Frame der Quelle. Für snap-fähige Kameras über die
-        Snap-API (SSOT vision_snap) — kein RTSP-Pufferlag, immer aktuell, und
-        mit ``prefer_face`` über das Zoom-/Tele-Objektiv für Gesichtsdetail.
-        Schlägt der Snap fehl oder ist die Quelle nicht snap-fähig:
-        Hub-Snapshot (gepuffert)."""
-        from ..lib.vision_snap import snap_frames
-        frames = await snap_frames(source_id, 1, prefer_face=True)
-        if frames:
-            return frames[0]
-        from ..lib.frame_hub import get_default_hub
-        from ..lib.frame_sources import get as get_source
-        src = get_source(source_id)
-        if src is None:
-            raise RuntimeError(f"source '{source_id}' not found")
-        return await get_default_hub().snapshot(src)
-
-    async def _snapshot_jpeg(self, source_id: str) -> bytes:
-        """Frisches JPEG der Source als Bytes (für die Live-Preview)."""
-        frame = await self._fresh_frame(source_id)
-        return bytes(frame.image_bytes)
-
-    async def _snapshot_and_detect(
-        self, source_id: str
-    ) -> tuple[bytes, Any]:
-        """Frisches Frame + größtes Gesicht detektieren.
-        Returnt ``(jpeg_bytes, detection_or_none)``."""
-        import asyncio
-
-        from ..lib.vision_filters.face_detect import get_default_detector
-        frame = await self._fresh_frame(source_id)
-        detector = get_default_detector()
-        detections = await asyncio.to_thread(detector.detect, frame)
-        if not detections:
-            return bytes(frame.image_bytes), None
-        # Größtes Gesicht wählen (höchste bbox-Fläche). Bei mehreren
-        # Personen vor der Cam ist das typischerweise die, die sich
-        # für die Aufnahme positioniert hat.
-        best = max(detections, key=lambda d: d.bbox[2] * d.bbox[3])
-        return bytes(frame.image_bytes), best
-
-    @staticmethod
-    def _jpeg_to_data_url(jpeg_bytes: bytes) -> str:
-        b64 = base64.b64encode(jpeg_bytes).decode("ascii")
-        return f"data:image/jpeg;base64,{b64}"
-
-    @staticmethod
-    def _make_preview_data_url(
-        jpeg_bytes: bytes, bbox: tuple[int, int, int, int]
-    ) -> str:
-        """JPEG mit dem erkannten Gesicht croppen. Padding 30 % für
-        Kopf/Frisur, dann wieder JPEG-encoden + base64."""
-        try:
-            import cv2
-            import numpy as np
-            arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
-            img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-            if img is None:
-                return MultiposeMixin._jpeg_to_data_url(jpeg_bytes)
-            h, w = img.shape[:2]
-            x, y, bw, bh = bbox
-            pad_x = int(bw * 0.3)
-            pad_y = int(bh * 0.3)
-            x0 = max(0, x - pad_x)
-            y0 = max(0, y - pad_y)
-            x1 = min(w, x + bw + pad_x)
-            y1 = min(h, y + bh + pad_y)
-            crop = img[y0:y1, x0:x1]
-            ok, enc = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 88])
-            if not ok:
-                return MultiposeMixin._jpeg_to_data_url(jpeg_bytes)
-            return MultiposeMixin._jpeg_to_data_url(bytes(enc.tobytes()))
-        except cv2.error as e:  # the uncropped picture is shown
-            logger.warning("multipose preview crop failed: %s", e)
-            return MultiposeMixin._jpeg_to_data_url(jpeg_bytes)

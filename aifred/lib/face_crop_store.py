@@ -180,7 +180,7 @@ class FaceCropStore:
         startet eine neue Session mit eigenem Filename.
         """
         try:
-            crop_bytes = _crop_from_jpeg(frame_bytes, bbox)
+            crop_bytes = crop_face_from_jpeg(frame_bytes, bbox)
         except cv2.error as e:
             logger.warning("face crop decode failed for %s: %s", source_id, e)
             return None
@@ -424,7 +424,7 @@ def _l2(v: np.ndarray) -> np.ndarray:
     return v / norm
 
 
-def _crop_from_jpeg(jpeg_bytes: bytes, bbox: tuple[int, int, int, int]) -> bytes:
+def crop_face_from_jpeg(jpeg_bytes: bytes, bbox: tuple[int, int, int, int]) -> bytes:
     """Decode JPEG → bbox crop (mit Padding) → re-encode JPEG.
     Liefert ``b""`` bei ungültiger Box / Decode-Fehler."""
     arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)

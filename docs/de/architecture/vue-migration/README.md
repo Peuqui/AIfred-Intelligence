@@ -418,8 +418,15 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   offenen Karten (`face_enroll.rematch_untagged_faces` über `personarium.open_faces`). Geprüft gegen die Testinstanz mit
   einer Kopie der Personen und Embeddings: Umbenennen hin und zurück, 8 von 8 Embeddings, 🗂️ führt zu den 24
   Ereignissen der Person, eine Prüfperson in 6 s gelernt (CPU) und gelöscht, eine Karte verworfen, Neu erkennen über
-  27 Karten mit 50 Ereignissen („0 von 50“, die Produktion hatte sie schon geprüft). Offen: Posen hinzufügen
-  (Einlernen aus der Live-Kamera).
+  27 Karten mit 50 Ereignissen („0 von 50“, die Produktion hatte sie schon geprüft).
+  **Posen hinzufügen (08.11.2026):** `EnrollPoses.vue` (📸 je Person, „Neue Person mit Posen“): Live-Bild der Kamera
+  (Tele, wo vorhanden; Takt `VISION_ENROLL_PREVIEW_MS`), Anweisung je Pose, aufnehmen, zurücknehmen, überspringen,
+  speichern. Die Sitzung lebt im Server (`lib/enrollment.py`, eine zur Zeit; auch die Reflex-Kopie): Ausschnitt und
+  Embedding bleiben dort, die Seite bekommt Pose, Ausschnitt-URL und Score (vorher lagen Embeddings und Bilder als
+  Base64 im öffentlichen State). Die Ausschnitte rahmt `face_crop_store.crop_face_from_jpeg` wie alle anderen (vorher
+  eigener Rand von 30 %). Entfernt: das tote `POST /vision/face/enroll` und `embedding_b64` im Live-Ereignis (rund
+  2 KB je Gesicht, nirgends gelesen). Geprüft mit der echten Reolink (4 Live-Bilder in 5 s; nachts kein Gesicht, die
+  Meldung kommt; Abbrechen beendet die Sitzung, nichts gespeichert), Aufnehmen und Speichern im Test mit Stellvertretern.
 - **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
 
 ## Schritte

@@ -64,6 +64,7 @@ export type FaceSummary = Schemas["FaceSummary"];
 export type FaceEmbedding = Schemas["FaceEmbedding"];
 export type OpenFace = Schemas["OpenFace"];
 export type RematchState = Schemas["RematchState"];
+export type EnrollSession = Schemas["EnrollSession"];
 export type QuickChoices = Schemas["QuickChoices"];
 export type AgentChoices = Schemas["AgentChoices"];
 export type ModelOption = Schemas["ModelOption"];
