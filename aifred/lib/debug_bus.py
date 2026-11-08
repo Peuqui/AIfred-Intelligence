@@ -57,7 +57,12 @@ def debug(msg: str) -> None:
         msg: The debug message (without timestamp — added automatically).
     """
     log_message(msg)
+    show_in_session(msg)
 
+
+def show_in_session(msg: str) -> None:
+    """The line in the debug console of the current session: its file and a ``debug`` event to its
+    pages. Nothing outside a session_scope (a channel's startup and shutdown stay out of the console)."""
     sid = _current_session.get()
     if sid:
         line = f"{datetime.now().strftime('%H:%M:%S')} | {msg}"

@@ -487,28 +487,20 @@ class BaseChannel(ABC):
         return {"text": text}
 
     def channel_log(self, msg: str, level: str = "info") -> None:
-        """Log to log file, stderr (→ journalctl), and the live browser
-        debug console when a ``session_scope`` is active.
+        """Log to log file, stderr (→ journalctl), and the session's debug
+        console when a ``session_scope`` is active.
 
         Use this for all channel lifecycle messages (connect, disconnect,
         errors, received/sent messages) so they survive worker restarts.
-        During a hub-driven pipeline (session_scope set) the message is
-        also mirrored into the browser debug console so it shows live —
-        matching what the terminal log file captures.
+        During a turn of the channel the line shows live in the debug console
+        of the session's open pages (until 08.11.2026 it reached only the
+        session file, and a Vue page saw it after reopening the session).
         """
+        from .debug_bus import show_in_session
         from .logging_utils import log_message
         log_message(msg, level)
         print(f"[{self.name}] {msg}", file=sys.stderr, flush=True)
-
-        # Mirror into the active session's debug console (if any).
-        # No-op outside a session_scope — keeps channel startup /
-        # shutdown logs out of the browser console.
-        from .debug_bus import _current_session, _flush_to_session
-        sid = _current_session.get()
-        if sid:
-            from datetime import datetime
-            ts = datetime.now().astimezone().strftime("%H:%M:%S")
-            _flush_to_session(sid, [f"{ts} | {msg}"])
+        show_in_session(msg)
 
     def load_settings_to_env(self) -> None:
         """Load plugin settings.json into os.environ at boot time.
