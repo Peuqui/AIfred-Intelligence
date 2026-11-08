@@ -310,8 +310,10 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Kalibrierung gesperrt (409). Geprüft an der Testinstanz: llama.cpp → vLLM → llama.cpp (llama-swap lief weiter, die
   Modelle des jeweiligen Backends kamen aus `backend_models`), Anbieterwahl, unbekanntes Backend (422 in der
   UI-Sprache), Grundeinstellungen (danach die Datei der Testinstanz zurückgespielt); Reflex-Rendering unverändert.
-  **Live noch offen** (trifft die Produktion, nur in Peuquis Zeitfenster): Neustart des Backends, AIfreds Neustart,
-  Wechsel zu Ollama (stoppt llama-swap) und zur Cloud.
+  Live geprüft 08.11.2026 an der Testinstanz (`~/.cache/aifred-e2e/vue/restart_switch_live.py`): Neustart von
+  llama-swap (antwortete 0,5 s danach, Katalog vollständig), AIfreds Neustart (Dienst neu gestartet), Wechsel zu
+  Ollama und zur Cloud (llama-swap gestoppt, leerer Katalog ließ die Modelle stehen) und jeweils zurück zu llama.cpp
+  (llama-swap gestartet, Katalog und AIfreds Modell wie vorher).
 - **Einstellungen, Teil 2, Paket 3: Kalibrierlauf (gebaut 08.11.2026, echter Lauf offen):** Der ganze Lauf (vLLM-
   Betriebspunkt, llama.cpp-Variantenfamilie mit Burn-ins, TTS-, VLM- und Kombi-Profilen und Speed-Varianten, Ollama-
   RoPE) zog mechanisch aus dem Mixin nach `lib/calibration/service.py`: `CalibrationRun` bekommt einen
