@@ -3,7 +3,7 @@
 // page stays alive while another page shows (its session and event stream go on).
 import { computed, onMounted, ref, watch, watchEffect } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
-import { api } from "./api/client";
+import { api, newVersion } from "./api/client";
 import HubNoticeToast from "./components/HubNoticeToast.vue";
 import LoginForm from "./components/LoginForm.vue";
 import MediaPlayer from "./components/MediaPlayer.vue";
@@ -36,12 +36,25 @@ watchEffect(() => {
   root.setProperty("--console-zoom", String(consoleZoom.value / 100));
 });
 
+function reloadPage(): void {
+  window.location.reload();
+}
+
 async function logout(): Promise<void> {
   chat.close();
   await auth.logout();
 }
 
 watch(() => auth.user, (user) => user && void settings.load());
+
+// A newer build is installed: load it as soon as nothing would be lost (a draft, images, a dictation, a running
+// answer); until then the bar says so, and a click loads it at once.
+const updateBlocked = computed(
+  () => !!chat.draft.trim() || chat.pendingImages.length > 0 || chat.dictations.length > 0 || chat.running,
+);
+watch([newVersion, updateBlocked], ([available, blocked]) => {
+  if (available && !blocked) window.location.reload();
+});
 
 onMounted(async () => {
   // AIfred's UI language, also for the login form (the shell serves it without a login).
@@ -79,6 +92,7 @@ onMounted(async () => {
       </nav>
       <button class="logout" @click="logout">{{ t("logout") }}</button>
     </header>
+    <button v-if="newVersion" class="update" @click="reloadPage">{{ t("new_version_waiting") }}</button>
     <ServiceStatusBar />
     <MediaPlayer />
     <HubNoticeToast />
@@ -117,6 +131,7 @@ body {
 .size button { min-width: 32px; background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; }
 .size button:disabled { opacity: 0.4; cursor: default; }
 .menu a:hover, .menu a.router-link-active { color: var(--aifred-text-primary); background: var(--aifred-input-bg); }
+.update { margin: 6px 0; padding: 6px 10px; border: 1px solid var(--aifred-primary); border-radius: 6px; background: var(--aifred-input-bg); color: var(--aifred-primary); cursor: pointer; font: inherit; }
 .logout { white-space: nowrap; background: none; border: 1px solid var(--aifred-border); color: inherit; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 .page { flex: 1; }
 @media (max-width: 760px) {

@@ -1172,6 +1172,7 @@
   "chat_font_smaller": "Smaller text",
   "chat_font_larger": "Larger text",
   "display_sizes": "Display",
+  "new_version_waiting": "New version – loads once you have finished typing (or click here now)",
   "size_interface": "Interface",
   "size_console": "Console",
   "login_title": "Log in to AIfred",

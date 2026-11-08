@@ -10,3 +10,6 @@ declare module "vuefinder/dist/locales/*" {
   const locale: Record<string, unknown>;
   export default locale;
 }
+
+// The id of this build (vite.config.ts, define).
+declare const __BUILD_ID__: string;

@@ -7,6 +7,9 @@ the cookie-protected endpoints.
 
 from pathlib import Path
 
+from collections.abc import Awaitable, Callable
+
+from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 
@@ -16,8 +19,21 @@ from ..user_error import Missing
 from .app import api_app
 
 FRONTEND_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+# Written by the build (frontend/vite.config.ts); its content goes with every answer, so an open page notices a newer
+# build and loads it (frontend/src/api/client.ts reads the header).
+BUILD_ID_FILE = FRONTEND_DIST / "build-id.txt"
+BUILD_ID_HEADER = "X-Build-Id"
 APP_NAME = "AIfred Intelligence"
 APP_SHORT_NAME = "AIfred"
+
+
+@api_app.middleware("http")
+async def _send_build_id(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+    response = await call_next(request)
+    # Read every time: a build replaces the file while the server runs. Before the first build there is none to name.
+    if BUILD_ID_FILE.is_file():
+        response.headers[BUILD_ID_HEADER] = BUILD_ID_FILE.read_text(encoding="utf-8")
+    return response
 
 
 @api_app.get("/app/theme.css", include_in_schema=False)

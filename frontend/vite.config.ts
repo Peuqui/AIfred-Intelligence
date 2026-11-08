@@ -1,11 +1,26 @@
 import { defineConfig } from "vitest/config";
 import vue from "@vitejs/plugin-vue";
 
+// Identifies this build: baked into the app and written next to it, where the server reads it and sends it with
+// every API answer (X-Build-Id), so an open page notices a newer build and loads it (as Agent-Orc does). The server
+// reads this file name too (aifred/lib/api/app_shell.py, BUILD_ID_FILE).
+const BUILD_ID = new Date().toISOString();
+const BUILD_ID_FILE = "build-id.txt";
+
 // Relative asset paths: the same build runs under /api/app/ (beside Reflex) and later /aifred/.
 // The dev server forwards the API to the running backend.
 export default defineConfig({
   base: "./",
-  plugins: [vue()],
+  define: { __BUILD_ID__: JSON.stringify(BUILD_ID) },
+  plugins: [
+    {
+      name: "build-id",
+      generateBundle() {
+        this.emitFile({ type: "asset", fileName: BUILD_ID_FILE, source: BUILD_ID });
+      },
+    },
+    vue(),
+  ],
   build: {
     outDir: "dist",
     emptyOutDir: true,
