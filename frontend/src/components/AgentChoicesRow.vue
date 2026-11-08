@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // One row of the agents' quick choices: the model and, for an agent (not the Automatik), 🎩 persona
 // (the agent's own emoji), 💭 reasoning, 🧠 thinking as its model offers it and ⚡ speed where the
-// model has a -speed variant, and under 🎲 the sampling with "the model's values". The same row serves the
-// quick-choice modal and the agent's card.
+// model has a -speed variant, and under 🎲 the sampling with "the model's values". Below, the context window the
+// agent's calls get and where it comes from; on Ollama a value by hand (a chat agent's holds until the server
+// restarts, Vision's is saved — Peuqui 08.11.2026: it is for trying out, the calibration decides). The same row serves
+// the quick-choice modal and the agent's card.
 import { computed } from "vue";
 import type { AgentChoices, ChoicesChange, ModelOption, SamplingRange } from "../api/types";
-import { t } from "../i18n";
+import { formatNumber, t } from "../i18n";
 
 const props = defineProps<{
   label: string;
@@ -15,6 +17,7 @@ const props = defineProps<{
   row?: AgentChoices;
   ranges?: Record<string, SamplingRange>; // what each sampling value may be (config.SAMPLING_RANGES)
   busy: boolean;
+  manualOffered?: boolean; // the backend takes a context by hand (Ollama)
 }>();
 const emit = defineEmits<{ change: [update: ChoicesChange] }>();
 
@@ -51,6 +54,17 @@ function sampled(field: string, event: Event): void {
   }
   emit("change", { sampling: { [field]: value } });
 }
+
+// A value the server refuses (out of range) is not sent: the field shows the current one again.
+function manualValue(event: Event): void {
+  const input = event.target as HTMLInputElement;
+  const value = Number(input.value);
+  if (!props.row || input.value === "" || !Number.isInteger(value) || value < 1) {
+    input.value = String(props.row?.manual_context ?? "");
+    return;
+  }
+  emit("change", { manual_context: { enabled: true, value } });
+}
 </script>
 
 <template>
@@ -83,6 +97,23 @@ function sampled(field: string, event: Event): void {
         ⚡
       </label>
     </div>
+    <div v-if="row" class="context">
+      <span :title="manualOffered ? t('context_window_persist_hint') : t('context_window_fixed_hint')">
+        {{ t("context_window") }}: {{ formatNumber(row.context) }} <span class="source">({{ row.context_source }})</span>
+      </span>
+      <template v-if="manualOffered">
+        <label :title="t('context_window_persist_hint')">
+          <input
+            type="checkbox"
+            :checked="row.manual_context_enabled"
+            :disabled="busy"
+            @change="emit('change', { manual_context: { enabled: !row.manual_context_enabled, value: row.manual_context } })"
+          />
+          {{ t("context_manual_label") }}
+        </label>
+        <input v-if="row.manual_context_enabled" type="number" min="1" :value="row.manual_context" :disabled="busy" @change="manualValue" />
+      </template>
+    </div>
     <details v-if="row && ranges" class="sampling">
       <summary>{{ t("sampling_section_label") }}</summary>
       <div class="values">
@@ -112,6 +143,10 @@ select { background: var(--aifred-input-bg); color: inherit; border: 1px solid v
 .model { width: 100%; min-width: 0; }
 .switches { grid-column: 2; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-size: 0.85rem; }
 .switches label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.context { grid-column: 2; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; font-size: 0.85rem; color: var(--aifred-text-secondary); }
+.context .source { color: var(--aifred-text-muted); }
+.context label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.context input[type="number"] { width: 7em; background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 4px; font: inherit; }
 .sampling { grid-column: 2; font-size: 0.85rem; }
 .sampling summary { cursor: pointer; color: var(--aifred-text-secondary); }
 .values { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 6px; }

@@ -60,6 +60,10 @@ class AgentChoices:
     speed_available: bool    # the model has a -speed variant (llama.cpp)
     speed: bool
     sampling: dict[str, float]   # temperature, top_k, top_p, min_p, repeat_penalty (config.SAMPLING_RANGES)
+    context: int             # the context window the agent's calls get (research.context_utils.get_agent_num_ctx)
+    context_source: str      # where it comes from: manual, the llama-swap YAML, the calibration …
+    manual_context_enabled: bool   # a value set by hand applies (Ollama only; a chat agent's until the restart)
+    manual_context: int
 
 
 @dataclass(frozen=True)
@@ -76,6 +80,7 @@ class QuickChoices:
     models: tuple[ModelOption, ...]      # for every agent but Vision, and for the Automatik
     vision_models: tuple[ModelOption, ...]
     sampling_ranges: dict[str, SamplingRange]
+    manual_context_offered: bool         # the backend takes a context set by hand (Ollama)
 
 
 # ── Thinking: what the model's template lets the agent choose ────────────
@@ -324,7 +329,11 @@ def models_in_use(view: TuningTarget, lang: str) -> list[tuple[str, list[str]]]:
 
 
 def agent_row(view: TuningTarget, agent: str, display_name: str, emoji: str, lang: str) -> AgentChoices:
+    from .agent_settings import get_agent_base_model_id
+    from .research.context_utils import get_agent_num_ctx
+
     thinking, options = thinking_choices(view, agent, lang)
+    context, context_source = get_agent_num_ctx(agent, view, get_agent_base_model_id(view, agent))
     return AgentChoices(
         id=agent,
         display_name=display_name,
@@ -337,6 +346,10 @@ def agent_row(view: TuningTarget, agent: str, display_name: str, emoji: str, lan
         speed_available=get_agent_setting(view, agent, "has_speed_variant"),
         speed=get_agent_setting(view, agent, "speed_mode"),
         sampling={field: get_agent_setting(view, agent, field) for field in SAMPLING_RANGES},
+        context=context,
+        context_source=context_source,
+        manual_context_enabled=get_agent_setting(view, agent, "num_ctx_manual_enabled"),
+        manual_context=get_agent_setting(view, agent, "num_ctx_manual"),
     )
 
 
@@ -354,6 +367,7 @@ async def quick_choices(view: RuntimeSettings, catalog: dict[str, str], lang: st
         models=tuple(ModelOption(model, label) for model, label in catalog.items()),
         vision_models=tuple(vision_options(view, candidates)),
         sampling_ranges={field: SamplingRange(*limits) for field, limits in SAMPLING_RANGES.items()},
+        manual_context_offered=view.backend_type == "ollama",
     )
 
 

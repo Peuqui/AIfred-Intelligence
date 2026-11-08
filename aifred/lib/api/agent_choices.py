@@ -18,6 +18,12 @@ from .app import api_app
 AUTOMATIK = "automatik"
 
 
+class ManualContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+    value: int = Field(description="Tokens (config.NUM_CTX_MANUAL_MIN … NUM_CTX_MANUAL_MAX, Vision from NUM_CTX_MANUAL_MIN_VISION)")
+
+
 class ChoicesChange(BaseModel):
     """A field this endpoint does not know is refused (422), not ignored."""
 
@@ -32,6 +38,9 @@ class ChoicesChange(BaseModel):
         None, description="Sampling values to change (temperature, top_k, top_p, min_p, repeat_penalty; sampling_ranges)",
     )
     reset_sampling: bool | None = Field(None, description="True: the sampling of the agent's model, temperature too")
+    manual_context: ManualContext | None = Field(
+        None, description="A context window set by hand (Ollama only); a chat agent's holds until the server restarts",
+    )
 
 
 async def catalog_of(view: RuntimeSettings) -> dict[str, str]:
@@ -108,4 +117,27 @@ def _apply(view: RuntimeSettings, agent: str, change: ChoicesChange, offered: di
         if unknown:
             raise Invalid("unknown_sampling_field", fields=", ".join(sorted(unknown)))
         rules.set_sampling(view, agent, change.sampling)
+    if change.manual_context is not None:
+        _set_manual_context(view, agent, change.manual_context)
     return sorted(touched)
+
+
+def _set_manual_context(view: RuntimeSettings, agent: str, manual: ManualContext) -> None:
+    """Ollama only: on llama.cpp and vLLM the loaded profile fixes the context, a value by hand would only move the
+    compression. Vision's value is saved with the choices, a chat agent's held until the restart."""
+    from ..config import (
+        NUM_CTX_MANUAL_MAX,
+        NUM_CTX_MANUAL_MIN,
+        NUM_CTX_MANUAL_MIN_VISION,
+    )
+    from ..runtime_settings import hold_manual_context
+
+    if view.backend_type != "ollama":
+        raise Invalid("manual_context_ollama_only")
+    low = NUM_CTX_MANUAL_MIN_VISION if agent == "vision" else NUM_CTX_MANUAL_MIN
+    if not low <= manual.value <= NUM_CTX_MANUAL_MAX:
+        raise Invalid("number_range", value=manual.value, low=low, high=NUM_CTX_MANUAL_MAX)
+    set_agent_setting(view, agent, "num_ctx_manual_enabled", manual.enabled)
+    set_agent_setting(view, agent, "num_ctx_manual", manual.value)
+    if agent != "vision":
+        hold_manual_context(agent, manual.enabled, manual.value)

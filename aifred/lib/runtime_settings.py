@@ -73,11 +73,31 @@ def load_runtime_settings() -> RuntimeSettings:
         consensus_type=saved["consensus_type"],
     )
     apply_saved_tuning(view, saved)
+    apply_held_manual_context(view)
     had_backend_settings = apply_saved_models(view, saved)
     for agent, tuning in view.agent_tuning.items():
         load_agent_model_params(view, agent, tuning.model_id)
     apply_default_models(view, had_backend_settings)
     return view
+
+
+# ── A context window set by hand: the chat agents' until the server restarts ──
+#
+# Peuqui 08.11.2026 (as in Reflex): a manual context is for trying something out, normally the calibration decides;
+# one forgotten small value that stayed would shrink every answer unnoticed. So the chat agents' values live in the
+# server's memory only; Vision's is saved in settings.json (save_choices).
+_held_manual_context: dict[str, tuple[bool, int]] = {}
+
+
+def hold_manual_context(agent: str, enabled: bool, value: int) -> None:
+    _held_manual_context[agent] = (enabled, value)
+
+
+def apply_held_manual_context(target: TuningTarget) -> None:
+    for agent, (enabled, value) in _held_manual_context.items():
+        bucket = target.agent_tuning.get(agent)
+        if bucket is not None:
+            bucket.num_ctx_manual_enabled, bucket.num_ctx_manual = enabled, value
 
 
 # ── From settings.json into the tuning buckets ──────────────────────────

@@ -669,6 +669,12 @@ FACE_DETECT_ROI_DEDUPE_IOU = 0.3
 # Vision-Modell-Gewichte (YOLO etc.) liegen im Vigilantia-Datenbaum,
 # Seite an Seite mit Motion-Frames und der Vision-DB. data/* ist
 # gitignored — binäre Gewichte gehören nicht in die Versionierung.
+# A context window set by hand (quick choices, Ollama only): from this many tokens (Vision, which describes images,
+# from NUM_CTX_MANUAL_MIN_VISION), up to 2M (Gemini 2M and larger models to come).
+NUM_CTX_MANUAL_MIN = 1
+NUM_CTX_MANUAL_MIN_VISION = 1024
+NUM_CTX_MANUAL_MAX = 2097152
+
 VISION_MODELS_DIR = DATA_DIR / "vigilantia" / "models"
 # YOLO-Person-Detektor: erkennt GANZE Personen (Körper), ergänzend zur
 # InsightFace-Gesichtserkennung. Läuft motion-gated über onnxruntime.

@@ -23,7 +23,8 @@ from aifred.lib.runtime_settings import RuntimeSettings
 
 BIG, SMALL, EYES = "Big-30B", "Small-4B", "Eyes-4B-VL"
 # Big brings its own sampling and a -speed variant; Small neither.
-LLAMASWAP = {BIG: {"full_cmd": "llama-server -m big.gguf --temp 0.6 --top-k 20 --top-p 0.95 --min-p 0.01 --repeat-penalty 1.05"}}
+LLAMASWAP = {BIG: {"full_cmd": "llama-server -m big.gguf -c 32768 --temp 0.6 --top-k 20 --top-p 0.95 --min-p 0.01 --repeat-penalty 1.05",
+             "current_context": 32768}}   # as parse_llamaswap_config gives it (with -c)
 SPEEDY = {BIG}
 CATALOG = {BIG: "Big (30B)", SMALL: "Small (4B)", EYES: "Eyes (4B)"}
 
@@ -204,3 +205,49 @@ def test_a_row_takes_only_what_it_offers(client: TestClient, agent: str, change:
     before = settings.SETTINGS_FILE.read_text()
     assert client.patch(f"/agents/{agent}/choices", json=change).status_code == status
     assert settings.SETTINGS_FILE.read_text() == before
+
+
+# ── A context window set by hand (Ollama): a chat agent's until the restart, Vision's saved ──
+
+
+def _on_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
+    from aifred.lib import runtime_settings
+
+    settings.SETTINGS_FILE.write_text(json.dumps({"backend_type": "ollama", "enable_tts": False,
+                                                  "backend_models": {"ollama": {"aifred": SMALL, "vision": EYES}}}))
+    monkeypatch.setattr(runtime_settings, "_held_manual_context", {})
+
+
+def test_a_chat_agents_manual_context_holds_until_the_restart_and_is_not_saved(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aifred.lib import runtime_settings
+    from aifred.lib.runtime_settings import load_runtime_settings
+
+    _on_ollama(monkeypatch)
+    choices = client.patch("/agents/sokrates/choices", json={"manual_context": {"enabled": True, "value": 4096}}).json()
+    sokrates = _row(choices, "sokrates")
+    assert choices["manual_context_offered"] is True
+    assert (sokrates["manual_context_enabled"], sokrates["manual_context"], sokrates["context"], sokrates["context_source"]) == (
+        True, 4096, 4096, "manual",
+    )
+    assert "num_ctx_manual" not in json.loads(settings.SETTINGS_FILE.read_text())["agent_tuning"]["sokrates"]
+    assert load_runtime_settings().agent_tuning["sokrates"].num_ctx_manual == 4096      # the next turn reads it
+    monkeypatch.setattr(runtime_settings, "_held_manual_context", {})                   # a restart
+    assert not load_runtime_settings().agent_tuning["sokrates"].num_ctx_manual_enabled
+
+
+def test_visions_manual_context_is_saved(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    _on_ollama(monkeypatch)
+    client.patch("/agents/vision/choices", json={"manual_context": {"enabled": True, "value": 8192}})
+    saved = json.loads(settings.SETTINGS_FILE.read_text())["agent_tuning"]["vision"]
+    assert (saved["num_ctx_manual_enabled"], saved["num_ctx_manual"]) == (True, 8192)
+
+
+def test_a_manual_context_only_on_ollama_and_within_its_range(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    choices = client.get("/agents/choices").json()
+    assert choices["manual_context_offered"] is False                                   # llama.cpp: the profile decides
+    assert client.patch("/agents/sokrates/choices", json={"manual_context": {"enabled": True, "value": 4096}}).status_code == 422
+    _on_ollama(monkeypatch)
+    assert client.patch("/agents/vision/choices", json={"manual_context": {"enabled": True, "value": 512}}).status_code == 422
+    assert client.patch("/agents/sokrates/choices", json={"manual_context": {"enabled": True, "value": 3_000_000}}).status_code == 422

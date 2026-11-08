@@ -475,7 +475,11 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
       mit den alten Tests); Vue öffnete bisher immer die neueste.
   11. ~~Auto-Scroll~~ (erledigt 08.11.: der Chat folgt dem Text nur, solange man am Ende steht; hochgescrollt bleibt die
       Ansicht stehen, ein Schalter ist damit überflüssig).
-  12. Manueller Kontext je Agent (Ollama) mit „Berechnung anzeigen“.
+  12. ~~Manueller Kontext je Agent (Ollama)~~ (erledigt 08.11.: jede Zeile der Schnellwahl zeigt den wirksamen Kontext
+      mit Herkunft (statt „Berechnung anzeigen“); bei Ollama „von Hand“ mit Wert. Peuqui: wie in Reflex, ein Chat-Agent
+      hält ihn nur bis zum Neustart (`runtime_settings.hold_manual_context`, im Speicher des Servers), Vision speichert
+      ihn; ein vergessener kleiner Wert hätte sonst jede Antwort still verkürzt. Bei llama.cpp/vLLM abgelehnt, dort legt
+      das Profil den Kontext fest.)
   13. ~~Schalter „Enter sendet“~~ (erledigt 08.11.: am Eingabefeld, je Gerät im Browser gespeichert, `lib/devicePrefs.ts`;
       Reflex hielt ihn global in settings.json, auf dem Handy will man aber oft Enter als Zeilenumbruch).
   14. ~~Bilder in Chat-Blasen vergrößern~~ (erledigt 08.11.: ein Klick auf ein Bild der Blase öffnet `ImageLightbox.vue`,

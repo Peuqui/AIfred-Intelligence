@@ -92,6 +92,7 @@ async function confirmDelete(): Promise<void> {
           :inherits="!card.base"
           :row="rows.get(card.id)"
           :ranges="choices.choices.sampling_ranges"
+          :manual-offered="choices.choices.manual_context_offered"
           :busy="choices.busy"
           @change="(update) => choices.change(card.id, update)"
         />
