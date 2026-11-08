@@ -3,7 +3,7 @@ import { nextTick, ref, watch } from "vue";
 import { t } from "../i18n";
 
 const props = defineProps<{ lines: string[] }>();
-const open = ref(false);
+const open = ref(true); // shown, as it was under Reflex
 const list = ref<HTMLElement | null>(null);
 
 // New lines scroll into view while the console is open.
@@ -19,21 +19,28 @@ watch(
 <template>
   <section class="debug">
     <button class="toggle" @click="open = !open">{{ open ? "▾" : "▸" }} {{ t("debug_console") }} ({{ lines.length }})</button>
-    <pre v-if="open" ref="list">{{ lines.join("\n") }}</pre>
+    <div v-if="open" ref="list" class="lines">
+      <div v-for="(line, index) in lines" :key="index" :class="{ error: line.includes('✗') || line.includes('❌') }">{{ line }}</div>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.toggle { background: none; border: none; color: var(--aifred-text-secondary); cursor: pointer; font: inherit; padding: 0; }
-pre {
+.toggle { background: none; border: none; color: var(--aifred-debug-accent); cursor: pointer; font: inherit; padding: 0; }
+/* The Matrix terminal of the Reflex console: neon green, errors red. */
+.lines {
   max-height: var(--debug-max-height, 40vh);
   overflow-y: auto;
   margin: 6px 0 0;
   padding: 8px;
   background: var(--aifred-page-bg);
-  border: 1px solid var(--aifred-border);
-  border-radius: 6px;
-  font-size: 0.75rem;
+  border: 2px solid var(--aifred-debug-border);
+  border-radius: 8px;
+  color: var(--aifred-debug-text);
+  font-family: monospace;
+  font-size: 11px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
+.error { color: var(--aifred-danger); }
 </style>

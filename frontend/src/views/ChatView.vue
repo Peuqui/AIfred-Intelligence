@@ -226,30 +226,22 @@ onMounted(() => void start());
 </template>
 
 <style scoped>
-.layout {
-  display: grid;
-  grid-template-columns: minmax(200px, 260px) 1fr;
-  grid-template-rows: minmax(0, 1fr);
-  gap: 0 16px;
-}
-.side { padding-top: 12px; overflow: hidden; }
-.chat { display: flex; flex-direction: column; gap: 10px; min-height: 0; padding: 12px 0; }
+/* One column, as under Reflex: saved chats (an accordion), the chat history as a box of its own (it follows the
+   answer), input and console below it; the page scrolls. */
+.layout { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; }
+.chat { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding-bottom: 12px; }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 1rem; }
-.choices { display: flex; align-items: center; gap: 10px; }
+.choices { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .incognito, .regenerate, .agent-choices, .export, .clear, .remember, .zoom { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
 .regenerate:disabled, .export:disabled, .remember:disabled { opacity: 0.7; cursor: progress; }
 .clear:disabled, .zoom:disabled { opacity: 0.5; cursor: default; }
 .incognito.on { border-color: var(--aifred-accent-amber); }
-.messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
+.messages { height: 70vh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; overflow-wrap: anywhere; }
 .streaming { align-self: flex-start; max-width: min(860px, 92%); padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light); }
 .streaming header { font-size: 0.8rem; font-weight: 600; color: var(--aifred-primary); }
 .tool { margin: 4px 0 0; font-size: 0.8rem; color: var(--aifred-accent-cyan); }
 .waiting { align-self: flex-start; padding: 0 14px; }
 .notice { color: var(--aifred-accent-amber); }
 .info { color: var(--aifred-accent-success); }
-@media (max-width: 760px) {
-  .layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
-  .side { max-height: 30vh; }
-}
 </style>

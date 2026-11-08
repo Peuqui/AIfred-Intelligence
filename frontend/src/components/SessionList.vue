@@ -7,6 +7,7 @@ import { useSessions } from "../stores/sessions";
 defineProps<{ current: string | null }>();
 const emit = defineEmits<{ open: [sessionId: string]; create: []; remove: [sessionIds: string[]] }>();
 const sessions = useSessions();
+const open = ref(false); // closed at first, as the Reflex accordion was
 const selecting = ref(false);
 const chosen = ref<string[]>([]);
 
@@ -29,17 +30,19 @@ function removeAll(): void {
 <template>
   <nav class="sessions">
     <header>
-      <span>{{ t("saved_chats") }}</span>
+      <button class="toggle" @click="open = !open">
+        {{ open ? "▾" : "▸" }} {{ t("saved_chats") }} <span class="count">{{ sessions.list.length }}</span>
+      </button>
       <button class="select" :title="selecting ? t('sessions_select_done') : t('sessions_select')" @click="toggleSelecting">☑</button>
       <button class="new" @click="emit('create')">＋ {{ t("new_chat") }}</button>
     </header>
-    <div v-if="selecting && sessions.list.length" class="bulk">
+    <div v-if="open && selecting && sessions.list.length" class="bulk">
       <button @click="chosen = sessions.list.map((session) => session.session_id)">{{ t("select_all") }}</button>
       <button :disabled="!chosen.length" @click="removeChosen">{{ t("delete_selected") }} ({{ chosen.length }})</button>
       <button class="danger" @click="removeAll">{{ t("delete_all") }}</button>
     </div>
-    <p v-if="!sessions.list.length" class="empty">{{ t("no_saved_chats") }}</p>
-    <ul>
+    <p v-if="open && !sessions.list.length" class="empty">{{ t("no_saved_chats") }}</p>
+    <ul v-if="open">
       <li v-for="session in sessions.list" :key="session.session_id" :class="{ active: session.session_id === current }">
         <input v-if="selecting" v-model="chosen" type="checkbox" :value="session.session_id" class="pick" />
         <button class="entry" @click="emit('open', session.session_id)">
@@ -53,7 +56,9 @@ function removeAll(): void {
 </template>
 
 <style scoped>
-.sessions { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.sessions { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 8px 12px; border: 1px solid var(--aifred-border); border-radius: 8px; background: var(--aifred-card-bg); }
+.toggle { background: none; border: none; color: inherit; cursor: pointer; font: inherit; font-weight: 600; padding: 0; text-align: left; }
+.count { margin-left: 6px; font-weight: 400; color: var(--aifred-text-muted); }
 header { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 600; }
 .new, .remove, .entry { background: none; border: none; color: inherit; cursor: pointer; font: inherit; }
 .new { color: var(--aifred-primary); }
