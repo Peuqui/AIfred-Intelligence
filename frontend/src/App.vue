@@ -132,7 +132,8 @@ body {
 .hat { width: 44px; height: 44px; flex: none; }
 .brand strong { font-size: 1.5rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .brand small { color: var(--aifred-text-secondary); font-style: italic; font-size: 0.75rem; display: flex; flex-wrap: wrap; column-gap: 0.3em; }
-.brand small span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+/* A part takes a line of its own when it does not fit beside the other, and wraps within it when even that is too narrow. */
+.brand small span { max-width: 100%; }
 .back { color: var(--aifred-text-secondary); text-decoration: none; white-space: nowrap; }
 .user { color: var(--aifred-text-secondary); white-space: nowrap; }
 .burger { background: none; border: none; color: var(--aifred-primary); cursor: pointer; font-size: 1.3rem; padding: 0 4px; }
