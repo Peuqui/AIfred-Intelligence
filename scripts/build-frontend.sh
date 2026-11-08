@@ -5,8 +5,9 @@
 # frontend/ → frontend/dist, which the server (python -m aifred.server) serves under /api/app/.
 # frontend/dist is not in the repository: run this after the first checkout and after every update
 # of frontend/, then restart the service. Exactly the locked packages (npm ci, package-lock.json).
-# Needs Node.js ^20.19 or >= 22.12 (Vite 8), and the venv first: the build takes the API's types from
-# the server's OpenAPI description (npm run api-types, scripts/export_openapi.py).
+# Needs Node.js ^20.19 or >= 22.12 (Vite 8; one in frontend/node comes first, see node-env.sh), and
+# the venv first: the build takes the API's types from the server's OpenAPI description
+# (npm run api-types, scripts/export_openapi.py).
 #
 
 set -e
@@ -20,18 +21,16 @@ if [ ! -x "$PROJECT_DIR/venv/bin/python" ]; then
     exit 1
 fi
 
-if ! command -v node &>/dev/null || ! command -v npm &>/dev/null; then
-    echo "❌ Node.js / npm not found — needed to build the interface (Node ^20.19 or >= 22.12)."
-    echo "   See docs/en/guides/deployment.md → 1. Prerequisites."
-    exit 1
-fi
-
-# The engines field of Vite decides; checked here so an old Node fails with a clear message, not deep in the build.
-if ! node -e '
-    const [major, minor] = process.versions.node.split(".").map(Number);
-    process.exit((major === 20 && minor >= 19) || (major === 22 && minor >= 12) || major > 22 ? 0 : 1);
-'; then
-    echo "❌ Node.js $(node --version) is too old to build the interface: ^20.19 or >= 22.12 is needed (Vite 8)."
+# shellcheck source=node-env.sh
+source "$SCRIPT_DIR/node-env.sh"
+if ! node_usable; then
+    if command -v node &>/dev/null; then
+        echo "❌ Node.js $(node --version) is too old to build the interface: ^20.19 or >= 22.12 is needed (Vite 8)."
+    else
+        echo "❌ Node.js / npm not found — needed to build the interface (^20.19 or >= 22.12)."
+    fi
+    echo "   ./scripts/install-all.sh installs it (system-wide or into frontend/node);"
+    echo "   see docs/en/guides/deployment.md → 1. Prerequisites."
     exit 1
 fi
 

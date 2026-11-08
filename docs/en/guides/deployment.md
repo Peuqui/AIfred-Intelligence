@@ -48,7 +48,11 @@ them up:
 - CUDA Toolkit >= 12.0
 - Python 3.12+ (`requirements.txt` pins wheels tested on 3.12)
 - Node.js ^20.19 or >= 22.12 with npm, to build the interface (Vite 8). Ubuntu 24.04 and Debian 12
-  ship Node 18, which is too old
+  ship Node 18, which is too old. Without a usable Node, `install-all.sh` offers two ways: **system-wide**
+  (sudo; on apt from NodeSource — key, source and pin as NodeSource's own setup writes them —, otherwise
+  the package manager), or **into the project folder** (`frontend/node`, no sudo: the official archive
+  from nodejs.org, checked against its `SHASUMS256.txt`). The version for both: `frontend/.node-version`.
+  `build-frontend.sh` takes a Node in `frontend/node` first (`scripts/node-env.sh`)
 - Git
 - polkit (`polkitd` on Debian/Ubuntu; the installer adds it): your user restarts the units of the
   TTS-Suite and GPU-Orc without sudo, and AIfred starts the TTS-Suite when it is needed
@@ -108,14 +112,16 @@ venv/bin/pip install --no-deps --force-reinstall -r requirements-nodeps.txt
 
 ### Unattended install
 
-`install-all.sh` asks five kinds of questions. Each can be answered in
+`install-all.sh` asks up to seven questions. Each can be answered in
 advance with an environment variable; a question whose variable is not set
 is asked as usual, or takes its default when there is no terminal:
 
 | Variable | Question | Values |
 |---|---|---|
 | `AIFRED_INSTALL_OLLAMA` | install Ollama (`curl \| sh`) | `y` / `n` (default `y`) |
+| `AIFRED_INSTALL_MODEL` | download the starter model for Ollama (chat, tools and images in one small model) | `y` / `n` (default `y`) |
 | `AIFRED_INSTALL_SYSTEMD` | install the systemd services | `y` / `n` (default `y`) |
+| `AIFRED_INSTALL_NODE` | Node.js when none is usable: system-wide or into the project folder | `s` / `l` / `n` (default `s`) |
 | `AIFRED_INSTALL_USER` | first whitelist user | a username, or `skip` (default: `$USER`) |
 | `AIFRED_INSTALL_TTS_SYSTEMD` | install the TTS-Suite as system service `tts-suite@<user>` (sudo, with the polkit rule) | `y` / `n` (default `y`; `n`: user service, runs only while you are logged in) |
 | `AIFRED_INSTALL_GPU_ORC_SYSTEMD` | install GPU-Orc as system service `gpu-orc@<user>` (sudo, with the polkit rule) | `y` / `n` (default `y`; `n`: user service, runs only while you are logged in) |

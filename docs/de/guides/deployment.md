@@ -48,7 +48,12 @@ ein:
 - CUDA Toolkit >= 12.0
 - Python 3.12+ (`requirements.txt` legt Wheels fest, die unter 3.12 getestet sind)
 - Node.js ^20.19 oder >= 22.12 mit npm, zum Bauen der Oberfläche (Vite 8). Ubuntu 24.04 und Debian 12
-  bringen Node 18 mit, das ist zu alt
+  bringen Node 18 mit, das ist zu alt. Ohne brauchbares Node bietet `install-all.sh` zwei Wege an:
+  **systemweit** (sudo; bei apt aus NodeSource — Schlüssel, Quelle und Pin so, wie NodeSources eigenes
+  Einrichtungsskript sie schreibt —, sonst über den Paketmanager) oder **in den Projektordner**
+  (`frontend/node`, ohne sudo: das offizielle Archiv von nodejs.org, gegen dessen `SHASUMS256.txt`
+  geprüft). Die Version für beide: `frontend/.node-version`. `build-frontend.sh` nimmt ein Node in
+  `frontend/node` zuerst (`scripts/node-env.sh`)
 - Git
 - polkit (`polkitd` unter Debian/Ubuntu; der Installer richtet es ein): Dein Benutzer startet die Units
   von TTS-Suite und GPU-Orc ohne sudo neu, und AIfred startet die TTS-Suite, wenn sie gebraucht wird
@@ -108,14 +113,16 @@ venv/bin/pip install --no-deps --force-reinstall -r requirements-nodeps.txt
 
 ### Installation ohne Rückfragen
 
-`install-all.sh` stellt fünf Arten von Fragen. Jede lässt sich vorab über
+`install-all.sh` stellt bis zu sieben Fragen. Jede lässt sich vorab über
 eine Umgebungsvariable beantworten; ist die Variable nicht gesetzt, wird wie
 gewohnt gefragt — ohne Terminal gilt die Standardantwort:
 
 | Variable | Frage | Werte |
 |---|---|---|
 | `AIFRED_INSTALL_OLLAMA` | Ollama installieren (`curl \| sh`) | `y` / `n` (Standard `y`) |
+| `AIFRED_INSTALL_MODEL` | das Startermodell für Ollama laden (Chat, Werkzeuge und Bilder in einem kleinen Modell) | `y` / `n` (Standard `y`) |
 | `AIFRED_INSTALL_SYSTEMD` | systemd-Dienste installieren | `y` / `n` (Standard `y`) |
+| `AIFRED_INSTALL_NODE` | Node.js, wenn keines brauchbar ist: systemweit oder in den Projektordner | `s` / `l` / `n` (Standard `s`) |
 | `AIFRED_INSTALL_USER` | erster Whitelist-Benutzer | ein Benutzername oder `skip` (Standard: `$USER`) |
 | `AIFRED_INSTALL_TTS_SYSTEMD` | TTS-Suite als Systemdienst `tts-suite@<Benutzer>` installieren (sudo, mit Polkit-Regel) | `y` / `n` (Standard `y`; `n`: Benutzerdienst, läuft nur, solange du angemeldet bist) |
 | `AIFRED_INSTALL_GPU_ORC_SYSTEMD` | GPU-Orc als Systemdienst `gpu-orc@<Benutzer>` installieren (sudo, mit Polkit-Regel) | `y` / `n` (Standard `y`; `n`: Benutzerdienst, läuft nur, solange du angemeldet bist) |

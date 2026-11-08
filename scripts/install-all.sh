@@ -585,18 +585,98 @@ sleep 1
 # STEP 2a: The interface (Vue, built with Node.js — NO sudo)
 # ============================================================
 # frontend/dist is not in the repository; the server serves it under /api/app/.
+# Without a usable Node (^20.19 or >= 22.12) the user chooses: system-wide (sudo; on apt from
+# NodeSource, since Ubuntu 24.04 and Debian 12 ship Node 18) or into the project folder
+# (frontend/node, no sudo, the official archive from nodejs.org). The version: frontend/.node-version.
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${BLUE}  Step 2a: Build the interface${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
+# shellcheck source=node-env.sh
+source "$SCRIPT_DIR/node-env.sh"
+
+# NodeSource for apt, as its own setup script writes it: key, deb822 source, a pin above the distro's nodejs.
+install_node_nodesource() {
+    local major="${NODE_VERSION%%.*}"
+    install_one "gnupg (reads NodeSource's key)" "command -v gpg" apt:gnupg
+    sudo install -d -m 0755 /usr/share/keyrings
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+        | sudo gpg --dearmor --yes -o /usr/share/keyrings/nodesource.gpg
+    printf 'Types: deb\nURIs: https://deb.nodesource.com/node_%s.x\nSuites: nodistro\nComponents: main\nArchitectures: %s\nSigned-By: /usr/share/keyrings/nodesource.gpg\n' \
+        "$major" "$(dpkg --print-architecture)" | sudo tee /etc/apt/sources.list.d/nodesource.sources > /dev/null
+    printf 'Package: nodejs\nPin: origin deb.nodesource.com\nPin-Priority: 600\n' \
+        | sudo tee /etc/apt/preferences.d/nodejs > /dev/null
+    sudo apt update
+    sudo apt install -y nodejs
+}
+
+install_node_system() {
+    case "$PKG" in
+        apt)    install_node_nodesource ;;
+        dnf)    sudo dnf install -y nodejs npm ;;
+        pacman) sudo pacman -S --noconfirm nodejs npm ;;
+        brew)   brew install node ;;
+        *)      echo -e "${RED}❌ No known package manager — choose the project folder instead.${NC}"; return 1 ;;
+    esac
+}
+
+# The official archive of the version in frontend/.node-version, checked against nodejs.org's SHASUMS256.txt.
+install_node_local() {
+    local platform name tmp
+    case "$(uname -s)-$(uname -m)" in
+        Linux-x86_64)  platform=linux-x64 ;;
+        Linux-aarch64) platform=linux-arm64 ;;
+        Darwin-arm64)  platform=darwin-arm64 ;;
+        Darwin-x86_64) platform=darwin-x64 ;;
+        *) echo -e "${RED}❌ No Node.js archive for $(uname -s) $(uname -m)${NC}"; return 1 ;;
+    esac
+    name="node-v${NODE_VERSION}-${platform}"
+    tmp="$(mktemp -d)"
+    curl -fsSL -o "$tmp/$name.tar.xz" "https://nodejs.org/dist/v${NODE_VERSION}/$name.tar.xz" || { rm -rf "$tmp"; return 1; }
+    curl -fsSL -o "$tmp/SHASUMS256.txt" "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" || { rm -rf "$tmp"; return 1; }
+    if command -v sha256sum &>/dev/null; then
+        (cd "$tmp" && grep " $name.tar.xz\$" SHASUMS256.txt | sha256sum -c -) || { rm -rf "$tmp"; return 1; }
+    else
+        (cd "$tmp" && grep " $name.tar.xz\$" SHASUMS256.txt | shasum -a 256 -c -) || { rm -rf "$tmp"; return 1; }
+    fi
+    rm -rf "$NODE_LOCAL_DIR"
+    mkdir -p "$NODE_LOCAL_DIR"
+    tar -xJf "$tmp/$name.tar.xz" --strip-components=1 -C "$NODE_LOCAL_DIR"
+    rm -rf "$tmp"
+    export PATH="$NODE_LOCAL_DIR/bin:$PATH"
+}
+
+if node_usable; then
+    echo -e "${GREEN}✅ Node.js $(node --version) ($(command -v node))${NC}"
+else
+    if command -v node &>/dev/null; then
+        echo -e "${YELLOW}⚠️  Node.js $(node --version) is too old to build the interface (^20.19 or >= 22.12).${NC}"
+    else
+        echo -e "${YELLOW}⚠️  Node.js missing — needed to build the interface.${NC}"
+    fi
+    echo "   s = system-wide (sudo; on apt from NodeSource, Node ${NODE_VERSION%%.*}.x)"
+    echo "   l = into the project folder (frontend/node, Node $NODE_VERSION from nodejs.org, no sudo)"
+    echo "   n = skip (the interface is not built)"
+    ask AIFRED_INSTALL_NODE "Install Node.js? (S/l/n): "
+    set +e
+    case "$REPLY" in
+        [Ll]) install_node_local ;;
+        [Nn]) echo -e "${YELLOW}⏭️  Node.js skipped${NC}" ;;
+        *)    install_node_system ;;
+    esac
+    set -e
+fi
 set +e
 bash "$SCRIPT_DIR/build-frontend.sh"
 set -e
 echo ""
 echo -e "${BLUE}🔎 Verifying the interface...${NC}"
+verify_step "Node.js ^20.19 or >= 22.12" \
+    "PROJECT_DIR='$PROJECT_DIR'; source '$SCRIPT_DIR/node-env.sh' && node_usable" \
+    "re-run ./scripts/install-all.sh, or install Node.js yourself (deployment guide: Prerequisites)"
 verify_step "interface built (frontend/dist/index.html)" \
     "[ -f '$PROJECT_DIR/frontend/dist/index.html' ]" \
-    "./scripts/build-frontend.sh  (needs Node.js ^20.19 or >= 22.12)"
+    "./scripts/build-frontend.sh"
 step_summary "2a — Interface"
 echo ""
 

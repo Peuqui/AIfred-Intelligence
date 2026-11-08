@@ -527,8 +527,10 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   `install-all.sh`: nur nötig, weil Reflex zwei Prozesse hatte) und `BACKEND_URL` (eine Herkunft). Neu
   `scripts/build-frontend.sh` (`npm ci`, `npm run build`, braucht das venv für die API-Typen), Schritt 2a von
   `install-all.sh`; `setup-python.sh` verlangt Python 3.12. Ein frisches venv aus `requirements.txt` +
-  `requirements-nodeps.txt` (2:01 min) trägt die volle Suite (235 Dateien grün, 4:32 min). **Offen:** Node.js
-  ^20.19/>= 22.12 installiert der Installer noch nicht (Ubuntu 24.04 und Debian 12 haben Node 18), Frage an Peuqui.
+  `requirements-nodeps.txt` (2:01 min) trägt die volle Suite (235 Dateien grün, 4:32 min). Node.js ^20.19/>= 22.12
+  (Ubuntu 24.04 und Debian 12 haben 18): Peuqui wollte die Wahl, `install-all.sh` bietet systemweit (NodeSource
+  wie auf dem Mini, sonst Paketmanager) oder `frontend/node` (Archiv von nodejs.org mit Prüfsumme) an, Version in
+  `frontend/.node-version`, gemeinsame Prüfung in `scripts/node-env.sh`.
   Ein Archiv-Tag für den Reflex-Stand gehört vor den Merge auf `main` (Paket 5, mit Peuqui). Beim Umschalten:
   `.web/`, `.states/` und `data/sessions/*.pending` der Produktion entfernen; `./scripts/build-frontend.sh`;
   `sudo ./scripts/install-services.sh`, danach `/etc/systemd/system/aifred-intelligence.service.d/hardening.conf`
