@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import sys
 import time
+import traceback
 import urllib.parse
 from pathlib import Path
 
@@ -23,7 +24,7 @@ import requests
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
-from scripts.download_judaica import TEXTS  # noqa: E402
+from scripts.download_judaica import TEXTS
 
 SEFARIA_INDEX = "https://www.sefaria.org/api/index/{ref}"
 SEFARIA_TEXT = "https://www.sefaria.org/api/texts/{ref}.{section}?lang=en&context=0&pad=0"
@@ -102,8 +103,9 @@ def main() -> int:
         print(f"[CHECK] {spec.title}", end=" ", flush=True)
         try:
             expected = expected_top_sections(spec.title, session)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — one text must not stop the check of the others; printed and counted
             print(f"  index error: {exc}")
+            traceback.print_exc()
             missing_index.append(spec.title)
             time.sleep(REQUEST_DELAY_SEC)
             continue

@@ -26,10 +26,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # Reflex app and resets the running service's live debug log.
 os.environ.setdefault("AIFRED_CLI_MODE", "1")
 
-from aifred.lib.calibration.vllm_flow import calibrate_vllm_checkpoint  # noqa: E402
-from aifred.lib.config import DATA_DIR  # noqa: E402
-from aifred.lib.operating_points import operating_point_checkpoint  # noqa: E402
-from aifred.lib.process_utils import start_llama_swap, stop_llama_swap  # noqa: E402
+from aifred.lib.calibration.vllm_flow import calibrate_vllm_checkpoint
+from aifred.lib.config import DATA_DIR
+from aifred.lib.operating_points import operating_point_checkpoint
+from aifred.lib.process_utils import start_llama_swap, stop_llama_swap
 
 
 def main() -> int:
@@ -72,7 +72,7 @@ def main() -> int:
                  f"k-sweep {sorted(result.k_sweep.items())}; "
                  f"profile {result.profile_path or 'not persisted (dry run)'}")
         return 0
-    except Exception as e:  # noqa: BLE001 — Laufende Messung, Fehler ins Log und nach oben
+    except Exception as e:
         progress(f"❌ re-sweep failed: {type(e).__name__}: {e}")
         raise
     finally:

@@ -21,6 +21,7 @@ import asyncio
 import os
 import sys
 import time
+import traceback
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -29,7 +30,7 @@ sys.path.insert(0, str(REPO_ROOT))
 # Reflex app and resets the running service's live debug log.
 os.environ.setdefault("AIFRED_CLI_MODE", "1")
 
-from aifred.lib.document_store import get_document_store  # noqa: E402
+from aifred.lib.document_store import get_document_store
 
 JUDAICA_ROOT = REPO_ROOT / "data" / "documents" / "judaica"
 DOCUMENTS_DIR = REPO_ROOT / "data" / "documents"
@@ -62,8 +63,9 @@ async def main() -> int:
             total_chunks += chunks
             print(f"[{i:2d}/{len(files)}] {rel:55s}  "
                   f"{kb:7.1f} KB  {chunks:4d} chunks  {elapsed:5.1f}s")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — one file must not stop the reindex of the others; printed and counted
             print(f"[{i:2d}/{len(files)}] {rel}  FAIL: {exc}")
+            traceback.print_exc()
             failures.append((rel, str(exc)))
 
     elapsed = time.time() - start

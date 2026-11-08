@@ -25,6 +25,7 @@ from __future__ import annotations
 import re
 import sys
 import time
+import traceback
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
@@ -576,8 +577,9 @@ def main() -> int:
             msg = f"HTTP {exc.response.status_code if exc.response else '??'}"
             print(f"    fail: {msg}")
             failures.append((spec.title, msg))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — one text must not stop the download of the others; printed and counted
             print(f"    fail: {exc}")
+            traceback.print_exc()
             failures.append((spec.title, str(exc)))
         time.sleep(REQUEST_DELAY_SEC)
 
