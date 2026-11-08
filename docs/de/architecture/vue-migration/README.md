@@ -245,9 +245,11 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   jetzt ein `Conflict`, ihre Anfragen tragen kein `lang` mehr. `tests/test_user_error_texts.py` verlangt
   für jeden Aufruf einer `UserError`-Art den Text in beiden Sprachen mit genau den Platzhaltern, die der
   Aufruf füllt (Werte namens `lang` oder `count` gehören `t()` selbst), und lehnt jede `HTTPException`
-  im Paket ab. Offen: Erfolgsmeldungen einiger alter Endpunkte (`SystemActionResponse.message`) sind
-  noch englisch; die Gründe des Audio-Auflösers (`audio_sources`) sind fürs Modell geschrieben und
-  stehen englisch in der 404 des Audio-Stroms.
+  im Paket ab. Die Erfolgsmeldungen alter Endpunkte (`SystemActionResponse.message`: Neustart, Grundeinstellungen,
+  Zonen-Maske, Chat leeren, Umbenennen) bleiben englisch: Keine Oberfläche zeigt sie (Vue und der Reflex-Zoneneditor
+  nehmen eigene übersetzte Texte, „Person gelöscht“ ist schon in der UI-Sprache), sie erreichen nur API-Aufrufer
+  wie Skripte und gehören damit zu den Logs (geprüft 08.11.2026). Die Gründe des Audio-Auflösers (`audio_sources`)
+  sind fürs Modell geschrieben und stehen englisch in der 404 des Audio-Stroms.
 - **Plugins und Kanäle (erledigt 08.11.2026):** Auf der Einstellungsseite `PluginSettings.vue`: die Kanäle mit
   Schalter, Mithören, Auto-Reply und Sicherheitsstufe, die Werkzeug-Plugins mit Schalter; ⚙️ öffnet
   `PluginForm.vue` (Felder in den Worten des Plugins, in Zeilen gruppiert, Auswahlfelder, OAuth mit Anmeldeseite im
