@@ -16,7 +16,7 @@ from unittest.mock import patch
 import pytest
 from starlette.testclient import TestClient
 
-from aifred.lib import agent_choices, settings
+from aifred.lib import agent_choices, config, settings
 from aifred.lib.agent_tuning import default_agent_tuning
 from aifred.lib.gguf_utils import ReasoningInfo
 from aifred.lib.runtime_settings import RuntimeSettings
@@ -174,6 +174,18 @@ def test_a_change_is_saved_and_answered_with_every_row(client: TestClient) -> No
     assert json.loads(settings.SETTINGS_FILE.read_text())["backend_models"]["llamacpp"]["automatik"] == SMALL
 
 
+def test_the_sampling_changes_and_goes_back_to_the_models_values(client: TestClient) -> None:
+    # Until 08.11.2026 only the Reflex settings could set an agent's sampling; Vue had none of it.
+    changed = client.patch("/agents/sokrates/choices", json={"sampling": {"temperature": 1.2, "top_k": 100}}).json()
+    assert _row(changed, "sokrates")["sampling"]["temperature"] == 1.2 and _row(changed, "sokrates")["sampling"]["top_k"] == 100
+    saved = json.loads(settings.SETTINGS_FILE.read_text())["agent_tuning"]["sokrates"]
+    assert (saved["temperature"], saved["top_k"]) == (1.2, 100)
+    assert changed["sampling_ranges"]["top_k"] == {"min": 0, "max": 200, "step": 1}
+    back = _row(client.patch("/agents/sokrates/choices", json={"reset_sampling": True}).json(), "sokrates")["sampling"]
+    # Sokrates runs on AIfred's Small, whose entry sets no sampling: llama-server's own values.
+    assert (back["top_k"], back["temperature"]) == (config.LLAMASERVER_DEFAULT_TOP_K, config.LLAMASERVER_DEFAULT_TEMPERATURE)
+
+
 @pytest.mark.parametrize(("agent", "change", "status"), [
     ("nobody", {"personality": True}, 404),
     ("aifred", {"model_id": "gibt-es-nicht"}, 422),
@@ -183,6 +195,10 @@ def test_a_change_is_saved_and_answered_with_every_row(client: TestClient) -> No
     ("sokrates", {"thinking": "max"}, 422),                 # Small offers off and on only
     ("automatik", {"personality": True}, 422),
     ("aifred", {"temperature": 0.5}, 422),                  # no field of the quick choices
+    ("aifred", {"sampling": {"top_p": 1.5}}, 422),           # outside its range: refused, not clamped
+    ("aifred", {"sampling": {"top_p": 0.5, "top_k": -1}}, 422),  # nothing of a refused change is kept
+    ("aifred", {"sampling": {"seed": 1}}, 422),
+    ("automatik", {"sampling": {"top_k": 10}}, 422),         # the Automatik's row has a model only
 ])
 def test_a_row_takes_only_what_it_offers(client: TestClient, agent: str, change: dict[str, object], status: int) -> None:
     before = settings.SETTINGS_FILE.read_text()

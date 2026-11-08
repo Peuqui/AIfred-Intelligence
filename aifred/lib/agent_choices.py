@@ -24,7 +24,7 @@ from .agent_settings import (
     set_thinking_mode,
     thinking_mode,
 )
-from .config import LLAMASWAP_BACKENDS
+from .config import LLAMASWAP_BACKENDS, SAMPLING_RANGES
 from .runtime_settings import RuntimeSettings, TuningTarget, load_agent_model_params
 
 
@@ -59,6 +59,14 @@ class AgentChoices:
     thinking_options: tuple[Option, ...]
     speed_available: bool    # the model has a -speed variant (llama.cpp)
     speed: bool
+    sampling: dict[str, float]   # temperature, top_k, top_p, min_p, repeat_penalty (config.SAMPLING_RANGES)
+
+
+@dataclass(frozen=True)
+class SamplingRange:
+    min: float
+    max: float
+    step: float
 
 
 @dataclass(frozen=True)
@@ -67,6 +75,7 @@ class QuickChoices:
     automatik_model_id: str              # "" = AIfred's model
     models: tuple[ModelOption, ...]      # for every agent but Vision, and for the Automatik
     vision_models: tuple[ModelOption, ...]
+    sampling_ranges: dict[str, SamplingRange]
 
 
 # ── Thinking: what the model's template lets the agent choose ────────────
@@ -185,6 +194,18 @@ def sampling_defaults(target: TuningTarget, agent: str) -> dict[str, float]:
         debug(f"⚠️ generation_config.json unreadable for {model_id}: {error}")
         return defaults
     return vllm_defaults
+
+
+def set_sampling(target: TuningTarget, agent: str, values: dict[str, float]) -> None:
+    """The agent's sampling values; one outside ``config.SAMPLING_RANGES`` is refused (422), none is changed then."""
+    from .user_error import Invalid
+
+    for field, value in values.items():
+        low, high, _step = SAMPLING_RANGES[field]
+        if not low <= value <= high:
+            raise Invalid("sampling_out_of_range", field=field, value=value, low=low, high=high)
+    for field, value in values.items():
+        set_agent_setting(target, agent, field, int(value) if field == "top_k" else float(value))
 
 
 def reset_sampling(target: TuningTarget, agent: str, defaults: dict[str, float], *, include_temperature: bool) -> None:
@@ -315,6 +336,7 @@ def agent_row(view: TuningTarget, agent: str, display_name: str, emoji: str, lan
         thinking_options=tuple(options),
         speed_available=get_agent_setting(view, agent, "has_speed_variant"),
         speed=get_agent_setting(view, agent, "speed_mode"),
+        sampling={field: get_agent_setting(view, agent, field) for field in SAMPLING_RANGES},
     )
 
 
@@ -331,6 +353,7 @@ async def quick_choices(view: RuntimeSettings, catalog: dict[str, str], lang: st
         automatik_model_id=view.automatik_model_id,
         models=tuple(ModelOption(model, label) for model, label in catalog.items()),
         vision_models=tuple(vision_options(view, candidates)),
+        sampling_ranges={field: SamplingRange(*limits) for field, limits in SAMPLING_RANGES.items()},
     )
 
 

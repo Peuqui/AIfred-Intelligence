@@ -1213,6 +1213,8 @@
   "error_event_picture_gone": "Das Bild zum Ereignis {event} ist nicht mehr da.",
   "error_zone_grid": "Das Zonenraster passt nicht zu seinen Spalten und Zeilen.",
   "error_no_session": "Diese Sitzung gibt es nicht.",
+  "error_sampling_out_of_range": "{field} = {value} liegt außerhalb von {low} bis {high}.",
+  "error_unknown_sampling_field": "Unbekannte Sampling-Werte: {fields}.",
   "error_no_seat": "Einen Platz „{seat}“ gibt es in der Debatte nicht.",
   "error_critic_unfit": "{agent} kann nicht Kritiker sein (unbekannt, ein Systemagent oder abgeschaltet).",
   "error_judge_unfit": "{agent} kann nicht Richter sein (unbekannt, ein Systemagent oder abgeschaltet).",

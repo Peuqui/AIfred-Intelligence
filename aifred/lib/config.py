@@ -606,6 +606,15 @@ LLAMASERVER_DEFAULT_TOP_P = 0.95
 LLAMASERVER_DEFAULT_MIN_P = 0.1
 LLAMASERVER_DEFAULT_REPEAT_PENALTY = 1.0
 
+# What an agent's sampling may be set to, (lowest, highest, step of the input); outside it the change is refused.
+SAMPLING_RANGES: dict[str, tuple[float, float, float]] = {
+    "temperature": (0.0, 2.0, 0.05),
+    "top_k": (0, 200, 1),
+    "top_p": (0.0, 1.0, 0.01),
+    "min_p": (0.0, 1.0, 0.01),
+    "repeat_penalty": (1.0, 2.0, 0.01),
+}
+
 # Thinking-mode detection probe temperature (used in calibration/testing)
 THINKING_PROBE_TEMPERATURE = 0.6
 

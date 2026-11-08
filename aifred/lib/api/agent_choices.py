@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .. import agent_choices as rules
 from ..agent_choices import QuickChoices
 from ..agent_settings import get_agent_setting, set_agent_setting
+from ..config import SAMPLING_RANGES
 from ..runtime_settings import RuntimeSettings, load_runtime_settings
 from ..user_error import Invalid, Missing, NotDone
 from .app import api_app
@@ -27,6 +28,10 @@ class ChoicesChange(BaseModel):
     reasoning: bool | None = None
     thinking: str | None = Field(None, description="A value of the agent's thinking_options")
     speed: bool | None = Field(None, description="The -speed variant (only where speed_available)")
+    sampling: dict[str, float] | None = Field(
+        None, description="Sampling values to change (temperature, top_k, top_p, min_p, repeat_penalty; sampling_ranges)",
+    )
+    reset_sampling: bool | None = Field(None, description="True: the sampling of the agent's model, temperature too")
 
 
 async def catalog_of(view: RuntimeSettings) -> dict[str, str]:
@@ -96,4 +101,11 @@ def _apply(view: RuntimeSettings, agent: str, change: ChoicesChange, offered: di
         if change.speed and not get_agent_setting(view, agent, "has_speed_variant"):
             raise Invalid("no_speed_variant", agent=agent)
         set_agent_setting(view, agent, "speed_mode", change.speed)
+    if change.reset_sampling:
+        rules.reset_sampling(view, agent, rules.sampling_defaults(view, agent), include_temperature=True)
+    if change.sampling:
+        unknown = change.sampling.keys() - SAMPLING_RANGES.keys()
+        if unknown:
+            raise Invalid("unknown_sampling_field", fields=", ".join(sorted(unknown)))
+        rules.set_sampling(view, agent, change.sampling)
     return sorted(touched)

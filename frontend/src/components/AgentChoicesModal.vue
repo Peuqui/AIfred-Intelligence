@@ -32,6 +32,7 @@ const vision = computed(() => store.choices?.agents.find((row) => row.id === "vi
         :models="store.choices.models"
         :inherits="row.id !== 'aifred'"
         :row="row"
+        :ranges="store.choices.sampling_ranges"
         :busy="store.busy"
         @change="(update) => store.change(row.id, update)"
       />
@@ -50,6 +51,7 @@ const vision = computed(() => store.choices?.agents.find((row) => row.id === "vi
         :models="store.choices.vision_models"
         :inherits="false"
         :row="vision"
+        :ranges="store.choices.sampling_ranges"
         :busy="store.busy"
         @change="(update) => store.change('vision', update)"
       />

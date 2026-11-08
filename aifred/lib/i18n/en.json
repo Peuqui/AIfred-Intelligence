@@ -1213,6 +1213,8 @@
   "error_event_picture_gone": "The picture of event {event} is gone.",
   "error_zone_grid": "The zone grid does not match its columns and rows.",
   "error_no_session": "There is no such session.",
+  "error_sampling_out_of_range": "{field} = {value} is outside {low} to {high}.",
+  "error_unknown_sampling_field": "Unknown sampling values: {fields}.",
   "error_no_seat": "The debate has no seat “{seat}”.",
   "error_critic_unfit": "{agent} cannot be the critic (unknown, a system agent or switched off).",
   "error_judge_unfit": "{agent} cannot be the judge (unknown, a system agent or switched off).",

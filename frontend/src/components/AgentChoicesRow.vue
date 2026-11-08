@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // One row of the agents' quick choices: the model and, for an agent (not the Automatik), 🎩 persona
 // (the agent's own emoji), 💭 reasoning, 🧠 thinking as its model offers it and ⚡ speed where the
-// model has a -speed variant. The same row serves the quick-choice modal and the agent's card.
+// model has a -speed variant, and under 🎲 the sampling with "the model's values". The same row serves the
+// quick-choice modal and the agent's card.
 import { computed } from "vue";
-import type { AgentChoices, ChoicesChange, ModelOption } from "../api/types";
+import type { AgentChoices, ChoicesChange, ModelOption, SamplingRange } from "../api/types";
 import { t } from "../i18n";
 
 const props = defineProps<{
@@ -12,6 +13,7 @@ const props = defineProps<{
   models: ModelOption[];
   inherits: boolean; // the row offers "(as AIfred's LLM)"
   row?: AgentChoices;
+  ranges?: Record<string, SamplingRange>; // what each sampling value may be (config.SAMPLING_RANGES)
   busy: boolean;
 }>();
 const emit = defineEmits<{ change: [update: ChoicesChange] }>();
@@ -27,6 +29,27 @@ const unlisted = computed(() => props.modelId !== "" && !props.models.some((mode
 
 function picked(event: Event): string {
   return (event.target as HTMLSelectElement).value;
+}
+
+// The labels of the sampling values; the temperature's is short.
+const SAMPLING_LABELS: Record<string, string> = {
+  temperature: "temp_label",
+  top_k: "top_k_label",
+  top_p: "top_p_label",
+  min_p: "min_p_label",
+  repeat_penalty: "repeat_penalty_label",
+};
+
+// A value outside its range is not sent: the field shows the stored one again (the server would refuse it).
+function sampled(field: string, event: Event): void {
+  const input = event.target as HTMLInputElement;
+  const value = Number(input.value);
+  const range = props.ranges?.[field];
+  if (input.value === "" || !range || Number.isNaN(value) || value < range.min || value > range.max) {
+    input.value = String(props.row?.sampling[field] ?? "");
+    return;
+  }
+  emit("change", { sampling: { [field]: value } });
 }
 </script>
 
@@ -60,6 +83,24 @@ function picked(event: Event): string {
         ⚡
       </label>
     </div>
+    <details v-if="row && ranges" class="sampling">
+      <summary>{{ t("sampling_section_label") }}</summary>
+      <div class="values">
+        <label v-for="(range, field) in ranges" :key="field">
+          {{ t(SAMPLING_LABELS[field] ?? field) }}
+          <input
+            type="number"
+            :min="range.min"
+            :max="range.max"
+            :step="range.step"
+            :value="row.sampling[field]"
+            :disabled="busy"
+            @change="sampled(String(field), $event)"
+          />
+        </label>
+        <button class="reset" :title="t('sampling_reset_tooltip')" :disabled="busy" @click="emit('change', { reset_sampling: true })">↺</button>
+      </div>
+    </details>
   </div>
 </template>
 
@@ -71,8 +112,14 @@ select { background: var(--aifred-input-bg); color: inherit; border: 1px solid v
 .model { width: 100%; min-width: 0; }
 .switches { grid-column: 2; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-size: 0.85rem; }
 .switches label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.sampling { grid-column: 2; font-size: 0.85rem; }
+.sampling summary { cursor: pointer; color: var(--aifred-text-secondary); }
+.values { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 6px; }
+.values label { display: flex; align-items: center; gap: 4px; }
+.values input { width: 5.5em; background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 4px; font: inherit; }
+.reset { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; padding: 1px 8px; }
 @media (max-width: 560px) {
   .row { grid-template-columns: minmax(0, 1fr); }
-  .switches { grid-column: 1; }
+  .switches, .sampling { grid-column: 1; }
 }
 </style>

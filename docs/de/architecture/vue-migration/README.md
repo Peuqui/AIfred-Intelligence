@@ -426,7 +426,10 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
      Tab und Download, die three.js-Seite läuft im Export auch aus der Datei ohne Server. Offen fürs Umschalten:
      nginx erlaubt für `/_upload/html_preview` kein `data:`-Audio (`media-src`), im geteilten Tab spielt das
      eingebettete Audio dort nicht, in der Datei schon.
-  2. Sampling je Agent (Temperatur, Top-K, Top-P, Min-P, Repeat-Penalty) und „auf Modell-Standard zurück“.
+  2. ~~Sampling je Agent~~ (erledigt 08.11.: 🎲 in jeder Zeile der Schnellwahl und auf der Agentenkarte,
+     `PATCH /api/agents/{id}/choices` mit `sampling` und `reset_sampling`, `agent_choices.set_sampling`). Die Bereiche
+     stehen in `config.SAMPLING_RANGES` und kommen mit der Schnellwahl zu Vue; ein Wert außerhalb wird abgelehnt
+     (422), vorher klemmte der Reflex-Handler ihn still auf feste Grenzen im Code. Im Browser geprüft.
   3. Statuszeile für Sprachmodell, Beschreiber, STT und TTS (Restzeit, Laden/Entladen, Karte freihalten); die API
      ist da, keine Komponente nutzt sie.
   4. Sichtbarer Audio-Player (Pause, Spulen, Lautstärke, was läuft); Musik lässt sich sonst nicht anhalten.
