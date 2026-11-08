@@ -77,6 +77,8 @@
   "vision_model_load": "Load the image model now (takes a graphics card)",
   "vision_model_unload": "Unload the image model",
   "speech_voices_title": "Voices on the engine",
+  "speech_voices_folder": "Voices folder",
+  "speech_voices_folder_tooltip": "The TTS-Suite's voices as files: a folder per voice with sample and transcript — create, rename, upload, delete.",
   "speech_agent_speaks": "speaks",
   "speech_narrator": "Narrator",
   "speech_recognition_answers": "answers",

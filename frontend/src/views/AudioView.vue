@@ -3,12 +3,16 @@
 // that can speaks), each chat agent's voice on an engine and the narrator's, whether speech recognition
 // answers, and the audio player's sources (AudioSources.vue). What exists (engines, places, voices) is the TTS service's catalog; when it does not answer the
 // list shows from the settings and says why.
-import { onMounted, ref, watch } from "vue";
+import { defineAsyncComponent, onMounted, ref, watch } from "vue";
 import { ApiError, api } from "../api/client";
 import type { AgentSpeech, NarratorVoice, SpeechChoices, SpeechList, SpeechRecognition } from "../api/types";
 import { t } from "../i18n";
 import AudioSources from "../components/AudioSources.vue";
 import { useSettings } from "../stores/settings";
+
+// The voices folder of the TTS-Suite in the file requester (loaded when it opens: it brings VueFinder).
+const FileRequester = defineAsyncComponent(() => import("../components/FileRequester.vue"));
+const voicesOpen = ref(false);
 
 const settings = useSettings();
 const list = ref<SpeechList | null>(null);
@@ -39,6 +43,12 @@ onMounted(async () => {
   ]);
   engine.value = choices.value?.engines[0]?.id ?? "";
 });
+
+// New or renamed voice folders show in the choices once the requester closes.
+async function closeVoices(): Promise<void> {
+  voicesOpen.value = false;
+  choices.value = await call(() => api<SpeechChoices>("speech/choices"));
+}
 
 async function changeList(path: string, method: string, body: object): Promise<void> {
   const changed = await call(() => send<SpeechList>(path, method, body));
@@ -121,9 +131,11 @@ const picked = (event: Event): string => (event.target as HTMLSelectElement).val
       </div>
     </section>
 
+    <FileRequester v-if="voicesOpen" area="voices" :title="t('speech_voices_folder')" @close="closeVoices" />
     <section v-if="choices" class="voices">
       <div class="head">
         <strong>{{ t("speech_voices_title") }}</strong>
+        <button :title="t('speech_voices_folder_tooltip')" @click="voicesOpen = true">📁 {{ t("speech_voices_folder") }}</button>
         <select v-if="choices.engines.length" v-model="engine">
           <option v-for="offered in choices.engines" :key="offered.id" :value="offered.id">{{ offered.label }}</option>
         </select>

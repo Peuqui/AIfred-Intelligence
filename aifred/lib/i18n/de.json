@@ -77,6 +77,8 @@
   "vision_model_load": "Bildmodell jetzt laden (belegt eine Grafikkarte)",
   "vision_model_unload": "Bildmodell entladen",
   "speech_voices_title": "Stimmen auf der Engine",
+  "speech_voices_folder": "Stimmen-Ordner",
+  "speech_voices_folder_tooltip": "Die Stimmen der TTS-Suite als Dateien: je Stimme ein Ordner mit Hörprobe und Abschrift — anlegen, umbenennen, hochladen, löschen.",
   "speech_agent_speaks": "spricht",
   "speech_narrator": "Vorleser",
   "speech_recognition_answers": "erreichbar",

@@ -25,6 +25,12 @@ class FileArea:
             raise Refused("file_action_not_allowed", action=action)
 
 
+def _voices_root() -> str:
+    from .tts_client import get_tts_client
+
+    return str(get_tts_client().voices_dir())
+
+
 def _audio_root() -> str:
     from .audio_library import picker_root
 
@@ -35,6 +41,9 @@ def _audio_root() -> str:
 # folders, links to folders of the sandbox, files moved, uploaded or removed.
 AREAS: dict[str, FileArea] = {
     "audio": FileArea(_audio_root, ACTIONS),
+    # The TTS-Suite's voices folder (its /config): a folder per voice with its samples and transcript. No links: the
+    # suite reads the folder from inside its container, a link to a path of this machine would not resolve there.
+    "voices": FileArea(_voices_root, ACTIONS - {"symlink"}),
 }
 
 

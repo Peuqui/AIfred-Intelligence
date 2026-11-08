@@ -121,3 +121,15 @@ def test_nothing_outside_the_area_and_no_action_it_does_not_allow(client: TestCl
 
 def test_the_requester_learns_root_and_actions_of_the_area(client: TestClient, area: Path) -> None:
     assert client.get("/files/lesen/info").json() == {"root": str(area), "actions": ["download", "preview", "search"]}
+
+
+def test_the_voices_area_is_the_tts_suites_folder_and_takes_no_links(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    voices = tmp_path / "voices"
+    (voices / "Sokrates").mkdir(parents=True)
+    monkeypatch.setattr("aifred.lib.tts_client.get_tts_client", lambda: SimpleNamespace(voices_dir=lambda: voices))
+    assert _names(client.get("/files/voices").json()) == ["Sokrates"]
+    assert "symlink" not in client.get("/files/voices/info").json()["actions"]
+    refused = client.post("/files/voices/symlink", json={"path": "voices://", "name": "x", "target": "voices://Sokrates"})
+    assert refused.status_code == 403 and not (voices / "x").exists()
