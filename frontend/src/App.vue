@@ -67,7 +67,13 @@ onMounted(async () => {
   <LoginForm v-if="auth.checked && !auth.user" />
   <div v-else-if="auth.user && settings.current" class="app">
     <header class="top">
-      <strong><img :src="hatIcon" alt="" class="hat" /> AIfred Intelligence</strong>
+      <div class="brand">
+        <img :src="hatIcon" alt="" class="hat" />
+        <div>
+          <strong>AIfred Intelligence</strong>
+          <small>{{ t("subtitle") }}</small>
+        </div>
+      </div>
       <RouterLink v-if="route.path !== '/'" to="/" class="back">💬 {{ t("nav_chat") }}</RouterLink>
       <span class="user">{{ auth.user }}</span>
       <button class="burger" :aria-expanded="menuOpen" :title="t('settings')" @click="menuOpen = !menuOpen">☰</button>
@@ -116,9 +122,13 @@ body {
 <style scoped>
 /* One column of at most 1200 px, as under Reflex. */
 .app { display: flex; flex-direction: column; min-height: 100vh; width: 100%; max-width: 1200px; margin: 0 auto; padding: 0 16px; box-sizing: border-box; }
-.top { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--aifred-border); }
-.hat { width: 32px; height: 32px; vertical-align: middle; } /* the picture, not the emoji: its band is red (Reflex's header) */
-.top strong { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.top { position: relative; display: flex; align-items: center; gap: 12px; margin-top: 10px; padding: 10px 14px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 10px; }
+/* The brand as on the Reflex page (the picture, not the emoji: its band is red), on a bar set off from the page. */
+.brand { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
+.brand > div { min-width: 0; display: flex; flex-direction: column; }
+.hat { width: 44px; height: 44px; flex: none; }
+.brand strong { font-size: 1.5rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand small { color: var(--aifred-text-secondary); font-style: italic; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .back { color: var(--aifred-text-secondary); text-decoration: none; white-space: nowrap; }
 .user { color: var(--aifred-text-secondary); white-space: nowrap; }
 .burger { background: none; border: none; color: var(--aifred-primary); cursor: pointer; font-size: 1.3rem; padding: 0 4px; }
@@ -136,5 +146,8 @@ body {
 .page { flex: 1; }
 @media (max-width: 760px) {
   .app { padding: 0 8px; }
+  .top { padding: 8px 10px; gap: 8px; }
+  .hat { width: 34px; height: 34px; }
+  .brand strong { font-size: 1.15rem; }
 }
 </style>
