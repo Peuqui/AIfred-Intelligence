@@ -12,7 +12,7 @@ describer does not fit) comes back as 409 with the message for the page.
 
 import asyncio
 import json
-from typing import Any, Literal
+from typing import Literal
 
 from fastapi import Query
 from pydantic import BaseModel
@@ -21,6 +21,7 @@ from ...backends.base import BackendError
 from .. import session_events
 from ..browser_push import browser_push
 from ..logging_utils import log_message
+from ..remote_describers import HostStatus
 from ..service_control import (
     ServiceControlRefused,
     describer_to_load,
@@ -46,14 +47,15 @@ def _push_to_connected_pages(snapshot: ServiceSnapshot) -> None:
 get_monitor().add_listener(_push_to_connected_pages)
 
 
-@api_app.get("/service-status", tags=["System"])
-async def service_status(refresh: bool = Query(False)) -> dict[str, Any]:
-    """Model, STT and TTS state with the seconds left until each unloads itself."""
+@api_app.get("/service-status", response_model=ServiceSnapshot, tags=["System"])
+async def service_status(refresh: bool = Query(False)) -> ServiceSnapshot:
+    """Model, STT and TTS state with the seconds left until each unloads itself (``refresh``: STT and TTS
+    read anew first); the same snapshot comes over the session stream as ``service_status`` on every change."""
     monitor = get_monitor()
     if refresh:
         await monitor.refresh("stt")
         await monitor.refresh("tts")
-    return monitor.snapshot().as_json()
+    return monitor.snapshot()
 
 
 class UnloadRequest(BaseModel):
@@ -70,11 +72,11 @@ class HoldRequest(BaseModel):
     hold: bool  # True = keep its card free for somebody (clears it), False = release it
 
 
-@api_app.get("/service-status/hosts", tags=["System"])
-async def service_status_hosts() -> list[dict[str, Any]]:
+@api_app.get("/service-status/hosts", response_model=list[HostStatus], tags=["System"])
+async def service_status_hosts() -> list[HostStatus]:
     """The machines with describers: does their GPU-Orc answer, are their cards held, what is on them."""
     from ..remote_describers import host_status
-    return [status.as_json() for status in await asyncio.to_thread(host_status)]
+    return await asyncio.to_thread(host_status)
 
 
 @api_app.post("/service-status/hold", tags=["System"])

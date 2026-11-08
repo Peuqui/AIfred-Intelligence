@@ -430,8 +430,11 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
      `PATCH /api/agents/{id}/choices` mit `sampling` und `reset_sampling`, `agent_choices.set_sampling`). Die Bereiche
      stehen in `config.SAMPLING_RANGES` und kommen mit der Schnellwahl zu Vue; ein Wert außerhalb wird abgelehnt
      (422), vorher klemmte der Reflex-Handler ihn still auf feste Grenzen im Code. Im Browser geprüft.
-  3. Statuszeile für Sprachmodell, Beschreiber, STT und TTS (Restzeit, Laden/Entladen, Karte freihalten); die API
-     ist da, keine Komponente nutzt sie.
+  3. ~~Statuszeile~~ (erledigt 08.11.: `ServiceStatusBar.vue` unter der Kopfleiste, Regeln in
+     `lib/serviceStatus.ts` mit Tests, aus `custom.js` übernommen; Store `serviceStatus`, der Push `service_status`
+     kommt über den Sitzungsstrom). `GET /api/service-status` und `/hosts` haben jetzt ihre Dataclasses als
+     `response_model`, Vue nimmt die erzeugten Typen. Die Dienst-Icons liegen wieder unter
+     `frontend/src/assets/status-icons/`. Die Testinstanz startet den Monitor mit (er liest nur). Im Browser geprüft.
   4. Sichtbarer Audio-Player (Pause, Spulen, Lautstärke, was läuft); Musik lässt sich sonst nicht anhalten.
   5. ~~„Merken“~~ (erledigt 08.11.: 📌 in der Kopfleiste, `POST /api/sessions/{id}/remember`,
      `lib/session_memory.py`). Beim Umzug geändert: Prompt in `prompts/<lang>/utility/session_memory.txt` (stand

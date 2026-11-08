@@ -20,6 +20,7 @@ import type {
 import { t } from "../i18n";
 import * as media from "../lib/media";
 import * as speech from "../lib/speech";
+import { useServiceStatus } from "./serviceStatus";
 import { useSessions } from "./sessions";
 
 interface Streaming {
@@ -190,6 +191,10 @@ export const useChat = defineStore("chat", () => {
         break;
       case "debug":
         debugLines.value = [...debugLines.value, String(data.line)];
+        break;
+      case "service_status":
+        // The snapshot travels as JSON in the push's text slot (lib/browser_push.py).
+        useServiceStatus().receive(JSON.parse(String(data.url)));
         break;
     }
   }

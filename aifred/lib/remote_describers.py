@@ -277,10 +277,6 @@ class HostStatus:
     holders: list[str]  # what is on its cards (the describer, TTS containers), as its consumers report it
     error: str  # why it is not reachable
 
-    def as_json(self) -> dict[str, object]:
-        return {"name": self.name, "reachable": self.reachable, "held": self.held, "used_mib": self.used_mib,
-                "total_mib": self.total_mib, "holders": self.holders, "error": self.error}
-
 
 def host_status() -> list[HostStatus]:
     """The status bar's look at every configured machine (blocking HTTP: call in a thread)."""
