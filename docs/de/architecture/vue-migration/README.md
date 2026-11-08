@@ -459,7 +459,10 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
      Löschen einer Sitzung; Ereignis `chat_cleared`). Die Dateien folgen der Regel des Löschens (Bilder, Audio,
      Screenshots weg, Plots und Seiten bleiben; vorher räumte Leeren alle Sandbox-Ausgaben und löschte über
      `cleanup_old_tts_audio(0)` das Audio aller Sitzungen). Das alte `POST /api/chat/clear` geht denselben Weg.
-  9. Registrieren eines Kontos aus der Whitelist.
+  9. ~~Registrieren~~ (erledigt 08.11.: Umschalter im Login-Formular, `POST /api/auth/register`, angemeldet sofort;
+     eine Absage für „nicht freigegeben“ und „schon vergeben“, das Formular verrät nicht, welche Namen es gibt).
+     Die Pflege von Whitelist und Konten (`add_to_whitelist`, `list_accounts`, `delete_account` …) benutzte schon
+     Reflex nicht; sie ist als toter Code weg, die Whitelist bleibt `data/allowed_users.json`.
   10. Sitzungen gesammelt löschen.
   11. ~~Auto-Scroll~~ (erledigt 08.11.: der Chat folgt dem Text nur, solange man am Ende steht; hochgescrollt bleibt die
       Ansicht stehen, ein Schalter ist damit überflüssig).

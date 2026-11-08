@@ -4,7 +4,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from ..user_error import Unauthorized
+from ..user_error import Refused, Unauthorized
 from .app import api_app
 
 
@@ -37,6 +37,18 @@ async def auth_login(credentials: Credentials) -> JSONResponse:
     if not user or not account_exists(user) or not verify_account(user, credentials.password):
         raise Unauthorized("wrong_login")
     return _with_cookie(JSONResponse({"user": user}), user)
+
+
+@api_app.post("/auth/register", response_model=LoggedIn, status_code=201, tags=["Auth"])
+async def auth_register(credentials: Credentials) -> JSONResponse:
+    """A new account for a name on the whitelist (data/allowed_users.json), logged in at once. One answer for a name
+    that is not allowed and one that has an account already: the form does not tell which names exist."""
+    from ..session_storage import create_account
+
+    user = credentials.username.strip().lower()
+    if not user or not credentials.password or not create_account(user, credentials.password):
+        raise Refused("register_refused")
+    return _with_cookie(JSONResponse({"user": user}, status_code=201), user)
 
 
 class Me(BaseModel):

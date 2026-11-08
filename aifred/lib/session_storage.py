@@ -90,25 +90,6 @@ def _load_whitelist() -> list[str]:
         return []
 
 
-def _save_whitelist(whitelist: list[str]) -> bool:
-    """
-    Save whitelist to file.
-
-    Args:
-        whitelist: List of allowed usernames
-
-    Returns:
-        True on success
-    """
-    try:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        with open(WHITELIST_FILE, "w", encoding="utf-8") as f:
-            json.dump(whitelist, f, ensure_ascii=False, indent=2)
-        return True
-    except OSError:
-        return False
-
-
 def is_username_allowed(username: str) -> bool:
     """
     Check if username is on the whitelist.
@@ -125,62 +106,6 @@ def is_username_allowed(username: str) -> bool:
     if not whitelist:
         return False
     return username.lower() in whitelist
-
-
-def get_whitelist() -> list[str]:
-    """
-    Get list of allowed usernames.
-
-    Returns:
-        List of allowed usernames
-    """
-    return _load_whitelist()
-
-
-def add_to_whitelist(username: str) -> bool:
-    """
-    Add username to whitelist.
-
-    Args:
-        username: Username to add (case-insensitive)
-
-    Returns:
-        True on success, False if already exists or error
-    """
-    if not username:
-        return False
-
-    whitelist = _load_whitelist()
-    username_lower = username.lower()
-
-    if username_lower in whitelist:
-        return False  # Already on whitelist
-
-    whitelist.append(username_lower)
-    return _save_whitelist(whitelist)
-
-
-def remove_from_whitelist(username: str) -> bool:
-    """
-    Remove username from whitelist.
-
-    Args:
-        username: Username to remove (case-insensitive)
-
-    Returns:
-        True on success, False if not found or error
-    """
-    if not username:
-        return False
-
-    whitelist = _load_whitelist()
-    username_lower = username.lower()
-
-    if username_lower not in whitelist:
-        return False  # Not on whitelist
-
-    whitelist.remove(username_lower)
-    return _save_whitelist(whitelist)
 
 
 # ============================================================
@@ -315,53 +240,6 @@ def verify_account(username: str, password: str) -> bool:
             pass
 
     return True
-
-
-def list_accounts() -> list[str]:
-    """
-    List all usernames.
-
-    Returns:
-        List of usernames
-    """
-    return list(_load_accounts().keys())
-
-
-def delete_account(username: str, delete_sessions: bool = False) -> bool:
-    """
-    Delete user account.
-
-    Args:
-        username: Username to delete (case-insensitive)
-        delete_sessions: If True, also delete all sessions owned by this user
-
-    Returns:
-        True on success, False if not found or error
-    """
-    if not username:
-        return False
-
-    username_lower = username.lower()
-    accounts = _load_accounts()
-
-    if username_lower not in accounts:
-        return False  # Account doesn't exist
-
-    # Delete sessions if requested
-    if delete_sessions:
-        _ensure_session_dir()
-        for session_file in SESSION_DIR.glob("*.json"):
-            try:
-                with open(session_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if data.get("owner", "").lower() == username_lower:
-                    session_file.unlink()
-            except (OSError, json.JSONDecodeError):
-                continue
-
-    # Delete account
-    del accounts[username_lower]
-    return _save_accounts(accounts)
 
 
 def generate_session_id() -> str:
