@@ -65,8 +65,8 @@ expose AIfred to the internet (see [Deployment → Access the web UI](deployment
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/chat/inject` | POST | Queue a message into a browser session (`sender`, `session_id`, `message`, `token`). It acts as your own input (right-hand bubble); the header names the sender: `[📥 Inject] <sender>` |
-| `/api/chat/status` | GET | `?session_id=` — `is_generating`, `message_count` |
+| `/api/chat/inject` | POST | Send a message into a session (`sender`, `session_id`, `message`, `token`): the server runs the turn itself, with or without an open tab; with a turn running it waits behind it (`queued: true`). It acts as your own input (right-hand bubble); the header names the sender: `[📥 Inject] <sender>`. Unknown session: 404 |
+| `/api/chat/status` | GET | `?session_id=` — `is_generating` (a turn is running), `message_count` |
 | `/api/chat/history` | GET | `?session_id=` — `chat_history` + `llm_history` (latest session if omitted) |
 | `/api/chat/clear` | POST | Clear a session's history (`session_id`) |
 | `/api/sessions` | GET / POST | Your own sessions (`session_id`, `title`, `last_message_at`, `message_count`, `channel`) / create one |
@@ -205,7 +205,7 @@ COOKIE='aifred_username=<value from your browser>'
 # Find a session id (or take it from data/sessions/)
 curl -s -b "$COOKIE" $API/sessions
 
-# Queue a message — the browser session runs the full pipeline
+# Send a message — the server runs the full pipeline, with or without an open tab
 curl -s -X POST $API/chat/inject \
   -H "Content-Type: application/json" \
   -d '{"sender": "my-script", "session_id": "<session_id>", "message": "What is Python?", "token": "<INJECT_API_TOKEN>"}'
@@ -229,8 +229,6 @@ curl -s -b "$COOKIE" -X PATCH $API/agents/aifred/choices \
   -H "Content-Type: application/json" \
   -d '{"model_id": "<model id from /api/agents/choices>"}'
 ```
-
-The browser has to be open and polling for injected messages to be picked up.
 
 ---
 

@@ -65,8 +65,8 @@ AIfred ins Internet stellst (siehe [Einrichtungsanleitung → Auf die Web-UI zug
 
 | Endpoint | Methode | Beschreibung |
 |---|---|---|
-| `/api/chat/inject` | POST | Nachricht in eine Browser-Session einreihen (`sender`, `session_id`, `message`, `token`). Sie wirkt wie deine eigene Eingabe (rechte Bubble), die Kopfzeile nennt den Absender: `[📥 Inject] <sender>` |
-| `/api/chat/status` | GET | `?session_id=` — `is_generating`, `message_count` |
+| `/api/chat/inject` | POST | Nachricht in eine Session geben (`sender`, `session_id`, `message`, `token`): Der Server führt den Zug selbst, auch ohne offenen Tab; läuft schon einer, wartet sie dahinter (`queued: true`). Sie wirkt wie deine eigene Eingabe (rechte Bubble), die Kopfzeile nennt den Absender: `[📥 Inject] <sender>`. Unbekannte Session: 404 |
+| `/api/chat/status` | GET | `?session_id=` — `is_generating` (läuft gerade ein Zug), `message_count` |
 | `/api/chat/history` | GET | `?session_id=` — `chat_history` + `llm_history` (ohne Angabe die neueste Session) |
 | `/api/chat/clear` | POST | History einer Session leeren (`session_id`) |
 | `/api/sessions` | GET / POST | Die eigenen Sessions (`session_id`, `title`, `last_message_at`, `message_count`, `channel`) / neue anlegen |
@@ -205,7 +205,7 @@ COOKIE='aifred_username=<value from your browser>'
 # Find a session id (or take it from data/sessions/)
 curl -s -b "$COOKIE" $API/sessions
 
-# Queue a message — the browser session runs the full pipeline
+# Send a message — the server runs the full pipeline, with or without an open tab
 curl -s -X POST $API/chat/inject \
   -H "Content-Type: application/json" \
   -d '{"sender": "mein-skript", "session_id": "<session_id>", "message": "What is Python?", "token": "<INJECT_API_TOKEN>"}'
@@ -229,8 +229,6 @@ curl -s -b "$COOKIE" -X PATCH $API/agents/aifred/choices \
   -H "Content-Type: application/json" \
   -d '{"model_id": "<model id from /api/agents/choices>"}'
 ```
-
-Der Browser muss geöffnet sein und pollen, damit injizierte Nachrichten aufgenommen werden.
 
 ---
 

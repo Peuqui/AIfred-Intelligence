@@ -370,6 +370,22 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   offen: Der Server ohne Reflex muss `start_process_tasks` im Lifespan rufen (heute laufen diese Tasks erst, wenn
   jemand die Reflex-Seite öffnet); die Testinstanz darf das nicht, weil etwa das Aufräumen des vLLM-Compile-Caches
   mit den leeren Betriebspunkten des Worktrees die Caches der Produktion als verworfen ansähe.
+- **Schritt 6, Paket 1: Server ohne Reflex (08.11.2026):** `aifred/server.py` (`venv/bin/python -m aifred.server`)
+  baut mit `create_app(lifespans)` eine App: die API unter `/api` (Vue unter `/api/app/`), die Ordner unter
+  `/_upload/`, `/` leitet relativ auf `api/app/` weiter (hält auch hinter nginx unter `/aifred/`). Der Server betritt
+  `SERVER_LIFESPANS` der Reihe nach (Sitzungsereignisse, `process_tasks_lifespan` mit `start_process_tasks` beim
+  Start statt beim ersten Seitenaufruf, Message Hub, Dienststatus); Host und Port `AIFRED_SERVER_HOST/PORT`
+  (Vorgabe 0.0.0.0:8002, Maschinenspezifisches in `.env`). Ein Prozess unter uvicorn; stirbt er, startet systemd ihn
+  neu (`Restart=always`), der Granian-Respawn-Patch entfällt mit Reflex. Die Testinstanz nimmt `create_app` mit nur
+  dem Ereignis-Lifespan. `aifred/__init__.py` lädt die Reflex-App nicht mehr (Reflex lädt `aifred.aifred` selbst).
+  Was bisher der Reflex-Browser erledigte: `POST /api/chat/inject` gab die Nachricht nur in die Warteschlange der
+  Sitzung, die ein offener Reflex-Tab alle 500 ms abholte; ohne Tab blieb sie liegen. Jetzt geht sie an
+  `turn_service.submit_turn` wie eine Chat-Nachricht (sofort oder hinter dem laufenden Zug), eine unbekannte Sitzung
+  gibt 404 statt einer neu angelegten leeren Datei (`sessions.stored_session`, auch für `owned_session`).
+  `GET /api/chat/status` las `is_generating` aus der Sitzungsdatei, das nur der Reflex-State schrieb, und meldete ohne
+  ihn immer „fertig“; jetzt `pipeline_registry.is_pipeline_running`. Live geprüft auf der Testinstanz ohne offenen Tab:
+  zwei Nachrichten per Inject, die erste startete, die zweite wartete (`queued: true`) und lief danach, beide
+  beantwortet. Suite 239 Dateien grün.
 - **Temperatur nur noch von Hand (erledigt 07.11.2026, Peuqui):** Jeder Agent antwortet mit seiner
   eigenen Temperatur (`agent_settings.resolve_agent_temperature`); der Modus auto, die Temperaturen je
   Absicht (`INTENT_TEMPERATURE_*`) und der Aufschlag für Sokrates und Salomo (`temperature_offset`) sind

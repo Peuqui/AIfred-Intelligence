@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from ..logging_utils import log_message
-from ..user_error import BadRequest, Missing, NotDone
+from ..user_error import BadRequest, Missing
 from .app import api_app
 from .schemas import CallerName, SystemActionResponse
 
@@ -38,28 +38,21 @@ class ChatInjectResponse(BaseModel):
 @api_app.post("/chat/inject", response_model=ChatInjectResponse, tags=["Chat"])
 async def inject_message(request: ChatInjectRequest):
     """
-    Inject a message into a browser session.
+    A message into a session as the user's own input (Agent-Orc and other tools): the server runs the turn as if it
+    had been written in the chat — intent, research, the discussion modes, compression — and every open tab of the
+    session sees it live. With a turn running in the session the message waits behind it (the session's queue).
 
-    The message is queued for the browser to process. The browser will
-    automatically pick up the message and run the full pipeline:
-    - Intent Detection
-    - Research/Automatik Mode
-    - Multi-Agent (Sokrates/Tribunal)
-    - History Compression
-
-    This ensures the API uses the exact same code path as manual browser input.
-    The user sees everything live in the browser - streaming, debug messages, etc.
-
-    Requires session_id to identify the target browser session.
-    Use GET /api/sessions to list available sessions.
+    Requires session_id to identify the target session (GET /api/sessions lists them).
     """
     # Auth: inject läuft die volle Agenten-Pipeline (inkl. Tools) auf der
     # Ziel-Session — also hinter ein Token klemmen, fail-closed. Ohne
     # konfiguriertes Token ist der Endpoint deaktiviert (kein offener
     # Remote-Control-Zugang). Zentrale, konstant-zeitige Prüfung in lib/auth.
     from ..auth import require_service_token
-    from ..session_storage import queue_pending_message
+    from ..turn_service import TurnRequest, submit_turn
+    from .sessions import stored_session
     require_service_token("inject", request.token)
+    stored_session(request.session_id)
 
     log_message(f"📨 API: Injecting message to {request.session_id[:8]}...")
 
@@ -73,19 +66,14 @@ async def inject_message(request: ChatInjectRequest):
         channel="inject", channel_id=request.session_id, sender=request.sender,
         text=request.message, timestamp=datetime.now(),
     ))
-    success = queue_pending_message(request.session_id, headed)
-
-    if success:
-        log_message(f"✅ API: Message queued for {request.session_id[:8]}...")
-        return ChatInjectResponse(
-            success=True,
-            message="Message queued for browser processing",
-            session_id=request.session_id,
-            queued=True
-        )
-    else:
-        log_message(f"❌ API: Failed to queue message for {request.session_id[:8]}...")
-        raise NotDone("message_not_queued")
+    queued = submit_turn(TurnRequest(request.session_id, headed))
+    log_message(f"✅ API: {'queued behind the running turn' if queued else 'turn started'} for {request.session_id[:8]}...")
+    return ChatInjectResponse(
+        success=True,
+        message="Message queued behind the running turn" if queued else "Turn started",
+        session_id=request.session_id,
+        queued=queued,
+    )
 
 
 class ChatStatusResponse(BaseModel):
@@ -100,24 +88,19 @@ async def get_chat_status(session_id: str):
     """
     Get current chat status for a session.
 
-    Use this to poll for completion after injecting a message.
-    When is_generating becomes False, the response is complete.
+    Use this to poll for completion after injecting a message: is_generating is True while a turn of the
+    session runs. A message waiting behind it starts right after, so is_generating can turn True again.
 
     Args:
-        session_id: Browser session session_id
+        session_id: the session's id
     """
-    from ..session_storage import load_session
+    from ..pipeline_registry import is_pipeline_running
+    from .sessions import stored_session
 
-    session = load_session(session_id)
-    if not session or "data" not in session:
-        raise Missing("no_session")
-
-    data = session["data"]
-    chat_history = data.get("chat_history", [])
-
+    session = stored_session(session_id)
     return ChatStatusResponse(
-        is_generating=data.get("is_generating", False),
-        message_count=len(chat_history),
+        is_generating=is_pipeline_running(session_id),
+        message_count=len(session.get("data", {}).get("chat_history", [])),
         session_id=session_id
     )
 

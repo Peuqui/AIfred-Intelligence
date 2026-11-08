@@ -3,8 +3,8 @@ tasks (cleanups of audio state, lookup caches, vision, the audit log and the vLL
 vision pre-warm in live mode, the GPU detection and an empty Ollama; and the lifespans of the server: the session
 events' loop, the Message Hub with the scheduler and Vigilantia's background watchers, the service status.
 
-The Reflex app runs ``start_process_tasks`` on the first page load and registers the lifespans; a server without Reflex
-composes its lifespan from the same pieces.
+The server (aifred/server.py) runs them all from its lifespan (``SERVER_LIFESPANS``); the Reflex app runs
+``start_process_tasks`` on the first page load and registers the other three.
 """
 
 from __future__ import annotations
@@ -199,3 +199,15 @@ async def session_events_lifespan() -> AsyncIterator[None]:
 
     session_events.bind_home_loop(asyncio.get_running_loop())
     yield
+
+
+@contextlib.asynccontextmanager
+async def process_tasks_lifespan() -> AsyncIterator[None]:
+    """The once-per-process start (``start_process_tasks``) when the server starts, not when someone opens a page."""
+    await start_process_tasks()
+    yield
+
+
+# The server's lifespan, in this order: the session events' loop first (the hub publishes into it), then the
+# process tasks, the Message Hub, the service status.
+SERVER_LIFESPANS = (session_events_lifespan, process_tasks_lifespan, message_hub_lifespan, service_status_lifespan)

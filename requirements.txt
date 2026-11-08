@@ -11,6 +11,7 @@ pydantic==2.13.5         # For data models (required by Reflex State)
 # LLM Backends
 httpx==0.28.1           # For Ollama HTTP API
 fastapi==0.142.2        # REST API for external integrations
+uvicorn==0.54.0         # the server (aifred/server.py)
 openai==3.24.0           # For vLLM (OpenAI-compatible API)
 httpx2==2.13.1           # openai 3 transport (separate from httpx above)
 httpcore2==2.13.1

@@ -219,7 +219,8 @@ python3 -m py_compile aifred/DATEI.py
 
 ## AIfred API - Message Injection
 
-Um Nachrichten direkt in eine Browser-Session zu injizieren (z.B. für Tests):
+Eine Nachricht als eigene Eingabe des Users in eine Sitzung geben (z. B. für Tests); der Server
+führt den Zug aus wie eine im Chat geschriebene Nachricht, auch ohne offenen Tab:
 
 ```bash
 # API Endpoint: POST http://localhost:8002/api/chat/inject
@@ -231,24 +232,23 @@ curl -s "http://localhost:8002/api/chat/inject" \
   -H "Content-Type: application/json" \
   -d '{"sender": "Claude", "session_id": "SESSION_ID_HIER", "message": "Deine Nachricht hier", "token": "<INJECT_API_TOKEN>"}'
 
-# Erfolgreiche Antwort:
-# {"success":true,"message":"Message queued for browser processing","session_id":"...","queued":true}
+# Erfolgreiche Antwort (queued=true: wartet hinter dem laufenden Zug der Sitzung):
+# {"success":true,"message":"Turn started","session_id":"...","queued":false}
 ```
 
-**Aktive Session-ID finden:**
-- Debug-Log: `tail data/logs/aifred_debug.log` → "Session loaded: XXXXX..."
-- Session-Dateien: `ls data/sessions/` → neueste `.json` Datei (ohne `.pending`/`.update`)
+**Session-ID finden:** `ls -t data/sessions/` (neueste `.json`), oder `GET /api/sessions`
+mit Login-Cookie.
 
 **Wichtig:**
-- Port ist `8002` (Backend-API), NICHT `3000` (Frontend)
-- Parameter heißt `session_id` (UUID der Browser-Session, Dateiname unter
-  `data/sessions/<session_id>.json`) — die Nachricht kommt in die Warteschlange
-  `pending_messages` dieser Sitzung; der Browser holt alle 500 ms die älteste ab,
-  sobald nichts mehr läuft (derselbe Weg wie ein Diktat „direkt an die KI“)
+- Port ist `8002` (der Server, `aifred/server.py`)
+- `session_id` ist der Dateiname unter `data/sessions/<session_id>.json`; eine unbekannte
+  Sitzung gibt `404`. Läuft in der Sitzung schon ein Zug, wartet die Nachricht in der
+  Warteschlange `pending_messages` und startet, wenn er endet (derselbe Weg wie eine
+  Chat-Nachricht oder ein Diktat, `turn_service.submit_turn`)
+- Ob der Zug fertig ist: `GET /api/chat/status?session_id=…` (`is_generating`, Login-Cookie)
 - **`token` ist Pflicht** — Wert aus `INJECT_API_TOKEN` (`.env`). Ohne gültiges
   Token antwortet der Endpoint mit `403` (falsch) bzw. `503` (nicht konfiguriert).
   Schützt den Remote-Control-Zugang zum Agenten.
-- Browser muss aktiv sein und pollen, damit die Nachricht aufgenommen wird
 
 ---
 

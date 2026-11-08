@@ -305,6 +305,10 @@ LLAMASWAP_START_SETTLE_S = 2.0
 BACKEND_READY_POLL_S = 0.5
 OLLAMA_READY_TIMEOUT_S = 5.0
 LLAMASWAP_READY_TIMEOUT_S = 20.0
+# The server (aifred/server.py): the API, the Vue app under /api/app/ and the folders under /_upload/ on one port.
+# Machine-specific values go to .env (AIFRED_SERVER_HOST, AIFRED_SERVER_PORT).
+AIFRED_SERVER_HOST = os.environ.get("AIFRED_SERVER_HOST", "0.0.0.0")
+AIFRED_SERVER_PORT = int(os.environ.get("AIFRED_SERVER_PORT", "8002"))
 # AIfred's own systemd unit, and how long a restart waits: the answer to the click reaches the browser first.
 AIFRED_SERVICE_NAME = "aifred-intelligence"
 AIFRED_RESTART_DELAY_S = 1.0

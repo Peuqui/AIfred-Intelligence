@@ -34,16 +34,24 @@ def current_user(request: Request) -> str:
     return user
 
 
-def owned_session(request: Request, session_id: str) -> dict[str, Any]:
-    """The session, if it exists and belongs to the logged-in user; otherwise 404."""
+def stored_session(session_id: str) -> dict[str, Any]:
+    """The session, if it exists; otherwise 404 (also for a string that is no session id)."""
     from ..session_storage import load_session
 
-    user = current_user(request)
     try:
         session = load_session(session_id)
     except ValueError:  # not a session id (32 hex characters)
         session = None
-    if session is None or str(session.get("owner", "")).lower() != user:
+    if session is None:
+        raise Missing("no_session")
+    return session
+
+
+def owned_session(request: Request, session_id: str) -> dict[str, Any]:
+    """The session, if it exists and belongs to the logged-in user; otherwise 404."""
+    user = current_user(request)
+    session = stored_session(session_id)
+    if str(session.get("owner", "")).lower() != user:
         raise Missing("no_session")
     return session
 
