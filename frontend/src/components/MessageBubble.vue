@@ -100,13 +100,15 @@ header { font-size: 0.8rem; font-weight: 600; color: var(--aifred-primary); marg
   background: var(--aifred-collapsible-bg);
   border: 1px solid var(--aifred-border-light);
   border-radius: 6px;
-  padding: 0 0.75em 0.5em;
+  padding: 0 0.75em;
   margin: 0.4em 0 1em;
   max-height: var(--thinking-max-height-desktop);
   overflow-y: auto;
 }
 /* The title line carries input_bg in the answer's HTML (formatting.py); only !important brings it to the box's colour. */
-.content :deep(details > summary) { padding: 6px 0 !important; color: var(--aifred-text-secondary); background: var(--aifred-collapsible-bg) !important; }
+/* Closed, the box is its title line, the same space above and below; open, its content gets room at the bottom. */
+.content :deep(details[open]) { padding-bottom: 0.5em; }
+.content :deep(details > summary) { padding: 3px 0 !important; color: var(--aifred-text-secondary); background: var(--aifred-collapsible-bg) !important; }
 .content :deep(details[data-sandbox]) { max-height: var(--sandbox-max-height); overflow: hidden; background: transparent; border: none; padding: 0; }
 .content :deep(.thinking-compact) { color: var(--aifred-text-soft); }
 .content :deep(details a) { color: var(--aifred-accent-cyan); }
