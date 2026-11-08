@@ -472,7 +472,8 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   12. Manueller Kontext je Agent (Ollama) mit „Berechnung anzeigen“.
   13. ~~Schalter „Enter sendet“~~ (erledigt 08.11.: am Eingabefeld, je Gerät im Browser gespeichert, `lib/devicePrefs.ts`;
       Reflex hielt ihn global in settings.json, auf dem Handy will man aber oft Enter als Zeilenumbruch).
-  14. Bilder in Chat-Blasen vergrößern (Lightbox).
+  14. ~~Bilder in Chat-Blasen vergrößern~~ (erledigt 08.11.: ein Klick auf ein Bild der Blase öffnet `ImageLightbox.vue`,
+      die anderen Bilder der Blase mit ← →, Esc schließt; ein Bild hinter einem Link behält seinen Link).
   15. ~~Schriftgröße im Chat~~ (erledigt 08.11.: A− / A+ in der Kopfleiste, 80 bis 200 %, je Gerät wie in Reflex).
   16. Hilfe-Fenster (Diskussionsmodi, Reasoning/Thinking, Modell-Lebenszyklus, Vigilantia).
   17. Fortschrittsanzeige vor der ersten Antwort.

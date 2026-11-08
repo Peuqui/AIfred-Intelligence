@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import type { ChatEntry } from "../api/types";
 import { t } from "../i18n";
 import { renderMarkdown } from "../lib/markdown";
 import { replay } from "../lib/speech";
+import ImageLightbox from "./ImageLightbox.vue";
 
 const props = defineProps<{ entry: ChatEntry; speechOn: boolean }>();
 const emit = defineEmits<{ readAgain: [timestamp: string] }>();
@@ -14,6 +15,19 @@ const canReplay = computed(() => (metadata.value.audio_urls?.length ?? 0) + (met
 
 function play(): void {
   replay(metadata.value.audio_urls ?? [], metadata.value.browser_speech ?? []);
+}
+
+// A click on one of the bubble's own pictures (an upload, a camera picture, a plot) shows it large, the others of
+// the bubble one key away; a picture behind a link keeps its link.
+const pictures = ref<string[]>([]);
+const shownAt = ref<number | null>(null);
+
+function enlarge(event: MouseEvent): void {
+  const picture = event.target instanceof HTMLImageElement ? event.target : null;
+  if (!picture || picture.closest("a") || !picture.src.includes("/_upload/")) return;
+  const content = event.currentTarget as HTMLElement;
+  pictures.value = [...content.querySelectorAll("img")].map((image) => image.src).filter((src) => src.includes("/_upload/"));
+  shownAt.value = pictures.value.indexOf(picture.src);
 }
 </script>
 
@@ -34,7 +48,14 @@ function play(): void {
       <span v-if="entry.tts_note" class="note">{{ entry.tts_note }}</span>
     </header>
     <!-- eslint-disable-next-line vue/no-v-html -- sanitized by renderMarkdown (DOMPurify) -->
-    <div class="content" v-html="html" />
+    <div class="content" @click="enlarge" v-html="html" />
+    <ImageLightbox
+      v-if="shownAt !== null"
+      :count="pictures.length"
+      :start="shownAt"
+      :pictures="(at: number) => [pictures[at] ?? '']"
+      @close="shownAt = null"
+    />
   </article>
 </template>
 
@@ -53,5 +74,6 @@ header { font-size: 0.8rem; font-weight: 600; color: var(--aifred-primary); marg
 .content :deep(table) { border-collapse: collapse; }
 .content :deep(td), .content :deep(th) { border: 1px solid var(--aifred-border); padding: 2px 6px; }
 .content :deep(img) { max-width: 100%; }
+.content :deep(img[src*="/_upload/"]) { cursor: zoom-in; }
 .content :deep(a) { color: var(--aifred-accent-blue); }
 </style>
