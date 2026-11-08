@@ -39,6 +39,12 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()  # Go up to repo r
 # - Excluded from git (.gitignore)
 DATA_DIR = PROJECT_ROOT / "data"
 
+# The JS libraries mirrored for sandbox artifacts (three.js, d3, plotly, chart.js): the server serves them under
+# VENDOR_URL, the render browser fulfils the same URLs from the folder. Generated HTML names them root-relative,
+# so one artifact works in the user's browser on any host and in the render browser.
+VENDOR_DIR = PROJECT_ROOT / "assets" / "vendor"
+VENDOR_URL = "/vendor"
+
 # ============================================================
 # MODEL PATHS (installation-agnostic, overridable via environment)
 # ============================================================

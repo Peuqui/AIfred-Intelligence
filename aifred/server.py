@@ -1,5 +1,6 @@
-"""AIfred as a server: the API (with the Vue app under /api/app/) and the folders under /_upload/ from one process, with
-every task of the process (``lib/server_startup.SERVER_LIFESPANS``). The systemd unit starts it:
+"""AIfred as a server: the API (with the Vue app under /api/app/), the folders under /_upload/ and the JS libraries of
+the sandbox artifacts under /vendor/ from one process, with every task of the process
+(``lib/server_startup.SERVER_LIFESPANS``). The systemd unit starts it:
 
     venv/bin/python -m aifred.server
 
@@ -13,6 +14,7 @@ from collections.abc import AsyncIterator, Callable, Sequence
 
 from fastapi import FastAPI
 from starlette.responses import RedirectResponse
+from starlette.staticfiles import StaticFiles
 
 Lifespan = Callable[[], contextlib.AbstractAsyncContextManager[None]]
 
@@ -20,6 +22,7 @@ Lifespan = Callable[[], contextlib.AbstractAsyncContextManager[None]]
 def create_app(lifespans: Sequence[Lifespan]) -> FastAPI:
     """The app with ``lifespans`` entered in order at the start and left in reverse at the end."""
     from .lib.api import api_app
+    from .lib.config import VENDOR_DIR, VENDOR_URL
     from .lib.upload_files import mount_upload_folders
 
     @contextlib.asynccontextmanager
@@ -32,6 +35,7 @@ def create_app(lifespans: Sequence[Lifespan]) -> FastAPI:
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.mount("/api", api_app)
     mount_upload_folders(app)
+    app.mount(VENDOR_URL, StaticFiles(directory=VENDOR_DIR), name="vendor")
 
     @app.get("/", include_in_schema=False)
     async def root() -> RedirectResponse:

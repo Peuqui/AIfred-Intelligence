@@ -170,22 +170,23 @@ async def render_html_in_browser(
                 # sandbox-escape study). Allow only file:/data:/blob: and
                 # localhost; abort everything else (fail-closed).
                 #
-                # Generated HTML references the mirrored JS libs with RELATIVE
-                # /vendor/... URLs so the same artifact works in the user's
-                # browser regardless of host (an absolute localhost URL broke
-                # every artifact opened from another machine). Under the file://
-                # base those resolve to file:///vendor/... — fulfilled here
-                # directly from assets/vendor/ (basename only, no traversal).
+                # Generated HTML references the mirrored JS libs root-relative
+                # (VENDOR_URL) so the same artifact works in the user's browser
+                # regardless of host (an absolute localhost URL broke every
+                # artifact opened from another machine). Under the file:// base
+                # those resolve to file:///vendor/... — fulfilled here directly
+                # from VENDOR_DIR (basename only, no traversal).
                 from urllib.parse import urlparse as _urlparse
 
-                vendor_dir = Path(__file__).parent.parent.parent / "assets" / "vendor"
+                from .config import VENDOR_DIR, VENDOR_URL
+
                 _vendor_types = {".js": "text/javascript", ".css": "text/css"}
 
                 async def _block_external(route: Any) -> None:
                     parsed = _urlparse(route.request.url)
                     host = (parsed.hostname or "").lower()
-                    if parsed.path.startswith("/vendor/"):
-                        lib = vendor_dir / Path(parsed.path).name
+                    if parsed.path.startswith(f"{VENDOR_URL}/"):
+                        lib = VENDOR_DIR / Path(parsed.path).name
                         if lib.is_file():
                             await route.fulfill(
                                 body=lib.read_bytes(),

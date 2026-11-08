@@ -31,3 +31,17 @@ def test_the_root_leads_relatively_to_the_vue_app() -> None:
         response = client.get("/", follow_redirects=False)
     assert response.status_code == 307 and response.headers["location"] == "api/app/"
 
+
+
+def test_the_sandbox_libraries_are_served_where_generated_html_names_them() -> None:
+    # Generated HTML loads e.g. /vendor/three.min.js (VENDOR_URL in the tool texts); until 08.11.2026 only the
+    # Reflex frontend served the folder, under /aifred/vendor/, so an artifact in the user's browser found nothing.
+    from aifred.lib.config import VENDOR_DIR, VENDOR_URL
+
+    library = VENDOR_DIR / "three.min.js"
+    with TestClient(create_app([])) as client:
+        response = client.get(f"{VENDOR_URL}/{library.name}")
+        outside = client.get(f"{VENDOR_URL}/../aifred/server.py")
+    assert response.status_code == 200 and response.content == library.read_bytes()
+    assert "javascript" in response.headers["content-type"]
+    assert outside.status_code == 404

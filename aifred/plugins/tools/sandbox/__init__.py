@@ -12,6 +12,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from ....lib.config import VENDOR_URL
 from ....lib.function_calling import Tool
 from ....lib.i18n import t
 from ....lib.logging_utils import log_message
@@ -42,19 +43,6 @@ _HTML_IN_STDOUT_HINT = (
     "is then embedded interactively in the chat and can be verified with the "
     "render_html tool. Re-run your code with the file write."
 )
-
-
-def _vendor_base() -> str:
-    """Base URL of the locally mirrored JS libs (frontend-served assets/vendor).
-
-    Deliberately RELATIVE: generated HTML is consumed by two clients — the
-    user's browser (arbitrary host: LAN IP, HTTPS reverse proxy) and the
-    headless render browser (loads via http://localhost). A relative URL is
-    the single scheme that works for both; an absolute localhost URL broke
-    every artifact opened from another machine (observed 2026-08-13,
-    BryceLand: 3D view dead because three.js pointed at the user's own PC).
-    """
-    return "/vendor"
 
 
 def _available_libraries() -> str:
@@ -209,14 +197,13 @@ def get_sandbox_tools(session_id: str | None = None) -> list[Tool]:
         return "\n\n".join(parts)
 
 
-    _vb = _vendor_base()
     _libraries = _available_libraries()
     return [
         Tool(
             name="execute_code",
             tier=TIER_WRITE_DATA,
             description=load_tool_description(__file__, "execute_code")
-            .replace("{VENDOR_BASE}", _vb).replace("{AVAILABLE_LIBRARIES}", _libraries),
+            .replace("{VENDOR_BASE}", VENDOR_URL).replace("{AVAILABLE_LIBRARIES}", _libraries),
             parameters=load_tool_parameters(__file__, "execute_code"),
             executor=_execute_code,
         ),
@@ -224,14 +211,14 @@ def get_sandbox_tools(session_id: str | None = None) -> list[Tool]:
             name="execute_code_write",
             tier=TIER_WRITE_DATA,
             description=load_tool_description(__file__, "execute_code_write")
-            .replace("{VENDOR_BASE}", _vb).replace("{AVAILABLE_LIBRARIES}", _libraries),
+            .replace("{VENDOR_BASE}", VENDOR_URL).replace("{AVAILABLE_LIBRARIES}", _libraries),
             parameters=load_tool_parameters(__file__, "execute_code"),
             executor=_execute_code_write,
         ),
         Tool(
             name="render_html",
             tier=TIER_WRITE_DATA,
-            description=load_tool_description(__file__, "render_html").replace("{VENDOR_BASE}", _vb),
+            description=load_tool_description(__file__, "render_html").replace("{VENDOR_BASE}", VENDOR_URL),
             parameters=load_tool_parameters(__file__, "render_html"),
             executor=_render_html,
         ),
