@@ -29,13 +29,19 @@ import json
 import re
 import time
 import zipfile
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
 
-from .agent_config import load_agents_raw, save_agents_raw
-from .config import PROJECT_ROOT
+from . import prompt_loader
+from .agent_config import (
+    AGENT_ID_PATTERN,
+    config_from_raw,
+    load_agents_raw,
+    prompt_folder_taken,
+    save_agents_raw,
+)
 from .i18n import t
 from .settings import SETTINGS_FILE, save_settings
 from .tts_client import get_tts_client
@@ -59,11 +65,8 @@ def _opened(zip_bytes: bytes) -> Iterator[zipfile.ZipFile]:
     except (zipfile.BadZipFile, KeyError, json.JSONDecodeError) as error:  # no ZIP, a member missing, broken JSON
         raise BundleUnreadable("bundle_unreadable", reason=str(error)) from error
 
-PROMPTS_DIR = PROJECT_ROOT / "prompts"
-
 ConflictStrategy = Literal["abort", "overwrite", "rename"]
 
-_AGENT_ID_RE = re.compile(r"^[a-z0-9_]+$")
 # Whitelist for files inside agents/<id>/prompts/<lang>/ and voices/<engine>/.
 # Strict to keep ZIP-import from writing weird filenames into prompts/voices.
 _BUNDLE_FILE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -152,7 +155,7 @@ def export_bundle(agent_ids: Iterable[str]) -> bytes:
             )
 
             for lang in ("de", "en"):
-                prompt_dir = PROMPTS_DIR / lang / agent_id
+                prompt_dir = prompt_loader.PROMPTS_DIR / lang / agent_id
                 if not prompt_dir.is_dir():
                     continue
                 for prompt_file in sorted(prompt_dir.glob("*.txt")):
@@ -176,15 +179,18 @@ def export_bundle(agent_ids: Iterable[str]) -> bytes:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def _resolve_id_collision(desired_id: str, existing_ids: set[str]) -> str:
-    """Append _imported, _imported_2, … until unique."""
-    if desired_id not in existing_ids:
+def _resolve_id_collision(desired_id: str, existing_ids: set[str], taken: Callable[[str], bool]) -> str:
+    """Append _imported, _imported_2, … until no agent has the id and ``taken`` (a prompt folder) says it is free."""
+    def free(candidate: str) -> bool:
+        return candidate not in existing_ids and not taken(candidate)
+
+    if free(desired_id):
         return desired_id
     base = f"{desired_id}_imported"
-    if base not in existing_ids:
+    if free(base):
         return base
     n = 2
-    while f"{base}_{n}" in existing_ids:
+    while not free(f"{base}_{n}"):
         n += 1
     return f"{base}_{n}"
 
@@ -207,7 +213,7 @@ def peek_bundle(zip_bytes: bytes) -> dict:
         existing = set(load_agents_raw().keys())
         agents_info: list[dict] = []
         for agent_id in agent_ids:
-            if not _AGENT_ID_RE.match(agent_id):
+            if not re.fullmatch(AGENT_ID_PATTERN, agent_id):
                 raise BundleUnreadable("bundle_bad_id", agent=agent_id)
             try:
                 cfg = json.loads(zf.read(f"agents/{agent_id}/config.json"))
@@ -217,7 +223,7 @@ def peek_bundle(zip_bytes: bytes) -> dict:
                 "agent_id": agent_id,
                 "display_name": cfg.get("display_name", agent_id),
                 "description": cfg.get("description", ""),
-                "exists_locally": agent_id in existing,
+                "exists_locally": agent_id in existing or prompt_folder_taken(agent_id, existing),
             })
 
     return {
@@ -262,17 +268,21 @@ def import_bundle(
         tts_root = settings.setdefault("tts_agent_voices_per_engine", {})
 
         for bundle_id in wanted:
-            if not _AGENT_ID_RE.match(bundle_id):
+            if not re.fullmatch(AGENT_ID_PATTERN, bundle_id):
                 raise BundleUnreadable("bundle_bad_id", agent=bundle_id)
 
-            if bundle_id in agents:
+            # A folder of the prompts that is no agent's (shared, utility …) is no agent to overwrite: only a new id.
+            taken = prompt_folder_taken(bundle_id, agents)
+            if bundle_id in agents or taken:
                 if conflict == "abort":
                     raise Conflict("bundle_agent_exists", agent=bundle_id)
                 if conflict == "rename":
                     effective_id = _resolve_id_collision(
-                        bundle_id, set(agents.keys()) | set(effective_ids)
+                        bundle_id, set(agents.keys()) | set(effective_ids), taken=lambda name: prompt_folder_taken(name, agents),
                     )
                     warnings.append(t("bundle_renamed", lang=lang, agent=bundle_id, new=effective_id))
+                elif taken:
+                    raise Conflict("agent_id_taken", agent=bundle_id)
                 else:
                     effective_id = bundle_id
             else:
@@ -283,9 +293,16 @@ def import_bundle(
             sampling = json.loads(zf.read(f"{base}/sampling.json"))
             tts_per_engine = json.loads(zf.read(f"{base}/tts.json"))
 
+            # Its layers point into its own folder, where the files below go (until 08.11.2026 they kept the
+            # bundle's paths: an agent renamed on a conflict read, and on deletion removed, the original's folder).
+            config["prompts"] = {key: f"{effective_id}/{Path(path).name}" for key, path in (config.get("prompts") or {}).items()}
+            try:
+                config_from_raw(config)   # what loading agents.json reads: a field missing there breaks every agent
+            except KeyError as missing:
+                raise BundleUnreadable("bundle_config_incomplete", agent=bundle_id, field=str(missing)) from missing
             agents[effective_id] = config
 
-            prompts_root = PROMPTS_DIR.resolve()
+            prompts_root = prompt_loader.PROMPTS_DIR.resolve()
             for member in zf.namelist():
                 prefix = f"{base}/prompts/"
                 if not member.startswith(prefix):
@@ -297,7 +314,7 @@ def import_bundle(
                 if not _BUNDLE_FILE_RE.match(parts[1]):
                     warnings.append(t("bundle_skipped_prompt_name", lang=lang, member=member))
                     continue
-                target_dir = PROMPTS_DIR / parts[0] / effective_id
+                target_dir = prompt_loader.PROMPTS_DIR / parts[0] / effective_id
                 target_dir.mkdir(parents=True, exist_ok=True)
                 target_path = (target_dir / parts[1]).resolve()
                 try:

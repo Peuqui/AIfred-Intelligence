@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from fake_tts_service import FakeTTSService, install_fake_service
 
-from aifred.lib import agent_bundle
+from aifred.lib import agent_bundle, prompt_loader
 from aifred.lib.i18n import t
 
 
@@ -22,8 +22,10 @@ def bundle_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     fake = FakeTTSService([])
     fake.voices_dir = str(voices)
     install_fake_service(monkeypatch, tmp_path, fake)
-    monkeypatch.setattr(agent_bundle, "PROMPTS_DIR", tmp_path / "prompts")
-    monkeypatch.setattr(agent_bundle, "load_agents_raw", lambda: {"codine": {"name": "Codine"}})
+    for lang in ("de", "en"):
+        (tmp_path / "prompts" / lang).mkdir(parents=True)   # an install has its prompt tree
+    monkeypatch.setattr(prompt_loader, "PROMPTS_DIR", tmp_path / "prompts")
+    monkeypatch.setattr(agent_bundle, "load_agents_raw", lambda: {"codine": {"display_name": "Codine", "emoji": "🧑‍💻", "description": "", "role": "agent"}})
     monkeypatch.setattr(agent_bundle, "_load_settings", lambda: {
         "tts_agent_voices_per_engine": {
             "qwen3local": {"codine": {"voice": "Codine"}},

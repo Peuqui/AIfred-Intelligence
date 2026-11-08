@@ -16,6 +16,7 @@ they come from the llama-swap YAML config per model at runtime.
 
 import json
 import re
+from collections.abc import Collection
 from dataclasses import asdict, dataclass, field
 
 from .config import DATA_DIR
@@ -164,8 +165,9 @@ def _default_agents() -> dict[str, dict]:
     }
 
 
-def _dict_to_config(data: dict) -> AgentConfig:
-    """Convert a raw dict to an AgentConfig instance."""
+def config_from_raw(data: dict) -> AgentConfig:
+    """The AgentConfig of an entry of agents.json; KeyError names a required field it lacks (display_name, emoji,
+    description, role)."""
     raw_aliases = data.get("aliases") or []
     aliases = [str(a).strip().lower() for a in raw_aliases if isinstance(a, str) and a.strip()]
     return AgentConfig(
@@ -185,7 +187,7 @@ def _dict_to_config(data: dict) -> AgentConfig:
 
 def load_agents() -> dict[str, AgentConfig]:
     """Load agent configurations from data/agents.json (load_agents_raw reads the file)."""
-    return {agent_id: _dict_to_config(agent_data) for agent_id, agent_data in load_agents_raw().items()}
+    return {agent_id: config_from_raw(agent_data) for agent_id, agent_data in load_agents_raw().items()}
 
 
 def load_agents_raw() -> dict[str, dict]:
@@ -350,6 +352,8 @@ def create_agent(
     agents = load_agents_raw()
     if agent_id in agents:
         raise Invalid("agent_exists", agent=agent_id)
+    if prompt_folder_taken(agent_id, agents):
+        raise Invalid("agent_id_taken", agent=agent_id)
 
     # Build prompt paths for the new agent
     prompts = {
@@ -404,33 +408,32 @@ def delete_agent(agent_id: str) -> None:
     """
     import shutil
 
-    from .prompt_loader import PROMPTS_DIR
+    from .logging_utils import log_message
+    from .prompt_loader import PROMPTS_DIR, prompt_languages
 
     refusal = deletion_refusal(agent_id)
     if refusal is not None:
         raise refusal
     agents = load_agents_raw()
-
-    # Get prompt directory name from config before deleting
-    config = agents[agent_id]
-    prompt_dirs: set[str] = set()
-    for prompt_path in config.get("prompts", {}).values():
-        # prompt_path is like "<agent_id>/identity.txt" → first segment is the dir
-        parts = prompt_path.split("/")
-        if len(parts) >= 2:
-            prompt_dirs.add(parts[0])
-
     del agents[agent_id]
     save_agents_raw(agents)
 
-    # Remove prompt files from disk (both languages)
-    for lang in ("de", "en"):
-        for prompt_dir in prompt_dirs:
-            full_path = PROMPTS_DIR / lang / prompt_dir
-            if full_path.exists() and full_path.is_dir():
-                shutil.rmtree(full_path)
-                from .logging_utils import log_message
-                log_message(f"🗑️ Deleted prompt directory: {full_path}")
+    # Only its own folder: a prompt layer may point elsewhere (Vision's personality is AIfred's file); until
+    # 08.11.2026 every folder a layer named went, an imported agent renamed on a conflict took the original's.
+    for lang in prompt_languages():
+        folder = PROMPTS_DIR / lang / agent_id
+        if folder.is_dir():
+            shutil.rmtree(folder)
+            log_message(f"🗑️ Deleted prompt directory: {folder}")
+
+
+def prompt_folder_taken(agent_id: str, agents: Collection[str]) -> bool:
+    """A folder ``prompts/<lang>/<agent_id>`` exists that belongs to none of ``agents`` (the ids there are: shared,
+    utility, debate, the Automatik's …). An agent owns the folder named by its id: one of that id would write its
+    prompts into the other folder, and deleting it would take that folder with it."""
+    from .prompt_loader import PROMPTS_DIR, prompt_languages
+
+    return agent_id not in agents and any((PROMPTS_DIR / lang / agent_id).exists() for lang in prompt_languages())
 
 
 def update_agent(agent_id: str, updates: dict) -> AgentConfig:
@@ -453,7 +456,7 @@ def update_agent(agent_id: str, updates: dict) -> AgentConfig:
     agents[agent_id].update(updates)
     save_agents_raw(agents)
 
-    return _dict_to_config(agents[agent_id])
+    return config_from_raw(agents[agent_id])
 
 
 def _create_prompt_files(agent_id: str, display_name: str) -> None:
