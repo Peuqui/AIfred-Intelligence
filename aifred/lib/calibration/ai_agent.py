@@ -538,9 +538,9 @@ async def calibrate_with_ai(
     # tool-calling (this loop drives estimate/probe/finalize via tools).
     from ...backends.cloud_api import get_cloud_api_key
     from ..agent_config import load_agents_raw
-    from ..config import CLOUD_API_PROVIDERS
+    from ..config import CLOUD_API_PROVIDERS, DEFAULT_CLOUD_API_PROVIDER
     cal_cfg = load_agents_raw().get("calibration") or {}
-    provider = str(cal_cfg.get("cloud_provider") or "qwen")
+    provider = str(cal_cfg.get("cloud_provider") or DEFAULT_CLOUD_API_PROVIDER)
     if cloud_model is None:
         cloud_model = cal_cfg.get("model") or None
     # Reasoning costs extra time per turn (30-120 s) — for the focused

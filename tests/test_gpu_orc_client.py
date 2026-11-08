@@ -129,7 +129,7 @@ def test_an_already_running_model_says_nothing() -> None:
 
 
 def test_the_calibration_clears_every_card_but_the_models_and_says_what_came_of_it(fake) -> None:
-    from aifred.state._calibration_mixin import _free_cards_for_calibration
+    from aifred.lib.calibration.service import _free_cards_for_calibration
 
     fake.actions = [{"consumer": "tts-suite", "item": "xtts", "outcome": "released"}]
     said: list[str] = []
@@ -139,7 +139,7 @@ def test_the_calibration_clears_every_card_but_the_models_and_says_what_came_of_
 
 
 def test_a_gpu_orc_that_does_not_answer_is_said_and_the_calibration_goes_on() -> None:
-    from aifred.state._calibration_mixin import _free_cards_for_calibration
+    from aifred.lib.calibration.service import _free_cards_for_calibration
 
     said: list[str] = []
     _free_cards_for_calibration(said.append)  # conftest points the client at a dead address

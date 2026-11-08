@@ -159,6 +159,9 @@ class SettingsMixin(rx.State, mixin=True):
             # unrelated settings save would drop the key and silently revert
             # the AI calibration toggle to legacy on the next run.
             "calibration_mode": self.calibration_mode or "legacy",
+            # Written only by its own switch (Reflex and the Vue app), taken from the file here: before,
+            # every other save dropped it and the calibration ran without hybrid.
+            "calibration_allow_hybrid": existing.get("calibration_allow_hybrid", DEFAULT_SETTINGS["calibration_allow_hybrid"]),
             # NOTE: multi_agent_mode is per-session now (session_storage.DEFAULT_SESSION_CONFIG)
             # NOTE: per-agent tuning (temperature, sampling, thinking,
             # personality, speed) is appended below as "agent_tuning"

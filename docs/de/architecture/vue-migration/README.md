@@ -310,9 +310,28 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   UI-Sprache), Grundeinstellungen (danach die Datei der Testinstanz zurückgespielt); Reflex-Rendering unverändert.
   **Live noch offen** (trifft die Produktion, nur in Peuquis Zeitfenster): Neustart des Backends, AIfreds Neustart,
   Wechsel zu Ollama (stoppt llama-swap) und zur Cloud.
-- **Einstellungen, Teil 2, Paket 3, offen:** `CalibrationService` (der Lauf aus dem Mixin, Fortschritt und Abbruch als
-  Rückruf, Häkchen und Start in Vue). Eine Kalibrierung belegt alle Karten und stoppt llama-swap: nur mit Peuqui
-  abgestimmt testen.
+- **Einstellungen, Teil 2, Paket 3: Kalibrierlauf (gebaut 08.11.2026, echter Lauf offen):** Der ganze Lauf (vLLM-
+  Betriebspunkt, llama.cpp-Variantenfamilie mit Burn-ins, TTS-, VLM- und Kombi-Profilen und Speed-Varianten, Ollama-
+  RoPE) zog mechanisch aus dem Mixin nach `lib/calibration/service.py`: `CalibrationRun` bekommt einen
+  `CalibrationRequest` (Backend, AIfreds Modell, angehakte Zellen, vLLM-Nachmessen/Trockenlauf), meldet jede Zeile
+  über einen Rückruf und ist ein Async-Generator, an dessen `yield`-Stellen der Aufrufer Zeilen abholt und einen
+  Abbruch prüft; `aclose()` lässt die inneren `finally` llama-swap wieder starten. Was der Lauf früher in den State
+  schrieb (Denkfähigkeit, Speed-Variante, Revisionszähler), liest die Sitzung danach aus Caches und Config; der
+  Server setzt Speed aus, wo die Speed-Variante fehlt (`settle_speed_after_run`). `check_request` lehnt ab, was nicht
+  laufen kann (Cloud, kein Modell, keine Zelle, fehlender vLLM-Checkpoint). Der Server-Lauf (`start_server_run`) ist
+  ein Task, einer je Prozess über das Tor; Abbruch über `request_cancel`, den auch der Reflex-Lauf jetzt beachtet.
+  Optionen (Modus, Hybrid) in `calibration_options`/`set_calibration_options`, Reflex ruft sie. Endpunkte
+  `GET/POST /calibration/run` (Konsole ab Zeile `after`), `POST /calibration/run/cancel`, `GET/PATCH
+  /calibration/options`, `DELETE /calibration/vlm-cache`. Vue: `CalibrationPanel.vue` (Häkchen in der Matrix,
+  Optionen, Start mit Rückfrage, Konsole alle 2 s nachgeladen, Abbruch). Anders als Reflex löscht Vue den
+  Fehlervermerk einer Zelle erst beim Start, nicht schon beim Anhaken. Behoben: Reflex verlor
+  `calibration_allow_hybrid` bei jedem Speichern (`_save_settings` kannte den Schlüssel nicht); der KI-Modus zeigte
+  `qwen-plus`, wenn der Kalibrier-Agent kein Modell hatte (der Lauf bricht dann ab), und prüfte nur den
+  DashScope-Schlüssel statt den des eingestellten Anbieters. Entfernt: das wirkungslose `session_scope` um den
+  VLM-Burn-in. Geprüft: Tests mit Stellvertreter-Schritten (fertig, Abbruch, Fehler, doppelter Start), Oberfläche
+  an der Testinstanz ohne Start, Reflex-Rendering unverändert. **Offen: ein echter Lauf** (stoppt llama-swap,
+  belegt alle Karten; der Ollama-Dienst ist auf dem Mini aus) — in Peuquis Zeitfenster, am besten ein kleines GGUF
+  unter llama.cpp mit „Kein VLM | Kein TTS“, danach eine TTS-Zelle und ein Abbruch.
 - **Temperatur nur noch von Hand (erledigt 07.11.2026, Peuqui):** Jeder Agent antwortet mit seiner
   eigenen Temperatur (`agent_settings.resolve_agent_temperature`); der Modus auto, die Temperaturen je
   Absicht (`INTENT_TEMPERATURE_*`) und der Aufschlag für Sokrates und Salomo (`temperature_offset`) sind

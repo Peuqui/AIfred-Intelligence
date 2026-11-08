@@ -2,11 +2,11 @@
 // The LLM backend: the one in use (switchable to the ones these GPUs can run), the cloud provider with the state of its
 // key, the GPUs, restarting the backend's service or AIfred, loading the default settings; and, when opened, the
 // calibration: what the agents' models start with (context, layer split over the cards, speed profile) and the matrix
-// of AIfred's model (llama.cpp: which of its profiles are calibrated; vLLM: its operating point and which describer/TTS
-// pairs fit together on the side-channel card). Starting a calibration follows.
+// of AIfred's model with its run (CalibrationPanel.vue).
 import { computed, onMounted, ref } from "vue";
 import { ApiError, api } from "../api/client";
-import type { BackendOverview, CalibrationOverview, GpuCard, LayerSplit, MatrixCell, ModelInUse } from "../api/types";
+import type { BackendOverview, CalibrationOverview, GpuCard, LayerSplit, ModelInUse } from "../api/types";
+import CalibrationPanel from "./CalibrationPanel.vue";
 import { formatNumber, loadLanguage, t } from "../i18n";
 import { useSettings } from "../stores/settings";
 
@@ -116,14 +116,6 @@ function contextLines(model: ModelInUse): string[] {
   }
   return lines;
 }
-// What a cell's dot says: llama.cpp a profile, vLLM the operating point (base cell) or a burn-in pair.
-function cellTitle(cell: MatrixCell): string {
-  if (calibration.value?.backend_type !== "vllm") {
-    return t({ done: "calibration_already_done", failed: "calibration_cell_failed", open: "calibration_cell_open" }[cell.status]);
-  }
-  if (cell.key === "|") return t(cell.status === "done" ? "calibration_dot_done" : "calibration_dot_missing");
-  return t({ done: "calibration_pair_fits", failed: "calibration_pair_overflows", open: "calibration_not_measured" }[cell.status]);
-}
 </script>
 
 <template>
@@ -180,28 +172,7 @@ function cellTitle(cell: MatrixCell): string {
           <div class="model-name">{{ model.model_id }} <span class="hint">{{ model.agents.join(", ") }}</span></div>
           <div v-for="line in contextLines(model)" :key="line" class="hint">{{ line }}</div>
         </div>
-        <template v-if="calibration.matrix">
-          <p class="subtitle">
-            {{ calibration.backend_type === "vllm" ? t("calibration_vllm_burnin_title") : t("calibration_matrix_llamacpp_title", { model: calibration.model_id }) }}
-          </p>
-          <table class="matrix">
-            <thead>
-              <tr>
-                <th></th>
-                <th v-for="column in calibration.matrix.columns" :key="column.tts_key">{{ column.label }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in calibration.matrix.rows" :key="row.vlm_key">
-                <th>{{ row.label }}</th>
-                <td v-for="cell in row.cells" :key="cell.key">
-                  <span class="dot" :class="cell.status" :title="cellTitle(cell)" :aria-label="cellTitle(cell)"></span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <p v-if="calibration.matrix.tts_problem" class="notice">⚠️ {{ calibration.matrix.tts_problem }}</p>
-        </template>
+        <CalibrationPanel v-if="calibration.backend_type !== 'cloud_api'" :calibration="calibration" @changed="loadCalibration" />
       </template>
     </details>
   </section>
@@ -227,10 +198,4 @@ details p { margin: 6px 0 0; }
 .subtitle { font-weight: 600; font-size: 0.85rem; margin-top: 12px !important; }
 .model { margin-top: 6px; }
 .model-name { font-size: 0.9rem; word-break: break-all; }
-.matrix { border-collapse: collapse; margin-top: 6px; font-size: 0.8rem; }
-.matrix th, .matrix td { padding: 4px 8px; text-align: center; }
-.matrix tbody th { text-align: left; font-weight: 600; word-break: break-all; }
-.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--aifred-border); }
-.dot.done { background: var(--aifred-accent-success); border-color: var(--aifred-accent-success); }
-.dot.failed { background: var(--aifred-danger); border-color: var(--aifred-danger); }
 </style>

@@ -60,6 +60,7 @@ export type CalibrationMatrix = Schemas["CalibrationMatrix"];
 export type MatrixCell = Schemas["MatrixCell"];
 export type ModelInUse = Schemas["ModelInUse"];
 export type LayerSplit = Schemas["LayerSplit"];
+export type CalibrationRunState = Schemas["CalibrationRunState"];
 export type CameraRow = Schemas["CameraRow"];
 export type ZoneMask = Schemas["ZoneMask"];
 export type ChoiceOption = Schemas["ChoiceOption"];
