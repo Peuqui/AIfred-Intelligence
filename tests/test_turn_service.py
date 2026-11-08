@@ -358,6 +358,22 @@ def test_a_model_that_cannot_see_answers_from_a_description_in_the_user_turn(
     assert "Ein brauner Hund auf einer Wiese." in _data()["llm_history"][0]["content"]   # later turns know it too
 
 
+def test_the_description_of_the_images_is_a_phase_the_pages_see_until_it_is_done(
+    picture: str, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seeing(monkeypatch, "qwen3-vl:8b")
+    seen: list[str] = []
+
+    async def describe(*_args: Any) -> str:
+        seen.extend(event.data["phase"] for event in session_events.replay_after(SESSION, 0) if event.kind == "turn_phase")
+        return "Ein brauner Hund auf einer Wiese."
+
+    monkeypatch.setattr(turn_images, "describe_images", describe)
+    _image_turn("Was ist das?", picture)
+    assert seen == ["images"]
+    assert [event.data["phase"] for event in session_events.replay_after(SESSION, 0) if event.kind == "turn_phase"] == [""]
+
+
 def test_a_debate_works_from_one_description_even_when_the_answering_model_sees(
     picture: str, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
 ) -> None:

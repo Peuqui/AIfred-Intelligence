@@ -66,7 +66,7 @@ async def run_web_search(queries: list[str], llm_history: list[dict]) -> tuple[s
     llm_history line from the count (research_note).
     """
     from .config import BACKEND_DEFAULT_MODELS, BACKEND_URLS, DEFAULT_SETTINGS
-    from .debug_bus import debug
+    from .debug_bus import debug, report_phase
     from .llm_client import LLMClient
     from .research.query_processor import process_query_and_search
     from .research.scraper_orchestrator import orchestrate_scraping
@@ -167,8 +167,11 @@ async def run_web_search(queries: list[str], llm_history: list[dict]) -> tuple[s
             if item["type"] == "scraping_result":
                 _, scraping_tool_results = item["data"]
                 tool_results.extend(scraping_tool_results)
+            elif item["type"] == "progress":
+                report_phase("scraping", current=item["current"], total=item["total"], failed=item["failed"])
             elif item["type"] == "debug":
                 debug(item["message"])
+        report_phase("")
 
         if not tool_results:
             debug("⚠️ No sources available")

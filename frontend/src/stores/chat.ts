@@ -20,6 +20,7 @@ import type {
 import { t } from "../i18n";
 import * as media from "../lib/media";
 import * as speech from "../lib/speech";
+import type { TurnPhase } from "../lib/turnProgress";
 import { type HubNotice, useHubNotice } from "./hubNotice";
 import { useServiceStatus } from "./serviceStatus";
 import { useSessions } from "./sessions";
@@ -43,6 +44,8 @@ export const useChat = defineStore("chat", () => {
   const running = ref(false);
   const streaming = ref<Streaming | null>(null);
   const toolStatus = ref("");
+  // What the turn does while it has no text (turn_phase); null: no phase reported.
+  const phase = ref<TurnPhase | null>(null);
   const notice = ref("");
   // What an action of the chat's toolbar reports (not a warning): "Merken".
   const info = ref("");
@@ -76,6 +79,7 @@ export const useChat = defineStore("chat", () => {
     regenerating.value = detail.speech_regenerating;
     streaming.value = null;
     toolStatus.value = "";
+    phase.value = null;
     notice.value = "";
     info.value = "";
     queued.value = [];
@@ -96,6 +100,7 @@ export const useChat = defineStore("chat", () => {
     switch (kind) {
       case "turn_started":
         running.value = true;
+        phase.value = null;
         notice.value = "";
         info.value = "";
         queued.value = queued.value.slice(1);
@@ -118,6 +123,9 @@ export const useChat = defineStore("chat", () => {
       case "tool_status":
         toolStatus.value = String(data.text);
         break;
+      case "turn_phase":
+        phase.value = data.phase ? (data as unknown as TurnPhase) : null;
+        break;
       case "message_added":
         history.value = [...history.value, data.entry as ChatEntry];
         streaming.value = null;
@@ -139,6 +147,7 @@ export const useChat = defineStore("chat", () => {
         pendingImages.value = [];
         streaming.value = null;
         toolStatus.value = "";
+        phase.value = null;
         notice.value = "";
         info.value = "";
         title.value = "";
@@ -194,6 +203,7 @@ export const useChat = defineStore("chat", () => {
         running.value = false;
         streaming.value = null;
         toolStatus.value = "";
+        phase.value = null;
         void useSessions().refresh();
         break;
       case "debug":
@@ -392,7 +402,7 @@ export const useChat = defineStore("chat", () => {
   }
 
   return {
-    sessionId, title, history, debugLines, config, running, streaming, toolStatus, notice, info, queued,
+    sessionId, title, history, debugLines, config, running, streaming, toolStatus, phase, notice, info, queued,
     pendingImages, uploading, draft, dictations, open, close, send, stop, configure,
     uploadImages, removeImage, dictate, dictated,
     readAgain, regenerating, regenerateAll, rotateImage, cropImage, exportChat, clearChat,

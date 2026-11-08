@@ -11,11 +11,13 @@ import DebugConsole from "../components/DebugConsole.vue";
 import ImageEditor from "../components/ImageEditor.vue";
 import MessageBubble from "../components/MessageBubble.vue";
 import SessionList from "../components/SessionList.vue";
+import TurnProgress from "../components/TurnProgress.vue";
 import { t } from "../i18n";
 import { CHAT_ZOOM, chatZoom, zoomBy } from "../lib/devicePrefs";
 import { saveAs } from "../lib/download";
 import { renderMarkdown } from "../lib/markdown";
 import { successorSession } from "../lib/sessionSuccessor";
+import { progressLine } from "../lib/turnProgress";
 import { useChat } from "../stores/chat";
 import { useSessions } from "../stores/sessions";
 import { useSettings } from "../stores/settings";
@@ -28,6 +30,10 @@ const modes = ref<DebateMode[]>([]);
 const messages = ref<HTMLElement | null>(null);
 const streamingHtml = computed(() => (chat.streaming ? renderMarkdown(chat.streaming.text) : ""));
 const hasReplies = computed(() => chat.history.some((entry) => entry.role === "assistant"));
+// Shown in the streaming bubble, or on its own while the turn has none yet.
+const progress = computed(() =>
+  progressLine(chat.running, chat.phase, !chat.streaming || (!chat.streaming.text && !chat.toolStatus)),
+);
 
 // The agents' quick choices (models and switches) behind the 🎛️ button.
 const choicesOpen = ref(false);
@@ -101,7 +107,7 @@ async function remove(sessionIds: string[]): Promise<void> {
 // to read, the view stays where it is until they come back down (until 08.11.2026 every token pulled it down).
 const FOLLOW_SLACK_PX = 40;
 watch(
-  () => [chat.history.length, chat.streaming?.text.length],
+  () => [chat.history.length, chat.streaming?.text.length, progress.value?.text],
   async () => {
     const view = messages.value;
     const atEnd = !view || view.scrollHeight - view.scrollTop - view.clientHeight < FOLLOW_SLACK_PX;
@@ -174,7 +180,9 @@ onMounted(() => void start());
           <!-- eslint-disable-next-line vue/no-v-html -- sanitized by renderMarkdown (DOMPurify) -->
           <div v-html="streamingHtml" />
           <p v-if="chat.toolStatus" class="tool">{{ chat.toolStatus }}</p>
+          <TurnProgress v-if="progress" :line="progress" />
         </article>
+        <TurnProgress v-else-if="progress" class="waiting" :line="progress" />
         <p v-if="chat.notice" class="notice">⚠️ {{ chat.notice }}</p>
         <p v-if="chat.info" class="info">{{ chat.info }}</p>
         <p v-if="settings.notice" class="notice">⚠️ {{ settings.notice }}</p>
@@ -231,6 +239,7 @@ h2 { margin: 0; font-size: 1rem; }
 .streaming { align-self: flex-start; max-width: min(860px, 92%); padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light); }
 .streaming header { font-size: 0.8rem; font-weight: 600; color: var(--aifred-primary); }
 .tool { margin: 4px 0 0; font-size: 0.8rem; color: var(--aifred-accent-cyan); }
+.waiting { align-self: flex-start; padding: 0 14px; }
 .notice { color: var(--aifred-accent-amber); }
 .info { color: var(--aifred-accent-success); }
 @media (max-width: 760px) {

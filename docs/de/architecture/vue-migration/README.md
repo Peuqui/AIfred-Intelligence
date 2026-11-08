@@ -93,7 +93,7 @@ der neue Dienst entsteht daneben und ersetzt beim Wechsel beide alten Pfade.
   Modell), Nutzer-Eintrag, Zeitstempel, Intent und Moduswechsel, Kompression, Routing, Antwort
   des Agenten (zustandslose Fassung von `_run_agent_direct_response` und
   `_stream_agent_to_history`), Speichern unter `session_rmw_lock`, Titel, Abbruch über
-  `pipeline_registry`. Ereignisse über `session_events`: `turn_started`, `agent_started`, `token`,
+  `pipeline_registry`. Ereignisse über `session_events`: `turn_started`, `turn_phase`, `agent_started`, `token`,
   `tool_status`, `debug`, `message_added`, `turn_finished` (Liste in `inventar-chat-sitzungen.md` 5.2).
 - **`lib/reply_speech.py`**: die gesprochene Antwort. Ob vorgelesen wird (`enable_tts` ∧
   `tts_autoplay` ∧ Stimme des Agenten an) und in welcher Sprache (eigene des Agenten, sonst die der
@@ -476,7 +476,14 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
       die anderen Bilder der Blase mit ← →, Esc schließt; ein Bild hinter einem Link behält seinen Link).
   15. ~~Schriftgröße im Chat~~ (erledigt 08.11.: A− / A+ in der Kopfleiste, 80 bis 200 %, je Gerät wie in Reflex).
   16. Hilfe-Fenster (Diskussionsmodi, Reasoning/Thinking, Modell-Lebenszyklus, Vigilantia).
-  17. Fortschrittsanzeige vor der ersten Antwort.
+  17. ~~Fortschrittsanzeige vor der ersten Antwort~~ (erledigt 08.11.: Ereignis `turn_phase` über
+      `debug_bus.report_phase`, das die Sitzung des Zugs schon kennt, auch tief in einem Werkzeug. Phasen `intent`
+      (Automatik-Aufruf), `images` (Bildbeschreibung), `compress` (auch wenn die Zusammenfassung scheitert) und
+      `scraping` (gelesene von allen Seiten, nicht erreichbare); jede endet mit ihrer Arbeit. Vue zeigt die Phase als
+      pulsierende Zeile (`TurnProgress.vue`, Regel in `lib/turnProgress.ts`), beim Scraping mit Balken, sonst
+      „Generiere Antwort …“, bis Text oder eine Werkzeugzeile kommt; das „Warte auf Eingabe …“ der Reflex-Leiste
+      entfällt. Vorher warf die Recherche die Zähler des Scrapers weg. `tests/test_turn_phases.py` prüft, dass Vue
+      jede Phase des Servers kennt. Im Browser geprüft mit Web-Suche am 30B-Modell.)
   18. Ordner und Symlinks im Ordner-Auswähler anlegen (gemeinsamer Dateimanager).
   Dazu: Der Zug gibt dem Toolkit den Gesprächsverlauf nicht mit; die Web-Suche rankt seither ohne Kontext (der
   Reflex-Chat gab ihn über den State, der Hub nie).

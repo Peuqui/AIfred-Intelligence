@@ -1,20 +1,17 @@
-"""Centralized Debug Bus — single debug API for all contexts.
+"""Centralized Debug Bus: what a turn reports to its session, from any depth of the code.
 
-Replaces the dual debug paths (Browser State vs Hub debug_sink).
-Plugin developers only need one call: debug("message").
+One call for every context: ``debug("message")`` writes the log, and inside a ``session_scope`` also
+the session's debug console (its file and its open pages). ``report_phase`` tells the session's pages
+what the turn is doing while no text comes (the line in the chat, ``frontend/src/lib/turnProgress.ts``).
 
 Usage:
     from aifred.lib.debug_bus import debug, session_scope
 
-    # Hub path: set session context once per request
-    with session_scope(session_id):
-        debug("🔍 Web search started")   # → log + session file (immediate)
-        debug("✅ 7 sources scraped")     # → log + session file (immediate)
+    with session_scope(session_id):      # once per turn (turn_service.run_turn) or request
+        debug("🔍 Web search started")   # → log + session file + ``debug`` event
+        report_phase("scraping", current=3, total=7)
 
-    # Browser path: state.add_debug() forwards to debug() internally
-    # No session_scope needed — Reflex State handles live UI updates
-
-    # Standalone (startup, no session): goes to logfile only
+    # Outside a session (startup): the log only
     debug("Server starting...")
 """
 
@@ -53,11 +50,8 @@ class session_scope:
 
 
 def debug(msg: str) -> None:
-    """Emit a debug message.
-
-    - Always: writes to log_message() (logfile + console queue)
-    - If session_scope active: writes immediately to session file (the Reflex UI picks it up
-      through its polling timer) and sends it as a ``debug`` event to the session's clients.
+    """Emit a debug message: the log always; inside a session_scope also the session file and a
+    ``debug`` event to the session's pages.
 
     Args:
         msg: The debug message (without timestamp — added automatically).
@@ -71,6 +65,22 @@ def debug(msg: str) -> None:
         from . import session_events
         session_events.publish(sid, "debug", {"line": line})
 
+
+def report_phase(phase: str, *, current: int = 0, total: int = 0, failed: int = 0) -> None:
+    """Tell the pages of the current session what the turn is doing: ``intent`` (the Automatik call),
+    ``images`` (their description), ``compress`` (the history), ``scraping`` (``current`` of ``total``
+    pages read, ``failed`` unreachable). An empty phase ends it; the caller ends what it began. The
+    browser shows each phase by its name (``frontend/src/lib/turnProgress.ts``, tests/test_turn_phases.py).
+
+    Outside a session_scope nobody listens (a search outside a turn).
+    """
+    sid = _current_session.get()
+    if sid:
+        from . import session_events
+        session_events.publish(
+            sid, "turn_phase", {"phase": phase, "current": current, "total": total, "failed": failed},
+            replaces=frozenset({"turn_phase"}),
+        )
 
 
 def _flush_to_session(session_id: str, messages: list[str]) -> None:
@@ -86,7 +96,6 @@ def _flush_to_session(session_id: str, messages: list[str]) -> None:
         existing = data.get("debug_messages", [])
         existing.extend(messages)
 
-        # Browser detects via session file mtime-watch (SSOT)
         update_chat_data(
             session_id=session_id,
             chat_history=data.get("chat_history", []),

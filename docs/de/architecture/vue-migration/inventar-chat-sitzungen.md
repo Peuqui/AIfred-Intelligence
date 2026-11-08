@@ -418,7 +418,7 @@ Schon passend oder nah dran: `POST /chat/inject` (Ziel wird die Server-Warteschl
 | `token` | `{text}` | `current_ai_response` |
 | `thinking` | `{text}` | fehlt live (2.7) |
 | `tool_status` | `{text}` oder `{text: ""}` | `tool_status` |
-| `progress` | `{phase, current, total, failed}` oder `{clear: true}` | `progress_*` |
+| `turn_phase` (umgesetzt 08.11.) | `{phase: intent\|images\|compress\|scraping, current, total, failed}`, `phase: ""` beendet | `progress_*` |
 | `message_added` | `{entry}` | `_add_agent_panel` |
 | `message_updated` | `{timestamp, audio_urls, browser_speech, tts_note}` | `bubble_audio`, `bubble_browser_speech`, `bubble_tts_note` |
 | `history_replaced` | `{chat_history}` (nach Kompression, Leeren, Kanal-Zug) | mtime-Abgleich, `refresh_session_list` |

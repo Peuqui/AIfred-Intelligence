@@ -9,7 +9,9 @@ Events of a turn, in order: ``turn_started`` (the user's entry), ``session_confi
 mode switch or a sticky address), ``agent_started``, ``token`` (text pieces, bundled),
 ``tool_status``, ``message_added`` (the finished reply), ``turn_finished``; ``turn_rejected``
 instead when the turn cannot start, ``message_queued`` for a message that waits behind it.
-``debug`` lines arrive throughout, ``session_title`` after the first exchange. In a multi-agent
+``debug`` lines arrive throughout, ``turn_phase`` while the turn works without text (Automatik call,
+image description, compression, the pages of a web search; ``debug_bus.report_phase``),
+``session_title`` after the first exchange. In a multi-agent
 mode ``agent_started`` … ``message_added`` repeat for every agent that speaks. A reply read aloud
 adds ``tts``, ``tts_pause`` and ``tts_speak`` (the playlist), ``notice`` (a message for the user)
 and, once the reading is over, ``message_updated`` (the bubble with what was spoken); these may
@@ -37,7 +39,7 @@ from typing import TYPE_CHECKING, Any
 from . import session_events
 from .config import LLAMASWAP_BACKENDS, TURN_TOKEN_EVENT_INTERVAL_S
 from .debate_seats import session_seats
-from .debug_bus import debug, session_scope
+from .debug_bus import debug, report_phase, session_scope
 from .logging_utils import log_exception, log_message
 from .prompt_loader import get_language
 from .runtime_settings import (
@@ -331,10 +333,12 @@ async def _detect_intent(view: RuntimeSettings, llm_client: Any, user_text: str)
     # Same model as AIfred: the same context as its preload, or the backend reloads it twice.
     same_model = automatik == effective_model_id(view, "aifred")
     num_ctx = (view.agent_tuning["aifred"].max_context or None) if same_model else AUTOMATIK_LLM_NUM_CTX
+    report_phase("intent")
     await _announce_cold_start(view, automatik)
     addressed_to, language, mode_switch, pure, _raw, load_time = await detect_query_intent_and_addressee(
         user_text, automatik, llm_client, automatik_num_ctx=num_ctx,
     )
+    report_phase("")
     switch = format_mode_switch_summary(mode_switch) if mode_switch else "–"
     debug(f"🎯 {format_intent_result(addressed_to, language)}, Switch: {switch}, PureCmd: {'yes' if pure else 'no'}")
     return _Intent(addressed_to, language, mode_switch, pure, load_time)
@@ -459,12 +463,14 @@ async def _look_at_images(
     if plan.responder is not None and not plan.debate and describer.model == main_model:
         debug(f"📷 VL Direct ({len(images)} image(s)) → {main_model}")
         return tuple(images), llm_user_text
+    report_phase("images")
     if endpoint(describer.model) is None:   # a describer of another machine loads there
         await _announce_cold_start(view, describer.model)
     debug(f"📷 Image description ({len(images)} image(s)) → {describer.model}")
     description = await describe_with_second_attempt(
         describer, choose, lambda chosen: describe_images(images, user_text, lang, chosen.model, view),
     )
+    report_phase("")
     llm_user_text = f"{llm_user_text}\n\n{description_block(description, lang)}"
     _rewrite_user_turn(session_id, llm_user_text)
     return (), llm_user_text
@@ -497,6 +503,7 @@ async def compress_history(
     from .session_storage import load_session, session_rmw_lock, update_chat_data
 
     data = (load_session(ctx.session_id) or {}).get("data", {})
+    compressing = False   # the summary can fail after it began: the phase ends after the loop
     async for event in summarize_history_if_needed(
         history=data["chat_history"],
         llm_client=ctx.llm_client,
@@ -509,6 +516,9 @@ async def compress_history(
     ):
         if event["type"] == "debug":
             debug(event["message"])
+        elif event["type"] == "progress":
+            compressing = True
+            report_phase("compress")
         elif event["type"] == "history_update":
             with session_rmw_lock:
                 current = (load_session(ctx.session_id) or {}).get("data", {})
@@ -521,6 +531,8 @@ async def compress_history(
                 )
             session_events.publish(ctx.session_id, "history_replaced", {"chat_history": event["chat_history"]})
             debug(f"✅ {label}: {len(event['chat_history'])} UI / {len(llm_history)} LLM messages")
+    if compressing:
+        report_phase("")
 
 
 # ── An agent's model call: build, stream, finish ─────────────────────────
