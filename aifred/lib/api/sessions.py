@@ -472,6 +472,22 @@ async def sessions_stop(session_id: str, request: Request) -> dict[str, bool]:
     return {"cancelled": cancelled}
 
 
+class ChatExported(BaseModel):
+    url: str = Field(description="The standalone page, under /_upload/html_preview/")
+    download_name: str = Field(description="A plain ASCII file name for saving it")
+    messages: int
+
+
+@api_app.post("/sessions/{session_id}/export", response_model=ChatExported, tags=["Sessions"])
+async def sessions_export(session_id: str, request: Request) -> ChatExported:
+    """The chat as one standalone HTML file (images, audio, sandbox pages and KaTeX embedded); 422 without a chat."""
+    from ..chat_export import export_session
+
+    owned_session(request, session_id)
+    done = await asyncio.to_thread(export_session, session_id)
+    return ChatExported(url=done.url, download_name=done.download_name, messages=done.messages)
+
+
 # ── Follow ───────────────────────────────────────────────────────────────
 
 

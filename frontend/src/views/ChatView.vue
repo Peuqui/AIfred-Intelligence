@@ -12,6 +12,7 @@ import ImageEditor from "../components/ImageEditor.vue";
 import MessageBubble from "../components/MessageBubble.vue";
 import SessionList from "../components/SessionList.vue";
 import { t } from "../i18n";
+import { saveAs } from "../lib/download";
 import { renderMarkdown } from "../lib/markdown";
 import { useChat } from "../stores/chat";
 import { useSessions } from "../stores/sessions";
@@ -50,6 +51,26 @@ async function cropImage(box: CropBox): Promise<void> {
   editBusy.value = true;
   if (await chat.cropImage(editing.value, box)) editing.value = null;
   editBusy.value = false;
+}
+
+// The chat as one standalone HTML file: opened in a tab (to read, or to print as PDF) or saved. The tab opens on the
+// click itself, before the server has built the file: opened later, a browser takes it for a pop-up.
+const exporting = ref(false);
+
+async function shareChat(): Promise<void> {
+  const tab = window.open("", "_blank");
+  exporting.value = true;
+  const done = await chat.exportChat();
+  exporting.value = false;
+  if (done && tab) tab.location.href = done.url;
+  else tab?.close();
+}
+
+async function downloadChat(): Promise<void> {
+  exporting.value = true;
+  const done = await chat.exportChat();
+  if (done) await saveAs(done.url, done.download_name);
+  exporting.value = false;
 }
 
 async function start(): Promise<void> {
@@ -109,6 +130,8 @@ onMounted(() => void start());
           >
             {{ chat.config.incognito ? "🔒" : "🔓" }}
           </button>
+          <button class="export" :disabled="!chat.history.length || exporting" :title="t('share_chat')" @click="shareChat">🔗</button>
+          <button class="export" :disabled="!chat.history.length || exporting" :title="t('download_chat')" @click="downloadChat">💾</button>
           <AgentSelect :agents="agents" :active="chat.config.active_agent" @choose="(agent) => chat.configure({ active_agent: agent })" />
           <DebateControls :config="chat.config" :agents="agents" :modes="modes" @configure="chat.configure" />
           <VisionBadge />
@@ -175,8 +198,8 @@ onMounted(() => void start());
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 1rem; }
 .choices { display: flex; align-items: center; gap: 10px; }
-.incognito, .regenerate, .agent-choices { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
-.regenerate:disabled { opacity: 0.7; cursor: progress; }
+.incognito, .regenerate, .agent-choices, .export { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
+.regenerate:disabled, .export:disabled { opacity: 0.7; cursor: progress; }
 .incognito.on { border-color: var(--aifred-accent-amber); }
 .messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
 .streaming { align-self: flex-start; max-width: min(860px, 92%); padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light); }

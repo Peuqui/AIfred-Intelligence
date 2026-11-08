@@ -416,7 +416,16 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   `create_symlink`, die Base64-Lader und `get_katex_inline_assets` (für den Chat-Export).
 - **Lücken vor dem Umschalten (Abgleich aller 29 Mixins gegen Vue und API, 08.11.2026).** Reflex konnte, Vue
   kann es noch nicht (Reihenfolge nach dem, was ein Nutzer am meisten vermisst):
-  1. Chat-Export einer Sitzung als eigenständige HTML-Datei (Teilen im Tab, Herunterladen).
+  1. ~~Chat-Export einer Sitzung als eigenständige HTML-Datei~~ (erledigt 08.11.: `lib/chat_export.py` mit der
+     Vorlage `chat_export.html`, `POST /api/sessions/{id}/export`, in Vue 🔗 Teilen und 💾 HTML laden in der
+     Kopfleiste, `lib/download.ts`). Beim Umzug geändert: Kopfzeile aus Name und Emoji des Eintrags statt fester
+     Sokrates/Salomo-Klassen; eine eingebettete Sandbox-Seite behält `sandbox="allow-scripts"` (der alte Export
+     nahm es weg, ihr Skript lief dann im Ursprung von AIfred) und bekommt ihre `/vendor/`-Bibliotheken
+     eingeschrieben; nur Sandbox-Ausgaben der eigenen Sitzung; Texte in den Übersetzungen, Farben aus dem Theme.
+     Der alte Quellenkasten des Exports entfällt (die Quellen stehen im Inhalt der Blase). Geprüft im Browser:
+     Tab und Download, die three.js-Seite läuft im Export auch aus der Datei ohne Server. Offen fürs Umschalten:
+     nginx erlaubt für `/_upload/html_preview` kein `data:`-Audio (`media-src`), im geteilten Tab spielt das
+     eingebettete Audio dort nicht, in der Datei schon.
   2. Sampling je Agent (Temperatur, Top-K, Top-P, Min-P, Repeat-Penalty) und „auf Modell-Standard zurück“.
   3. Statuszeile für Sprachmodell, Beschreiber, STT und TTS (Restzeit, Laden/Entladen, Karte freihalten); die API
      ist da, keine Komponente nutzt sie.

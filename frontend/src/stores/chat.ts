@@ -6,6 +6,7 @@ import { ApiError, api } from "../api/client";
 import { followSession } from "../api/events";
 import type {
   ChatEntry,
+  ChatExported,
   CropBox,
   DictatedTextResult,
   DictationAccepted,
@@ -248,6 +249,17 @@ export const useChat = defineStore("chat", () => {
     }
   }
 
+  // The chat as one standalone HTML file (lib/chat_export.py): where it lies and a plain file name for saving it.
+  async function exportChat(): Promise<ChatExported | null> {
+    if (!sessionId.value) return null;
+    try {
+      return await api<ChatExported>(`sessions/${sessionId.value}/export`, { method: "POST" });
+    } catch (error) {
+      notice.value = error instanceof ApiError ? error.detail : String(error);
+      return null;
+    }
+  }
+
   async function answerDictation(jobId: string, question: string): Promise<void> {
     if (!sessionId.value) return;
     await api<void>(`sessions/${sessionId.value}/dictation/${jobId}/answer`, {
@@ -311,6 +323,6 @@ export const useChat = defineStore("chat", () => {
     sessionId, title, history, debugLines, config, running, streaming, toolStatus, notice, queued,
     pendingImages, uploading, draft, dictations, open, close, send, stop, configure,
     uploadImages, removeImage, dictate, dictated,
-    readAgain, regenerating, regenerateAll, rotateImage, cropImage,
+    readAgain, regenerating, regenerateAll, rotateImage, cropImage, exportChat,
   };
 });
