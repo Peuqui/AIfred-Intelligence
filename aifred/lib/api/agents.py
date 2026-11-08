@@ -359,13 +359,33 @@ def _persona(agent_id: str) -> AgentPersona:
     )
 
 
+# The id the prompt editor gives the Automatik LLM: no agent, its prompts are a folder (prompt_loader.automatik_prompts).
+# No agent can take it: its prompt folder exists (agent_config.prompt_folder_taken).
+AUTOMATIK = "automatik"
+
+
+def _prompt_layers(agent_id: str) -> tuple[str, dict[str, str]]:
+    """The name and the prompt layers (key → path under prompts/<lang>/) of what has editable prompts: a chat agent,
+    a system agent, the Automatik LLM."""
+    from ..agent_config import get_agent_config
+    from ..i18n import t
+    from ..prompt_loader import automatik_prompts, get_language
+
+    if agent_id == AUTOMATIK:
+        return t("automatik_agent_name", lang=get_language()), automatik_prompts()
+    config = get_agent_config(agent_id)
+    if config is None:
+        raise Missing("unknown_agent", agent=agent_id)
+    return config.display_name, config.prompts
+
+
 def _prompt_file(agent_id: str, lang: str, key: str) -> Path:
     from ..prompt_loader import prompt_path
 
-    config = _chat_agent(agent_id)
-    if key not in config.prompts:
-        raise Missing("no_prompt", agent=config.display_name, prompt=key)
-    path = prompt_path(lang, config.prompts[key])
+    name, layers = _prompt_layers(agent_id)
+    if key not in layers:
+        raise Missing("no_prompt", agent=name, prompt=key)
+    path = prompt_path(lang, layers[key])
     if path is None:
         raise Invalid("no_prompt_file", prompt=key, language=lang)
     return path
@@ -393,7 +413,8 @@ async def agents_persona_change(agent_id: str, change: PersonaChange) -> AgentPe
 
 @api_app.get("/agents/{agent_id}/prompts/{lang}/{key}", response_model=PromptText, tags=["Agents"])
 async def agents_prompt(agent_id: str, lang: str, key: str) -> PromptText:
-    """A prompt layer's text in one language (empty, ``exists`` false, when the file is not there)."""
+    """A prompt layer's text in one language (empty, ``exists`` false, when the file is not there); also of a system
+    agent and of the Automatik LLM (``automatik``)."""
     path = _prompt_file(agent_id, lang, key)
     return PromptText(text=path.read_text(encoding="utf-8") if path.is_file() else "", exists=path.is_file())
 
@@ -423,6 +444,122 @@ def _rights(agent_id: str) -> AgentRights:
         ])
         for group in groups
     ])
+
+
+# ── System agents and the Automatik LLM: prompts, and the cloud model of a cloud workflow ──
+
+
+class CloudProviderChoice(BaseModel):
+    id: str
+    name: str
+    configured: bool = Field(description="Its API key is set")
+
+
+class SystemAgentCloud(BaseModel):
+    provider: str
+    model: str
+    reasoning: bool = Field(description="The model thinks between its steps (enable_thinking)")
+    providers: list[CloudProviderChoice]
+
+
+class SystemAgentCard(BaseModel):
+    id: str = Field(description="The agent's id; ``automatik`` for the Automatik LLM, which is no agent")
+    label: str = Field(description="Emoji and name as the page shows them")
+    prompt_keys: list[str]
+    languages: list[str] = Field(description="The languages there are prompts in")
+    cloud: SystemAgentCloud | None = Field(description="Only for an agent that drives a cloud workflow (calibration)")
+
+
+class CloudChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider: str | None = None
+    model: str | None = Field(None, min_length=1)
+    reasoning: bool | None = None
+
+
+class CloudModels(BaseModel):
+    models: list[str]
+    notes: list[str] = Field(description="What happened on the way (no key, no answer of the provider)")
+
+
+def _system_cloud(raw: dict) -> SystemAgentCloud | None:
+    """The cloud choice of a system agent; agents.json marks a cloud workflow by the agent's ``cloud_provider``."""
+    from ...backends.cloud_api import is_cloud_api_configured
+    from ..config import CLOUD_API_PROVIDERS
+
+    if "cloud_provider" not in raw:
+        return None
+    return SystemAgentCloud(
+        provider=raw["cloud_provider"], model=str(raw.get("model") or ""),
+        reasoning=bool((raw.get("toggles") or {}).get("reasoning", False)),
+        providers=[CloudProviderChoice(id=provider, name=entry["name"], configured=is_cloud_api_configured(provider))
+                   for provider, entry in CLOUD_API_PROVIDERS.items()],
+    )
+
+
+def _system_cards() -> list[SystemAgentCard]:
+    from ..agent_config import ROLE_SYSTEM, load_agents_raw
+    from ..prompt_loader import automatik_prompt_languages, prompt_languages
+
+    languages = prompt_languages()
+    cards = [
+        SystemAgentCard(id=agent_id, label=f"{raw['emoji']} {raw['display_name']}", prompt_keys=list(raw.get("prompts") or {}),
+                        languages=languages, cloud=_system_cloud(raw))
+        for agent_id, raw in load_agents_raw().items() if raw.get("role") == ROLE_SYSTEM
+    ]
+    label, layers = _prompt_layers(AUTOMATIK)
+    return [*cards, SystemAgentCard(id=AUTOMATIK, label=label, prompt_keys=list(layers), languages=automatik_prompt_languages(), cloud=None)]
+
+
+def _cloud_agent(agent_id: str) -> dict:
+    """The raw entry of a system agent with a cloud workflow; 404 for any other."""
+    from ..agent_config import ROLE_SYSTEM, load_agents_raw
+
+    raw = load_agents_raw().get(agent_id)
+    if raw is None or raw.get("role") != ROLE_SYSTEM or "cloud_provider" not in raw:
+        raise Missing("no_cloud_agent", agent=agent_id)
+    return raw
+
+
+@api_app.get("/agents/system", response_model=list[SystemAgentCard], tags=["Agents"])
+async def agents_system() -> list[SystemAgentCard]:
+    """The system agents and the Automatik LLM: their prompt layers (the same prompt endpoints as a chat agent's) and,
+    for a cloud workflow, provider, model and reasoning."""
+    return _system_cards()
+
+
+@api_app.get("/agents/system/{agent_id}/cloud/models", response_model=CloudModels, tags=["Agents"])
+async def agents_system_cloud_models(agent_id: str, provider: str) -> CloudModels:
+    """The models a cloud provider offers now (empty without key or answer; ``notes`` says why)."""
+    from ..backend_switch import model_catalog
+    from ..config import CLOUD_API_PROVIDERS
+
+    _cloud_agent(agent_id)
+    if provider not in CLOUD_API_PROVIDERS:
+        raise Invalid("unknown_cloud_provider", provider=provider)
+    catalog, notes = await model_catalog("cloud_api", provider)
+    return CloudModels(models=list(catalog), notes=notes)
+
+
+@api_app.patch("/agents/system/{agent_id}/cloud", response_model=SystemAgentCard, tags=["Agents"])
+async def agents_system_cloud_change(agent_id: str, change: CloudChange) -> SystemAgentCard:
+    """Change provider, model or reasoning of a system agent's cloud workflow; it holds from its next run on."""
+    from ..agent_config import update_agent
+    from ..config import CLOUD_API_PROVIDERS
+
+    raw = _cloud_agent(agent_id)
+    updates: dict = {}
+    if change.provider is not None:
+        if change.provider not in CLOUD_API_PROVIDERS:
+            raise Invalid("unknown_cloud_provider", provider=change.provider)
+        updates["cloud_provider"] = change.provider
+    if change.model is not None:
+        updates["model"] = change.model
+    if change.reasoning is not None:
+        updates["toggles"] = {**(raw.get("toggles") or {}), "reasoning": change.reasoning}
+    update_agent(agent_id, updates)
+    log_message(f"☁️ System agent '{agent_id}' cloud changed: {', '.join(updates)}")
+    return next(card for card in _system_cards() if card.id == agent_id)
 
 
 @api_app.get("/agents/{agent_id}/tools", response_model=AgentRights, tags=["Agents"])

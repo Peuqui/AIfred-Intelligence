@@ -418,6 +418,23 @@ def get_agent_system_prompt(
 # Convenience functions for frequently used prompts
 # ============================================================
 
+# The Automatik LLM is no agent: its prompts are the files of this folder (intent detection, URL ranking), in English
+# only, since it is always asked in English.
+AUTOMATIK_PROMPT_DIR = "automatik"
+
+
+def automatik_prompts() -> dict[str, str]:
+    """The Automatik LLM's prompts as prompt layers: key → path under prompts/<lang>/, from every language's folder."""
+    keys = sorted({path.stem for lang in prompt_languages() for path in (PROMPTS_DIR / lang / AUTOMATIK_PROMPT_DIR).glob("*.txt")})
+    return {key: f"{AUTOMATIK_PROMPT_DIR}/{key}.txt" for key in keys}
+
+
+def automatik_prompt_languages() -> list[str]:
+    """The languages the Automatik's prompts are in (English: it is always asked in English; a file in another
+    language would never be loaded)."""
+    return [lang for lang in prompt_languages() if (PROMPTS_DIR / lang / AUTOMATIK_PROMPT_DIR).is_dir()]
+
+
 def get_intent_detection_prompt(user_query: str, lang: str | None = None) -> str:
     """Load intent detection prompt with dynamic agent list + descriptions + aliases: the selectable
     agents only (no system agent, none switched off — they cannot be addressed)."""
@@ -433,7 +450,7 @@ def get_intent_detection_prompt(user_query: str, lang: str | None = None) -> str
             agent_lines.append(f"- {name_part}{alias_part}")
     agent_list = "\n".join(agent_lines)
     return load_prompt(
-        'automatik/intent_detection', lang=lang,
+        f'{AUTOMATIK_PROMPT_DIR}/intent_detection', lang=lang,
         user_query=user_query, agent_list=agent_list,
     )
 

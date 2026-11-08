@@ -453,7 +453,13 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
      sie oben (`HubNoticeToast.vue`, ein Klick öffnet die Sitzung) und lädt die Sitzungsliste nach). Vorher schrieb
      der Server `data/message_hub/notification.json`, das nur der Reflex-Poll las. Server-Seite per Test geprüft;
      im Browser nicht, die Testinstanz startet keinen Hub.
-  7. Systemagenten und Automatik-LLM im Editor (Prompts, Modell und Reasoning des Kalibrier-Agenten).
+  7. ~~Systemagenten und Automatik-LLM im Editor~~ (erledigt 08.11.: Abschnitt „Systemagenten“ auf der Agenten-Seite,
+     `SystemAgentEditor.vue`; `GET /api/agents/system` listet Vision, Calibration und die Automatik (`automatik`, kein
+     Agent: die Dateien von `prompts/en/automatik/`, nur Englisch, weil sie immer englisch fragt). Ihre Prompts gehen über
+     dieselben Endpunkte wie die eines Chat-Agenten (`/agents/{id}/prompts/…`), der Prompt-Editor ist eine Komponente
+     (`PromptLayers.vue`). Calibration: Cloud-Anbieter, Modell (live vom Anbieter, `backend_switch.model_catalog`) und
+     Reasoning, `PATCH /api/agents/system/{id}/cloud`; einen Cloud-Ablauf markiert `cloud_provider` in agents.json. Im
+     Browser geprüft (ohne API-Schlüssel der Testinstanz: der Hinweis statt der Liste).)
   8. ~~„Chat löschen“~~ (erledigt 08.11.: 🗑️ in der Kopfleiste, `POST /api/sessions/{id}/clear`,
      `session_storage.clear_chat`, `turn_service.end_session_activity` für Zug, Lesung und Wiedergabe, auch beim
      Löschen einer Sitzung; Ereignis `chat_cleared`). Die Dateien folgen der Regel des Löschens (Bilder, Audio,
@@ -581,7 +587,8 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   verlor sie beim Speichern). ＋ legt einen Agenten aus der Vorlage an, der Editor öffnet sich. Der
   Pfadschutz für Prompt-Dateien liegt jetzt an einer Stelle (`prompt_loader.prompt_path`, auch für die
   Reflex-Kopie). Bleibt für andere Seiten: geplante Aufträge je Agent
-  (Aufträge), Gedächtnis ansehen und löschen, Automatik-Prompt, Cloud-Modell der Systemagenten.
+  (Aufträge), Gedächtnis ansehen und löschen; Automatik-Prompt und Cloud-Modell der Systemagenten kamen
+  mit Lücke 7 (08.11.).
 - **Gedächtnis-Seite (erledigt 07.11.2026):** `MemoryView.vue` (🧠 in der Kopfleiste): links jeder Agent mit
   der Zahl seiner Erinnerungen (auch Sammlungen gelöschter Agenten), rechts seine Einträge mit Typ-Filter,
   bearbeiten (über `AgentMemory.update` wie das Werkzeug der Agenten), einzeln oder alle löschen.

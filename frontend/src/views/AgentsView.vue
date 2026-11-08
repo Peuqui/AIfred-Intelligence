@@ -6,11 +6,12 @@
 // the editor (persona, prompt texts, rights); ＋ makes a new agent from the template.
 import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
-import type { AgentCard } from "../api/types";
+import type { AgentCard, SystemAgentCard } from "../api/types";
 import AgentBundles from "../components/AgentBundles.vue";
 import AgentChoicesRow from "../components/AgentChoicesRow.vue";
 import AgentEditor from "../components/AgentEditor.vue";
 import ModalDialog from "../components/ModalDialog.vue";
+import SystemAgentEditor from "../components/SystemAgentEditor.vue";
 import HelpButton from "../components/help/HelpButton.vue";
 import { t } from "../i18n";
 import { useAgentChoices } from "../stores/agentChoices";
@@ -24,6 +25,7 @@ onMounted(() => void agents.load());
 const rows = computed(() => new Map((choices.choices?.agents ?? []).map((row) => [row.id, row])));
 
 const editing = ref<string | null>(null);
+const editingSystem = ref<SystemAgentCard | null>(null);
 const bundles = ref<"export" | "import" | null>(null);
 
 const creating = ref<{ id: string; display_name: string; emoji: string; description: string } | null>(null);
@@ -107,7 +109,19 @@ async function confirmDelete(): Promise<void> {
       </article>
     </section>
 
+    <h3>{{ t("agents_system_title") }}</h3>
+    <p class="system-hint">{{ t("agents_system_hint") }}</p>
+    <section class="cards">
+      <article v-for="card in agents.system" :key="card.id" class="card">
+        <header><div class="who"><strong>{{ card.label }}</strong><span v-if="card.cloud" class="description">☁️ {{ card.cloud.model }}</span></div></header>
+        <footer>
+          <button :title="t('agent_editor_edit')" @click="editingSystem = card">✏️ {{ t("agent_editor_edit") }}</button>
+        </footer>
+      </article>
+    </section>
+
     <AgentEditor v-if="editing" :agent-id="editing" @close="editing = null" />
+    <SystemAgentEditor v-if="editingSystem" :card="editingSystem" @close="editingSystem = null" />
     <AgentBundles v-if="bundles" :mode="bundles" :cards="agents.cards" @close="bundles = null" @imported="agents.load()" />
 
     <ModalDialog v-if="deleting" @close="deleting = null">
@@ -123,6 +137,8 @@ async function confirmDelete(): Promise<void> {
 <style scoped>
 .agents { overflow-y: auto; padding: 12px 0; display: flex; flex-direction: column; gap: 12px; }
 h2 { margin: 0; font-size: 1rem; }
+h3 { margin: 8px 0 0; font-size: 0.95rem; }
+.system-hint { margin: 0; font-size: 0.85rem; color: var(--aifred-text-secondary); }
 .bar { display: flex; align-items: center; gap: 14px; }
 .bar button:first-of-type { margin-left: auto; }
 .creating { display: flex; gap: 8px; flex-wrap: wrap; }
