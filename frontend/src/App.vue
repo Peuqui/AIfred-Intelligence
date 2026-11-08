@@ -71,7 +71,10 @@ onMounted(async () => {
         <img :src="hatIcon" alt="" class="hat" />
         <div>
           <strong>AIfred Intelligence</strong>
-          <small>{{ t("subtitle") }}</small>
+          <!-- In parts at the "•": the second moves to the next line when the bar is too narrow, instead of being cut. -->
+          <small>
+            <span v-for="(part, index) in t('subtitle').split(' • ')" :key="index">{{ index ? part : `${part} •` }}</span>
+          </small>
         </div>
       </div>
       <RouterLink v-if="route.path !== '/'" to="/" class="back">💬 {{ t("nav_chat") }}</RouterLink>
@@ -128,7 +131,8 @@ body {
 .brand > div { min-width: 0; display: flex; flex-direction: column; }
 .hat { width: 44px; height: 44px; flex: none; }
 .brand strong { font-size: 1.5rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.brand small { color: var(--aifred-text-secondary); font-style: italic; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brand small { color: var(--aifred-text-secondary); font-style: italic; font-size: 0.75rem; display: flex; flex-wrap: wrap; column-gap: 0.3em; }
+.brand small span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .back { color: var(--aifred-text-secondary); text-decoration: none; white-space: nowrap; }
 .user { color: var(--aifred-text-secondary); white-space: nowrap; }
 .burger { background: none; border: none; color: var(--aifred-primary); cursor: pointer; font-size: 1.3rem; padding: 0 4px; }
