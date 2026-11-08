@@ -541,20 +541,23 @@ class ZoneMaskPayload(BaseModel):
     enabled: bool = True     # Schnell-Toggle: aus = Maske bleibt, wirkt nicht
 
 
-@api_app.get("/vision/zone-mask", tags=["Vision"])
-async def get_zone_mask(source_id: str) -> dict[str, Any]:
+class ZoneMask(BaseModel):
+    exists: bool = Field(description="False: the camera has no mask (the other fields are empty)")
+    source_id: str
+    cols: int = 0
+    rows: int = 0
+    cells: str = Field(default="", description="cols × rows digits, row by row: 0 nothing, 1 ignore motion, 2 black out, 3 watch only here")
+    enabled: bool = Field(default=True, description="Off: the mask stays stored but does not act")
+
+
+@api_app.get("/vision/zone-mask", response_model=ZoneMask, tags=["Vision"])
+async def get_zone_mask(source_id: str) -> ZoneMask:
     """Gespeicherte Zonen-Maske einer Quelle (für den Editor zum Laden)."""
     entry = (load_vision_settings().get("zone_masks") or {}).get(source_id)
     if not isinstance(entry, dict):
-        return {"exists": False, "source_id": source_id}
-    return {
-        "exists": True,
-        "source_id": source_id,
-        "cols": entry.get("cols", 0),
-        "rows": entry.get("rows", 0),
-        "cells": entry.get("cells", ""),
-        "enabled": entry.get("enabled", True),
-    }
+        return ZoneMask(exists=False, source_id=source_id)
+    return ZoneMask(exists=True, source_id=source_id, cols=entry.get("cols", 0), rows=entry.get("rows", 0),
+                    cells=entry.get("cells", ""), enabled=entry.get("enabled", True))
 
 
 @api_app.post(
@@ -610,18 +613,14 @@ class MotionMinPayload(BaseModel):
 
 @api_app.get("/vision/motion-min", tags=["Vision"])
 async def get_motion_min(source_id: str) -> dict[str, Any]:
-    """Bewegungs-Schwellwert einer Quelle (für den Editor-Slider zum Laden).
-
-    Fällt auf den globalen Default (0.02) zurück, wenn die Quelle (noch)
-    keinen eigenen Wert hat."""
+    """Bewegungs-Schwellwert einer Quelle (für den Slider des HTML-Editors der Reflex-Oberfläche; die Vue-Seite liest
+    ihn aus der Kamerazeile). Ohne eigenen Wert der globale Default."""
+    from ..config import VISION_MOTION_MIN_AREA_RANGE, VISION_MOTION_MIN_AREA_RATIO
     from ..vision_store import VisionStore
     stored = VisionStore().get_source(source_id) or {}
     mma = (stored.get("settings") or {}).get("motion_min_area_ratio")
-    value = (
-        float(mma)
-        if isinstance(mma, (int, float)) and 0.001 <= mma <= 0.5
-        else 0.02
-    )
+    low, high = VISION_MOTION_MIN_AREA_RANGE
+    value = float(mma) if isinstance(mma, (int, float)) and low <= mma <= high else VISION_MOTION_MIN_AREA_RATIO
     return {"source_id": source_id, "motion_min_area_ratio": value}
 
 
@@ -629,18 +628,12 @@ async def get_motion_min(source_id: str) -> dict[str, Any]:
     "/vision/motion-min", response_model=SystemActionResponse, tags=["Vision"]
 )
 async def save_motion_min(payload: MotionMinPayload) -> SystemActionResponse:
-    """Bewegungs-Schwellwert einer Quelle speichern (Editor-Slider beim
-    Loslassen). Greift live im laufenden Watcher — kein Re-Arm nötig."""
-    from ..vision_store import VisionStore
-    mma = max(0.001, min(0.5, float(payload.motion_min_area_ratio)))
-    VisionStore().patch_source_settings(
-        payload.source_id, {"motion_min_area_ratio": mma}
-    )
-    try:
-        from ..vision_watcher import get_default_watcher
-        get_default_watcher().reload_motion_min(payload.source_id, mma)
-    except sqlite3.Error as e:  # saved; the watch takes it on its next start
-        log_message(f"⚠️ motion_min live-reload failed: {e}")
+    """Bewegungs-Schwellwert einer Quelle speichern (Slider des HTML-Editors beim Loslassen) — über
+    ``vision_cameras.change_camera`` wie ``PATCH /vision/cameras/{id}``: Bereich prüfen, speichern, im laufenden
+    Watcher sofort wirksam."""
+    from ..vision_cameras import change_camera
+
+    await asyncio.to_thread(change_camera, payload.source_id, motion_min_area_ratio=payload.motion_min_area_ratio)
     return SystemActionResponse(success=True, message="motion min saved")
 
 
@@ -684,16 +677,10 @@ async def zone_editor_page(source_id: str = "") -> HTMLResponse:
     if source_id:
         try:
             from ..frame_sources.rtsp_source import find_camera_config
-            from ..vision_profiles import resolve_profile
+            from ..vision_profiles import camera_profile
             from ..vision_store import VisionStore
-            cam_cfg = find_camera_config(source_id)
             rec = VisionStore().get_source(source_id) or {}
-            profile_name = (
-                (cam_cfg or {}).get("profile")
-                or (rec.get("settings") or {}).get("profile")
-                or ""
-            )
-            ai_cam = not resolve_profile(str(profile_name)).allow_local_detection
+            ai_cam = not camera_profile(find_camera_config(source_id), rec.get("settings") or {}).allow_local_detection
         except (ValueError, sqlite3.Error):  # settings file or event database: treated as a plain camera
             ai_cam = False
     inject = (

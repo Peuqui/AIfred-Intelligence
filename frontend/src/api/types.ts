@@ -49,6 +49,7 @@ export type NarratorVoice = Schemas["NarratorVoice"];
 export type SpeechRecognition = Schemas["SpeechRecognition"];
 export type LiveView = Schemas["LiveView"];
 export type CameraRow = Schemas["CameraRow"];
+export type ZoneMask = Schemas["ZoneMask"];
 export type ChoiceOption = Schemas["ChoiceOption"];
 export type VigilantiaRow = Schemas["VigilantiaRow"];
 export type RtspCamera = Schemas["RtspCamera"];

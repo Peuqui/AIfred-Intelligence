@@ -452,6 +452,23 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   (ältere fallen aus dem Fenster); ohne Vision-Plugin bleibt es weg. Die Abfrage steht in `casus.recent`, auch für die
   Reflex-Feed-Karte (dort stand die Typenliste zweimal, die Werte fest im Mixin). Geprüft im Browser mit einem frischen
   Prüf-Ereignis.
+- **Vision, Zonen-Editor (erledigt 08.11.2026):** `ZoneEditor.vue` öffnet sich als Dialog aus der Kamerakarte (🗺️)
+  statt des eigenen HTML-Fensters: Live-Bild mit eingebrannter Bewegung, Malen mit drei Arten (Bewegung ignorieren,
+  schwärzen, nur hier beobachten; rechte Maustaste radiert), Pinsel, Raster, „Maske aktiv“ (speichert sofort), der
+  gemessene Bewegungsanteil gegen die gemalte Maske neben der Auslöse-Schwelle, Hilfe. Die reine Logik (Zellen ↔
+  Ziffern, runder Pinsel, wohin die Überwachung schaut, blaue Pixel zählen) steht in `lib/zoneMask.ts` mit Tests. Neu:
+  Schließen mit ungespeicherten Änderungen fragt nach (das alte Fenster verwarf sie still). Die Schwelle ist eine
+  Einstellung der Kamera (`change_camera(motion_min_area_ratio=…)`, Bereich `VISION_MOTION_MIN_AREA_RANGE`, ein laufender
+  Wächter übernimmt sie sofort; vorher stand die Grenze dreimal von Hand im Code); die Kamerazeile sagt
+  `detects_itself` (Profil `ai_camera`, über `vision_profiles.camera_profile`, vorher zweimal von Hand), dann erscheint
+  der Hinweis, dass Ignorieren- und Nur-hier-Zonen dort nicht wirken. Zonenfarben in `theme.py`. Das HTML-Fenster
+  (`assets/zone_editor.html`, `GET /vision/zone-editor`, `/vision/motion-min`) bleibt für die Reflex-Oberfläche bis
+  Schritt 6; seine Schwelle läuft über dieselbe Kamera-Änderung. Dabei behoben: Die erste Einstellung an einer Kamera,
+  die vision.db noch nicht kannte, legte sie mit ihrer Kennung als Namen und Art „webcam“ an (`change_camera` gab
+  Name und Art nicht mit wie die Reflex-Seite), eine unbekannte Kennung bekam einen leeren Datensatz; jetzt 404 und
+  der echte Name. Geprüft im Browser gegen die echten Kameras: Malen, Nachfrage beim Schließen, Speichern, Schalter,
+  Schwelle, Leeren, Hinweis bei der Reolink; Einstellungsdatei und Kameras danach wie vorher. Den gemessenen Anteil
+  nur mit ruhigem Nachtbild gesehen (0,0 %); die Rechnung ist per Test geprüft und vom alten Editor übernommen.
 - **Musik im Browser (erledigt 08.11.2026):** `lib/media.ts` spielt, was der Browser-Kanal des Audio-Players schickt
   (`media`, `pause`, `resume`, `seek`, `speed`, `stop` über den Sitzungsstrom; vorher kamen sie in Vue nicht an): einen
   Titel oder einen Ordner Titel für Titel, die Sprachausgabe hat Vortritt (der Titel wartet und geht danach

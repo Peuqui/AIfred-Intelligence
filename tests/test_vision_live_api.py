@@ -16,14 +16,16 @@ from aifred.lib.user_error import Invalid
 
 
 class _Camera:
+    kind = "webcam"
+
     def __init__(self, source_id: str, name: str, available: bool = True, modes: list[tuple[int, int]] | None = None) -> None:
         self.source_id = source_id
-        self._name = name
+        self.display_name = name
         self._available = available
         self._modes = modes or []
 
     def info(self) -> SourceInfo:
-        return SourceInfo(source_id=self.source_id, display_name=self._name, kind="webcam", width=640, height=480,
+        return SourceInfo(source_id=self.source_id, display_name=self.display_name, kind=self.kind, width=640, height=480,
                           fps=1.0, available=self._available)
 
     def detect_resolutions(self) -> list[tuple[int, int]]:
@@ -125,3 +127,43 @@ def test_a_photo_answers_with_its_url_or_says_why_not(client: TestClient, monkey
     monkeypatch.setattr(vision_photo, "take_photo", taken)
     assert client.post("/vision/photo/cam/rtsp_garten").json() == {"url": "/_upload/vigilantia/photos/garten/2026-11-07/a.jpg"}
     assert client.post("/vision/photo/cam/v4l2_0").status_code == 502
+
+
+def test_the_trigger_threshold_is_a_camera_setting_a_running_watch_takes_at_once(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from aifred.lib import vision_watcher
+    from aifred.lib.config import VISION_MOTION_MIN_AREA_RANGE
+
+    reloaded: list[tuple[str, float]] = []
+    watcher = SimpleNamespace(reload_motion_min=lambda source_id, ratio: reloaded.append((source_id, ratio)))
+    monkeypatch.setattr(vision_watcher, "get_default_watcher", lambda: watcher)
+    changed = client.patch("/vision/cameras/cam/rtsp_garten", json={"motion_min_area_ratio": 0.05}).json()
+    assert changed["motion_min_area_ratio"] == 0.05 and reloaded == [("cam/rtsp_garten", 0.05)]
+    too_much = VISION_MOTION_MIN_AREA_RANGE[1] * 2
+    assert client.patch("/vision/cameras/cam/rtsp_garten", json={"motion_min_area_ratio": too_much}).status_code == 422
+    assert client.post("/vision/motion-min", json={"source_id": "cam/rtsp_garten", "motion_min_area_ratio": 0.03}).status_code == 200
+    assert client.get("/vision/motion-min", params={"source_id": "cam/rtsp_garten"}).json()["motion_min_area_ratio"] == 0.03
+    assert reloaded[-1] == ("cam/rtsp_garten", 0.03)                     # the Reflex editor's way is the same
+
+
+def test_a_camera_that_detects_on_its_own_says_so(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from aifred.lib.frame_sources import rtsp_source
+
+    monkeypatch.setattr(rtsp_source, "find_camera_config",
+                        lambda source_id: {"profile": "ai_camera"} if source_id == "cam/rtsp_garten" else None)
+    cameras = {camera["id"]: camera["detects_itself"] for camera in client.get("/vision/live").json()["cameras"]}
+    assert cameras == {"cam/rtsp_garten": True, "cam/v4l2_0": False}
+
+
+def test_the_first_setting_of_a_camera_keeps_its_name_and_an_unknown_one_stays_unknown(client: TestClient) -> None:
+    # The store knew neither camera: the first change used to file it under its id as its name.
+    assert vision_store.VisionStore().get_source("cam/rtsp_garten") is None
+    changed = client.patch("/vision/cameras/cam/rtsp_garten", json={"quiet_enabled": True}).json()
+    assert (changed["label"], changed["hardware_name"]) == ("Reolink Garten", "Reolink Garten")
+    stored = vision_store.VisionStore().get_source("cam/rtsp_garten")
+    assert stored is not None and (stored["display_name"], stored["kind"]) == ("Reolink Garten", "webcam")
+    assert client.patch("/vision/cameras/cam/keine", json={"quiet_enabled": True}).status_code == 404
+    assert vision_store.VisionStore().get_source("cam/keine") is None                   # nothing filed for it

@@ -22,7 +22,11 @@ import logging
 import sqlite3
 from typing import Any
 
-from .config import VISION_BACKGROUND_WATCH_FPS, VISION_MIN_EVENT_INTERVAL_RANGE
+from .config import (
+    VISION_BACKGROUND_WATCH_FPS,
+    VISION_MIN_EVENT_INTERVAL_RANGE,
+    VISION_MOTION_MIN_AREA_RANGE,
+)
 from .vision_settings import load_vision_settings
 from .vision_watch_types import EdgeAiConfig, WatchConfig
 
@@ -124,7 +128,7 @@ def _build_background_config(
     source_id = str(source_record.get("source_id") or "")
     settings = source_record.get("settings") or {}
     mma = settings.get("motion_min_area_ratio")
-    if not isinstance(mma, (int, float)) or not 0.001 <= mma <= 0.5:
+    if not isinstance(mma, (int, float)) or not VISION_MOTION_MIN_AREA_RANGE[0] <= mma <= VISION_MOTION_MIN_AREA_RANGE[1]:
         mma = defaults.motion_min_area_ratio
 
     # Pro-Kamera-Drossel (UI: "Min. Event-Abstand"). Eine belebte
@@ -184,12 +188,10 @@ def profile_watch_overrides(
       Edge-AI-Poll als Trigger.
     """
     from .frame_sources.rtsp_source import find_camera_config
-    from .vision_profiles import resolve_profile
+    from .vision_profiles import camera_profile
 
-    # Profil: rtsp_cameras-Eintrag > per-Source-Settings > Default (webcam).
     cam_cfg = find_camera_config(source_id) if source_id else None
-    profile_name = (cam_cfg or {}).get("profile") or source_settings.get("profile") or ""
-    profile = resolve_profile(str(profile_name))
+    profile = camera_profile(cam_cfg, source_settings)
     if profile.allow_local_detection:
         return {}
 

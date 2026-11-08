@@ -51,6 +51,12 @@ COLORS = {
     "warning_bg_mid": "#3d2a00",
     "warning_bg_hover": "#4d3500",
 
+    # === ZONEN-MASKE (Zellen halbtransparent über dem Kamerabild) ===
+    "zone_ignore": "rgba(255, 80, 80, 0.45)",    # Bewegung ignorieren
+    "zone_blackout": "rgba(0, 0, 0, 0.55)",      # Pixel schwärzen
+    "zone_only_here": "rgba(0, 220, 90, 0.40)",  # nur hier beobachten
+    "zone_grid": "rgba(255, 255, 255, 0.08)",    # Rasterlinien
+
     # === DEBUG CONSOLE (Matrix/Hacker Terminal) ===
     "debug_text": "#00ff41",     # Matrix neon green
     "debug_border": "#1a4d1a",   # Dark green (subtle)

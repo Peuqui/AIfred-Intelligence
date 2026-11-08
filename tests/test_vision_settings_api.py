@@ -19,11 +19,15 @@ from aifred.lib.frame_sources.base import SourceInfo
 
 
 class _Camera:
+    display_name = "Reolink"
+    kind = "rtsp"
+
     def __init__(self, source_id: str) -> None:
         self.source_id = source_id
 
     def info(self) -> SourceInfo:
-        return SourceInfo(source_id=self.source_id, display_name="Reolink", kind="rtsp", width=0, height=0, fps=None, available=True)
+        return SourceInfo(source_id=self.source_id, display_name=self.display_name, kind=self.kind, width=0, height=0,
+                          fps=None, available=True)
 
 
 class _Watcher:

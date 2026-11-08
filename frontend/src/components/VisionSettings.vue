@@ -5,11 +5,12 @@
 // background, alerts with their types, quiet hours, active window, event interval, zones, its connection. A change
 // of the background or the window takes effect at once.
 import { onMounted, ref } from "vue";
-import { ApiError, api, apiUrl } from "../api/client";
+import { ApiError, api } from "../api/client";
 import type { AlertRules, CameraRow, LiveView, RtspCameras, VigilantiaRow } from "../api/types";
 import { t } from "../i18n";
 import DescriberList from "./DescriberList.vue";
 import RtspForm from "./RtspForm.vue";
+import ZoneEditor from "./ZoneEditor.vue";
 
 const settings = ref<VigilantiaRow | null>(null);
 const cameras = ref<CameraRow[]>([]);
@@ -17,6 +18,7 @@ const loaded = ref<boolean | null>(null);
 const rtsp = ref<RtspCameras | null>(null);
 const rules = ref<AlertRules | null>(null);
 const connecting = ref("");     // the camera whose connection form is open; "+" = a new one
+const zoning = ref<CameraRow | null>(null);   // the camera whose zone mask is being painted
 const notice = ref("");
 const busy = ref(false);
 
@@ -63,16 +65,16 @@ async function power(): Promise<void> {
   loaded.value = (await call(() => send<{ loaded: boolean }>("vision/model", "PUT", { loaded: !loaded.value })))?.loaded ?? loaded.value;
   busy.value = false;
 }
+function replaced(changed: CameraRow): void {
+  cameras.value = cameras.value.map((other) => (other.id === changed.id ? changed : other));
+}
 async function keep(camera: CameraRow, body: object): Promise<void> {
   const changed = await call(() => send<CameraRow>(`vision/cameras/${camera.id}`, "PATCH", body));
-  if (changed) cameras.value = cameras.value.map((other) => (other.id === changed.id ? changed : other));
+  if (changed) replaced(changed);
 }
 function alertType(camera: CameraRow, kind: string): void {
   const kinds = camera.alert_types.includes(kind) ? camera.alert_types.filter((other) => other !== kind) : [...camera.alert_types, kind];
   void keep(camera, { alert_types: kinds });
-}
-function zones(camera: CameraRow): void {
-  window.open(apiUrl(`vision/zone-editor?source_id=${encodeURIComponent(camera.id)}`), "aifred-zone-editor", "popup=yes,width=960,height=970");
 }
 
 const hours = Array.from({ length: 24 }, (_, hour) => hour);
@@ -170,7 +172,7 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
         <input class="alias" :value="camera.alias" :placeholder="camera.hardware_name" @change="keep(camera, { alias: value($event) })" />
         <span class="hardware">{{ camera.hardware_name }} · {{ camera.id }}</span>
         <button v-if="rtspOf(camera)" :title="t('vision_rtsp_edit_connection')" @click="connecting = connecting === camera.id ? '' : camera.id">🔌</button>
-        <button :title="t('vision_settings_zone_mask_button')" @click="zones(camera)">🗺️</button>
+        <button :title="t('vision_settings_zone_mask_button')" @click="zoning = camera">🗺️</button>
       </header>
       <RtspForm v-if="rtsp && connecting === camera.id" :camera="rtspOf(camera)" :profiles="rtsp.profiles" @saved="connected" @cancel="connecting = ''" />
       <label class="line" :title="t('vision_settings_source_background_help')">
@@ -206,6 +208,7 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
         </select>
       </div>
     </article>
+    <ZoneEditor v-if="zoning" :camera="zoning" @close="zoning = null" @changed="replaced" />
   </section>
 </template>
 

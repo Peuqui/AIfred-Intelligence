@@ -19,7 +19,9 @@ erkennung ist günstig und kann die Kamera nicht).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,11 @@ AI_CAMERA = VisionProfile(
 VISION_PROFILES: dict[str, VisionProfile] = {p.name: p for p in (WEBCAM, AI_CAMERA)}
 
 DEFAULT_PROFILE = WEBCAM.name
+
+
+def camera_profile(camera_config: Mapping[str, Any] | None, source_settings: Mapping[str, Any]) -> VisionProfile:
+    """The profile of a camera: its ``rtsp_cameras`` entry names it, else its own settings (vision.db), else webcam."""
+    return resolve_profile(str((camera_config or {}).get("profile") or source_settings.get("profile") or ""))
 
 
 def resolve_profile(name: str | None) -> VisionProfile:

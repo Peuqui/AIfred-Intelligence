@@ -1334,5 +1334,9 @@
   "error_no_document_source": "Die Dokumentquelle „{source}“ gibt es nicht (Plugin aus oder nicht verbunden).",
   "error_source_takes_no_uploads": "{source} nimmt keine Dateien an.",
   "error_no_parser": "Für {ext} gibt es keinen Leser.",
-  "error_preview_failed": "Die Vorschau ging nicht: {reason}"
+  "error_preview_failed": "Die Vorschau ging nicht: {reason}",
+  "zone_editor_paint_hint": "Linke Maustaste malt den gewählten Typ, rechte radiert.",
+  "zone_editor_unsaved": "Die Änderungen an der Maske sind noch nicht gespeichert.",
+  "zone_editor_discard": "Verwerfen",
+  "zone_editor_keep_editing": "Weiter bearbeiten"
 }

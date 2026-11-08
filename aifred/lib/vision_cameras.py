@@ -19,6 +19,7 @@ from .config import (
     VISION_ALERT_TYPES,
     VISION_MIN_EVENT_INTERVAL_RANGE,
     VISION_MIN_EVENT_INTERVAL_SEC,
+    VISION_MOTION_MIN_AREA_RANGE,
     VISION_MOTION_MIN_AREA_RATIO,
     VISION_PREVIEW_FACE_THROTTLE_RANGE,
     VISION_PREVIEW_FPS_RANGE,
@@ -53,6 +54,7 @@ class Camera:
     resolution: str         # DEFAULT_RESOLUTION or "WxH"
     prompt_context: str     # the briefing the image analysis gets for this camera
     motion_min_area_ratio: float
+    detects_itself: bool    # an ai_camera profile: no motion detector of ours, ignore and ROI zones do not act
     alerts_enabled: bool    # off: the camera still records, but sends no alerts
     alert_types: list[str]  # the event types it alerts on (VISION_ALERT_TYPES)
     quiet_enabled: bool     # no alerts between quiet_start and quiet_end (whole hours)
@@ -68,7 +70,9 @@ def cameras() -> list[Camera]:
     """Every registered source, with its stored settings (one store query). A source whose ``info()``
     fails is left out and logged: one broken camera must not empty the list."""
     from .frame_sources import list_all
+    from .frame_sources.rtsp_source import find_camera_config
     from .ptz_control import get_controller
+    from .vision_profiles import camera_profile
     from .vision_store import VisionStore
 
     stored = {str(record["source_id"]): record for record in VisionStore().list_sources()}
@@ -94,6 +98,7 @@ def cameras() -> list[Camera]:
             resolution=str(settings.get("resolution") or DEFAULT_RESOLUTION),
             prompt_context=str(record.get("prompt_context") or "").strip(),
             motion_min_area_ratio=float(settings.get("motion_min_area_ratio", VISION_MOTION_MIN_AREA_RATIO)),
+            detects_itself=not camera_profile(find_camera_config(info.source_id), settings).allow_local_detection,
             alerts_enabled=bool(settings.get("alerts_enabled", True)),
             alert_types=[str(kind) for kind in settings.get("alert_types", VISION_ALERT_TYPES)],
             quiet_enabled=bool(settings.get("quiet_enabled", False)),
@@ -143,16 +148,23 @@ def change_camera(source_id: str, **change: Any) -> bool:
     """Keep what the user set for a camera (vision.db): ``alias``, ``resolution`` (one the camera offers),
     ``prompt_context``, ``auto_start``, ``alerts_enabled``, ``alert_types`` (of VISION_ALERT_TYPES),
     ``quiet_enabled``, ``quiet_start``/``quiet_end`` (hours 0–23), ``schedule_enabled``,
-    ``schedule_start``/``schedule_end`` ("HH:MM"), ``min_event_interval_sec`` (its range). Refuses an unknown
-    field or a value it cannot take (ValueError), nothing is written then. Returns whether the change concerns
-    the background watcher (``vision_autostart.apply_background_watch`` decides then)."""
+    ``schedule_start``/``schedule_end`` ("HH:MM"), ``min_event_interval_sec`` and ``motion_min_area_ratio`` (their
+    ranges; a running watch takes the threshold at once). Refuses an unknown field or a value it cannot take
+    (Invalid), nothing is written then. Returns whether the change concerns the background watcher
+    (``vision_autostart.apply_background_watch`` decides then)."""
     import re
 
+    from .frame_sources import get
     from .vision_store import VisionStore
 
+    source = get(source_id)
+    if source is None:
+        raise Missing("unknown_camera", camera=source_id)
+    # A camera the store does not know yet gets its own name and kind, not its id as its name.
+    first_time = {"fallback_display_name": source.display_name, "fallback_kind": source.kind}
     unknown = set(change) - {"alias", "resolution", "prompt_context", "auto_start", "alerts_enabled", "alert_types",
                              "quiet_enabled", "quiet_start", "quiet_end", "schedule_enabled", "schedule_start",
-                             "schedule_end", "min_event_interval_sec"}
+                             "schedule_end", "min_event_interval_sec", "motion_min_area_ratio"}
     if unknown:
         raise Invalid("unknown_fields", fields=", ".join(sorted(unknown)))
     settings: dict[str, Any] = {}
@@ -185,16 +197,25 @@ def change_camera(source_id: str, **change: Any) -> bool:
         if not VISION_MIN_EVENT_INTERVAL_RANGE[0] <= interval <= VISION_MIN_EVENT_INTERVAL_RANGE[1]:
             raise Invalid("number_range", value=interval, low=VISION_MIN_EVENT_INTERVAL_RANGE[0], high=VISION_MIN_EVENT_INTERVAL_RANGE[1])
         settings["min_event_interval_sec"] = interval
+    if "motion_min_area_ratio" in change:
+        ratio = float(change["motion_min_area_ratio"])
+        if not VISION_MOTION_MIN_AREA_RANGE[0] <= ratio <= VISION_MOTION_MIN_AREA_RANGE[1]:
+            raise Invalid("number_range", value=ratio, low=VISION_MOTION_MIN_AREA_RANGE[0], high=VISION_MOTION_MIN_AREA_RANGE[1])
+        settings["motion_min_area_ratio"] = ratio
     store = VisionStore()
     if settings:
-        store.patch_source_settings(source_id, settings)
+        store.patch_source_settings(source_id, settings, **first_time)
+    if "motion_min_area_ratio" in settings:
+        from .vision_watcher import get_default_watcher
+
+        get_default_watcher().reload_motion_min(source_id, settings["motion_min_area_ratio"])
     fields: dict[str, Any] = {}
     if "prompt_context" in change:
         fields["prompt_context"] = str(change["prompt_context"]).strip()
     if "auto_start" in change:
         fields["auto_start"] = bool(change["auto_start"])
     if fields:
-        store.update_source_fields(source_id, **fields)
+        store.update_source_fields(source_id, **first_time, **fields)
     return bool(WATCH_FIELDS & set(change))
 
 

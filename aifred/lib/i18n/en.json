@@ -1334,5 +1334,9 @@
   "error_no_document_source": "No document source “{source}” (plugin disabled or not connected)",
   "error_source_takes_no_uploads": "{source} takes no uploads",
   "error_no_parser": "No parser for {ext}",
-  "error_preview_failed": "The preview failed: {reason}"
+  "error_preview_failed": "The preview failed: {reason}",
+  "zone_editor_paint_hint": "The left mouse button paints the chosen kind, the right one erases.",
+  "zone_editor_unsaved": "The changes to the mask are not saved yet.",
+  "zone_editor_discard": "Discard",
+  "zone_editor_keep_editing": "Keep editing"
 }

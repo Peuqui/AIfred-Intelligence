@@ -298,18 +298,24 @@ class VisionStore:
         )
 
     def patch_source_settings(
-        self, source_id: str, patch: dict[str, Any]
+        self,
+        source_id: str,
+        patch: dict[str, Any],
+        *,
+        fallback_display_name: str = "",
+        fallback_kind: str = "webcam",
     ) -> None:
         """Nur einzelne ``settings``-Felder einer Quelle ändern, alle
         anderen Felder (display_name, kind, auto_start …) bleiben erhalten.
 
-        No-op-sicher für unbekannte Quellen: legt sie mit Defaults an, falls
-        sie noch nicht existiert (z.B. erste Konfig einer frisch entdeckten
-        Cam). Gemeinsamer Persist-Pfad für State und API."""
+        Legt eine Quelle, die noch nicht existiert (erste Konfig einer frisch
+        entdeckten Cam), mit den Fallbacks an — wie ``update_source_fields``.
+        Gemeinsamer Persist-Pfad für State und API."""
         existing = self.get_source(source_id) or {}
         new_settings = dict(existing.get("settings") or {})
         new_settings.update(patch)
-        self.update_source_fields(source_id, settings=new_settings)
+        self.update_source_fields(source_id, fallback_display_name=fallback_display_name,
+                                  fallback_kind=fallback_kind, settings=new_settings)
 
     def list_sources(self) -> list[dict[str, Any]]:
         with self._conn() as conn:

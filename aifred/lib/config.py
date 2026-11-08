@@ -841,6 +841,7 @@ VISION_CLUSTER_MAX_SECONDS = 300
 # * EDGE_AI_SETTLE_SEC — Wartezeit nach der steigenden Flanke, bevor das Frame
 #   gezogen wird: gibt dem schwenkenden PTZ-Kopf Zeit, das Subjekt zu zentrieren.
 VISION_MOTION_MIN_AREA_RATIO = 0.02
+VISION_MOTION_MIN_AREA_RANGE = (0.001, 0.5)   # what a camera's trigger threshold may be (share of the picture)
 VISION_MOTION_HISTORY_FRAMES = 500
 VISION_MOTION_VAR_THRESHOLD = 16.0
 VISION_MOTION_WARMUP_FRAMES = 10

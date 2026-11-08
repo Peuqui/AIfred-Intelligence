@@ -28,7 +28,8 @@ class CameraRow(BaseModel):
     auto_start: bool = Field(description="Watched in the background while the eye is armed")
     resolution: str = Field(description="'default' or 'WxH'")
     prompt_context: str = Field(description="The briefing the image analysis gets for this camera")
-    motion_min_area_ratio: float
+    motion_min_area_ratio: float = Field(description="Share of the picture that must move to trigger the detection")
+    detects_itself: bool = Field(description="An ai_camera: it detects on its own, ignore and ROI zones do not act there")
     alerts_enabled: bool = Field(description="Off: the camera still records, but sends no alerts")
     alert_types: list[str]
     quiet_enabled: bool
@@ -81,6 +82,7 @@ class CameraChange(BaseModel):
     schedule_start: str | None = None
     schedule_end: str | None = None
     min_event_interval_sec: float | None = None
+    motion_min_area_ratio: float | None = None
 
 
 class PtzPress(BaseModel):
