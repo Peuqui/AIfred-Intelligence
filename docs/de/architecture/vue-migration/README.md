@@ -485,8 +485,12 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
       entfällt. Vorher warf die Recherche die Zähler des Scrapers weg. `tests/test_turn_phases.py` prüft, dass Vue
       jede Phase des Servers kennt. Im Browser geprüft mit Web-Suche am 30B-Modell.)
   18. Ordner und Symlinks im Ordner-Auswähler anlegen (gemeinsamer Dateimanager).
-  Dazu: Der Zug gibt dem Toolkit den Gesprächsverlauf nicht mit; die Web-Suche rankt seither ohne Kontext (der
-  Reflex-Chat gab ihn über den State, der Hub nie).
+  Dazu (erledigt 08.11.): Der Zug gab dem Toolkit den Gesprächsverlauf nicht mit (`b6e15474`, der Reflex-Chat gab
+  ihn über den State, der Hub nie). Gerankt wurde aber auch vorher fast nie: Bei genau einer Suchanfrage verlor die
+  Suche Titel und Ausschnitte, und ohne sie übersprang `run_web_search` das Ranking (`MultiAPISearchTool` hat jetzt
+  eine Suche und eine Verteilung `query_assignments`). Außerdem stand die Antwort der Such-APIs als leere Quelle im
+  Kontext, und ohne gelesene Seite kam diese statt „No results found“. Live geprüft: Ranking läuft, Quellen nur
+  gelesene Seiten.
   `patch-vite-config.sh` geht erst mit der Unit (Paket 4). Ein Archiv-Tag für den Reflex-Stand gehört vor den Merge
   auf `main` (Paket 5, mit Peuqui). Beim Umschalten: `.web/`, `.states/` und `data/sessions/*.pending` der
   Produktion entfernen, nginx `/vendor/` auf den Server.
