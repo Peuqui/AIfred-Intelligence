@@ -12,6 +12,8 @@ from typing import Any
 
 import pytest
 
+from fake_web_search import FakeWebSearch
+
 from aifred.lib import context_manager, debug_bus, intent_detector, session_events, session_storage, turn_service
 from aifred.lib.agent_tuning import default_agent_tuning
 from aifred.lib.runtime_settings import RuntimeSettings
@@ -146,37 +148,19 @@ def test_a_history_that_fits_reports_no_phase(session: None, monkeypatch: pytest
 
 
 def test_the_pages_of_a_web_search_are_counted_and_the_phase_ends(session: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    from aifred.lib import config, llm_client, research_tools, settings, tools
-    from aifred.lib.research import context_utils, query_processor, scraper_orchestrator
+    from aifred.lib import research_tools
 
     seen: list[dict[str, Any]] = []
-    urls = ["https://a.test", "https://b.test", "https://c.test"]
-    page = {"success": True, "content": "Sonne", "url": urls[0]}
-
-    async def search(**_kwargs: Any) -> AsyncIterator[dict[str, Any]]:
-        yield {"type": "query_result", "data": (None, None, None, urls, [], [], [])}
-
-    async def scrape(**_kwargs: Any) -> AsyncIterator[dict[str, Any]]:
-        for current, failed in ((0, 0), (1, 0), (1, 1)):
-            yield {"type": "progress", "phase": "scraping", "current": current, "total": len(urls), "failed": failed}
-            seen.append(next(e.data for e in session_events.replay_after(SESSION, 0) if e.kind == "turn_phase"))
-        yield {"type": "scraping_result", "data": ([page], [page])}
-
-    class _Client:
-        def __init__(self, **_kwargs: Any) -> None: ...
-        async def close(self) -> None: ...
-
-    monkeypatch.setattr(settings, "load_settings", dict)
-    monkeypatch.setattr(config, "get_effective_model_from_settings", lambda _agent="aifred": "qwen3:8b")
-    monkeypatch.setattr(llm_client, "LLMClient", _Client)
-    monkeypatch.setattr(query_processor, "process_query_and_search", search)
-    monkeypatch.setattr(context_utils, "get_model_native_context", lambda *_args: 32768)
-    monkeypatch.setattr(context_utils, "get_stateless_num_ctx", lambda *_args: (32768, "test"))
-    monkeypatch.setattr(scraper_orchestrator, "orchestrate_scraping", scrape)
-    monkeypatch.setattr(tools, "build_context", lambda _query, results: "Sonne")
-
-    context, sources = _in_session(research_tools.run_web_search(["Wetter morgen"], []))
-    assert (context, sources) == ("Sonne", 1)
+    web = FakeWebSearch(
+        urls=["https://a.test", "https://b.test", "https://c.test"],
+        pages=[{"success": True, "content": "Sonne", "url": "https://a.test", "word_count": 1}],
+        progress=[(0, 0), (1, 0), (1, 1)],
+        after_progress=lambda: seen.append(
+            next(event.data for event in session_events.replay_after(SESSION, 0) if event.kind == "turn_phase")),
+    )
+    web.install(monkeypatch)
+    _context, sources = _in_session(research_tools.run_web_search(["Wetter morgen"], []))
+    assert sources == 1
     assert [(p["phase"], p["current"], p["total"], p["failed"]) for p in seen] == [
         ("scraping", 0, 3, 0), ("scraping", 1, 3, 0), ("scraping", 1, 3, 1),
     ]

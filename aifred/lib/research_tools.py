@@ -99,7 +99,7 @@ async def run_web_search(queries: list[str], llm_history: list[dict]) -> tuple[s
         related_urls: list[str] = []
         titles: list[str] = []
         snippets: list[str] = []
-        tool_results: list[dict[str, Any]] = []
+        search_results: list[dict[str, Any]] = []   # what the search APIs answered: an outage shows there
 
         async for item in process_query_and_search(
             user_text=queries[0],
@@ -111,12 +111,12 @@ async def run_web_search(queries: list[str], llm_history: list[dict]) -> tuple[s
             pre_generated_queries=queries,
         ):
             if item["type"] == "query_result":
-                _, _, _, related_urls, titles, snippets, tool_results = item["data"]
+                _, _, _, related_urls, titles, snippets, search_results = item["data"]
             elif item["type"] == "debug":
                 debug(item["message"])
 
         if not related_urls:
-            if _is_network_outage(tool_results):
+            if _is_network_outage(search_results):
                 debug("⚠️ Search unreachable — network/DNS failure (not 'no results')")
                 return WEB_SEARCH_NETWORK_ERROR, 0
             debug("⚠️ No URLs found")
@@ -158,6 +158,9 @@ async def run_web_search(queries: list[str], llm_history: list[dict]) -> tuple[s
         # Ollama beim echten Aufruf neu.
         from .research.context_utils import get_stateless_num_ctx
         preload_num_ctx, _ = get_stateless_num_ctx(aifred_model_id, backend_type)
+        # The pages read with text are the sources (until 08.11.2026 the search's own answer joined them: an
+        # empty source in the context, and with no page read the model got that instead of "no results").
+        pages: list[dict[str, Any]] = []
         async for item in orchestrate_scraping(
             related_urls=related_urls,
             llm_client=llm_client,
@@ -165,23 +168,22 @@ async def run_web_search(queries: list[str], llm_history: list[dict]) -> tuple[s
             preload_num_ctx=preload_num_ctx,
         ):
             if item["type"] == "scraping_result":
-                _, scraping_tool_results = item["data"]
-                tool_results.extend(scraping_tool_results)
+                _, scraped_pages = item["data"]
+                pages.extend(page for page in scraped_pages if page.get("content"))
             elif item["type"] == "progress":
                 report_phase("scraping", current=item["current"], total=item["total"], failed=item["failed"])
             elif item["type"] == "debug":
                 debug(item["message"])
         report_phase("")
 
-        if not tool_results:
+        if not pages:
             debug("⚠️ No sources available")
             return json.dumps({"error": "No results found"}), 0
 
         # ── Phase 4: Build context ────────────────────────────
-        context = build_context(queries[0], tool_results)
-        scraped_only = [r for r in tool_results if r.get("success") and r.get("content")]
-        debug(f"✅ Research: {len(context)} chars, {len(scraped_only)} sources")
-        return context, len(scraped_only)
+        context = build_context(queries[0], pages)
+        debug(f"✅ Research: {len(context)} chars, {len(pages)} sources")
+        return context, len(pages)
 
     finally:
         await llm_client.close()
