@@ -181,14 +181,27 @@ async def sessions_open(session_id: str, request: Request) -> SessionDetail:
 
 @api_app.delete("/sessions/{session_id}", status_code=204, tags=["Sessions"])
 async def sessions_delete(session_id: str, request: Request) -> Response:
-    from .. import reply_speech
-    from ..pipeline_registry import cancel_pipeline
     from ..session_storage import delete_session
+    from ..turn_service import end_session_activity
 
     owned_session(request, session_id)
-    cancel_pipeline(session_id)
-    reply_speech.discard(session_id)
+    end_session_activity(session_id)
     delete_session(session_id, expected_owner=current_user(request))
+    return Response(status_code=204)
+
+
+@api_app.post("/sessions/{session_id}/clear", status_code=204, tags=["Sessions"])
+async def sessions_clear(session_id: str, request: Request) -> Response:
+    """Empty the chat: the running turn and the reading end, histories, debug lines and title go, so do the chat's
+    images, spoken audio and screenshots (plots and pages stay); every open tab hears ``chat_cleared``."""
+    from ..session_storage import clear_chat
+    from ..turn_service import end_session_activity
+
+    owned_session(request, session_id)
+    end_session_activity(session_id)
+    if not await asyncio.to_thread(clear_chat, session_id):
+        raise Missing("no_session")
+    session_events.publish(session_id, "chat_cleared", {})
     return Response(status_code=204)
 
 

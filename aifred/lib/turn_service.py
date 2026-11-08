@@ -126,6 +126,16 @@ def submit_turn(request: TurnRequest) -> bool:
     return False
 
 
+def end_session_activity(session_id: str) -> None:
+    """The session's turn, its reading aloud and what its tabs play end (before its chat is cleared or it goes)."""
+    from . import reply_speech
+    from .pipeline_registry import cancel_pipeline
+
+    cancel_pipeline(session_id)
+    reply_speech.discard(session_id)
+    session_events.publish(session_id, "stop", {})
+
+
 def start_turn(request: TurnRequest) -> asyncio.Task[TurnOutcome]:
     """Run the turn as a task of the current loop; an earlier turn of the session is cancelled."""
     return asyncio.create_task(run_turn(request), name=f"turn-{request.session_id[:8]}")

@@ -673,16 +673,6 @@ def cleanup_session_screenshots(session_id: str) -> int:
     return count
 
 
-def cleanup_session_sandbox(session_id: str) -> int:
-    """Delete all sandbox output files for a session. Returns count of deleted files."""
-    session_dir = _safe_session_subdir(session_id)
-    if session_dir is None or not session_dir.exists():
-        return 0
-    count = sum(1 for _ in session_dir.iterdir())
-    shutil.rmtree(session_dir, ignore_errors=True)
-    return count
-
-
 def _count_user_tasks() -> int:
     """Anzahl laufender Tasks (Threads!) der eigenen UID.
 

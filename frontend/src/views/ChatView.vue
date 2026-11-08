@@ -130,6 +130,7 @@ onMounted(() => void start());
           >
             {{ chat.config.incognito ? "🔒" : "🔓" }}
           </button>
+          <button class="clear" :disabled="!chat.history.length" :title="t('clear_chat')" @click="chat.clearChat">🗑️</button>
           <button class="export" :disabled="!chat.history.length || exporting" :title="t('share_chat')" @click="shareChat">🔗</button>
           <button class="export" :disabled="!chat.history.length || exporting" :title="t('download_chat')" @click="downloadChat">💾</button>
           <AgentSelect :agents="agents" :active="chat.config.active_agent" @choose="(agent) => chat.configure({ active_agent: agent })" />
@@ -198,8 +199,9 @@ onMounted(() => void start());
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 1rem; }
 .choices { display: flex; align-items: center; gap: 10px; }
-.incognito, .regenerate, .agent-choices, .export { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
+.incognito, .regenerate, .agent-choices, .export, .clear { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
 .regenerate:disabled, .export:disabled { opacity: 0.7; cursor: progress; }
+.clear:disabled { opacity: 0.5; cursor: default; }
 .incognito.on { border-color: var(--aifred-accent-amber); }
 .messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
 .streaming { align-self: flex-start; max-width: min(860px, 92%); padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light); }

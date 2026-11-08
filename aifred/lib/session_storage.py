@@ -762,6 +762,34 @@ def update_session_config(session_id: str, **config_updates: Any) -> bool:
         return save_session(session_id, session)
 
 
+def _remove_chat_files(session_id: str) -> None:
+    """The files of a session's chat: uploaded images, spoken audio, browser screenshots. Plots and generated HTML
+    stay, they are deliverables the user curates in the storage tab and often outlive the chat they were made in."""
+    from .audio_processing import cleanup_session_audio
+    from .sandbox import cleanup_session_screenshots
+    from .vision_utils import cleanup_session_images
+
+    cleanup_session_images(session_id)
+    cleanup_session_audio(session_id)
+    cleanup_session_screenshots(session_id)
+
+
+def clear_chat(session_id: str) -> bool:
+    """Empty the session's chat (both histories, the debug lines, waiting messages, the title) and remove the files
+    of the chat as deleting the session does; config, owner and channel stay. False when the session is missing."""
+    from .formatting import cleanup_session_html
+
+    with session_rmw_lock:
+        session = load_session(session_id)
+        if session is None:
+            return False
+        cleanup_session_html(session)
+        _remove_chat_files(session_id)
+        data = session.setdefault("data", {})
+        data.update(chat_history=[], llm_history=[], debug_messages=[], pending_messages=[], title="")
+        return save_session(session_id, session)
+
+
 def delete_session(session_id: str, expected_owner: str | None = None) -> bool:
     """
     Delete session completely, including associated images and audio.
@@ -794,19 +822,7 @@ def delete_session(session_id: str, expected_owner: str | None = None) -> bool:
                     return False
             session_path.unlink()
 
-        # Also cleanup associated images
-        from .vision_utils import cleanup_session_images
-        cleanup_session_images(session_id)
-
-        # Also cleanup associated audio
-        from .audio_processing import cleanup_session_audio
-        cleanup_session_audio(session_id)
-
-        # Browser screenshots die with the session — plots and generated
-        # HTML stay, they are deliverables the user curates in the storage
-        # tab and often outlive the chat they were made in.
-        from .sandbox import cleanup_session_screenshots
-        cleanup_session_screenshots(session_id)
+        _remove_chat_files(session_id)
 
         # Remove routing table entries (Hub channels → this session)
         from .routing_table import routing_table

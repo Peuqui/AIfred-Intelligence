@@ -120,6 +120,17 @@ export const useChat = defineStore("chat", () => {
       case "history_replaced":
         history.value = data.chat_history as ChatEntry[];
         break;
+      case "chat_cleared":
+        history.value = [];
+        debugLines.value = [];
+        queued.value = [];
+        pendingImages.value = [];
+        streaming.value = null;
+        toolStatus.value = "";
+        notice.value = "";
+        title.value = "";
+        void useSessions().refresh();
+        break;
       case "session_config":
         config.value = data as unknown as SessionConfig;
         break;
@@ -249,6 +260,16 @@ export const useChat = defineStore("chat", () => {
     }
   }
 
+  // The chat emptied on the server; every tab of the session, this one too, follows chat_cleared.
+  async function clearChat(): Promise<void> {
+    if (!sessionId.value) return;
+    try {
+      await api<void>(`sessions/${sessionId.value}/clear`, { method: "POST" });
+    } catch (error) {
+      notice.value = error instanceof ApiError ? error.detail : String(error);
+    }
+  }
+
   // The chat as one standalone HTML file (lib/chat_export.py): where it lies and a plain file name for saving it.
   async function exportChat(): Promise<ChatExported | null> {
     if (!sessionId.value) return null;
@@ -323,6 +344,6 @@ export const useChat = defineStore("chat", () => {
     sessionId, title, history, debugLines, config, running, streaming, toolStatus, notice, queued,
     pendingImages, uploading, draft, dictations, open, close, send, stop, configure,
     uploadImages, removeImage, dictate, dictated,
-    readAgain, regenerating, regenerateAll, rotateImage, cropImage, exportChat,
+    readAgain, regenerating, regenerateAll, rotateImage, cropImage, exportChat, clearChat,
   };
 });

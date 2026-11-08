@@ -17,6 +17,7 @@ export const SESSION_EVENT_KINDS = [
   "message_added",
   "message_updated",
   "history_replaced",
+  "chat_cleared",
   "session_config",
   "session_title",
   "debug",

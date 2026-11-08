@@ -433,7 +433,11 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   5. „Merken“: den Chat zusammenfassen und ins Gedächtnis der beteiligten Agenten schreiben.
   6. Hinweise des Message Hub und des Schedulers, die Sitzungsliste lädt neue Kanal-Sitzungen nach.
   7. Systemagenten und Automatik-LLM im Editor (Prompts, Modell und Reasoning des Kalibrier-Agenten).
-  8. „Chat löschen“ mit dem Aufräumen (Lesung abbrechen, Medien, TTS-Audio, Bilder, Sandbox, Titel).
+  8. ~~„Chat löschen“~~ (erledigt 08.11.: 🗑️ in der Kopfleiste, `POST /api/sessions/{id}/clear`,
+     `session_storage.clear_chat`, `turn_service.end_session_activity` für Zug, Lesung und Wiedergabe, auch beim
+     Löschen einer Sitzung; Ereignis `chat_cleared`). Die Dateien folgen der Regel des Löschens (Bilder, Audio,
+     Screenshots weg, Plots und Seiten bleiben; vorher räumte Leeren alle Sandbox-Ausgaben und löschte über
+     `cleanup_old_tts_audio(0)` das Audio aller Sitzungen). Das alte `POST /api/chat/clear` geht denselben Weg.
   9. Registrieren eines Kontos aus der Whitelist.
   10. Sitzungen gesammelt löschen.
   11. Auto-Scroll, der beim Hochscrollen pausiert.

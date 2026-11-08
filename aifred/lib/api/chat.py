@@ -1,5 +1,6 @@
 """Chat endpoints: inject, status, clear, history, sessions, session config."""
 
+import asyncio
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -111,48 +112,29 @@ class ChatClearRequest(BaseModel):
 
 
 @api_app.post("/chat/clear", response_model=SystemActionResponse, tags=["Chat"])
-async def clear_chat(request: ChatClearRequest = ChatClearRequest(session_id=None)):
+async def clear_chat_endpoint(request: ChatClearRequest = ChatClearRequest(session_id=None)):
     """
-    Clear chat history for a browser session.
+    Empty a session's chat as the chat's own button does (POST /api/sessions/{id}/clear): the turn and the reading
+    end, histories, debug lines and title go, so do the chat's images, audio and screenshots; open tabs follow.
 
-    If session_id is provided, clears that session's chat history.
-    Otherwise clears the most recently modified session.
-    The browser will auto-reload and show empty chat.
+    Without session_id it clears the most recently modified session.
     """
-    from ..session_storage import get_latest_session_file, update_chat_data
+    from .. import session_events
+    from ..session_storage import clear_chat, get_latest_session_file
+    from ..turn_service import end_session_activity
 
-    # Determine which session to clear
     session_id = request.session_id
     if not session_id:
         session_file = get_latest_session_file()
-        if session_file:
-            session_id = session_file.stem
-        else:
-            return SystemActionResponse(
-                success=False,
-                message="No sessions found to clear"
-            )
-
-    # Clear the session's chat data (including debug console, like browser button)
-    success = update_chat_data(
-        session_id=session_id,
-        chat_history=[],
-        llm_history=[],
-        debug_messages=[]  # Clear debug console too!
-    )
-
-    if success:
-        # Browser detects the change automatically via session file mtime-watch (SSOT)
-        log_message(f"🗑️ API: Chat session {session_id[:8]}... cleared")
-        return SystemActionResponse(
-            success=True,
-            message=f"Chat session {session_id[:8]}... cleared"
-        )
-    else:
-        return SystemActionResponse(
-            success=False,
-            message=f"Failed to clear session {session_id[:8]}..."
-        )
+        if not session_file:
+            return SystemActionResponse(success=False, message="No sessions found to clear")
+        session_id = session_file.stem
+    end_session_activity(session_id)
+    if not await asyncio.to_thread(clear_chat, session_id):
+        raise Missing("no_session")
+    session_events.publish(session_id, "chat_cleared", {})
+    log_message(f"🗑️ API: Chat session {session_id[:8]}... cleared")
+    return SystemActionResponse(success=True, message=f"Chat session {session_id[:8]}... cleared")
 
 
 @api_app.get("/chat/history", response_model=ChatHistoryResponse, tags=["Chat"])
