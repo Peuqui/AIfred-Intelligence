@@ -149,7 +149,7 @@ Konsole).
 | Kind | Payload | Wozu |
 |---|---|---|
 | `tts` | `{url, playback_rate}` | TTS-Chunk, lückenlose Queue |
-| `media` | `{url, state_key, start_pos_sec, is_stream, audio_type}` | Einzeltrack mit Positions-Persistenz |
+| `media` | `{url, state_key, start_pos_sec, is_stream, audio_type, queue, pre_roll_sec, position_save_sec}` | Track mit Positions-Persistenz; `queue` = die weiteren Titel eines Ordners `{audio_url, state_key}` (die Vue-Seite hat keinen Reflex-State), `pre_roll_sec` = Rücksprung nach der Sprachausgabe, `position_save_sec` = Takt der Positionsspeicherung (beide `config.py`) |
 | `stop` / `pause` / `resume` | — | Audio-Steuerung |
 | `seek` | `{position_sec, relative}` | Sprung im Track |
 | `speed` | `{factor}` | `audio.playbackRate` setzen |

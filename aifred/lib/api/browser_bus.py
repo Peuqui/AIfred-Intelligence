@@ -60,6 +60,7 @@ def browser_push(
     position_sec: float = 0.0,
     relative: bool = False,
     factor: float = 1.0,
+    queue: list[dict[str, str]] | None = None,
 ) -> None:
     """Push an event to the browser push bus.
 
@@ -73,7 +74,9 @@ def browser_push(
       - ``"tts_pause"`` : silence between two parts of the TTS queue; ``url`` holds the
                        pause in milliseconds.
       - ``"media"``  : single-track, position-saved. {url, state_key,
-                       start_pos_sec, is_stream, audio_type, playback_rate}
+                       start_pos_sec, is_stream, audio_type, playback_rate, queue (the
+                       folder's tracks {audio_url, state_key} after this one, [] for one
+                       track), pre_roll_sec, position_save_sec}
       - ``"stop"``   : halt + clear src + final-position-save. (no metadata)
       - ``"pause"``  : halt, keep src + position. (no metadata)
       - ``"resume"`` : continue from current position. (no metadata)
@@ -91,11 +94,16 @@ def browser_push(
     """
     data: dict[str, Any] = {"url": url, "playback_rate": playback_rate}
     if kind == "media":
+        from ..config import AUDIO_POSITION_SAVE_SEC, AUDIO_RESUME_PRE_ROLL_SEC
+
         data.update(
             state_key=state_key,
             start_pos_sec=float(start_pos_sec),
             is_stream=bool(is_stream),
             audio_type=audio_type,
+            queue=list(queue or []),
+            pre_roll_sec=AUDIO_RESUME_PRE_ROLL_SEC,
+            position_save_sec=AUDIO_POSITION_SAVE_SEC,
         )
     elif kind == "seek":
         data.update(position_sec=float(position_sec), relative=bool(relative))

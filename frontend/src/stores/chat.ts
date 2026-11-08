@@ -15,6 +15,7 @@ import type {
   SessionDetail,
   UploadedImage,
 } from "../api/types";
+import * as media from "../lib/media";
 import * as speech from "../lib/speech";
 import { useSessions } from "./sessions";
 
@@ -138,6 +139,14 @@ export const useChat = defineStore("chat", () => {
         break;
       case "stop":
         speech.stop();
+        media.stop();
+        break;
+      case "media":
+      case "pause":
+      case "resume":
+      case "seek":
+      case "speed":
+        media.handle(kind, data);
         break;
       case "speech_regenerating":
         regenerating.value = Boolean(data.running);

@@ -13,6 +13,7 @@ import pytest
 
 from aifred.lib import session_events
 from aifred.lib.api import browser_bus
+from aifred.lib.config import AUDIO_POSITION_SAVE_SEC, AUDIO_RESUME_PRE_ROLL_SEC
 
 SESSION = "test-session-events"
 
@@ -87,6 +88,8 @@ def test_the_browser_bus_keeps_the_wire_format_of_custom_js() -> None:
     assert json.loads(line_data.removeprefix("data: ")) == {
         "kind": "media", "version": event.id, "url": "http://x/a.mp3", "playback_rate": "1.0x",
         "state_key": "k", "start_pos_sec": 3.0, "is_stream": True, "audio_type": "music",
+        # Added for the Vue page (custom.js reads only the fields above): a folder's further tracks, how it plays.
+        "queue": [], "pre_roll_sec": AUDIO_RESUME_PRE_ROLL_SEC, "position_save_sec": AUDIO_POSITION_SAVE_SEC,
     }
 
 

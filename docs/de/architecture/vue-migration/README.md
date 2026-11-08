@@ -434,6 +434,14 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   (ältere fallen aus dem Fenster); ohne Vision-Plugin bleibt es weg. Die Abfrage steht in `casus.recent`, auch für die
   Reflex-Feed-Karte (dort stand die Typenliste zweimal, die Werte fest im Mixin). Geprüft im Browser mit einem frischen
   Prüf-Ereignis.
+- **Musik im Browser (erledigt 08.11.2026):** `lib/media.ts` spielt, was der Browser-Kanal des Audio-Players schickt
+  (`media`, `pause`, `resume`, `seek`, `speed`, `stop` über den Sitzungsstrom; vorher kamen sie in Vue nicht an): einen
+  Titel oder einen Ordner Titel für Titel, die Sprachausgabe hat Vortritt (der Titel wartet und geht danach
+  `pre_roll_sec` früher weiter), die Position geht an `/api/audio/position` (alle `position_save_sec`, bei Pause/Stopp,
+  „fertig“ am Ende). Die weiteren Titel eines Ordners lagen bisher nur im Reflex-State; über Vue spielte ein Ordner
+  nur seinen ersten Titel, jetzt reisen sie mit dem Ereignis. Geprüft mit Tests (Python: Ereignis mit Warteschlange;
+  vitest: Ordner, Vortritt der Sprachausgabe, Pause/Fortsetzen/Stopp). Offen: ein Durchlauf mit dem Werkzeug eines
+  Agenten (braucht ein Sprachmodell) und die Seite der Audio-Quellen.
 - **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
 
 ## Schritte

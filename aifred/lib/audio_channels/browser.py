@@ -295,12 +295,15 @@ class BrowserChannel(AudioOutputChannel):
 
         session_id = getattr(state, "session_id", "") or getattr(ctx, "session_id", "")
         if session_id:
+            # The tracks after the first travel with the event: the Vue page has no Reflex state to read them from.
             browser_push(
                 session_id, "media", first_url,
                 state_key=first_key,
                 start_pos_sec=0.0,
                 is_stream=False,
                 audio_type=audio_type,
+                queue=[{"audio_url": f"/api/audio/file?key={quote(it['state_key'])}", "state_key": it["state_key"]}
+                       for it in ordered[1:]],
             )
 
         return {

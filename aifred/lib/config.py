@@ -1501,6 +1501,10 @@ AUDIO_INDEX_SYNC_INTERVAL_HOURS = 24
 # video sources will live under MEDIA_VIDEO_DIR. Anything outside this
 # tree is unreachable from the picker UI, no path-traversal possible.
 MEDIA_DIR = DATA_DIR / "media"
+# Music in the browser: after the spoken reply interrupted it, it goes on this many seconds earlier (the listener finds
+# the thread again); while it plays, its position is saved this often (resumed there next time).
+AUDIO_RESUME_PRE_ROLL_SEC = 3
+AUDIO_POSITION_SAVE_SEC = 30
 MEDIA_AUDIO_DIR = MEDIA_DIR / "audio"
 MEDIA_VIDEO_DIR = MEDIA_DIR / "video"
 MEDIA_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
