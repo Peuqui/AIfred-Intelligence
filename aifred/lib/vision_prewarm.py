@@ -263,12 +263,6 @@ async def is_vlm_loaded(model: str | None = None, host: str | None = None) -> bo
     return False
 
 
-def prewarm_vlm_sync(**kwargs: Any) -> bool:
-    """Synchronous wrapper for callers that aren't in an asyncio context
-    (e.g. the calibration script). Spins up a private event loop."""
-    return asyncio.run(prewarm_vlm(**kwargs))
-
-
 async def unload_vlm_model(model: str, host: str | None = None) -> bool:
     """Aus dem VRAM entfernen: ein Modell mit ``-visiond``-Profil, indem llama-swap jede geladene Platzierung
     stoppt; jedes andere über Ollama (gleicher generate-Call wie beim Pre-Warm, aber mit ``keep_alive=0``).

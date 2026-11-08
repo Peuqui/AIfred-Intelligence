@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 from starlette.testclient import TestClient
@@ -21,12 +21,6 @@ from aifred.lib.calibration.matrix import CalibrationMatrix, clear_failure, matr
 from aifred.lib.calibration.model_info import LayerSplit, RopeContext, model_calibration
 from aifred.lib.gpu_detection import GPUInfo
 from aifred.lib.tts_client import TTSSuiteUnreachable
-from aifred.state._calibration_mixin import CalibrationMixin
-
-if TYPE_CHECKING:
-    _StateBase = CalibrationMixin
-else:
-    _StateBase = object
 
 Profiles = Callable[[dict[str, str]], None]
 
@@ -191,46 +185,6 @@ def test_the_cloud_and_no_model_have_no_calibration() -> None:
     assert model_calibration("llamacpp", "") is None
 
 
-# ── The Reflex console reads the same ───────────────────────────────────
-
-
-class _Console(_StateBase):
-    _show_model_calibration_info = CalibrationMixin._show_model_calibration_info
-
-    def __init__(self, backend_type: str) -> None:
-        self.backend_type = backend_type
-        self.lines: list[str] = []
-
-    def add_debug(self, message: str) -> None:
-        self.lines.append(message)
-
-
-def test_the_reflex_console_words_the_calibration_as_before(profiles: Profiles) -> None:
-    from aifred.lib.formatting import set_ui_locale
-
-    set_ui_locale("de")
-    profiles({
-        MODEL: "llama-server -m big.gguf -c 65536 --tensor-split 19,20,13,9,0",
-        f"{MODEL}-speed": "llama-server -m big.gguf -c 32768 --tensor-split 30,31",
-    })
-    _cache({MODEL: CALIBRATED})
-    console = _Console("llamacpp")
-    console._show_model_calibration_info(MODEL)
-    assert console.lines == [
-        "   🎯 Configured: 65.536 tokens (cache shows 32.768 — re-calibrate to sync)",
-        "   📊 Layer split: 19:20:13:9:0 (4/5 GPUs)",
-        "   ⚡ Speed split: 30:31 (2/5 GPUs), ctx=32.768",
-    ]
-    _cache({"Other": {"ollama_calibrations": [{"max_context_1.0x": 40960, "max_context_1.5x": 61440}]}})
-    console = _Console("ollama")
-    console._show_model_calibration_info("Other")
-    console._show_model_calibration_info("Unknown")
-    assert console.lines == [
-        "   🎯 Calibrated: Native: 40.960, RoPE 1.5x: 61.440",
-        "   ⚠️ Not calibrated - please run calibration for optimal context",
-    ]
-
-
 # ── Backends and who runs on which model ────────────────────────────────
 
 
@@ -252,7 +206,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     from aifred.lib import agent_choices
     from aifred.lib.api.app import api_app
     from aifred.lib.auth import sign_username
-    from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+    from aifred.lib.auth import USERNAME_COOKIE_NAME
 
     file = tmp_path / "settings.json"
     file.write_text(json.dumps({

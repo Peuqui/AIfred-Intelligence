@@ -247,26 +247,6 @@ def pick_vlm_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
     return pick_side_channel_gpu(gpus)
 
 
-def ollama_override_text(gpu_id: int) -> str:
-    """Generate the systemd drop-in content that pins Ollama to a GPU.
-
-    Returns a string the user (or an admin script) writes to::
-
-        /etc/systemd/system/ollama.service.d/gpu-pin.conf
-
-    followed by ``sudo systemctl daemon-reload && sudo systemctl restart ollama``.
-
-    ``CUDA_DEVICE_ORDER=PCI_BUS_ID`` is essential — without it, the index
-    is reordered by FASTEST_FIRST and our PCI-stable choice would map to
-    a different physical GPU.
-    """
-    return (
-        "[Service]\n"
-        f"Environment=\"CUDA_DEVICE_ORDER=PCI_BUS_ID\"\n"
-        f"Environment=\"CUDA_VISIBLE_DEVICES={gpu_id}\"\n"
-    )
-
-
 # ── Cache (resolve "auto" once per process) ─────────────────────────────
 
 _cached_vlm_gpu: int | None = None

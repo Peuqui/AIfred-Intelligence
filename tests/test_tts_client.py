@@ -15,6 +15,8 @@ import pytest
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
+from fake_tts_service import FRAMES_MEDIA_TYPE
+
 from aifred.lib import tts_client
 from aifred.lib.tts_client import (
     ERROR_CLASSES,
@@ -76,7 +78,7 @@ async def chunks(data: bytes, size: int) -> AsyncIterator[bytes]:
 
 
 def frames_response(data: bytes, size: int = 7) -> httpx.Response:
-    return httpx.Response(200, headers={"content-type": tts_client.FRAMES_MEDIA_TYPE}, content=chunks(data, size))
+    return httpx.Response(200, headers={"content-type": FRAMES_MEDIA_TYPE}, content=chunks(data, size))
 
 
 def make_client(handler: Callable[[httpx.Request], httpx.Response]) -> TTSClient:

@@ -11,9 +11,6 @@ from ...theme import css_variables
 from ..user_error import BadRequest, Missing, UserError
 from .app import api_app
 
-# In-memory map: session_id -> last requested state_key (for re-resolve from JS)
-_audio_active: dict[str, str] = {}
-
 
 def _audio_resolver():
     """Build a fresh SourceResolver: filesystem-discovery + http_streams.

@@ -42,10 +42,15 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
 ## Projekt-Struktur
 
 ### Wichtige Verzeichnisse
+- `aifred/server.py` - der Server (`venv/bin/python -m aifred.server`): API, Vue-Oberfläche, `/_upload/`, `/vendor/`
+- `aifred/lib/api/` - die HTTP-API (FastAPI), unter `/api`
+- `frontend/` - die Oberfläche (Vue 3, Vite, TypeScript); Build nach `frontend/dist`, ausgeliefert unter `/api/app/`
 - `aifred/lib/` - Kern-Bibliotheken (IMMER hier zuerst suchen!)
+  - `turn_service.py` - ein Zug: Nachricht bis zur fertigen Antwort, im Server, mit oder ohne Tab
+  - `turn_debate.py` - die Diskussionsmodi (Plätze: Verfasser, Kritiker, Richter; `debate_seats.py`)
+  - `session_events.py` - Ereignisstrom je Sitzung (den die Tabs lesen)
   - `prompt_loader.py` - Prompt-Handling
   - `message_builder.py` - Message-Formatting
-  - `multi_agent.py` - Multi-Agent Logik
   - `message_hub.py` - Message Hub Worker-Management
   - `envelope.py` - InboundMessage/OutboundMessage Dataclasses
   - `routing_table.py` - SQLite Routing Table (Kanal → Session)
@@ -54,17 +59,16 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
   - `embeddings.py` - bge-m3-Embedding-Function für die ChromaDB-Collections
   - `document_search_index.py` - Suche über jeden Abschnitt: Vektorabstand + Wortindex, zusammengeführt nach Rang
   - `text_search.py` - Wörter für FTS5 mit Trigrammen, gemeinsam für Dokumentensuche und Mail-Index
-  - `research_tools.py` - Recherche-Pipeline (`execute_research`, `hub_web_search`)
+  - `research_tools.py` - Recherche-Pipeline (`run_web_search`)
 - `prompts/de/` und `prompts/en/` - Alle Prompts (NICHT hardcodiert im Code!)
 - `aifred/backends/` - LLM-Backend Adapter
 
 ### Architektur
-- Python/Reflex Anwendung (nicht Gradio!)
+- Python-Server (FastAPI unter uvicorn, ein Prozess, ein Port) mit Vue-3-Oberfläche; Plan und Stand des
+  Umbaus von Reflex: `docs/de/architecture/vue-migration/README.md`
 - Backends: llama.cpp und vLLM (beide via llama-swap), Ollama, Cloud-APIs (Claude, Qwen, DeepSeek, Kimi)
-- Multi-Agent System:
-  - AIfred (Hauptagent)
-  - Sokrates (Kritiker)
-  - Salomo (Richter im Tribunal-Mode)
+- Multi-Agent System: AIfred ist der Grundagent; in den Diskussionsmodi nimmt jeder Agent einen Platz ein
+  (Verfasser, Kritiker, Richter), Vorgabe Sokrates und Salomo aus `settings.json`
 
 ---
 
@@ -110,65 +114,22 @@ Die History-Kompression verwendet folgende Schwellenwerte (konfigurierbar in `co
   yield f"Model: {size_mb / 1024:.1f} GB"
   ```
 
-### State-Mixins und mypy (seit 06.11.2026)
-`AIState` setzt sich aus Mixins zusammen; mypy prüft jedes Mixin für sich und
-sieht die anderen nicht.
-- **Was ein Mixin von einem anderen benutzt** (Feld oder Methode), deklariert es
-  am Anfang der Klasse unter `if TYPE_CHECKING:`, wörtlich wie die echte
-  Definition (Typ, Signatur, Dekoratoren). Wo `AIState` die Mixins zusammensetzt,
-  prüft mypy jede Deklaration gegen die echte Definition.
-- **Kein `# type: ignore[attr-defined]`** für solche Zugriffe. Für `aifred/state/`
-  gilt keine Ausnahme in `mypy.ini`, und `warn_unused_ignores` meldet jede
-  Ausnahme, die nichts mehr unterdrückt.
-- `tests/test_state_attribute_references.py` prüft jeden Zugriff `self.X` gegen
-  die zusammengesetzte Klasse; er fängt auch eine Deklaration ohne echte Definition.
-- **Methoden, die nur State-Code aufruft, sind privat** (`_name`). Jede öffentliche
-  Methode ist ein Event-Handler, den jeder verbundene Client mit eigenen
-  Argumenten auslösen kann (06.11.: `picker_open_for` setzte so Sandbox-Wurzel,
-  Fähigkeiten und Rückruf des Datei-Pickers).
-- **Öffentliche State-Felder sind `rx.Field`:** `name: rx.Field[T] = rx.field(wert)`,
-  ein veränderlicher Default über `default_factory` (`rx.field(default_factory=list)`).
-  Nur so ist `AIState.name` in der Oberfläche für mypy eine typisierte Var
-  (`.length()`, `.contains()`, `["key"]`); zur Laufzeit ist es dasselbe wie die
-  einfache Annotation (Reflex baut beides gleich).
-- **Jede öffentliche Methode trägt `@rx.event`** (berechnete Vars `@rx.var`). Erst dann
-  prüft mypy die Aufrufe aus der Oberfläche, mit Argumenttypen. Das nackte
-  `@rx.event` tut zur Laufzeit nichts. Aus State-Code aufgerufen prüft mypy nur die
-  Positionsargumente, nicht Schlüsselwörter, Defaults oder den Rückgabewert: Eine
-  Methode, die Code so aufruft, ist eine interne und gehört privat; ein Handler,
-  dessen Ergebnis State-Code braucht, ruft eine private Methode auf, die auch der
-  Code nutzt (`open_channel_credentials` → `_open_channel_credentials`).
-- `tests/test_state_typing_conventions.py` hält beide Regeln.
-- **Oberfläche:** Ein Element aus `rx.foreach` ist `ObjectVar[dict[str, Any]]` (bzw.
-  `ObjectVar[EineDataclass]`), nie `rx.Var` oder `dict`; `data-*`-Attribute gehen über
-  `custom_attrs={...}`, nicht über `**{...}`. Einen Text aus `rx.cond` gibt `t()` als
-  `StringVar` zurück (`.to(str)` ändert weder Laufzeittyp noch JavaScript). Nach
-  Änderungen an Typen, Deklarationen oder Dekoratoren das Rendering jeder Seite
-  vorher und nachher vergleichen: `scripts/render_pages.py` (06.11. fing das ein
-  `.to(list)`, das den Elementtyp verwarf und die Seite beim Kompilieren gebrochen hätte).
-- **`Icon.create(...)` und `Moment.create(...)` statt `rx.icon(...)`/`rx.moment(...)`** (seit 07.11.):
-  `reflex_components_lucide` und `reflex_components_moment` haben ein Untermodul `icon` bzw. `moment`
-  und binden den Namen in `__init__.py` danach an die Funktion. Nach jeder Codeänderung nahm mypys
-  Lauf mit Cache das Untermodul und meldete an allen 242 Aufrufen „Module not callable“; nur ein Lauf
-  ohne Cache stimmte (40 statt 9 s). Über die Klasse ist der Name eindeutig, die Signatur wird weiter
-  geprüft. `tests/test_reflex_ambiguous_names.py` hält das. `follow_imports = skip` für die beiden
-  Pakete macht es schlimmer (dann meldet auch der volle Lauf die 242).
-- **Stellvertreter in Tests** (eine kleine Klasse statt des echten States oder
-  Objekts) erben für mypy von der echten Klasse und zur Laufzeit von `object`:
-  ```python
-  if TYPE_CHECKING:
-      _StateBase = TTSStreamingMixin
-  else:
-      _StateBase = object
+### Stellvertreter in Tests
+Eine kleine Klasse statt des echten Objekts erbt für mypy von der echten Klasse und zur Laufzeit von
+`object`, wenn eine echte Unterklasse nicht geht (sie hätte Methoden, die der Stellvertreter verweigern
+muss, oder eine Dataclass verlangt im Konstruktor alle Felder):
+```python
+if TYPE_CHECKING:
+    _ReadingBase = BrowserReading
+else:
+    _ReadingBase = object
 
-  class _Reply(_StateBase):
-      stream_text_to_ui = TTSStreamingMixin.stream_text_to_ui  # echte Methode geliehen
-  ```
-  mypy prüft dann Felder, geliehene Methoden und Überschreibungen gegen die
-  echten. Eine echte Unterklasse geht bei Reflex-States nicht (sie lehnen
-  undeklarierte Attribute ab), und `Any` oder `cast` würden nichts prüfen.
-  Reflex-States und Dataclasses verlangen im Konstruktor alle Felder: Der
-  Stellvertreter braucht ein eigenes `__init__`.
+class FakeReading(_ReadingBase):
+    ...
+```
+mypy prüft dann Felder, geliehene Methoden und Überschreibungen gegen die echten; `Any` oder `cast`
+würden nichts prüfen. Kein `# type: ignore[attr-defined]` für solche Zugriffe: `warn_unused_ignores`
+meldet jede Ausnahme, die nichts mehr unterdrückt.
 
 ---
 
@@ -176,10 +137,8 @@ sieht die anderen nicht.
 
 **IMMER nach Code-Änderungen ausführen - KEINE Ausnahmen!**
 
-ruff und mypy kommen aus `~/.venv/devtools/bin/`; im Projekt-venv sind sie seit
-06.11.2026 nicht mehr installiert (die alten Versionen dort bewerteten
-`@rx.event(background=True)` anders). Die Typen des Projekts und die Stubs
-(`types-*` in `requirements.txt`) bekommt mypy über `--python-executable`.
+ruff und mypy kommen aus `~/.venv/devtools/bin/`, nicht aus dem Projekt-venv. Die Typen des Projekts
+und die Stubs (`types-*` in `requirements.txt`) bekommt mypy über `--python-executable`.
 
 ```bash
 # 1. Syntax-Check (schnell, immer zuerst)
@@ -194,8 +153,11 @@ python3 -m py_compile aifred/DATEI.py
 
 **Mehrere Dateien auf einmal:**
 ```bash
-~/.venv/devtools/bin/ruff check aifred/state/ aifred/aifred.py aifred/lib/context_manager.py
+~/.venv/devtools/bin/ruff check aifred/ tests/ scripts/
 ```
+
+**Oberfläche** (in `frontend/`): `npm run build` (erzeugt vorher die API-Typen aus dem OpenAPI-Schema
+des Servers, `src/api/schema.d.ts`, und prüft mit `vue-tsc`), `npx vitest run`.
 
 **Breite `except`-Fänge (seit 06.11.2026):**
 - Gefangen wird, was dort auftreten kann: Datenbank `sqlite3.Error`, Datei `OSError`,
@@ -210,7 +172,7 @@ python3 -m py_compile aifred/DATEI.py
   lehnt jedes `noqa: BLE001` ohne „ — Grund“ ab.
 
 **Bekannte Ignores (NICHT beheben):**
-- `E402` in config.py/state/: Import-Position (notwendig wegen zirkulärer Imports)
+- `E402` in config.py: Import-Position (notwendig wegen zirkulärer Imports)
 - `F541` unnötige f-strings: Können mit `--fix` automatisch behoben werden
 - mypy-Warnungen in Backends: OpenAI SDK Type-Mismatches (OpenAI-Library Issue)
 - mypy `no_implicit_optional`: Bestehender Code, wird nicht refactored
@@ -270,7 +232,7 @@ Raums laufen nacheinander). Aufrufer ist z. B. Agent-Orc.
   `GET /api/audio/announce/rooms` liefert die gerade verbundenen Räume.
 - Einheit der Sprachausgabe: EINE Einstellung pro TTS-Engine, systemweit für alle Agenten und Kanäle
   (Browser: Sprachausgabe-Panel; Speicher `tts_toggles_per_engine[engine]["unit"]`; Standard je Engine = `unit_default`
-  der Katalogzeile der TTS-Suite; Lesen über `lib.tts_service.speech_unit_for`): `sentence`,
+  der Katalogzeile der TTS-Suite; gelesen in `lib.tts_service.entries()`, die Einheit je Eintrag): `sentence`,
   `paragraph` oder `whole` (alles am Stück, beste Qualität, die erste Sprache kommt erst nach der
   kompletten Erzeugung). Das Echo-Plugin liest sie nur, es kennt keine eigene Einstellung dafür. Der TTS-Dienst zerlegt den Text nach der Einheit des sprechenden Eintrags (`texts` = EIN Text, Absätze durch Leerzeilen;
   an jeder Absatzgrenze liefert der Dienst einen Pause-Marker `pause_ms`, aus dem AIfred Stille macht);
@@ -283,88 +245,6 @@ Raums laufen nacheinander). Aufrufer ist z. B. Agent-Orc.
   `notification_wav` / `notification_end_wav` in der Puck-Oberfläche). Läuft Musik/Hörbuch/TTS, hält der Server
   sie vor der Ansage per `_pause` am Puck an und wartet auf die Bestätigung (sonst wird die Ansage verworfen).
 - Port 8002 (Backend), nicht 3002.
-
----
-
-## ⚠️ Reflex Patch: Worker-Respawn nach Crash
-
-**Problem:** `reflex run` startet granian programmatisch (`exec.py`,
-`run_granian_backend`) mit `reload=True` + `reload_ignore_worker_failure=True`.
-Stirbt der Backend-Worker durch einen C-Level-Crash (z.B. libc-Segfault,
-opencv/ffmpeg am korrupten RTSP-Stream), wird er NICHT respawnt — der
-granian-Master lebt weiter, also greift auch `systemd Restart=always` nicht
-(Main-PID = Master, der „läuft"). Folge: AIfred ist tot/unerreichbar bis zum
-manuellen Neustart (2026-06-23 ~1h43, 2026-09-22 16:09).
-
-**Falle:** `respawn_failed_workers=True` allein wirkt NICHT. Im Reload-Modus
-läuft granian (2.6) in `_serve_with_reloader`, das nur Dateiänderungen
-beobachtet; der Respawn-Code steht in `_serve_loop`, der nur OHNE Reload
-läuft. Zusätzlich meldet der Worker-Wächter bei
-`reload_ignore_worker_failure=True` den Absturz gar nicht weiter.
-
-- **Datei:** `venv/lib/python3.12/site-packages/reflex/utils/exec.py`, in
-  `run_granian_backend()`; seit Reflex 0.10 im Aufruf `ParentBoundGranian(...)` (~Zeile 930),
-  einer Unterklasse, die den Port im Master hält. `scripts/patch-reflex.py` (Patch 1) setzt ihn.
-- **Fix:** `reload=False` (die `reload_*`-Argumente entfallen) +
-  `respawn_failed_workers=True` + `respawn_interval=3.5`. Kein Backend-Hot-Reload
-  mehr — nach Code-Änderungen ohnehin Service-Restart.
-- **Verhalten:** Worker-Absturz → Respawn nach ~3,5 s, Frontend läuft weiter.
-  Absturz innerhalb 5,5 s nach einem Respawn (Crash-Schleife, z.B. Startfehler
-  im Code) → Master beendet sich → systemd startet den Dienst neu.
-- **Abgenommen 2026-09-22:** `kill -SEGV <worker-pid>` → Backend nach 4 s
-  wieder da, Master + bun unverändert. **Erneut 2026-11-07 unter Reflex 0.10.1 und Granian 2.8.4:**
-  Backend nach 5,0 s wieder da, Master unverändert; der neue Worker durchläuft die
-  Lifespan-Tasks erneut (Message Hub startet alle Kanäle neu).
-
-**Bei Reflex-Update:** Patch erneut anwenden:
-```python
-# exec.py, run_granian_backend(), im Granian(...)-Aufruf:
-reload=False,            # statt reload=True + reload_paths/_ignore_*/_tick
-workers_kill_timeout=2,
-respawn_failed_workers=True,
-respawn_interval=3.5,
-```
-
----
-
-## ⚠️ Reflex Patch: vite.config.js (allowedHosts, dedupe)
-
-Reflex 0.9 schreibt `.web/vite.config.js` bei **jedem Compile** neu — nach dem
-`ExecStartPre`. Das `sed` aus `scripts/patch-vite-config.sh` wirkt deshalb nicht
-mehr (06.10.2026: „Blocked request. This host is not allowed", Domain gesperrt).
-`allowedHosts` setzt `vite_allowed_hosts` in `rxconfig.py` (aus
-`AIFRED_ALLOWED_HOST`), `dedupe` patcht `scripts/patch-reflex.py` ins Template
-`reflex_base/compiler/templates.py`. **Bei Reflex-Update:** `patch-reflex.py` erneut
-laufen lassen; danach prüfen: `grep -n "allowedHosts\|dedupe" .web/vite.config.js`.
-`patch-vite-config.sh` ist obsolet (Entfernen braucht eine Änderung der Unit).
-
----
-
-## ⚠️ Reflex Patch: Typen der Komponenten-Pakete (mypy)
-
-Reflex liefert die Komponenten in eigenen Paketen (`reflex_components_*`)
-mit `.pyi`-Stubs, aber **ohne `py.typed`** (PEP 561, noch in 0.10.1; upstream
-Issue #7708, PR #7710).
-mypy ignoriert die Stubs dann, jede Komponente wird `Any` → ~200
-`no-any-return`-Fehler. Zweiter Fehler: In
-`reflex_components_core/core/cond.py` stehen TypeVars mitten in der
-`@overload`-Serie von `cond`; mypy verwirft deshalb die sieben
-Wert-Überladungen, und `rx.cond(var, "a", "b")` scheitert mit `call-overload`.
-
-`scripts/patch-reflex.py` setzt die Marker und zieht die TypeVars vor die
-Serie (Laufzeit unverändert). **Bei Reflex-Update:** Skript erneut laufen
-lassen, `--check` meldet, ob upstream inzwischen gefixt ist.
-
-Dazu kommen drei reine Typ-Patches (5–7), ohne die mypy die Oberfläche nicht
-prüfen kann (Begründung je Patch im Docstring des Skripts): `Field.__get__`
-(mypy prüft die Grenze einer TypeVar im `self`-Typ nicht, wenn die Lösung eine
-Union ist; ohne Patch wird jedes `dict`-Feld eine `ArrayVar[Never]`), `rx.event`
-als überladene Funktion statt Klasse mit `__new__` und `ObjectVar.__getitem__`
-für Dataclass-Werte. Den Rückgabetyp von `EventCallback.__get__` und den
-Upload-Kontext (jedes Ereignis wurde Kind des laufenden Uploads, PR #7357) hat
-Reflex 0.10 selbst behoben; `tests/test_reflex_upload_context.py` wacht weiter
-darüber. Fehlen sie nach einem Update, meldet mypy in `aifred/ui`
-Hunderte Fehler — dann zuerst `patch-reflex.py` laufen lassen.
 
 ---
 

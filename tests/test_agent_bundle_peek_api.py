@@ -10,7 +10,7 @@ from starlette.testclient import TestClient
 from aifred.lib.agent_bundle import BUNDLE_FORMAT_VERSION
 from aifred.lib.api.app import api_app
 from aifred.lib.auth import sign_username
-from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+from aifred.lib.auth import USERNAME_COOKIE_NAME
 from aifred.lib.i18n import t
 
 

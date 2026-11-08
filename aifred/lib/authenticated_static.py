@@ -21,8 +21,7 @@ from starlette.types import Receive, Scope, Send
 
 # Reuse the framework-agnostic verifier — keeps the HMAC/secret logic in one
 # place (lib/auth) instead of re-implementing the check here.
-from .auth import verify_signed_username
-from .browser_storage import USERNAME_COOKIE_NAME
+from .auth import USERNAME_COOKIE_NAME, verify_signed_username
 
 
 class AuthenticatedStaticFiles(StaticFiles):

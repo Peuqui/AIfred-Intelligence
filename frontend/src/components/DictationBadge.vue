@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // The dictation's button, as Agent-Orc draws it (frontend/src/components/DictationBadge.vue there): the
-// STT-Suite's logo (assets/status-icons/stt-suite-icon.svg) in a round badge, the bars in amber, a gold rim.
+// STT-Suite's logo in a round badge, the bars in amber, a gold rim.
 // Ready, it stands still and waits to be pressed; while speech is taken in, its bars rise and fall like a
 // level, the arcs glow and the rim turns red (also where motion is reduced, so that ready and recording never
 // look alike); while it is transcribed, it stands still and grey. The colours are AIfred's (aifred/theme.py).

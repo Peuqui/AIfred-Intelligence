@@ -79,16 +79,8 @@ OPERATING_POINTS_DIR = DATA_DIR / "operating_points"
 BACKEND_URL = os.environ.get("BACKEND_URL", "")
 
 # ============================================================
-# DEBUG CONFIGURATION
+# LOGGING CONFIGURATION
 # ============================================================
-DEBUG_MESSAGES_MAX = 500  # Maximum number of debug messages to keep in UI console
-
-# ============================================================
-# LOGGING CONFIGURATION (Unified System)
-# ============================================================
-# Console Debug: Send messages to UI debug console
-CONSOLE_DEBUG_ENABLED = True
-
 # File Debug: Write messages to log file
 FILE_DEBUG_ENABLED = True
 
@@ -356,11 +348,6 @@ BACKEND_LABELS = {
 # Which TTS engines exist, where they run and how they are started is the
 # TTS-Suite service's business (``aifred/lib/tts_service.py``); AIfred only
 # keeps its own list of engines to use and the per-engine toggles.
-# Default TTS engine — preselected in fresh state and in the agent
-# editor's backend dropdown until the user picks one. Single source of
-# truth: the state mixins read this instead of each hardcoding a key.
-TTS_DEFAULT_ENGINE = str(DEFAULT_TTS_ESCALATION[0]["engine"])
-
 # narrate_file (narrator plugin): characters per TTS synthesis call.
 # Qwen3-TTS is LLM-based — page-length inputs risk omissions, prosody
 # drift and KV growth toward the VRAM reserve, so text is chunked at
@@ -394,8 +381,6 @@ TTS_LANGUAGE_OPTIONS: list[tuple[str, str]] = [
     ("ja", "Japanese"),
     ("ko", "Korean"),
 ]
-TTS_LANGUAGE_LABELS = [label for _, label in TTS_LANGUAGE_OPTIONS]
-TTS_LANGUAGE_LABEL_TO_CODE = {label: code for code, label in TTS_LANGUAGE_OPTIONS}
 TTS_LANGUAGE_CODE_TO_LABEL = {code: label for code, label in TTS_LANGUAGE_OPTIONS}
 
 # Tempo and pitch of an agent's voice, as the voice settings offer them. 0.05 steps in the
@@ -406,13 +391,6 @@ TTS_SPEED_CHOICES = [
     "1.5x", "1.75x", "2.0x",
 ]
 TTS_PITCH_CHOICES = ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"]
-
-
-def sort_voices_custom_first(voices: list[str]) -> list[str]:
-    """Sort voices: ★ custom voices first, then built-in alphabetically."""
-    custom = sorted(v for v in voices if v.startswith("★"))
-    builtin = sorted(v for v in voices if not v.startswith("★"))
-    return custom + builtin
 
 
 # Per-agent TTS voice defaults moved to data/agents.json under each
@@ -531,10 +509,6 @@ GARBAGE_COLLECTION_HOUR = 3
 # For optimal performance, models should be calibrated via the Model Manager.
 MAIN_LLM_FALLBACK_CONTEXT = 32768  # 32K context for uncalibrated local models
 CLOUD_API_FALLBACK_CONTEXT = 131072  # 128K context for cloud API models (most support 128k+)
-
-# Maximum manual num_ctx value (for UI input validation)
-# 2M tokens should cover even the largest context windows (Gemini 2M, future models)
-NUM_CTX_MANUAL_MAX = 2097152  # 2M tokens
 
 # Minimum context for Ollama calibration binary search
 # This is the lower bound - models with context < this are unusable for conversation
@@ -803,14 +777,6 @@ VLM_KV_CACHE_TYPE = "q8_0"
 # This bound turns that hang into a clean error the caller can handle.
 VLM_CALL_TIMEOUT_S = 300
 
-# ============================================================
-# DEBUG LOG PERSISTENCE
-# ============================================================
-# Maximum number of debug log entries to persist in session
-# Allows debug log to survive browser refresh during long inferences
-DEBUG_LOG_MAX_ENTRIES = 250
-
-
 # Log RAW messages sent to LLMs (debug.log only)
 # Useful for debugging prompt injection issues
 # Shows full message list with role and content preview for each LLM call
@@ -897,9 +863,6 @@ VISION_EDGE_AI_SETTLE_SEC = 1.0
 # höchstens aber ``VISION_EDGE_AI_BACKOFF_MAX_SEC`` — die Kamera wird nicht zugehämmert.
 VISION_EDGE_AI_BACKOFF_MAX_DOUBLINGS = 5
 VISION_EDGE_AI_BACKOFF_MAX_SEC = 60.0
-# Toast-Meldungen der Oberfläche (aifred/lib/toast.py): Anzeigedauer und Ort.
-UI_TOAST_DURATION_MS = 5000
-UI_TOAST_POSITION = "top-center"
 
 # PTZ-Steuerung der Live-Ansicht (ONVIF ContinuousMove): Mindestdauer einer Bewegung (ein Tipp auf dem Touchscreen ist nur ein
 # Sekundenbruchteil lang) und Sicherheitsabschaltung, falls das Loslassen den
@@ -1427,11 +1390,6 @@ LLAMACPP_DRAFT_SIDECAR_BUDGET_MIB = 2048
 VRAM_CONTEXT_RATIO_DENSE = 0.15  # ~150KB per token (Dense models)
 VRAM_CONTEXT_RATIO_MOE = 0.10    # ~100KB per token (MoE models, 48% more context!)
 
-# vLLM Idle Shutdown (TTL)
-# Auto-stop vLLM server after this many seconds of inactivity to free VRAM.
-# Server restarts automatically on next chat message (lazy-start).
-VLLM_IDLE_TTL_SECONDS = 900  # 15 min (matches llama-swap default)
-
 # vLLM-Kalibration: Kurzkontext-Probe zusaetzlich zur Langkontext-Probe
 # messen. Der Sieger wird nach dem LANG-Decode gekuert (Peuqui 2026-08-29:
 # lange Sessions brauchen die Geschwindigkeit, kurze Turns sind eh schnell
@@ -1621,8 +1579,8 @@ SCHEDULER_HISTORY_EXCERPT_CHARS = 400  # characters kept per shown run
 # ============================================================
 # Server-side lifetime of the signed login cookie. The expiry timestamp is
 # PART of the HMAC signature (lib/auth) — after expiry the cookie is invalid
-# on the server, no matter what the browser has stored. The browser-side
-# max-age (browser_storage) uses the same value so both layers agree.
+# on the server, no matter what the browser has stored. The cookie's max-age
+# (api/login.py) uses the same value so both layers agree.
 AUTH_COOKIE_MAX_AGE_DAYS = int(os.environ.get("AUTH_COOKIE_MAX_AGE_DAYS", "30"))
 
 # ============================================================
@@ -1838,29 +1796,8 @@ VISION_MAX_IMAGE_DIMENSION = 3840  # 4K UHD - beste OCR-Qualität bei akzeptable
 # This allows Vision-LLMs with larger context (e.g., 131K for gemma3) to use
 # more context when VRAM allows it.
 
-# ============================================================
-# UI LAYOUT CONSTANTS (Single Source of Truth for CSS)
-# ============================================================
-# These constants are injected as CSS custom properties (:root variables)
-# and used in both Python (Reflex components) and CSS (media queries)
-
-# Chat History Box
-UI_CHAT_HISTORY_MAX_HEIGHT_DESKTOP = "70vh"    # Desktop: 70% of viewport height (dynamic scrolling)
-UI_CHAT_HISTORY_MAX_HEIGHT_MOBILE = "60vh"     # Mobile: 60% viewport, leaves 40% "grip space"
-
-# Sandbox: collapsible + iframe height
-UI_SANDBOX_MAX_HEIGHT = "60vh"       # details[data-sandbox] max-height
-SANDBOX_IFRAME_HEIGHT = "57vh"       # iframe height (container minus ~summary header)
-
-# Thinking Process Collapsible (<details> tag)
-UI_THINKING_MAX_HEIGHT_DESKTOP = "450px"       # Desktop: ~15-20 lines of text
-UI_THINKING_MAX_HEIGHT_MOBILE = "40vh"         # Mobile: 40% viewport height
-
-# Debug Console
-UI_DEBUG_CONSOLE_MAX_HEIGHT = "60vh"           # 60% of viewport height (dynamic scrolling)
-
-# Media Query Breakpoint
-UI_MOBILE_BREAKPOINT = "768px"                 # Mobile: <= 768px, Desktop: > 768px
+# Sandbox output in the chat: height of the embedded page (formatting.build_sandbox_iframe)
+SANDBOX_IFRAME_HEIGHT = "57vh"
 
 # ============================================================
 # CONFIG VALIDATION (Safety Checks)

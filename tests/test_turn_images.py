@@ -16,7 +16,7 @@ from starlette.testclient import TestClient
 from aifred.lib import session_events, session_storage, turn_images, vision_utils
 from aifred.lib.api.app import api_app
 from aifred.lib.auth import sign_username
-from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+from aifred.lib.auth import USERNAME_COOKIE_NAME
 
 MINE = "a" * 32
 THEIRS = "b" * 32

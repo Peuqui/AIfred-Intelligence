@@ -198,7 +198,7 @@ class TestRun:
         monkeypatch.setattr(sub, "prepare_agent_toolkit", fake_prepare)
         monkeypatch.setattr(
             sub, "resolve_run_params",
-            lambda agent_id, state: sub.RunParams("llamacpp", "http://x", "test-model", 8192, 0.5),
+            lambda agent_id: sub.RunParams("llamacpp", "http://x", "test-model", 8192, 0.5),
         )
         from aifred.backends.base import LLMOptions
         monkeypatch.setattr(sub, "build_llm_options", lambda state, agent, model, t, n: LLMOptions(temperature=t, num_ctx=n))

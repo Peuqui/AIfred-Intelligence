@@ -32,7 +32,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
         agent_memory,
         calibration_gate,
         llm_client,
-        llm_engine,
+        session_title,
         llm_pipeline,
         runtime_settings,
     )
@@ -93,7 +93,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     monkeypatch.setattr(agent_memory, "prepare_agent_toolkit", toolkit)
     monkeypatch.setattr(llm_pipeline, "run_llm_stream", stream)
     monkeypatch.setattr(llm_client, "LLMClient", _Client)
-    monkeypatch.setattr(llm_engine, "generate_session_title", title)
+    monkeypatch.setattr(session_title, "generate_session_title", title)
     monkeypatch.setattr(context_utils, "get_agent_num_ctx", lambda *_args: (32768, "test"))
     yield world
     session_storage._session_meta_cache.clear()

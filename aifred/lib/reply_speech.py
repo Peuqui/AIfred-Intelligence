@@ -94,7 +94,7 @@ class ReplySpeech:
             await asyncio.wait({self._kept})
 
     async def _keep(self, timestamp: str) -> None:
-        from .api.browser_bus import TTS_CHUNK_KINDS
+        from .browser_push import TTS_CHUNK_KINDS
 
         reading = self.reading
         try:
@@ -197,7 +197,7 @@ async def read_bubble(session_id: str, entry: dict[str, Any], text: str, setting
 
 def _reading(session_id: str, agent: str, language: str, ui_language: str) -> BrowserReading:
     """The reading of one reply onto the session's playlist (the push bus of its event stream)."""
-    from .api.browser_bus import browser_push
+    from .browser_push import browser_push
 
     log_message(f"🔊 TTS: reading for agent={agent}, language={language}")
     return BrowserReading(
@@ -222,7 +222,7 @@ def keep_on(session_id: str, call: AgentCall, entry: dict[str, Any]) -> None:
 
 def stop(session_id: str) -> None:
     """End the session's reading (the service stops) and tell its clients to stop playing."""
-    from .api.browser_bus import TTS_CHUNK_KINDS
+    from .browser_push import TTS_CHUNK_KINDS
 
     speech = _readings.get(session_id)
     if speech is not None:

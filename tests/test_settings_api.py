@@ -18,7 +18,7 @@ from aifred.lib import formatting, settings
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from aifred.lib.api.app import api_app
     from aifred.lib.auth import sign_username
-    from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+    from aifred.lib.auth import USERNAME_COOKIE_NAME
 
     file = tmp_path / "settings.json"
     file.write_text(json.dumps({"ui_language": "de", "backend_type": "llamacpp", "agent_tuning": {"aifred": {"top_k": 7}}}))

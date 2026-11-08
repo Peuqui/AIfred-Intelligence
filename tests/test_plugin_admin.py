@@ -164,7 +164,7 @@ def test_the_form_never_sends_a_password_and_an_empty_one_keeps_it(world: dict[s
 def test_the_page_lists_switches_and_fills_the_form(world: dict[str, Any]) -> None:
     from aifred.lib.api.app import api_app
     from aifred.lib.auth import sign_username
-    from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+    from aifred.lib.auth import USERNAME_COOKIE_NAME
 
     with TestClient(api_app) as client:
         client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))

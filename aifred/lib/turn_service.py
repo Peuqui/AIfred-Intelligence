@@ -936,8 +936,8 @@ def _append(session_id: str, *, chat: list[dict[str, Any]], llm: list[dict[str, 
 def _start_title(session_id: str, view: RuntimeSettings, last_call: AgentCall) -> None:
     """After the first exchange the session gets a title, in the background, from the model of the
     turn's last call with its context: that model is the loaded one, nothing reloads for the title."""
-    from .llm_engine import first_exchange
     from .session_storage import get_session_title, load_session
+    from .session_title import first_exchange
 
     if get_session_title(session_id):
         return
@@ -947,7 +947,7 @@ def _start_title(session_id: str, view: RuntimeSettings, last_call: AgentCall) -
 
 
 async def _title(session_id: str, view: RuntimeSettings, call: AgentCall, user_text: str, reply: str) -> None:
-    from .llm_engine import generate_session_title
+    from .session_title import generate_session_title
 
     with session_scope(session_id):
         debug("Generating session title...")

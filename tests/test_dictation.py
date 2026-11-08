@@ -165,7 +165,7 @@ def test_an_answer_needs_an_open_question_of_the_own_session(stt: dict[str, Any]
 def client(stt: dict[str, Any]) -> TestClient:
     from aifred.lib.api.app import api_app
     from aifred.lib.auth import sign_username
-    from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+    from aifred.lib.auth import USERNAME_COOKIE_NAME
 
     session_storage.create_empty_session("e" * 32, owner="lord")
     test_client = TestClient(api_app)

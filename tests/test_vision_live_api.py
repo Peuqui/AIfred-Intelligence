@@ -42,7 +42,7 @@ CAMERAS = [
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     from aifred.lib.api.app import api_app
     from aifred.lib.auth import sign_username
-    from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+    from aifred.lib.auth import USERNAME_COOKIE_NAME
 
     monkeypatch.setattr(vision_store, "DEFAULT_DB_PATH", tmp_path / "vision.db")
     monkeypatch.setattr(vision_cameras, "PREVIEW_SETTINGS_FILE", tmp_path / "vision_preview.json")
@@ -144,9 +144,6 @@ def test_the_trigger_threshold_is_a_camera_setting_a_running_watch_takes_at_once
     assert changed["motion_min_area_ratio"] == 0.05 and reloaded == [("cam/rtsp_garten", 0.05)]
     too_much = VISION_MOTION_MIN_AREA_RANGE[1] * 2
     assert client.patch("/vision/cameras/cam/rtsp_garten", json={"motion_min_area_ratio": too_much}).status_code == 422
-    assert client.post("/vision/motion-min", json={"source_id": "cam/rtsp_garten", "motion_min_area_ratio": 0.03}).status_code == 200
-    assert client.get("/vision/motion-min", params={"source_id": "cam/rtsp_garten"}).json()["motion_min_area_ratio"] == 0.03
-    assert reloaded[-1] == ("cam/rtsp_garten", 0.03)                     # the Reflex editor's way is the same
 
 
 def test_a_camera_that_detects_on_its_own_says_so(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

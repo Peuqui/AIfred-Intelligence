@@ -435,14 +435,14 @@ def test_refresh_reads_the_service_and_schedules_the_next_look_before_the_expiry
 
 def test_the_status_line_keeps_only_the_newest_state_in_the_bus_queue() -> None:
     from aifred.lib import session_events
-    from aifred.lib.api import browser_bus
+    from aifred.lib.browser_push import browser_push
 
     session = "test-session-service-status"
     session_events._channels.pop(session, None)
     try:
-        browser_bus.browser_push(session, "service_status", "{\"n\": 1}")
-        browser_bus.browser_push(session, "tts", "http://x/a.wav")
-        browser_bus.browser_push(session, "service_status", "{\"n\": 2}")
+        browser_push(session, "service_status", "{\"n\": 1}")
+        browser_push(session, "tts", "http://x/a.wav")
+        browser_push(session, "service_status", "{\"n\": 2}")
         replay = session_events.replay_after(session, 0)
         assert [(event.kind, event.data["url"]) for event in replay] == [("tts", "http://x/a.wav"), ("service_status", "{\"n\": 2}")]
     finally:

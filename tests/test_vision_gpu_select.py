@@ -7,7 +7,6 @@ import pytest
 from aifred.lib import vision_gpu_select as vgs
 from aifred.lib.vision_gpu_select import (
     GpuInfo,
-    ollama_override_text,
     pick_tts_gpu,
     pick_vlm_gpu,
     resolve_gpu_id,
@@ -192,19 +191,6 @@ class TestResolveGpuId:
     def test_case_insensitive_auto(self, monkeypatch):
         monkeypatch.setattr(vgs, "list_gpus", lambda: [_rtx8000(0), _rtx8000(2)])
         assert resolve_gpu_id("AUTO") == 2
-
-
-class TestOllamaOverrideText:
-    def test_pins_correct_device(self):
-        text = ollama_override_text(2)
-        assert "[Service]" in text
-        assert 'CUDA_DEVICE_ORDER=PCI_BUS_ID' in text
-        assert 'CUDA_VISIBLE_DEVICES=2' in text
-
-    def test_includes_pci_bus_id_order(self):
-        text = ollama_override_text(0)
-        # PCI_BUS_ID is essential — without it the index would be remapped
-        assert "PCI_BUS_ID" in text
 
 
 class TestWeakAttachmentPreference:

@@ -10,11 +10,12 @@ from pathlib import Path
 import pytest
 
 from aifred.lib import agent_config, prompt_loader
-from aifred.lib.debate_seats import REFLEX_SEATS, SEAT_CRITIC, SEAT_JUDGE, SEAT_MAIN, seat_names, seat_prompt
+from aifred.lib.debate_seats import SEAT_CRITIC, SEAT_JUDGE, SEAT_MAIN, seat_names, seat_prompt
 
 PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
 SEAT_TASKS = ("critic", "tribunal", "refinement", "defense", "mediator", "judge")
 VARIABLES = {"round_num": 2, "critique": "Die Kritik.", "user_interjection": ""}
+DEFAULT_SEATS = {SEAT_MAIN: "aifred", SEAT_CRITIC: "sokrates", SEAT_JUDGE: "salomo"}
 
 
 @pytest.fixture(autouse=True)
@@ -32,8 +33,8 @@ def agents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
 @pytest.mark.parametrize("lang", ["de", "en"])
 def test_every_seat_task_loads_with_the_names_of_the_seats(lang: str) -> None:
     for key in SEAT_TASKS:
-        assert "{" not in seat_prompt(key, REFLEX_SEATS, lang, **VARIABLES), key
-    roles = prompt_loader.load_multi_agent_roles(REFLEX_SEATS, lang)
+        assert "{" not in seat_prompt(key, DEFAULT_SEATS, lang, **VARIABLES), key
+    roles = prompt_loader.load_multi_agent_roles(DEFAULT_SEATS, lang)
     assert all(f"[{name}]:" in roles for name in ("AIfred", "Sokrates", "Salomo"))
 
 
@@ -45,11 +46,6 @@ def test_the_agents_in_the_seats_are_named_by_the_tasks() -> None:
     assert "Pater Tuck hat deine These kritisiert" in refinement and "Sokrates" not in refinement
     roles = prompt_loader.load_multi_agent_roles(seats, "de")
     assert "[Codine]:" in roles and "AIfred" not in roles
-
-
-def test_the_reflex_path_names_its_fixed_agents() -> None:
-    # lib/multi_agent.py speaks with AIfred, Sokrates and Salomo until the switch to the Vue app.
-    assert "Sokrates" in prompt_loader.get_salomo_judge_prompt(lang="de")
 
 
 @pytest.mark.parametrize("lang", ["de", "en"])

@@ -207,21 +207,6 @@ def save_agents_raw(agents: dict[str, dict]) -> None:
         json.dump({"agents": agents}, f, indent=2, ensure_ascii=False)
 
 
-def get_agent_ids() -> list[str]:
-    """Return list of configured agent IDs."""
-    agents = load_agents_raw()
-    return list(agents.keys())
-
-
-def get_agent_emoji(agent_id: str) -> str:
-    """Get the emoji for an agent, or a generic fallback."""
-    agents = load_agents_raw()
-    agent = agents.get(agent_id)
-    if agent:
-        return str(agent.get("emoji", "\U0001f916"))
-    return "\U0001f916"
-
-
 def get_agent_label(agent_id: str) -> str:
     """Get 'emoji display_name' for an agent (for debug messages etc.)."""
     agents = load_agents_raw()

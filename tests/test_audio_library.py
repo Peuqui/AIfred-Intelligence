@@ -108,7 +108,7 @@ def test_reading_a_source_is_one_run_at_a_time_and_tells_its_outcome(world: dict
 def client(world: dict) -> Iterator[TestClient]:
     from aifred.lib.api.app import api_app
     from aifred.lib.auth import sign_username
-    from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+    from aifred.lib.auth import USERNAME_COOKIE_NAME
 
     with TestClient(api_app) as test_client:
         test_client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))

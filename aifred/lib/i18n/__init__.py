@@ -97,25 +97,3 @@ def t(key: str, lang: str | None = None, count: int | None = None, **kwargs) -> 
     return template
 
 
-def tts_label_to_key(label: str) -> str:
-    """Map a translated TTS engine label back to its internal key.
-
-    Searches all languages since get_language() is unreliable in handler context.
-    """
-    from ..tts_service import engine_key_for_label
-    for translations in TranslationManager._translations.values():
-        if translations.get("tts_engine_off") == label:
-            return "off"
-    return engine_key_for_label(label)
-
-
-def tts_key_to_label(key: str, lang: str | None = None) -> str:
-    """Map an internal TTS engine key to its translated display label.
-
-    Used by the engine dropdowns (escalation list, agent editor, narrator).
-    The TTS service delivers the engine labels; only "off" lives here.
-    """
-    if key == "off":
-        return t("tts_engine_off", lang=lang)
-    from ..tts_service import engine_label
-    return engine_label(key, lang)

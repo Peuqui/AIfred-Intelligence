@@ -16,7 +16,7 @@ from starlette.testclient import TestClient
 
 from aifred.lib import auth
 from aifred.lib.auth import sign_username, verify_signed_username
-from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+from aifred.lib.auth import USERNAME_COOKIE_NAME
 
 
 def _forge(payload: str) -> str:

@@ -8,7 +8,6 @@ All LLM calls use llm_history exclusively (not chat_history).
 import re
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any
 
 from .prompt_loader import get_user_name
 
@@ -125,41 +124,6 @@ def inject_before_question(
     stimmt. Deshalb ein eigener, schlichter Rahmen.
     """
     messages.insert(position, {"role": "user", "content": content})
-
-
-def build_history_entry(
-    agent: str,
-    content: str,
-    mode: str = "own_knowledge",
-    metadata: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Build a chat_history entry for an agent response.
-
-    Single Source of Truth for the history dict format.
-    Used by llm_engine.py.
-    The browser UI path uses _add_agent_panel() which adds extra UI concerns
-    (markers, TTS, session save) on top of the same structure.
-
-    Args:
-        agent: Agent identifier ("aifred", "sokrates", "pater", etc.)
-        content: Formatted response content (with thinking HTML, metadata display)
-        mode: Response mode ("own_knowledge", "web_research", "session_cache", etc.)
-        metadata: Optional metadata dict (TTFT, inference_time, tokens_per_sec, etc.)
-    """
-    from .agent_config import get_agent_config, get_agent_emoji
-
-    cfg = get_agent_config(agent)
-    return {
-        "role": "assistant",
-        "content": content,
-        "agent": agent,
-        "agent_display_name": cfg.display_name if cfg else agent.capitalize(),
-        "agent_emoji": get_agent_emoji(agent),
-        "mode": mode,
-        "round_num": 0,
-        "metadata": metadata or {},
-        "timestamp": datetime.now().isoformat(),
-    }
 
 
 def user_turn_stamp() -> str:

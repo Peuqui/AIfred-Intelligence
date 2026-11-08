@@ -59,7 +59,6 @@ from .config import (
 from .gpu_release import GpuReleaseResult
 from .service_status import notify_changed
 
-FRAMES_MEDIA_TYPE = "application/x-tts-frames"
 _HEADER_LENGTH = struct.Struct(">I")
 
 

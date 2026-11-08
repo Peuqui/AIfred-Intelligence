@@ -657,16 +657,6 @@ def build_inference_metadata(
     return metadata_dict, metadata_display, debug_msg
 
 
-def get_timestamp() -> str:
-    """
-    Returns current timestamp in HH:MM:SS format (like legacy version).
-
-    Returns:
-        Formatted timestamp string (e.g., "18:32:33")
-    """
-    return datetime.now().strftime("%H:%M:%S")
-
-
 HTML_CODE_BLOCK_PATTERN = r'```html\s*([\s\S]*?)```'
 
 

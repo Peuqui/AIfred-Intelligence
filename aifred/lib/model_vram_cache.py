@@ -531,25 +531,6 @@ def get_rope_factor_for_model(model_name: str) -> float:
     return float(cache[model_name].get("rope_factor", 1.0))
 
 
-def set_rope_factor_for_model(model_name: str, rope_factor: float) -> bool:
-    """
-    Set the RoPE scaling factor for a specific Ollama model.
-
-    Args:
-        model_name: Ollama model name (e.g., "qwen3:14b")
-        rope_factor: RoPE scaling factor (1.0, 1.5, or 2.0)
-
-    Returns:
-        True if successfully saved, False otherwise
-    """
-    return _update_entry(
-        model_name,
-        defaults={"backend": "ollama", "native_context": 0, "gpu_model": "Unknown"},
-        updates={"rope_factor": rope_factor},
-        log_msg=f"📊 Set rope_factor={rope_factor}x for {model_name}",
-    )
-
-
 def set_thinking_support_for_model(model_name: str, supports_thinking: bool) -> bool:
     """
     Set the thinking/reasoning capability for a model.
@@ -624,21 +605,6 @@ def get_reasoning_info_for_model(
     return entry["reasoning_levels"], entry["reasoning_default"], entry["thinks"], entry["thinking_switchable"]
 
 
-def get_reasoning_levels_for_model(model_name: str) -> list[str] | None:
-    """
-    Get the steerable reasoning-effort levels for a model.
-
-    Returns:
-        Level list if analyzed (may be empty = on/off only),
-        None if never analyzed.
-    """
-    cache = load_cache()
-    if model_name not in cache:
-        return None
-    result: list[str] | None = cache[model_name].get("reasoning_levels")
-    return result
-
-
 def get_reasoning_default_for_model(model_name: str) -> str | None:
     """
     The template's default effort level (what a plain "thinking on"
@@ -699,27 +665,6 @@ def set_expert_counts(model_name: str, expert_count: int, expert_used_count: int
 # ============================================================================
 # vLLM CALIBRATION FUNCTIONS (vLLM-specific)
 # ============================================================================
-
-def get_vllm_calibrations(model_id: str) -> list[dict[str, Any]] | None:
-    """
-    Get all vLLM calibration points for a model
-
-    Args:
-        model_id: The model identifier (e.g., "Qwen/Qwen3-8B-AWQ")
-
-    Returns:
-        List of calibration dicts, or None if no calibrations exist
-    """
-    cache = load_cache()
-
-    if model_id not in cache:
-        return None
-
-    calibrations = cache[model_id].get("vllm_calibrations", None)
-    if calibrations is None:
-        return None
-    return list(calibrations) if isinstance(calibrations, list) else None
-
 
 def add_vllm_calibration(
     model_id: str,
@@ -911,26 +856,6 @@ def get_llamacpp_calibration(model_id: str) -> int | None:
 
     # Return most recent calibration
     return int(calibrations[-1]["max_context"])
-
-
-def format_model_with_ctx(model_display: str, model_id: str, backend_type: str) -> str:
-    """Model-Label um den kalibrierten Kontext ergänzen (SSOT für die
-    Debug-Anzeigen in den State-Mixins).
-
-    Merged in eine bereits vorhandene Klammer ("… (8,1 GB)" →
-    "… (8,1 GB, 32.768 ctx)"), sonst wird eine neue angehängt.
-    """
-    from .formatting import format_number
-    if not model_id:
-        return model_display
-    if backend_type == "llamacpp":
-        ctx = get_llamacpp_calibration(model_id)
-    else:
-        ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
-    suffix = f"{format_number(ctx)} ctx" if ctx else "ctx not calibrated"
-    if model_display.endswith(")"):
-        return model_display[:-1] + f", {suffix})"
-    return f"{model_display} ({suffix})"
 
 
 def get_llamacpp_calibration_info(model_id: str) -> dict[str, Any] | None:

@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_message
@@ -605,97 +605,3 @@ async def save_zone_mask(payload: ZoneMaskPayload) -> SystemActionResponse:
     return SystemActionResponse(success=True, message=msg)
 
 
-class MotionMinPayload(BaseModel):
-    """Speicher-Payload des Bewegungs-Schwellwert-Sliders im Zonen-Editor."""
-    source_id: str
-    motion_min_area_ratio: float    # 0.001–0.5 (Anteil bewegter Pixel)
-
-
-@api_app.get("/vision/motion-min", tags=["Vision"])
-async def get_motion_min(source_id: str) -> dict[str, Any]:
-    """Bewegungs-Schwellwert einer Quelle (für den Slider des HTML-Editors der Reflex-Oberfläche; die Vue-Seite liest
-    ihn aus der Kamerazeile). Ohne eigenen Wert der globale Default."""
-    from ..config import VISION_MOTION_MIN_AREA_RANGE, VISION_MOTION_MIN_AREA_RATIO
-    from ..vision_store import VisionStore
-    stored = VisionStore().get_source(source_id) or {}
-    mma = (stored.get("settings") or {}).get("motion_min_area_ratio")
-    low, high = VISION_MOTION_MIN_AREA_RANGE
-    value = float(mma) if isinstance(mma, (int, float)) and low <= mma <= high else VISION_MOTION_MIN_AREA_RATIO
-    return {"source_id": source_id, "motion_min_area_ratio": value}
-
-
-@api_app.post(
-    "/vision/motion-min", response_model=SystemActionResponse, tags=["Vision"]
-)
-async def save_motion_min(payload: MotionMinPayload) -> SystemActionResponse:
-    """Bewegungs-Schwellwert einer Quelle speichern (Slider des HTML-Editors beim Loslassen) — über
-    ``vision_cameras.change_camera`` wie ``PATCH /vision/cameras/{id}``: Bereich prüfen, speichern, im laufenden
-    Watcher sofort wirksam."""
-    from ..vision_cameras import change_camera
-
-    await asyncio.to_thread(change_camera, payload.source_id, motion_min_area_ratio=payload.motion_min_area_ratio)
-    return SystemActionResponse(success=True, message="motion min saved")
-
-
-@api_app.get("/vision/zone-editor", tags=["Vision"])
-async def zone_editor_page(source_id: str = "") -> HTMLResponse:
-    """Standalone JS-Canvas-Zonen-Editor (HTML). Über /api ausgeliefert,
-    damit er unabhängig vom frontend_path-Prefix erreichbar ist; die
-    source_id kommt als Query-Param (das JS liest sie aus location.search)."""
-    import json
-
-    from ...theme import css_variables
-    from ..formatting import format_number
-    from ..i18n import TranslationManager, t
-    editor = (
-        Path(__file__).resolve().parents[3] / "assets" / "zone_editor.html"
-    )
-    html = editor.read_text(encoding="utf-8")
-    # Kamera-Anzeigename (Alias > display_name > source_id) auflösen, damit
-    # der Header den Standort zeigt statt der rohen source_id.
-    src_name = ""
-    if source_id:
-        try:
-            from ..vision_store import VisionStore
-            src_name = VisionStore().source_labels().get(source_id, "")
-        except sqlite3.Error:  # busy database: no source name
-            src_name = ""
-    # Übersetzungen in der aktuellen UI-Sprache als window.T injizieren —
-    # zentral aus i18n.py, kein Duplikat im JS. Scannt alle zone_editor_*-Keys.
-    keys = [
-        k for k in TranslationManager._translations["de"]
-        if k.startswith("zone_editor_")
-    ]
-    # Dezimaltrenner aus demselben format_number-Locale wie die App ableiten
-    # (DE „1,5" → Komma, EN „1.5" → Punkt) — der Editor formatiert Prozente
-    # damit konsistent zur restlichen UI.
-    decimal_sep = format_number(1.1, 1)[1]
-    # Kamera-Profil (SSoT: vision_profiles) — eine ai_camera triggert selbst,
-    # dort wirken ignorieren/ROI-Zonen im Scharf-Betrieb nicht. Der Editor
-    # zeigt dann einen Hinweis-Banner (window.AI_CAM).
-    ai_cam = False
-    if source_id:
-        try:
-            from ..frame_sources.rtsp_source import find_camera_config
-            from ..vision_profiles import camera_profile
-            from ..vision_store import VisionStore
-            rec = VisionStore().get_source(source_id) or {}
-            ai_cam = not camera_profile(find_camera_config(source_id), rec.get("settings") or {}).allow_local_detection
-        except (ValueError, sqlite3.Error):  # settings file or event database: treated as a plain camera
-            ai_cam = False
-    inject = (
-        f"<style>{css_variables()}</style>"
-        "<script>window.T="
-        + json.dumps({k: t(k) for k in keys}, ensure_ascii=False)
-        + ";window.DEC="
-        + json.dumps(decimal_sep)
-        + ";window.SRC_NAME="
-        + json.dumps(src_name, ensure_ascii=False)
-        + ";window.AI_CAM="
-        + json.dumps(ai_cam)
-        + ";</script>"
-    )
-    return HTMLResponse(
-        html.replace("<!--I18N-->", inject),
-        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
-    )

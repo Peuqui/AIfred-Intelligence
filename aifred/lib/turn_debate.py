@@ -287,15 +287,12 @@ async def _speak(ctx: TurnContext, call: AgentCall) -> PipelineResult | None:
 
 async def run_debate(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
     """The debate after the direct ``answer`` (its full text)."""
-    from .logging_utils import console_separator
-
     if ctx.mode == "tribunal":
         debug("⚖️ Multi-Agent: Tribunal starting...")
         await _tribunal(ctx, plan)
     else:
         debug(f"🏛️ Multi-Agent: {agent_display_name(plan.debate[SEAT_CRITIC])} analysis starting...")
         await _critique(ctx, plan, answer)
-    console_separator()
     debug("────────────────────")
 
 
@@ -303,7 +300,6 @@ async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
     """critical_review (one critique, the user decides) and auto_consensus (rounds until consensus)."""
     from .context_manager import strip_thinking_blocks
     from .logging_utils import log_raw_messages
-    from .multi_agent import check_consensus, count_lgtm_votes
 
     lang, auto = ctx.intent.language, ctx.mode == "auto_consensus"
     debug(f"🔍 Debate START: mode={ctx.mode}, answer_len={format_number(len(answer))}")
@@ -344,11 +340,10 @@ async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
         finish_call(ctx, call, result, mode="synthesis", round_num=round_num)
         synthesis = result.text
 
-        # The vote slots of the old code are positions: answer, critique, synthesis.
-        tags = count_lgtm_votes(current_answer, critique, synthesis)
-        votes = {SEAT_MAIN: tags["alfred"], SEAT_CRITIC: tags["sokrates"], SEAT_JUDGE: tags["salomo"]}
+        votes = {seat: _agrees(text) for seat, text in
+                 ((SEAT_MAIN, current_answer), (SEAT_CRITIC, critique), (SEAT_JUDGE, synthesis))}
         debug(_votes_line(members, votes, round_num))
-        if check_consensus(votes, ctx.view.consensus_type):
+        if _consensus(votes, ctx.view.consensus_type):
             kind = "unanimous" if ctx.view.consensus_type == "unanimous" else "majority"
             debug(
                 f"✅ Consensus reached in round {format_number(round_num)} "
@@ -382,6 +377,20 @@ async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
             debug(f"⚠️ No consensus after {format_number(max_rounds)} rounds")
             if votes:
                 debug(_votes_line(members, votes, round_num))
+
+
+def _agrees(text: str) -> bool:
+    """A seat agrees with [LGTM]; [WEITER] outweighs it („das ist noch kein LGTM“ is no vote)."""
+    from .context_manager import strip_thinking_blocks
+
+    content = strip_thinking_blocks(text).strip().upper()
+    return "[LGTM]" in content and "[WEITER]" not in content
+
+
+def _consensus(votes: dict[str, bool], consensus_type: str) -> bool:
+    """unanimous: every seat agrees; majority: more than half."""
+    agreed = sum(votes.values())
+    return agreed == len(votes) if consensus_type == "unanimous" else agreed * 2 > len(votes)
 
 
 def _votes_line(members: dict[str, _Member], votes: dict[str, bool], round_num: int) -> str:
@@ -452,7 +461,6 @@ async def run_symposion(ctx: TurnContext, plan: TurnPlan) -> None:
     """The round table: every agent speaks in turn, round by round, and sees all contributions so
     far. No winner, no vote: a discussion from several perspectives."""
     from .context_manager import strip_thinking_blocks
-    from .logging_utils import console_separator
     from .prompt_loader import load_prompt
     from .session_storage import get_session_config
 
@@ -496,7 +504,6 @@ async def run_symposion(ctx: TurnContext, plan: TurnPlan) -> None:
             })
 
     debug(f"🏛️ Symposion done ({format_number(max_rounds)} rounds, {format_number(len(lineup))} agents)")
-    console_separator()
     debug("────────────────────")
 
 

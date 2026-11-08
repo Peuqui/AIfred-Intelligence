@@ -15,10 +15,7 @@ Zusammenfassung ohne Inhalt in der llm_history ab.
 import asyncio
 
 from aifred.lib import context_manager
-from aifred.lib.prompt_loader import (
-    get_agent_direct_prompt,
-    get_max_direct_prompt_tokens,
-)
+from aifred.lib.prompt_loader import get_agent_direct_prompt, get_direct_prompt_tokens
 
 
 class TestPromptSizeFollowsTurnFlags:
@@ -30,7 +27,7 @@ class TestPromptSizeFollowsTurnFlags:
         expected = context_manager.count_tokens_with_tokenizer(
             get_agent_direct_prompt("aifred", lang="de", memory=True)
         )
-        assert get_max_direct_prompt_tokens("standard", "de", memory=True) == expected
+        assert get_direct_prompt_tokens("aifred", "de", memory=True) == expected
 
 
 class _FakeResponse:

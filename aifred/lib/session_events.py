@@ -128,10 +128,6 @@ async def subscribe(session_id: str, after_id: int = 0) -> AsyncIterator[tuple[l
         channel.subscribers.discard(queue)
 
 
-def subscriber_count(session_id: str) -> int:
-    return len(_channel(session_id).subscribers)
-
-
 def sessions_with_subscribers() -> list[str]:
     """The sessions at least one client listens to right now."""
     return [session_id for session_id, channel in _channels.items() if channel.subscribers]

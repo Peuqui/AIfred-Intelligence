@@ -1,12 +1,11 @@
-# AIfred Intelligence - Reflex Version
+# AIfred Intelligence
 # Every package is pinned to the version tested together on the dev machine;
 # a fresh install must get exactly that (2026-10-04: unpinned, it pulled
 # Reflex 0.9 / openai 3 / opencv 5, never tested). Bump on purpose, test, commit.
-# Multi-Backend LLM Chat Assistant with PWA support
+# Multi-Backend LLM assistant: a Python server (FastAPI, uvicorn) with a Vue interface (frontend/)
 
 # Core Framework
-reflex==0.10.1
-pydantic==2.13.5         # For data models (required by Reflex State)
+pydantic==2.13.5         # Data models of the API
 
 # LLM Backends
 httpx==0.28.1           # For Ollama HTTP API

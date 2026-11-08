@@ -25,8 +25,7 @@ SSE_KEEPALIVE_S = 15.0
 
 def current_user(request: Request) -> str:
     """The logged-in user (the middleware let only a valid login cookie through)."""
-    from ..auth import verify_signed_username
-    from ..browser_storage import USERNAME_COOKIE_NAME
+    from ..auth import USERNAME_COOKIE_NAME, verify_signed_username
 
     user = verify_signed_username(request.cookies.get(USERNAME_COOKIE_NAME, ""))
     if user is None:

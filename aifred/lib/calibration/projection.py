@@ -42,11 +42,6 @@ _GPU_FLAGS: frozenset[str] = frozenset({
 })
 
 
-# Limits parallel fit-params invocations so we don't spawn dozens of
-# CUDA init sequences at once; 4 is a sweet spot on the MiniPC's 4 GPUs.
-_MAX_PARALLEL_FIT = 4
-
-
 class FitParamsError(RuntimeError):
     """Raised when llama-fit-params cannot be parsed or exits non-zero."""
 

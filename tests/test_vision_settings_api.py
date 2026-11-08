@@ -46,7 +46,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Tes
     from aifred.lib import plugin_registry, vision_autostart, vision_prewarm, vision_routing, vision_watcher
     from aifred.lib.api.app import api_app
     from aifred.lib.auth import sign_username
-    from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+    from aifred.lib.auth import USERNAME_COOKIE_NAME
 
     settings_file = tmp_path / "vision_settings.json"
     settings_file.write_text(json.dumps({"vision_mode": "on-demand", "vigilantia_armed": False, "vlm": {"model": "qwen3-vl:4b-instruct-q8_0"},

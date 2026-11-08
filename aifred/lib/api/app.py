@@ -1,6 +1,5 @@
 """FastAPI app core: app instance, login-cookie middleware, global state access."""
 
-from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -61,8 +60,8 @@ async def _unreadable_request(_request: Request, error: RequestValidationError) 
 # ============================================================
 # App-Level Auth (login cookie required)
 # ============================================================
-# Defense in depth below the reverse proxy's login: the backend listens on all
-# interfaces (LAN clients reach port 8002 directly, see rxconfig.py), so
+# Defense in depth below the reverse proxy's login: the server listens on all
+# interfaces (LAN clients reach port 8002 directly, AIFRED_SERVER_HOST), so
 # without this gate anyone on the network (or an SSRF from a scraped page)
 # could hit /system/restart-*, /vision/snapshot, /chat/history etc. Same
 # cookie the web login sets (see AuthenticatedStaticFiles for the static
@@ -82,10 +81,9 @@ _COOKIE_EXEMPT_PATHS = (
 
 @api_app.middleware("http")
 async def _require_login_cookie(request: Request, call_next):
-    from ..auth import verify_signed_username
-    from ..browser_storage import USERNAME_COOKIE_NAME
+    from ..auth import USERNAME_COOKIE_NAME, verify_signed_username
 
-    # Mounted under /api (aifred.py) — scope path is mount-relative, but be
+    # Mounted under /api (aifred/server.py) — scope path is mount-relative, but be
     # tolerant if the app ever runs unmounted (tests, standalone).
     path = request.scope.get("path", "")
     if path.startswith("/api/"):
@@ -104,30 +102,3 @@ async def _require_login_cookie(request: Request, call_next):
             return JSONResponse({"detail": t("error_login_required", lang=_ui_language())}, status_code=403)
     return await call_next(request)
 
-
-# ============================================================
-# Global State Access
-# ============================================================
-
-def get_global_backend_state() -> dict[str, Any]:
-    """Get reference to global backend state from state.py"""
-    try:
-        from ...state import _global_backend_state
-        return _global_backend_state
-    except ImportError:
-        return {}
-
-
-# ============================================================
-# Export for api_transformer
-# ============================================================
-
-def get_api_app() -> FastAPI:
-    """
-    Get the FastAPI app for use with Reflex api_transformer.
-
-    Usage in rxconfig.py or aifred.py:
-        from aifred.lib.api import get_api_app
-        app = rx.App(api_transformer=get_api_app())
-    """
-    return api_app

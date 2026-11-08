@@ -98,7 +98,7 @@ def client(world: tuple[_Source, _Index]) -> Iterator[TestClient]:
     """As a context: its event loop runs between the requests, as the indexing job needs."""
     from aifred.lib.api.app import api_app
     from aifred.lib.auth import sign_username
-    from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+    from aifred.lib.auth import USERNAME_COOKIE_NAME
 
     with TestClient(api_app) as test_client:
         test_client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))

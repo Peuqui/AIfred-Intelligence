@@ -7,15 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..config import (
     DEBATE_ROUNDS_MAX,
     DEBATE_ROUNDS_MIN,
-    DEFAULT_OLLAMA_URL,
     DICTATION_ENGINES,
 )
-from ..formatting import format_number
 from ..logging_utils import log_message
-from ..settings import load_settings, persisted_settings
+from ..settings import persisted_settings
 from ..settings import update_settings as write_settings
 from ..user_error import Invalid, NotDone
-from .app import API_VERSION, api_app, get_global_backend_state
+from .app import API_VERSION, api_app
 
 # ============================================================
 # Pydantic Models for API Request/Response
@@ -26,7 +24,6 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     version: str = API_VERSION
     backend_type: str = ""
-    backend_healthy: bool = False
 
 
 Language = Literal["de", "en"]
@@ -36,7 +33,7 @@ ConsensusType = Literal["majority", "unanimous"]
 
 class SettingsResponse(BaseModel):
     """AIfred's general settings (settings.json). The agents' models and switches are their quick
-    choices (``/agents/choices``); the backend changes with its own switch (Reflex UI)."""
+    choices (``/agents/choices``); the backend changes with its own switch (``PUT /backend``)."""
 
     backend_type: str
     ui_language: Language
@@ -82,21 +79,9 @@ class ModelsResponse(BaseModel):
 # ============================================================
 
 @api_app.get("/health", response_model=HealthResponse, tags=["Health"])
-async def health_check():
-    """
-    Health check endpoint.
-
-    Returns API status and backend connection info.
-    """
-    global_state = get_global_backend_state()
-    settings = load_settings() or {}
-
-    return HealthResponse(
-        status="ok",
-        version=API_VERSION,
-        backend_type=settings.get("backend_type", "ollama"),
-        backend_healthy=global_state.get("backend_type") is not None
-    )
+async def health_check() -> HealthResponse:
+    """The API answers; its version and the backend in use."""
+    return HealthResponse(version=API_VERSION, backend_type=persisted_settings()["backend_type"])
 
 
 # ============================================================
@@ -113,7 +98,7 @@ async def get_settings() -> SettingsResponse:
 @api_app.patch("/settings", response_model=SettingsResponse, tags=["Settings"])
 async def update_settings(update: SettingsUpdate) -> SettingsResponse:
     """Change the fields sent and answer with every setting. The UI language also sets the number
-    format of the process (the Reflex UI's language switch does the same)."""
+    format of the process."""
     from ..formatting import set_ui_locale
 
     changes = update.model_dump(exclude_none=True)
@@ -134,58 +119,15 @@ async def update_settings(update: SettingsUpdate) -> SettingsResponse:
 # ============================================================
 
 @api_app.get("/models", response_model=ModelsResponse, tags=["Models"])
-async def get_available_models():
-    """
-    Get list of available models.
+async def get_available_models() -> ModelsResponse:
+    """The models of the backend in use (id → label) and which of them see images."""
+    from ..backend_switch import model_catalog
+    from ..vision_utils import is_vision_model_sync
 
-    Returns all models from the current backend with their display labels
-    and a separate list of vision-capable models.
-    """
-    global_state = get_global_backend_state()
-    settings = load_settings() or {}
-
-    models_dict: dict[str, str] = {}
-    vision_models: list[str] = []
-    backend_type = settings.get("backend_type", "ollama")
-
-    # SSOT for vision detection: lib.vision_utils.is_vision_model_sync covers
-    # both native --mmproj models (Qwen3.5/3.6) and name-based VLMs.
-    from ..vision_utils import is_vision_model_sync as _is_vision_model
-
-    # Get models from global state (populated by initialize_backend). The
-    # id -> label mapping is the source; labels are a view and are never
-    # parsed back into an id (they carry size and runtime badges).
-    cached_models: dict = global_state.get("available_models_dict", {})
-
-    # If global state is empty, try to fetch from backend
-    if not cached_models:
-        try:
-            import httpx
-            if backend_type == "ollama":
-                backend_url = settings.get("backend_url", DEFAULT_OLLAMA_URL)
-                # Async client — a sync httpx.get here would stall the one
-                # granian event loop (all sessions, SSE, WS heartbeats).
-                async with httpx.AsyncClient(timeout=5.0) as _hc:
-                    response = await _hc.get(f"{backend_url}/api/tags")
-                if response.status_code == 200:
-                    data = response.json()
-                    for m in data.get("models", []):
-                        model_id = m['name']
-                        size_gb = m['size'] / (1024**3)
-                        models_dict[model_id] = f"{model_id} ({format_number(size_gb, 1)} GB)"
-                        # Check if vision model
-                        if _is_vision_model(model_id):
-                            vision_models.append(model_id)
-        except httpx.HTTPError as e:  # Ollama not reachable: no models to list
-            log_message(f"⚠️ API: Failed to fetch models: {e}")
-    else:
-        for model_id, display_label in cached_models.items():
-            models_dict[model_id] = display_label
-            if _is_vision_model(model_id):
-                vision_models.append(model_id)
-
+    saved = persisted_settings()
+    models, _notes = await model_catalog(saved["backend_type"], saved["cloud_api_provider"])
     return ModelsResponse(
-        backend_type=backend_type,
-        models=models_dict,
-        vision_models=vision_models
+        backend_type=saved["backend_type"],
+        models=models,
+        vision_models=[model_id for model_id in models if is_vision_model_sync(model_id)],
     )

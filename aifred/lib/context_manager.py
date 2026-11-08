@@ -22,7 +22,7 @@ from .config import (
     HISTORY_SUMMARY_TOLERANCE,
 )
 from .formatting import format_number
-from .logging_utils import console_separator, log_message, log_raw_messages
+from .logging_utils import log_message, log_raw_messages
 from .prompt_loader import load_prompt
 from .timer import Timer
 
@@ -104,7 +104,7 @@ def count_tokens_with_tokenizer(text: str) -> int:
     Count tokens using local Qwen3 tokenizer (lightweight, fully offline)
 
     Uses the tokenizers library with a locally cached tokenizer.json file.
-    No network calls - reads only from ~/.cache/huggingface/
+    No network calls - reads only from the HuggingFace hub cache (config.HF_HUB_CACHE_DIR)
 
     Args:
         text: Text to tokenize
@@ -120,14 +120,13 @@ def count_tokens_with_tokenizer(text: str) -> int:
 
     if cache_key not in _tokenizer_cache:
         import glob
-        import os
 
         from tokenizers import Tokenizer
 
+        from .config import HF_HUB_CACHE_DIR
+
         # Find cached tokenizer.json from local HuggingFace cache
-        cache_pattern = os.path.expanduser(
-            "~/.cache/huggingface/hub/models--Qwen--Qwen3-4B/snapshots/*/tokenizer.json"
-        )
+        cache_pattern = str(HF_HUB_CACHE_DIR / "models--Qwen--Qwen3-4B" / "snapshots" / "*" / "tokenizer.json")
         matches = glob.glob(cache_pattern)
 
         if not matches:
@@ -672,8 +671,7 @@ async def summarize_history_if_needed(
 
         if tokens_to_compress > 0 and tokens_generated > 0:
             log_message(f"   └─ Compression: {format_number(tokens_to_compress)} → {format_number(tokens_generated)} tok ({format_number(tokens_to_compress/tokens_generated, 1)}:1)")
-        console_separator()
-
+    
     except TimeoutError:
         log_message("⚠️ Async timeout during summary generation")
         yield {"type": "debug", "message": "⚠️ Summary generation timeout"}

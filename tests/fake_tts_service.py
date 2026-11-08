@@ -19,6 +19,9 @@ import aifred.lib.settings as settings_module
 from aifred.lib import audio_processing, tts_client, tts_service
 from aifred.lib.tts_client import TTSClient
 
+# What the TTS-Suite sends as content type of its frame stream (the client reads the frames, not the type).
+FRAMES_MEDIA_TYPE = "application/x-tts-frames"
+
 
 def frame(header: dict[str, Any], body: bytes = b"") -> bytes:
     head = json.dumps({**header, "bytes": len(body)}).encode("utf-8")
@@ -94,7 +97,7 @@ class FakeTTSService:
             if isinstance(step, int):
                 body = {"error": "no_engine", "detail": "no TTS entry can speak", "trace": []}
                 return httpx.Response(step, json=body)
-            return httpx.Response(200, headers={"content-type": tts_client.FRAMES_MEDIA_TYPE}, content=_in_pieces(step))
+            return httpx.Response(200, headers={"content-type": FRAMES_MEDIA_TYPE}, content=_in_pieces(step))
         if path == "/gpu/release":
             body = json.loads(request.content)
             self.releases.append(body)

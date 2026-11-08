@@ -94,13 +94,6 @@ def get_vllm_entry_context(model_id: str) -> int:
     return _flag_int_from_cmd(info["full_cmd"], "--max-model-len") or 0
 
 
-def list_operating_points() -> dict[str, Path]:
-    """All available operating-point profiles, keyed by entry name."""
-    if not OPERATING_POINTS_DIR.exists():
-        return {}
-    return {p.stem: p for p in sorted(OPERATING_POINTS_DIR.glob("*.yaml"))}
-
-
 def operating_point_checkpoint(model_id: str) -> Path:
     """Checkpoint path the persisted operating point serves."""
     profile = get_operating_point(model_id)

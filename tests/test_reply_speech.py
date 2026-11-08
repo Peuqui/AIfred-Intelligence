@@ -271,7 +271,7 @@ def _api(monkeypatch: pytest.MonkeyPatch, view: SimpleNamespace) -> TestClient:
     from aifred.lib import runtime_settings
     from aifred.lib.api.app import api_app
     from aifred.lib.auth import sign_username
-    from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+    from aifred.lib.auth import USERNAME_COOKIE_NAME
 
     monkeypatch.setattr(runtime_settings, "load_runtime_settings", lambda: view)
     client = TestClient(api_app)

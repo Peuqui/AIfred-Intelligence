@@ -276,7 +276,6 @@ class PluginContext:
     agent_id: str
     lang: str
     session_id: str
-    state: Any | None = None
     user_query: str = ""
     max_tier: int = 4        # Max allowed tool tier in this context
     source: str = "browser"  # Origin: browser/email/discord/cron/webhook

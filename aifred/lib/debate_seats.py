@@ -22,9 +22,6 @@ SEAT_JUDGE = "judge"
 # The seats a session chooses; the author is whoever answers first.
 CHOSEN_SEATS = (SEAT_CRITIC, SEAT_JUDGE)
 
-# The Reflex UI's debate (lib/multi_agent.py) speaks with fixed agents until the switch to the Vue app.
-REFLEX_SEATS = {SEAT_MAIN: "aifred", SEAT_CRITIC: "sokrates", SEAT_JUDGE: "salomo"}
-
 
 class SeatError(Invalid):
     """A seat names no agent that can take it (deleted, or a system agent)."""

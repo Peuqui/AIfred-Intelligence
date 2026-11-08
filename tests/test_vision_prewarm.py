@@ -207,10 +207,3 @@ class TestPrewarm:
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
         run(vpw.prewarm_vlm(keep_alive_override="2h"))
         assert captured["keep_alive"] == "2h"
-
-
-class TestSyncWrapper:
-    def test_sync_wrapper_runs(self, patched_settings):
-        patched_settings["plugin_enabled"] = False
-        # plugin-disabled branch is no-op + true — exercises the sync wrapper
-        assert vpw.prewarm_vlm_sync() is True

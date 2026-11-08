@@ -1,10 +1,6 @@
-"""Hochladen und Löschen halten den Dokumenten-Index mit.
+"""Löschen, Umbenennen und Verschieben halten den Dokumenten-Index mit (lib/file_manager.py, lib/document_store.py;
+das Hochladen mit Indexieren prüfen test_documents_api.py und test_document_sources_api.py).
 
-Kontrakt (state/_document_mixin.py, lib/file_manager.py):
-- Was in den Dokumentenordner hochgeladen wird, wird von selbst indexiert, nach dem Speichern und im
-  Hintergrund. Ein Fehler dabei lässt die Datei stehen und wird dem Benutzer gezeigt.
-- Ein Upload in eine weitere Quelle bleibt draußen: Deren Dateien liegen hinter einer höheren Stufe
-  als die Suche, Indexieren bleibt dort die Entscheidung des Benutzers.
 - Löschen entfernt Datei und Index. Klappt das am Index nicht, bleibt die Datei und die Antwort sagt
   es: Sonst fände die Suche weiter, was es nicht mehr gibt.
 - Der Index eines gleichnamigen Dokuments in einem anderen Ordner bleibt unberührt.
@@ -22,15 +18,13 @@ import asyncio
 import threading
 import uuid
 from pathlib import Path
-from typing import Any, Self
+from typing import Any
 
 import chromadb
 import pytest
-from reflex.event import EventSpec
 
 from aifred.lib import document_store as ds
 from aifred.lib import file_manager as fm
-from aifred.state import AIState
 
 
 class FakeStore:
@@ -229,195 +223,3 @@ def test_renaming_renews_the_search(real_store: ds.DocumentStore, tmp_path: Path
     real_store._folder_cache = {"alt"}
     real_store.rename_document("a.txt", "b.txt")
     assert real_store._folder_cache is None
-
-
-class _FakeState:
-    """As much of the state as the handlers touch. ``async with self`` is the lock of a
-    background event."""
-
-    _index_toast = AIState._index_toast
-
-    def __init__(self) -> None:
-        self.ui_language = "de"
-        self.logged_in_user = "peuqui"
-        self.is_uploading_document = False
-        self.document_upload_status = ""
-        self.doc_current_folder = "ordner"
-        self.doc_source = "local"
-        self.doc_delete_batch = False
-        self.doc_delete_target = "brief.txt"
-        self.doc_delete_is_folder = False
-        self.doc_delete_from_disk = True
-        self.doc_delete_from_index = True
-        self.doc_rename_target = "brief.txt"
-        self.doc_rename_value = "neu.txt"
-        self.db_orphans_visible = False
-        self.db_orphans: list[dict[str, str]] = []
-        self.debug: list[str] = []
-        self.refreshed = 0
-
-    async def __aenter__(self) -> Self:
-        return self
-
-    async def __aexit__(self, *exc_info: object) -> None:
-        return None
-
-    def add_debug(self, message: str) -> None:
-        self.debug.append(message)
-
-    def _refresh_file_list(self) -> None:
-        self.refreshed += 1
-
-    async def _refresh_open_source(self) -> None:
-        self.refreshed += 1
-
-    async def _refresh_db_documents(self) -> None:
-        self.refreshed += 1
-
-    async def _reload_db_orphans(self) -> None:
-        self.refreshed += 1
-
-    @staticmethod
-    def doc_index_uploaded(rel_paths: list[str]) -> tuple[str, list[str]]:
-        return ("index", rel_paths)
-
-    def _open_remote_folder_id(self) -> str:
-        return "/"
-
-
-def _run(handler_name: str, state: _FakeState, *args: Any) -> list[Any]:
-    async def run() -> list[Any]:
-        return [event async for event in AIState.event_handlers[handler_name].fn(state, *args)]
-    return asyncio.run(run())
-
-
-def _toasts(events: list[Any]) -> str:
-    return " ".join(str(event) for event in events if event is not None)
-
-
-@pytest.fixture
-def indexed(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    calls: list[str] = []
-
-    async def index_file(rel_path: str) -> fm.FileOpResult:
-        calls.append(rel_path)
-        return fm.FileOpResult(True, "ok", {"chunks": 4})
-
-    monkeypatch.setattr(fm, "index_file", index_file)
-    return calls
-
-
-def test_an_upload_is_indexed_where_it_lies(indexed: list[str]) -> None:
-    state = _FakeState()
-    events = _run("doc_index_uploaded", state, ["ordner/a.pdf", "b.pdf"])
-    assert indexed == ["ordner/a.pdf", "b.pdf"]
-    assert "4" in _toasts(events) and state.refreshed == 2 and state.document_upload_status == ""
-
-
-def test_a_failed_index_is_shown_and_does_not_end_the_run(monkeypatch: pytest.MonkeyPatch, indexed: list[str]) -> None:
-    async def broken(rel_path: str) -> fm.FileOpResult:
-        if rel_path.endswith("a.pdf"):
-            raise ValueError("Document is empty: a.pdf")
-        indexed.append(rel_path)
-        return fm.FileOpResult(True, "ok", {"chunks": 1})
-
-    monkeypatch.setattr(fm, "index_file", broken)
-    state = _FakeState()
-    events = _run("doc_index_uploaded", state, ["a.pdf", "c.pdf"])
-    assert "Document is empty" in _toasts(events) and indexed == ["c.pdf"]
-    assert state.document_upload_status == ""
-
-
-def test_a_failed_delete_is_reported_not_celebrated(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def refused(*args: Any, **kwargs: Any) -> fm.FileOpResult:
-        return fm.FileOpResult(False, "brief.txt stays: removing it from the index failed: Chroma weg")
-
-    monkeypatch.setattr(fm, "delete_file", refused)
-    state = _FakeState()
-    events = _run("doc_confirm_delete", state)
-    assert "Chroma weg" in _toasts(events) and "error" in _toasts(events)
-    assert state.doc_delete_target == ""
-
-
-def test_the_dialog_can_clear_a_folder_from_the_index_alone(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: dict[str, Any] = {}
-
-    async def delete_folder(parent: str, name: str, **kwargs: Any) -> fm.FileOpResult:
-        seen.update(kwargs)
-        return fm.FileOpResult(True, "ok", {"chunks_removed": 5})
-
-    monkeypatch.setattr(fm, "delete_folder", delete_folder)
-    state = _FakeState()
-    state.doc_delete_is_folder = True
-    state.doc_delete_from_disk = False
-    _run("doc_confirm_delete", state)
-    assert seen == {"recursive": True, "from_disk": False, "from_index": True}
-
-
-class _Upload:
-    def __init__(self, filename: str, content: bytes) -> None:
-        self.filename = filename
-        self.content = content
-
-    async def read(self) -> bytes:
-        return self.content
-
-
-def test_an_upload_starts_the_indexing_after_saving(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(fm, "DOCUMENTS_DIR", tmp_path)               # where save_upload puts it
-    (tmp_path / "ordner").mkdir()                                     # the open folder
-    state = _FakeState()
-    events = _run("handle_document_upload", state, [_Upload("a.txt", b"Text"), _Upload("b.exe", b"MZ")])
-    assert (tmp_path / "ordner" / "a.txt").read_bytes() == b"Text"
-    assert events[-1] == ("index", ["ordner/a.txt"])
-
-
-def test_a_rejected_upload_starts_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(fm, "DOCUMENTS_DIR", tmp_path)
-    events = _run("handle_document_upload", _FakeState(), [_Upload("b.exe", b"MZ")])
-    assert not any(isinstance(event, tuple) for event in events)
-
-
-def test_an_upload_to_a_further_source_stays_out_of_the_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(fm, "DOCUMENTS_DIR", tmp_path)
-    uploaded: list[str] = []
-
-    class Source:
-        async def upload(self, folder_id: str, name: str, data: bytes, mime: str) -> None:
-            uploaded.append(name)
-
-    monkeypatch.setattr("aifred.lib.document_sources.get_document_source", lambda key: Source())
-    state = _FakeState()
-    state.doc_source = "nextcloud_files"
-    events = _run("handle_document_upload", state, [_Upload("a.txt", b"Text")])
-    assert uploaded == ["a.txt"] and not any(isinstance(event, tuple) for event in events)
-
-
-def test_the_indexing_runs_as_a_background_event_of_the_state() -> None:
-    handler = AIState.event_handlers["doc_index_uploaded"]
-    assert isinstance(handler(["a.txt"]), EventSpec)
-    assert handler.is_background
-
-
-def test_a_rename_of_a_folder_does_not_run_on_the_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
-    loop_thread = threading.get_ident()
-    seen: list[int] = []
-
-    def rename(*args: Any, **kwargs: Any) -> fm.FileOpResult:
-        seen.append(threading.get_ident())
-        return fm.FileOpResult(True, "ok", {"chunks_updated": 1})
-
-    monkeypatch.setattr(fm, "rename", rename)
-    asyncio.run(AIState.event_handlers["doc_confirm_rename"].fn(_FakeState()))
-    assert seen and seen[0] != loop_thread
-
-
-def test_a_failed_removal_in_the_database_tab_is_shown(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def refused(*args: Any, **kwargs: Any) -> fm.FileOpResult:
-        return fm.FileOpResult(False, "brief.txt stays: removing it from the index failed: Chroma weg")
-
-    monkeypatch.setattr(fm, "delete_file", refused)
-    state = _FakeState()
-    assert "Chroma weg" in _toasts(_run("db_deindex_document", state, "ordner/brief.txt"))
-    state.db_orphans = [{"filename": "weg.txt"}]
-    assert "Chroma weg" in _toasts(_run("db_delete_all_orphans", state))

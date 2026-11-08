@@ -1,7 +1,4 @@
 *.db
-assets/external/
-.states
-.web
 # Virtual Environment
 venv/
 venv.*/
@@ -81,14 +78,8 @@ MODEL_BENCHMARK_RESULTS_*.md
 Thumbs.db
 
 # Gradio
-.gradio/
 Bilder/
 
-# Reflex
-.web/
-reflex.db
-assets/generated/
-assets/html_preview/
 
 # Python Backups (additional patterns)
 *_backup.py

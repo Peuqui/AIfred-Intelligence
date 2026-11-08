@@ -15,7 +15,7 @@ from starlette.testclient import TestClient
 from aifred.lib import pipeline_registry, session_storage, turn_service
 from aifred.lib.api.app import api_app
 from aifred.lib.auth import sign_username
-from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+from aifred.lib.auth import USERNAME_COOKIE_NAME
 
 SESSION = "e" * 32
 TOKEN = "geheim"

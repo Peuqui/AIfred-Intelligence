@@ -18,11 +18,6 @@ from .settings import persisted_settings
 # Base directory for prompts (relative to project root)
 PROMPTS_DIR = Path(__file__).parent.parent.parent / 'prompts'
 
-# Cache for system prompt token counts (populated at startup)
-# Format: {"aifred": {"de": tokens, "en": tokens}, "sokrates": {...}, ...}
-_system_prompt_token_cache: dict[str, dict[str, int]] = {}
-
-
 # Persona values (language, user name/gender, personality/reasoning toggles)
 # come from the persisted settings — one truth for browser, scheduler and hub,
 # independent of whether a browser session has loaded since the last restart.
@@ -664,110 +659,6 @@ def get_vision_event_summary_prompt(lang: str | None = None) -> str:
 
 
 # ============================================================
-# Sokrates Multi-Agent Prompts
-# ============================================================
-
-def get_sokrates_critic_prompt(round_num: int = 1, lang: str | None = None) -> str:
-    """
-    Load Sokrates Critic prompt for User-as-Judge and Auto-Consensus modes.
-
-    Args:
-        round_num: Current debate round (1, 2, 3, ...)
-        lang: Language code (de/en), defaults to current language
-
-    Returns:
-        Sokrates critic system prompt with timestamp prefix and round number
-    """
-    from .debate_seats import REFLEX_SEATS, seat_names
-    return load_prompt('debate/critic', lang=lang, round_num=round_num, **seat_names(REFLEX_SEATS))
-
-
-def get_aifred_refinement_prompt(
-    critique: str,
-    user_interjection: str = "",
-    lang: str | None = None,
-    round_num: int = 2
-) -> str:
-    """
-    Load AIfred Refinement prompt (when responding to Sokrates' critique).
-
-    Args:
-        critique: Sokrates' critique text
-        user_interjection: Optional user interjection during debate
-        lang: Language code (de/en), defaults to current language
-        round_num: Current debate round (default 2, since refinement starts at R2)
-
-    Returns:
-        Formatted refinement prompt with critique and timestamp prefix
-    """
-    from .debate_seats import REFLEX_SEATS, seat_names
-    return load_prompt(
-        'debate/refinement',
-        lang=lang,
-        critique=critique,
-        user_interjection=user_interjection,
-        round_num=round_num,
-        **seat_names(REFLEX_SEATS),
-    )
-
-
-
-# ============================================================
-# Tribunal Mode Prompts (Adversarial Debate)
-# ============================================================
-
-def get_sokrates_tribunal_prompt(round_num: int = 1, lang: str | None = None) -> str:
-    """
-    Load Sokrates Tribunal prompt for adversarial debate mode.
-
-    In Tribunal mode, Sokrates acts as prosecutor/opponent rather than coach.
-    He attacks AIfred's position directly, and Salomo judges at the end.
-
-    Args:
-        round_num: Current debate round (1, 2, 3, ...)
-        lang: Language code (de/en), defaults to current language
-
-    Returns:
-        Sokrates tribunal system prompt with round number
-    """
-    from .debate_seats import REFLEX_SEATS, seat_names
-    return load_prompt('debate/tribunal', lang=lang, round_num=round_num, **seat_names(REFLEX_SEATS))
-
-
-def get_aifred_defense_prompt(
-    critique: str,
-    user_interjection: str = "",
-    lang: str | None = None,
-    round_num: int = 2
-) -> str:
-    """
-    Load AIfred Defense prompt for Tribunal mode.
-
-    In Tribunal mode, AIfred can choose to DEFEND his position or REVISE.
-    This differs from refinement.txt where AIfred must always acknowledge
-    Sokrates' critique.
-
-    Args:
-        critique: Sokrates' critique text
-        user_interjection: Optional user interjection during debate
-        lang: Language code (de/en), defaults to current language
-        round_num: Current debate round (default 2, since defense starts at R2)
-
-    Returns:
-        Formatted defense prompt with critique and round number
-    """
-    from .debate_seats import REFLEX_SEATS, seat_names
-    return load_prompt(
-        'debate/defense',
-        lang=lang,
-        critique=critique,
-        user_interjection=user_interjection,
-        round_num=round_num,
-        **seat_names(REFLEX_SEATS),
-    )
-
-
-# ============================================================
 # Agent Direct & System Prompts (generic, works for all agents)
 # ============================================================
 
@@ -783,40 +674,6 @@ def get_agent_direct_prompt(
     return _merge_prompt_layers(
         agent_id, task_prompt, lang, memory=memory,
     )
-
-
-def get_salomo_mediator_prompt(round_num: int = 1, lang: str | None = None) -> str:
-    """
-    Load Salomo Mediator prompt for Auto-Consensus mode (Trialog).
-
-    Salomo synthesizes AIfred's answer and Sokrates' critique,
-    and decides whether to give LGTM.
-
-    Args:
-        round_num: Current debate round (1, 2, 3, ...)
-        lang: Language code (de/en), defaults to current language
-
-    Returns:
-        Salomo mediator system prompt with round number
-    """
-    from .debate_seats import REFLEX_SEATS, seat_names
-    return load_prompt('debate/mediator', lang=lang, round_num=round_num, **seat_names(REFLEX_SEATS))
-
-
-def get_salomo_judge_prompt(lang: str | None = None) -> str:
-    """
-    Load Salomo Judge prompt for Tribunal mode.
-
-    Salomo delivers a final verdict after AIfred and Sokrates have debated.
-
-    Args:
-        lang: Language code (de/en), defaults to current language
-
-    Returns:
-        Salomo judge system prompt
-    """
-    from .debate_seats import REFLEX_SEATS, seat_names
-    return load_prompt('debate/judge', lang=lang, **seat_names(REFLEX_SEATS))
 
 
 # ============================================================
@@ -840,35 +697,6 @@ def get_direct_prompt_tokens(
     prompt = get_agent_direct_prompt(agent, lang=lang, memory=memory)
     return count_tokens_with_tokenizer(prompt)
 
-
-def get_max_direct_prompt_tokens(
-    multi_agent_mode: str = "standard",
-    lang: str = "de",
-    *,
-    memory: bool = True,
-) -> int:
-    """Groesster System-Prompt unter den Agenten, die in diesem Modus antworten.
-
-    Die Kompressionspruefung laeuft, bevor feststeht, welcher Agent das Wort
-    bekommt — deshalb der schlechteste Fall.
-    """
-    aifred_tokens = get_direct_prompt_tokens(
-        "aifred", lang, memory=memory,
-    )
-    if multi_agent_mode == "standard":
-        return aifred_tokens
-
-    sokrates_tokens = get_direct_prompt_tokens(
-        "sokrates", lang, memory=memory,
-    )
-    if multi_agent_mode in ["auto_consensus", "tribunal"]:
-        salomo_tokens = get_direct_prompt_tokens(
-            "salomo", lang, memory=memory,
-        )
-        return max(aifred_tokens, sokrates_tokens, salomo_tokens)
-
-    # critical_review
-    return max(aifred_tokens, sokrates_tokens)
 
 def get_subagent_system_prompt(
     lang: str | None = None,

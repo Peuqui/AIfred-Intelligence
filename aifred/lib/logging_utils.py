@@ -1,20 +1,16 @@
-"""
-Logging Utilities - Reflex Edition
+"""The debug log file (data/logs/aifred_debug.log):
+- log_message(): every log line, when FILE_DEBUG_ENABLED
+- log_exception(): a line with the traceback, for a boundary that catches broadly
+- log_raw_messages() and log_system_prompt(): prompts sent to LLMs
 
-Ported from Gradio legacy with adaptations for Reflex State Management
-
-UNIFIED LOGGING SYSTEM:
-- log_message(): Central function for all logging requirements
-- Config-controlled via CONSOLE_DEBUG_ENABLED and FILE_DEBUG_ENABLED
-- log_raw_messages() and log_system_prompt(): Prompts sent to LLMs
+What a session's debug console shows goes through the debug bus (lib/debug_bus.py).
 """
 
 import os
-import time
 import traceback
 from datetime import datetime
 
-from .config import CONSOLE_DEBUG_ENABLED, DATA_DIR, FILE_DEBUG_ENABLED
+from .config import DATA_DIR, FILE_DEBUG_ENABLED
 
 # ============================================================
 # DEBUG-LOG-FILE Configuration
@@ -27,18 +23,6 @@ _LOGS_DIR.mkdir(parents=True, exist_ok=True)
 DEBUG_LOG_FILE = str(_LOGS_DIR / "aifred_debug.log")
 _debug_log_initialized = False
 DEBUG_LOG_MAX_SIZE_MB = 1  # Max 1 MB, then rotate
-
-# ============================================================
-# CONSOLE STATE (for Reflex UI)
-# ============================================================
-_console_messages: list[str] = []  # Thread-safe list for Console-Output
-MAX_CONSOLE_MESSAGES = 200
-
-# Queue for Thread-to-UI communication (Pipe!)
-import queue
-
-_message_queue: queue.Queue = queue.Queue(maxsize=500)  # Thread-safe Pipe!
-
 
 def initialize_debug_log(force_reset: bool = False) -> None:
     """
@@ -84,22 +68,8 @@ def initialize_debug_log(force_reset: bool = False) -> None:
 
 
 def log_message(message: str, category: str = "info") -> None:
-    """
-    CENTRAL LOGGING FUNCTION - Unified System
-
-    Writes messages based on config:
-    - FILE_DEBUG_ENABLED: To debug log file
-    - CONSOLE_DEBUG_ENABLED: To queue for UI debug console
-
-    Args:
-        message: The message to log (without timestamp!)
-        category: Category for filtering ("startup", "llm", "decision", "stats", "info")
-
-    Behavior:
-        - Automatically adds timestamp (HH:MM:SS.mmm for file, HH:MM:SS for console)
-        - Auto-initializes debug log on first call
-        - Thread-safe queue for UI communication
-    """
+    """A line in the debug log file (with FILE_DEBUG_ENABLED), stamped HH:MM:SS.mmm; the first call initializes
+    the file. ``message`` comes without timestamp."""
     # Auto-initialize on first call
     if not _debug_log_initialized:
         initialize_debug_log()
@@ -114,26 +84,6 @@ def log_message(message: str, category: str = "info") -> None:
                 f.write(f"{timestamp_file} | {message}\n")
         except OSError as e:
             print(f"⚠️ Debug log file error: {e}", flush=True)
-
-    # ============================================================
-    # CONSOLE DEBUG (if enabled)
-    # ============================================================
-    if CONSOLE_DEBUG_ENABLED:
-        timestamp_console = time.strftime("%H:%M:%S")  # HH:MM:SS (like legacy)
-        formatted_msg = f"{timestamp_console} | {message}"
-
-        # Append to console state
-        _console_messages.append(formatted_msg)
-
-        # Maintain limit (FIFO) — in-place mutation to avoid race with concurrent appends
-        if len(_console_messages) > MAX_CONSOLE_MESSAGES:
-            del _console_messages[:len(_console_messages) - MAX_CONSOLE_MESSAGES]
-
-        # Write to queue (for state polling!)
-        try:
-            _message_queue.put_nowait(formatted_msg)  # Non-blocking
-        except queue.Full:
-            pass  # Queue full, old messages are in _console_messages
 
 
 def log_exception(message: str, error: BaseException) -> None:
@@ -235,17 +185,3 @@ def log_system_prompt(agent_label: str, source: str, messages: list) -> None:
 
 # Console Separator constant (centrally defined, used everywhere)
 CONSOLE_SEPARATOR = "─" * 20
-
-def console_separator() -> None:
-    """Adds a horizontal separator line to the console"""
-    _console_messages.append(CONSOLE_SEPARATOR)
-
-    # Write to queue (pipe for UI thread!)
-    try:
-        _message_queue.put_nowait(CONSOLE_SEPARATOR)
-    except queue.Full:
-        pass  # Queue full, ignore
-
-    # Maintain limit — in-place mutation to avoid race with concurrent appends
-    if len(_console_messages) > MAX_CONSOLE_MESSAGES:
-        del _console_messages[:len(_console_messages) - MAX_CONSOLE_MESSAGES]

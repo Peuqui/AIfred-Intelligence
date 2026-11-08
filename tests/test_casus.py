@@ -137,7 +137,7 @@ def test_an_event_stored_in_another_thread_wakes_a_follower(tmp_path: Path, monk
 def client(store: VisionStore) -> Iterator[TestClient]:
     from aifred.lib.api.app import api_app
     from aifred.lib.auth import sign_username
-    from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+    from aifred.lib.auth import USERNAME_COOKIE_NAME
 
     with TestClient(api_app) as test_client:
         test_client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))

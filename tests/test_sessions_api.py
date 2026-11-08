@@ -14,7 +14,7 @@ from starlette.testclient import TestClient
 from aifred.lib import session_events, session_storage, turn_service
 from aifred.lib.api.app import api_app
 from aifred.lib.auth import sign_username
-from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+from aifred.lib.auth import USERNAME_COOKIE_NAME
 
 MINE = "a" * 32
 THEIRS = "b" * 32
@@ -121,7 +121,7 @@ def test_stopping_an_idle_session_cancels_nothing(client: TestClient) -> None:
     assert client.post(f"/sessions/{MINE}/stop").json() == {"cancelled": False}
 
 
-def test_login_sets_the_cookie_of_the_reflex_login(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_login_sets_a_cookie_page_script_cannot_read(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(session_storage, "account_exists", lambda user: user == "ki")
     monkeypatch.setattr(session_storage, "verify_account", lambda user, password: password == "richtig")
     anonymous = TestClient(api_app)
@@ -132,7 +132,8 @@ def test_login_sets_the_cookie_of_the_reflex_login(monkeypatch: pytest.MonkeyPat
     response = anonymous.post("/auth/login", json={"username": " KI ", "password": "richtig"})
     assert response.status_code == 200 and response.json() == {"user": "ki"}
     cookie = response.headers["set-cookie"]
-    assert cookie.startswith(f"{USERNAME_COOKIE_NAME}=") and "HttpOnly" not in cookie and "SameSite=lax" in cookie
+    # Until 08.11.2026 without HttpOnly: the Reflex UI read the cookie from JavaScript.
+    assert cookie.startswith(f"{USERNAME_COOKIE_NAME}=") and "HttpOnly" in cookie and "SameSite=lax" in cookie
     assert anonymous.get("/auth/me").json() == {"user": "ki"}
 
 

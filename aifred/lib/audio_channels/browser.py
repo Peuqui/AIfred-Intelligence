@@ -60,7 +60,7 @@ class BrowserChannel(AudioOutputChannel):
         start_pos_sec: float | None,
         ctx: PluginContext,
     ) -> dict[str, Any]:
-        from ..api import browser_push
+        from ..browser_push import browser_push
 
         audio_url = f"/api/audio/file?key={quote(src.state_key)}"
         state = getattr(ctx, "state", None)
@@ -113,7 +113,7 @@ class BrowserChannel(AudioOutputChannel):
         }
 
     async def pause(self, target_id: str, ctx: PluginContext | None = None) -> bool:
-        from ..api import browser_push
+        from ..browser_push import browser_push
 
         state = getattr(ctx, "state", None) if ctx else None
         if state is None or not getattr(state, "media_audio_url", ""):
@@ -137,7 +137,7 @@ class BrowserChannel(AudioOutputChannel):
         return True
 
     async def resume(self, target_id: str, ctx: PluginContext | None = None) -> bool:
-        from ..api import browser_push
+        from ..browser_push import browser_push
 
         state = getattr(ctx, "state", None) if ctx else None
         if state is None or not getattr(state, "media_audio_url", ""):
@@ -157,7 +157,7 @@ class BrowserChannel(AudioOutputChannel):
         return True
 
     async def stop(self, target_id: str, ctx: PluginContext | None = None) -> bool:
-        from ..api import browser_push
+        from ..browser_push import browser_push
 
         state = getattr(ctx, "state", None) if ctx else None
         if state is None:
@@ -195,7 +195,7 @@ class BrowserChannel(AudioOutputChannel):
         relative: bool = False,
         ctx: PluginContext | None = None,
     ) -> bool:
-        from ..api import browser_push
+        from ..browser_push import browser_push
 
         state = getattr(ctx, "state", None) if ctx else None
         if state is None or not getattr(state, "media_audio_url", ""):
@@ -218,7 +218,7 @@ class BrowserChannel(AudioOutputChannel):
     async def set_speed(
         self, target_id: str, factor: float, ctx: PluginContext | None = None
     ) -> bool:
-        from ..api import browser_push
+        from ..browser_push import browser_push
 
         if not 0.25 <= factor <= 4.0:
             return False
@@ -257,7 +257,7 @@ class BrowserChannel(AudioOutputChannel):
         """
         import random
 
-        from ..api import browser_push
+        from ..browser_push import browser_push
 
         if not items:
             return {"success": False, "error": "empty queue"}

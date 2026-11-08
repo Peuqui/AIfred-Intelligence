@@ -36,55 +36,6 @@ def total_actual_vram_gb(gpu_info) -> float:
     return float(round(gpu_info.vram_mb / 1024, 1))
 
 
-# NOTE: is_model_loaded() was moved to backends/base.py as abstractmethod
-# Each backend implements its own logic:
-# - Ollama: Query /api/ps endpoint
-# - vLLM: Always True (model fixed at server start)
-
-
-def get_gpu_memory_info(gpu_index: int = 0) -> dict | None:
-    """
-    Query comprehensive GPU memory info via nvidia-smi.
-
-    Args:
-        gpu_index: GPU index (default: 0 for primary GPU)
-
-    Returns:
-        Dict with keys:
-        - total_mb: Total VRAM in MB
-        - free_mb: Free VRAM in MB
-        - used_mb: Used VRAM in MB
-        - gpu_model: GPU model name (e.g., "NVIDIA GeForce RTX 3090")
-        Or None if GPU unavailable
-    """
-    rows = nvidia_smi.query(gpu_index=gpu_index)
-    if not rows:
-        return None
-    row = rows[0]
-    return {
-        "total_mb": int(row["memory.total"]),
-        "free_mb": int(row["memory.free"]),
-        "used_mb": int(row["memory.used"]),
-        "gpu_model": row["name"]
-    }
-
-
-def get_free_vram_for_single_gpu(gpu_index: int = 0) -> int | None:
-    """
-    Query free VRAM for a specific GPU via nvidia-smi.
-
-    Args:
-        gpu_index: GPU index (0 for first GPU, 1 for second, etc.)
-
-    Returns:
-        int: Free VRAM in MB for the specified GPU, or None if GPU unavailable
-    """
-    rows = nvidia_smi.query("memory.free", gpu_index=gpu_index)
-    if not rows:
-        return None
-    return int(rows[0]["memory.free"])
-
-
 def get_free_vram_mb() -> int | None:
     """
     Query free VRAM via nvidia-smi.
@@ -431,57 +382,6 @@ def is_moe_model(model_name: str, ollama_url: str = DEFAULT_OLLAMA_URL) -> bool:
 
     logger.debug(f"📊 MoE detection inconclusive, defaulting to Dense: {model_name}")
     return False
-
-
-def get_model_size_from_cache(model_name: str) -> int:
-    """
-    Get model size in bytes from HuggingFace cache
-
-    Args:
-        model_name: Model name (e.g., "cpatonn/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit")
-
-    Returns:
-        int: Model size in bytes, or 0 if not found
-    """
-    from pathlib import Path
-
-    cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-
-    # Convert model name to cache folder format
-    cache_folder_name = f"models--{model_name.replace('/', '--')}"
-
-    try:
-        for model_dir in cache_dir.glob(cache_folder_name):
-            # HF cache layout: snapshots/<commit>/<name>  →  ../../blobs/<sha>
-            # The same blob can be linked from multiple snapshots (different
-            # revisions of the same model), so dedupe by resolved blob path
-            # before summing to avoid counting each weight file 2×–N×.
-            snapshots_dir = model_dir / "snapshots"
-            if not snapshots_dir.is_dir():
-                continue
-
-            seen_blobs: set[Path] = set()
-            total_size = 0
-            for pattern in ["**/*.safetensors", "**/*.bin", "**/*.gguf", "**/*.pth"]:
-                for file_path in snapshots_dir.glob(pattern):
-                    if not file_path.is_file():
-                        continue
-                    resolved = file_path.resolve()
-                    if resolved in seen_blobs:
-                        continue
-                    seen_blobs.add(resolved)
-                    total_size += resolved.stat().st_size
-
-            if total_size > 0:
-                logger.debug(f"Model size for {model_name}: {total_size / (1024**3):.2f} GB")
-                return total_size
-
-        logger.warning(f"Could not determine size for model: {model_name}")
-        return 0
-
-    except OSError as e:
-        logger.warning(f"Error getting model size: {e}")
-        return 0
 
 
 async def calculate_vram_based_context(

@@ -326,11 +326,6 @@ class GPUDetector:
 _detector = GPUDetector()
 
 
-def detect_gpu() -> GPUInfo | None:
-    """Convenience function to detect GPU"""
-    return _detector.detect()
-
-
 def server_gpu_info() -> GPUInfo | None:
     """The GPUs of this server, detected on the first call; the process keeps that result (a card added
     while it runs shows after a restart)."""

@@ -436,7 +436,6 @@ async def prepare_agent_toolkit(
     lang: str = "de",
     memory_enabled: bool = True,
     research_tools_enabled: bool = True,
-    state: Any | None = None,
     session_id: str | None = None,
     llm_history: list | None = None,
     max_tier: int = 4,
@@ -452,7 +451,6 @@ async def prepare_agent_toolkit(
         lang: Language for memory context
         memory_enabled: Include memory tools (store_memory)
         research_tools_enabled: Include the plugin tools (web_search, web_fetch, …)
-        state: AIState for the plugin tools (browser path: progress, sources box)
         session_id: If set, memories from this session are excluded (already in chat history)
         max_tier: Maximum security tier for tools in this context
         source: Origin of the request (browser/email/discord/cron/webhook)
@@ -489,7 +487,6 @@ async def prepare_agent_toolkit(
             agent_id=agent_id,
             lang=lang,
             session_id=session_id or "",
-            state=state,
             user_query=user_query,
             max_tier=max_tier,
             source=source,

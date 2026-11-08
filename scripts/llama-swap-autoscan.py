@@ -175,14 +175,6 @@ AUTOSCAN_HEADROOM_MIB = 1024
 # VRAM and model size helpers
 # ---------------------------------------------------------------------------
 
-def get_total_vram_mb() -> int:
-    """Query total VRAM across all NVIDIA GPUs via nvidia-smi. Returns 0 if unavailable."""
-    rows = nvidia_smi.query("memory.total")
-    if not rows:
-        return 0
-    return sum(int(row["memory.total"]) for row in rows)
-
-
 def get_per_gpu_vram_mb() -> list[int]:
     """Query VRAM per GPU, sorted by size descending (matches CUDA_DEVICE_ORDER=FASTEST_FIRST)."""
     rows = nvidia_smi.query("memory.total")

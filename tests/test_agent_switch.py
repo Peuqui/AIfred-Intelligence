@@ -36,7 +36,7 @@ def agents_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def client(agents_file: Path) -> Iterator[TestClient]:
     from aifred.lib.api.app import api_app
     from aifred.lib.auth import sign_username
-    from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+    from aifred.lib.auth import USERNAME_COOKIE_NAME
 
     with TestClient(api_app) as test_client:
         test_client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))

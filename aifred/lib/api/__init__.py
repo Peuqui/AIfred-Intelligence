@@ -1,10 +1,7 @@
 """
 AIfred REST API Package
 
-Provides HTTP API endpoints for remote control of AIfred.
-Uses FastAPI and is mounted at /api by Reflex's app.api.mount().
-
-API Documentation: http://localhost:8002/api/docs
+AIfred's HTTP API (FastAPI), mounted at /api by the server (aifred/server.py); documentation at /api/docs.
 
 Endpoints (all prefixed with /api):
 - GET  /health              - Health check
@@ -16,7 +13,7 @@ Endpoints (all prefixed with /api):
 - POST /auth/login          - Login for the Vue app (sets the login cookie)
 - GET  /agents/choices      - The agents' quick choices (model, persona, reasoning, thinking,
                                speed), PATCH /agents/{id}/choices changes one row
-- POST /chat/inject         - Inject message into browser session
+- POST /chat/inject         - A message into a session as the user's input (token)
 - GET  /chat/status         - Get chat/generation status
 - POST /chat/clear          - Clear chat history
 - GET  /chat/history        - Get chat history
@@ -37,14 +34,13 @@ modules below register their endpoints on import (same registration
 order as the former single-file api.py).
 """
 
-from .app import API_VERSION, api_app, get_api_app, get_global_backend_state
+from .app import API_VERSION, api_app
 
 # Router modules — importing them registers their routes on api_app.
 # Order matters: it mirrors the original single-file section order.
 from . import core
 from . import chat
 from . import system
-from . import browser_bus
 from . import agents
 from . import audio
 from . import announce
@@ -68,7 +64,6 @@ from . import housekeeping
 from . import backend
 from . import app_shell  # last: its /app mount must follow every /app route
 
-from .browser_bus import browser_push, browser_queue_clear
 
 __all__ = [
     "API_VERSION",
@@ -76,14 +71,9 @@ __all__ = [
     "announce",
     "api_app",
     "audio",
-    "browser_bus",
-    "browser_push",
-    "browser_queue_clear",
     "chat",
     "core",
     "documents",
-    "get_api_app",
-    "get_global_backend_state",
     "service_status",
     "system",
     "tts",

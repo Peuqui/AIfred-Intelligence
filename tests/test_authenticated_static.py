@@ -10,7 +10,7 @@ from starlette.testclient import TestClient
 
 from aifred.lib.auth import sign_username
 from aifred.lib.authenticated_static import AuthenticatedStaticFiles
-from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+from aifred.lib.auth import USERNAME_COOKIE_NAME
 
 
 @pytest.fixture()

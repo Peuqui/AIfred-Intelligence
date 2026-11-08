@@ -95,6 +95,8 @@ def require_service_token(service: str, provided: str | None) -> None:
 # SIGNED USERNAME COOKIE (web auto-login)
 # ============================================================
 
+USERNAME_COOKIE_NAME = "aifred_username"
+
 
 def sign_username(username: str) -> str:
     """Return ``username.<expires>.<hmac>`` — integrity-protected and expiring.

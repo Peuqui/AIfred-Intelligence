@@ -5,14 +5,12 @@ first, and a full queue dropped events silently.
 """
 
 import asyncio
-import json
 import threading
 from collections.abc import Iterator
 
 import pytest
 
-from aifred.lib import session_events
-from aifred.lib.api import browser_bus
+from aifred.lib import browser_push, session_events
 from aifred.lib.config import AUDIO_POSITION_SAVE_SEC, AUDIO_RESUME_PRE_ROLL_SEC
 
 SESSION = "test-session-events"
@@ -80,23 +78,21 @@ def test_sessions_with_subscribers_lists_only_listened_sessions() -> None:
     assert asyncio.run(scenario()) == (True, False)
 
 
-def test_the_browser_bus_keeps_the_wire_format_of_custom_js() -> None:
-    browser_bus.browser_push(SESSION, "media", "http://x/a.mp3", state_key="k", start_pos_sec=3, is_stream=True)
+def test_a_media_event_carries_what_the_page_plays_it_with() -> None:
+    # lib/media.ts reads these fields from the session stream.
+    browser_push.browser_push(SESSION, "media", "http://x/a.mp3", state_key="k", start_pos_sec=3, is_stream=True)
     (event,) = session_events.replay_after(SESSION, 0)
-    line_id, line_data, *_ = browser_bus._sse_item(event).split("\n")
-    assert line_id == f"id: {event.id}"
-    assert json.loads(line_data.removeprefix("data: ")) == {
-        "kind": "media", "version": event.id, "url": "http://x/a.mp3", "playback_rate": "1.0x",
-        "state_key": "k", "start_pos_sec": 3.0, "is_stream": True, "audio_type": "music",
-        # Added for the Vue page (custom.js reads only the fields above): a folder's further tracks, how it plays.
-        "queue": [], "pre_roll_sec": AUDIO_RESUME_PRE_ROLL_SEC, "position_save_sec": AUDIO_POSITION_SAVE_SEC,
+    assert event.kind == "media" and event.data == {
+        "url": "http://x/a.mp3", "playback_rate": "1.0x", "state_key": "k", "start_pos_sec": 3.0, "is_stream": True,
+        "audio_type": "music", "queue": [], "pre_roll_sec": AUDIO_RESUME_PRE_ROLL_SEC,
+        "position_save_sec": AUDIO_POSITION_SAVE_SEC,
     }
 
 
 def test_the_combined_reply_audio_drops_the_buffered_chunks() -> None:
-    browser_bus.browser_push(SESSION, "tts", "http://x/1.wav")
-    browser_bus.browser_push(SESSION, "tts_pause", "500")
-    browser_bus.browser_push(SESSION, "bubble_audio", "http://x/all.wav")
+    browser_push.browser_push(SESSION, "tts", "http://x/1.wav")
+    browser_push.browser_push(SESSION, "tts_pause", "500")
+    browser_push.browser_push(SESSION, "bubble_audio", "http://x/all.wav")
     assert [event.kind for event in session_events.replay_after(SESSION, 0)] == ["bubble_audio"]
 
 

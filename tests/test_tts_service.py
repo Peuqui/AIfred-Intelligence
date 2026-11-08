@@ -241,13 +241,6 @@ def test_an_entry_without_catalog_row_is_listed_but_never_active(service) -> Non
     assert tts_service.request_engines() == [EngineRef("xtts", "sentence", None)]
 
 
-def test_first_enabled_key_is_read_from_the_settings_alone(settings) -> None:
-    settings.data["tts_escalation"] = [stored("piper", enabled=False), stored("xtts", "Box"), stored("edge")]
-    assert tts_service.first_enabled_key() == "xtts"
-    settings.data["tts_escalation"] = [stored("piper", enabled=False)]
-    assert tts_service.first_enabled_key() is None
-
-
 def test_stored_entries_need_no_service(settings) -> None:
     settings.data["tts_escalation"] = [stored("xtts"), stored("piper", enabled=False)]
     settings.data["tts_toggles_per_engine"] = {"piper": {"unit": "whole"}}
@@ -276,28 +269,23 @@ def test_the_same_engine_on_another_machine_is_no_duplicate() -> None:
 def test_the_unit_is_the_users_choice_else_the_catalogs_default(service, settings) -> None:
     service(row("xtts", unit_default="paragraph"), row("piper", unit_default="whole"), row("edge", unit_default="sentence"))
     settings.data["tts_toggles_per_engine"] = {"edge": {"autoplay": True, "unit": "whole"}}
-    assert tts_service.speech_unit_for("xtts") == "paragraph"      # no choice: unit_default of the catalog
-    assert tts_service.speech_unit_for("edge") == "whole"          # the choice wins
+    # xtts and piper made no choice: the catalog's unit_default; edge's choice wins
     assert {e.engine: e.unit for e in tts_service.entries()} == {"xtts": "paragraph", "piper": "whole", "edge": "whole"}
 
 
 def test_a_choice_needs_no_catalog_but_a_default_does(settings) -> None:
+    settings.data["tts_escalation"] = [stored("edge"), stored("piper")]
     settings.data["tts_toggles_per_engine"] = {"edge": {"unit": "whole"}}
-    assert tts_service.speech_unit_for("edge") == "whole"
+    assert {e.engine: e.unit for e in tts_service.stored_entries()} == {"edge": "whole", "piper": ""}
     with pytest.raises(TTSSuiteUnreachable):                        # conftest: dead service, no silent "whole"
-        tts_service.speech_unit_for("piper")
+        tts_service.entries()
 
 
 def test_an_invalid_saved_unit_is_a_configuration_error(settings) -> None:
+    settings.data["tts_escalation"] = [stored("edge")]
     settings.data["tts_toggles_per_engine"] = {"edge": {"unit": "word"}}
     with pytest.raises(ValueError, match="speech unit"):
-        tts_service.speech_unit_for("edge")
-
-
-def test_an_engine_unknown_to_the_catalog_has_no_default_unit(service) -> None:
-    service(row("xtts"))
-    with pytest.raises(ValueError, match="not in the service's catalog"):
-        tts_service.speech_unit_for("nope")
+        tts_service.stored_entries()
 
 
 # ---- The list of a request ----------------------------------------------------------------------
@@ -336,9 +324,6 @@ def test_keys_and_labels_come_from_the_catalog_not_from_the_list(service) -> Non
     assert tts_service.usable_engine_keys() == ["xtts", "qwen3local", "piper", "edge"]
     assert tts_service.engine_label("xtts", "de") == "xtts lang"
     assert tts_service.engine_label_short("xtts", "en") == "XTTS"
-    assert tts_service.engine_key_for_label("xtts long") == "xtts"
-    with pytest.raises(ValueError, match="names no TTS engine"):
-        tts_service.engine_key_for_label("unknown")
 
 
 def test_active_local_keys_follow_the_stored_list_without_the_service(settings) -> None:
@@ -350,13 +335,6 @@ def test_active_local_keys_follow_the_stored_list_without_the_service(settings) 
 
 
 # ---- Live state (never cached) -----------------------------------------------------------------
-
-
-def test_running_engine_uses_the_live_state(service) -> None:
-    fake = service(row("xtts", status="running"), row("qwen3local", "Box", status="running"))
-    tts_service.catalog()
-    assert tts_service.running_gpu_engine() == "xtts"
-    assert fake.reads() == 2  # the answer did not come from the cache
 
 
 def test_the_catalog_is_cached_for_the_ttl_only_the_settings_never(service, settings) -> None:

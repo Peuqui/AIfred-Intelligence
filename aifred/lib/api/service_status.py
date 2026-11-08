@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from ...backends.base import BackendError
 from .. import session_events
+from ..browser_push import browser_push
 from ..logging_utils import log_message
 from ..service_control import (
     ServiceControlRefused,
@@ -32,7 +33,6 @@ from ..service_control import (
 from ..service_status import ServiceSnapshot, get_monitor
 from ..user_error import Conflict
 from .app import api_app
-from .browser_bus import browser_push
 
 SERVICE_STATUS_KIND = "service_status"
 

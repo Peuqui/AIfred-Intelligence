@@ -1,6 +1,6 @@
 """
 Research Module — building blocks of the research pipeline
-(``lib/research_tools.py``: execute_research / hub_web_search):
+(``lib/research_tools.run_web_search``):
 
 - query_processor: multi-API web search with the given queries
 - scraper_orchestrator: parallel web scraping

@@ -159,7 +159,7 @@ def test_the_options_are_checked_and_kept_in_settings(files: Path, monkeypatch: 
 def client(steps: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     from aifred.lib.api.app import api_app
     from aifred.lib.auth import sign_username
-    from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+    from aifred.lib.auth import USERNAME_COOKIE_NAME
 
     monkeypatch.setattr("aifred.lib.calibration.matrix.all_cell_keys", lambda: ["|", "|xtts"])
     with TestClient(api_app) as test_client:

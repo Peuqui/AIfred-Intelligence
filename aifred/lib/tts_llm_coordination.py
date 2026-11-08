@@ -38,18 +38,3 @@ def planned_tts_engine(model_id: str) -> str:
     )
 
 
-def get_effective_model_info(backend_type: str = "llamacpp") -> str:
-    """The model AIfred loads (TTS variant included) with its context, for the model list line."""
-    from .config import get_effective_model_from_settings
-    from .formatting import format_number
-
-    model = get_effective_model_from_settings("aifred")
-    if not model:
-        return ""
-
-    if backend_type == "llamacpp":
-        from .research.context_utils import get_model_native_context
-        ctx = get_model_native_context(model, backend_type)
-        if ctx > 0:
-            return f"{model} (ctx: {format_number(ctx)})"
-    return model

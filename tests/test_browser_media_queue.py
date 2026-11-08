@@ -1,5 +1,5 @@
 """The browser channel of the audio player sends a folder's tracks with the "media" event (lib/audio_channels/browser.py,
-api/browser_bus.py). 08.11.2026: the tracks after the first lived only in the Reflex state; the Vue page has none, so
+lib/browser_push.py). 08.11.2026: the tracks after the first lived only in the Reflex state; the Vue page has none, so
 it played the first track of a folder and stopped. The event also carries how the page plays: the pre-roll after the
 spoken reply and how often it saves the position (config.py, before fixed in custom.js)."""
 

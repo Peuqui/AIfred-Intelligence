@@ -236,14 +236,6 @@ def chunks(
 # ─────────────────────────────────────────────────────────────────
 
 
-class DeleteRequest(BaseModel):
-    delete_file: bool = Field(
-        False,
-        description="Also delete the source file from disk (default: keep file, "
-                    "only drop the chunks).",
-    )
-
-
 @app.delete("/api/documents/{filename:path}")
 def delete_document(filename: str, delete_file: bool = False) -> dict[str, Any]:
     """Remove a document's chunks from the vector DB.

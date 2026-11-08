@@ -82,7 +82,7 @@ def test_only_enabled_available_plugins_offer_a_source(plugins) -> None:
 def client(plugins, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     plugins.append(_plugin(FakeSource()))
     monkeypatch.setattr("aifred.lib.auth.verify_signed_username", lambda cookie: "mp" if cookie else None)
-    from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+    from aifred.lib.auth import USERNAME_COOKIE_NAME
     test_client = TestClient(api_app)
     test_client.cookies.set(USERNAME_COOKIE_NAME, "signed")
     return test_client

@@ -392,22 +392,54 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Visualisierungen wieder ein (DOMPurify entfernte jedes iframe; jetzt bleibt eines, das aufgelöst auf
   `/_upload/sandbox_output/` zeigt, immer mit `sandbox="allow-scripts"`), ihre Beschriftung kommt aus den
   Übersetzungen. **Beim Umschalten (Paket 5):** nginx braucht eine Regel `/vendor/` auf den Server.
-- **Schritt 6, Paket 2: Reflex entfernen (Plan, 08.11.2026).** Zuerst die Reflex-Teile selbst: `aifred/aifred.py`,
-  `aifred/state/`, `aifred/ui/`, `rxconfig.py`, `reflex.lock/`, die Reflex-Dateien in `assets/` (CSS/JS der alten
-  Oberfläche, Zonen-Editor-HTML, Favicons; `vendor/`, `katex/` und `status-icons/` braucht der Server bzw. Vue
-  weiter), `scripts/patch-reflex.py`, `scripts/render_pages.py`, die Tests der Mixins und Reflex-Pakete in
-  `requirements.txt`, `mypy.ini`, `CLAUDE.md`. Danach zeigt mypy jeden Verweis der lib auf Entferntes. Bekannt:
-  `lib/toast.py`, `lib/browser_storage.py` (nur der Cookie-Name bleibt), `lib/multi_agent.py` (`count_lgtm_votes`,
-  `check_consensus` ziehen um), `research_tools.execute_research` und der `state`-Zweig im Recherche-Plugin,
-  `api/app.get_global_backend_state` (`/health`, `/models`), `/browser/stream/…`, `/vision/zone-editor` und
-  `/vision/motion-min`, `debate_seats.REFLEX_SEATS`, die Weigerung `agent_needed_by_reflex`, `is_generating` in
-  `update_chat_data`, die `.pending`-Markierung neben der Warteschlange (sparte dem Reflex-Poll das Lesen),
-  `state: Any`-Parameter in `agent_settings`, `vision_utils`, `llm_engine`, `agent_memory` und im Subagent-Plugin
-  (werden `RuntimeSettings`). `BACKEND_URL` gab es nur, weil Reflex-Frontend und Backend auf zwei Ports liefen; mit
-  ihm fallen die doppelten Upload-Pfade (`html_preview`, `sandbox_output` an fünf Stellen) auf eine Quelle zusammen.
-  Zum Schluss toter Code mechanisch: jede Funktion und Klasse ohne Verweis (auch ohne Klammer gesucht).
+- **Schritt 6, Paket 2: Reflex entfernt (08.11.2026).** Weg sind `aifred/aifred.py`, `aifred/state/` (29 Mixins),
+  `aifred/ui/`, `rxconfig.py`, `reflex.lock/`, `scripts/patch-reflex.py`, `scripts/render_pages.py`, die Dateien der
+  alten Oberfläche in `assets/` (CSS, `custom.js`, Zonen-Editor-HTML, Favicons; `vendor/` und `katex/` bleiben, das
+  🎩-Favicon liegt jetzt in `frontend/public/`), Reflex in `requirements.txt` und `mypy.ini`. Der Reflex-Stand bleibt
+  in der Historie (`7cbf8178`), die Portierungen unten holen sich ihren Code von dort. In der lib:
+  `multi_agent.py` (die LGTM-Abstimmung lebt als `_agrees`/`_consensus` im Debattenzug), die festen
+  Debatten-Prompts mit `REFLEX_SEATS`, `toast.py`, `browser_storage.py` (der Cookie-Name steht in `auth.py`; das
+  Login-Cookie ist jetzt `HttpOnly`, kein Skript liest es mehr), `research_tools.execute_research` und der
+  `state`-Zweig im Recherche- und Subagent-Plugin (`PluginContext.state` ist weg; die Suche heißt
+  `run_web_search`), `llm_engine.call_llm` (das Modul heißt nach dem, was blieb, `session_title.py`),
+  `api/app.get_global_backend_state` (`/health` und `/models` lesen settings.json und den Modellkatalog des
+  Servers), der eigene SSE-Endpunkt `/browser/stream` (der Push liegt als `lib/browser_push.py` vor dem
+  Sitzungsstrom), `/vision/zone-editor` und `/vision/motion-min`, die tote Debug-Konsolen-Warteschlange in
+  `logging_utils`, `is_generating` in `update_chat_data`, die `.pending`-Markierung (die Warteschlange legt keine
+  fehlende Sitzung mehr an), die UI-Konstanten in `config.py`. Danach toter Code mechanisch (Funktionen,
+  Klassen, Konstanten ohne Verweis, auch ohne Klammer gesucht, und solche, die nur noch Tests benutzten): rund
+  60 Stellen, darunter `speech_unit_for` (die Regel steht in `tts_service.entries()`). Dabei behoben: Der
+  Tokenizer suchte unter einem fest eingetragenen `~/.cache/huggingface` statt `HF_HUB_CACHE_DIR`. Tests der
+  Mixins sind weg, wo der Server-Weg eigene hat; die Denkwahl-Tests prüfen jetzt `agent_choices` mit
+  `RuntimeSettings`. Bewusst noch da, bis die Lücken unten entschieden sind: Konten und Whitelist in
+  `session_storage`, `write_hub_notification`, `cleanup_session_sandbox`, `file_browser.delete_entry` und
+  `create_symlink`, die Base64-Lader und `get_katex_inline_assets` (für den Chat-Export).
+- **Lücken vor dem Umschalten (Abgleich aller 29 Mixins gegen Vue und API, 08.11.2026).** Reflex konnte, Vue
+  kann es noch nicht (Reihenfolge nach dem, was ein Nutzer am meisten vermisst):
+  1. Chat-Export einer Sitzung als eigenständige HTML-Datei (Teilen im Tab, Herunterladen).
+  2. Sampling je Agent (Temperatur, Top-K, Top-P, Min-P, Repeat-Penalty) und „auf Modell-Standard zurück“.
+  3. Statuszeile für Sprachmodell, Beschreiber, STT und TTS (Restzeit, Laden/Entladen, Karte freihalten); die API
+     ist da, keine Komponente nutzt sie.
+  4. Sichtbarer Audio-Player (Pause, Spulen, Lautstärke, was läuft); Musik lässt sich sonst nicht anhalten.
+  5. „Merken“: den Chat zusammenfassen und ins Gedächtnis der beteiligten Agenten schreiben.
+  6. Hinweise des Message Hub und des Schedulers, die Sitzungsliste lädt neue Kanal-Sitzungen nach.
+  7. Systemagenten und Automatik-LLM im Editor (Prompts, Modell und Reasoning des Kalibrier-Agenten).
+  8. „Chat löschen“ mit dem Aufräumen (Lesung abbrechen, Medien, TTS-Audio, Bilder, Sandbox, Titel).
+  9. Registrieren eines Kontos aus der Whitelist.
+  10. Sitzungen gesammelt löschen.
+  11. Auto-Scroll, der beim Hochscrollen pausiert.
+  12. Manueller Kontext je Agent (Ollama) mit „Berechnung anzeigen“.
+  13. Schalter „Enter sendet“.
+  14. Bilder in Chat-Blasen vergrößern (Lightbox).
+  15. Schriftgröße im Chat.
+  16. Hilfe-Fenster (Diskussionsmodi, Reasoning/Thinking, Modell-Lebenszyklus, Vigilantia).
+  17. Fortschrittsanzeige vor der ersten Antwort.
+  18. Ordner und Symlinks im Ordner-Auswähler anlegen (gemeinsamer Dateimanager).
+  Dazu: Der Zug gibt dem Toolkit den Gesprächsverlauf nicht mit; die Web-Suche rankt seither ohne Kontext (der
+  Reflex-Chat gab ihn über den State, der Hub nie).
   `patch-vite-config.sh` geht erst mit der Unit (Paket 4). Ein Archiv-Tag für den Reflex-Stand gehört vor den Merge
-  auf `main` (Paket 5, mit Peuqui).
+  auf `main` (Paket 5, mit Peuqui). Beim Umschalten: `.web/`, `.states/` und `data/sessions/*.pending` der
+  Produktion entfernen, nginx `/vendor/` auf den Server.
 - **Temperatur nur noch von Hand (erledigt 07.11.2026, Peuqui):** Jeder Agent antwortet mit seiner
   eigenen Temperatur (`agent_settings.resolve_agent_temperature`); der Modus auto, die Temperaturen je
   Absicht (`INTENT_TEMPERATURE_*`) und der Aufschlag für Sokrates und Salomo (`temperature_offset`) sind

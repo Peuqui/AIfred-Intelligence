@@ -155,7 +155,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, services: dict[str, 
     from aifred.lib import agent_choices
     from aifred.lib.api.app import api_app
     from aifred.lib.auth import sign_username
-    from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+    from aifred.lib.auth import USERNAME_COOKIE_NAME
 
     file = tmp_path / "settings.json"
     file.write_text(json.dumps({

@@ -16,7 +16,7 @@ from aifred.lib import security, storage_manager
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     from aifred.lib.api.app import api_app
     from aifred.lib.auth import sign_username
-    from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+    from aifred.lib.auth import USERNAME_COOKIE_NAME
 
     exports, sandbox, showcase = tmp_path / "html_preview", tmp_path / "sandbox_output", tmp_path / "examples"
     exports.mkdir()

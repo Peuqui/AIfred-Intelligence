@@ -576,7 +576,6 @@ def update_chat_data(
     chat_summaries: list[str] | None = None,
     llm_history: list[dict[str, str]] | None = None,
     debug_messages: list[str] | None = None,
-    is_generating: bool | None = None,
     owner: str | None = None
 ) -> bool:
     """
@@ -591,7 +590,6 @@ def update_chat_data(
         chat_summaries: Optional - List of summary strings
         llm_history: Optional - List of {"role": ..., "content": ...} dicts (LLM - komprimiert)
         debug_messages: Optional - List of debug log entries (last N entries)
-        is_generating: Optional - Current generation status (for API polling)
         owner: Optional - Username for new sessions (required if session doesn't exist)
 
     Returns:
@@ -634,10 +632,6 @@ def update_chat_data(
         # DEBUG-PERSISTENCE (v2.14.0+): Store last N debug entries
         if debug_messages is not None:
             session["data"]["debug_messages"] = debug_messages
-
-        # API STATUS (v2.15.9+): Store is_generating for API polling
-        if is_generating is not None:
-            session["data"]["is_generating"] = is_generating
 
         return save_session(session_id, session)
 
@@ -768,31 +762,6 @@ def update_session_config(session_id: str, **config_updates: Any) -> bool:
         return save_session(session_id, session)
 
 
-def set_session_active_agent(session_id: str, agent_id: str) -> bool:
-    """
-    Set the active agent for a session — universal entry point for routing.
-
-    All routing pathways (Wake-Word-Override, Voice-Mode-Switch,
-    Inline-Address detection, UI agent picker) should funnel through
-    this function. Validates ``agent_id`` against the agent registry;
-    unknown ids are silently ignored to avoid corrupting the session
-    config (callers can decide whether to fall back).
-
-    Args:
-        session_id: Session identifier
-        agent_id: Lowercase agent id (matched against ``agent_config``)
-
-    Returns:
-        True on success, False if session/agent not found or write failed
-    """
-    if not agent_id or not session_id:
-        return False
-    from .agent_config import get_agent_config
-    if get_agent_config(agent_id) is None:
-        return False
-    return update_session_config(session_id, active_agent=agent_id)
-
-
 def delete_session(session_id: str, expected_owner: str | None = None) -> bool:
     """
     Delete session completely, including associated images and audio.
@@ -824,14 +793,6 @@ def delete_session(session_id: str, expected_owner: str | None = None) -> bool:
                 if expected_owner is not None:
                     return False
             session_path.unlink()
-
-        # Clean up orphan .pending flag (if any) — prevents stale message injection
-        # after the session is gone.
-        try:
-            safe_id = _sanitize_session_id(session_id)
-            (SESSION_DIR / f"{safe_id}.pending").unlink(missing_ok=True)
-        except ValueError:
-            pass
 
         # Also cleanup associated images
         from .vision_utils import cleanup_session_images
@@ -1105,25 +1066,11 @@ def get_session_title(session_id: str) -> str | None:
 
 
 # ============================================================
-# API Update Flags (for Browser Auto-Reload)
+# Pending Messages (wait behind the running turn)
 # ============================================================
-
-# NOTE: The legacy update_flag mechanism (set_update_flag / check_and_clear_update_flag)
-# was removed. Browser tabs now detect session changes via mtime-watching on the
-# session file directly (SSOT). See _base.py tick-handler for the implementation.
-
-
-# ============================================================
-# Pending Messages (sent by the browser on its next poll)
-# ============================================================
-# Messages a browser session sends as its own turn: injected through the API, and dictation
-# sent straight to the AI. The browser's 500 ms poll takes the oldest once it is not generating
-# and starts send_message as an event of its own, so the turn does not depend on the request
-# that queued it (the recording's POST /_upload ends with the connection). A queue, not a
-# slot: a dictation while AIfred still answers waits, and a second one must not replace it.
-# The ``.pending`` flag file spares the poll from reading the session file every 500 ms.
-# The server turn (lib/turn_service.py) uses the same queue for a message that waits behind the
-# running turn; such a message keeps the images uploaded for it.
+# A message for a session whose turn is still running — written in the chat, dictated, injected — waits here;
+# the turn service (lib/turn_service.py) starts the oldest when the running turn ends. A queue, not a slot: a
+# second message must not replace the first. A waiting message keeps the images uploaded for it.
 
 
 @dataclass(frozen=True)
@@ -1132,33 +1079,18 @@ class PendingMessage:
     images: tuple[str, ...] = ()   # /_upload/images/<session>/… URLs of the images sent with it
 
 
-def _pending_flag_path(session_id: str) -> Path:
-    return SESSION_DIR / f"{_sanitize_session_id(session_id)}.pending"
-
-
 def queue_pending_message(session_id: str, message: str, images: Sequence[str] = ()) -> bool:
-    """Append ``message`` (with the URLs of its images) to the session's pending messages
-    (creates the session if missing).
-
-    Returns:
-        True on success
-    """
+    """Append ``message`` (with the URLs of its images) to the session's pending messages; False when the session
+    is missing or could not be written."""
     _ensure_session_dir()
     try:
-        session_path = get_session_path(session_id)
         with session_rmw_lock:
             session = load_session(session_id)
-            if session is None and session_path.exists():
-                return False  # unreadable session file: never overwrite it
             if session is None:
-                session = {"session_id": session_id, "data": {}}
-                _stamp_new_session(session, datetime.now().isoformat())
+                return False
             data = session.setdefault("data", {})
             data["pending_messages"] = [*data.get("pending_messages", []), {"text": message, "images": list(images)}]
-            if not _write_session_file(session_path, session):
-                return False
-            _pending_flag_path(session_id).touch()
-        return True
+            return _write_session_file(get_session_path(session_id), session)
     except (OSError, ValueError):
         return False
 
@@ -1167,21 +1099,15 @@ def pop_pending_message(session_id: str) -> PendingMessage | None:
     """The oldest pending message of the session, removed from it; None if there is none."""
     _ensure_session_dir()
     try:
-        flag_path = _pending_flag_path(session_id)
-        if not flag_path.exists():
-            return None
         with session_rmw_lock:
             session = load_session(session_id)
             queued = (session or {}).get("data", {}).get("pending_messages", [])
             if session is None or not queued:
-                flag_path.unlink(missing_ok=True)
                 return None
             entry, rest = queued[0], queued[1:]
             session["data"]["pending_messages"] = rest
             if not _write_session_file(get_session_path(session_id), session):
                 return None
-            if not rest:
-                flag_path.unlink(missing_ok=True)
         return PendingMessage(entry["text"], tuple(entry["images"]))
     except (OSError, ValueError):
         return None

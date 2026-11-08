@@ -16,7 +16,7 @@ import aifred.lib.api.service_status as status_api
 from aifred.lib import service_control
 from aifred.lib.api.app import api_app
 from aifred.lib.auth import sign_username
-from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+from aifred.lib.auth import USERNAME_COOKIE_NAME
 from aifred.lib.gpu_release import GpuReleaseResult
 from aifred.lib.i18n import t
 from aifred.lib.service_control import ServiceControlRefused

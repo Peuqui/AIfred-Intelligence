@@ -4,8 +4,8 @@ Vollständig atomarisiert (2026-08-12): die Tool-Fassade (früher in
 ``lib/research_tools.py``) lebt hier im Plugin — Descriptions kommen aus
 ``prompts/tools/`` (load_tool_description-Konvention), die Anleitung aus
 den ``prompts/<de|en>/``-Fragmenten (granted_tools-gated). Die Pipeline
-(Search → Ranking → Scraping → Context) bleibt lib:
-``execute_research``/``hub_web_search`` in ``lib/research_tools.py``.
+(Search → Ranking → Scraping → Context) bleibt lib: ``run_web_search`` in
+``lib/research_tools.py``.
 """
 
 import json
@@ -19,57 +19,22 @@ from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_
 from ....lib.security import TIER_READONLY
 
 
-def get_research_tools(state: Any | None = None, lang: str = "de", llm_history: list | None = None) -> list[Tool]:
-    """Create research tools bound to a specific state instance.
-
-    The web_search tool runs the full pipeline (search + scraping).
-    """
-    from ....lib.research_tools import execute_research, hub_web_search, research_note
+def get_research_tools(lang: str = "de", llm_history: list | None = None) -> list[Tool]:
+    """web_search (search, ranking against the conversation, scraping) and web_fetch."""
+    from ....lib.research_tools import research_note, run_web_search
 
     _llm_history: list = llm_history or []
 
     async def _execute_web_search(queries: list[str]) -> AsyncGenerator[dict[str, Any], None]:
-        """Tool executor: runs research pipeline with model-provided queries.
-
-        Async-generator-shaped tool executor (see ToolKit.execute_streaming).
-        Yields ``{"progress": ""}`` on each upstream yield from
-        ``execute_research`` so the LLM-stream can push UI updates while the
-        pipeline runs (the state is mutated via ``state.add_debug``/
-        ``state._set_progress`` directly inside execute_research; the empty
-        progress marker just nudges the outer generator to yield).
-        Terminates with exactly one ``{"result": "..."}`` event.
-        """
+        """Tool executor (async-generator-shaped, see ToolKit.execute_streaming): the llm_history line of the
+        search (``note``: source count and queries, so the next turn knows what was searched), then exactly one
+        ``result``."""
         if not queries:
             yield {"result": json.dumps({"error": "No search queries provided"})}
             return
 
         queries = queries[:3]
-
-        if state:
-            # Full pipeline with browser State (progress bar, sources HTML).
-            # execute_research mutates state and yields between phases — we forward
-            # each yield as a progress marker so the UI updates incrementally
-            # instead of seeing one big block at the end.
-            async for _ in execute_research(
-                state=state,
-                user_query=queries[0],
-                queries=queries,
-                lang=lang,
-            ):
-                yield {"progress": ""}
-            result = getattr(state, "_research_context", "")
-            if result:
-                from ....lib.security import wrap_untrusted_data
-                result = wrap_untrusted_data(result, "web_research")
-            # The llm_history line (execute_research builds it: source count
-            # and queries) — so the next turn knows what was searched.
-            yield {"note": state._research_note}
-            yield {"result": result if result else json.dumps({"error": "No results found"})}
-            return
-
-        # Hub path (Discord, Email) — history passed from PluginContext.
-        # No state-mutation pipeline; we just await and emit the final result.
-        result, source_count = await hub_web_search(queries, _llm_history)
+        result, source_count = await run_web_search(queries, _llm_history)
         if result:
             from ....lib.security import wrap_untrusted_data
             result = wrap_untrusted_data(result, "web_research")
@@ -137,7 +102,7 @@ class ResearchPlugin:
         return True
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
-        return get_research_tools(state=ctx.state, lang=ctx.lang, llm_history=ctx.llm_history)
+        return get_research_tools(lang=ctx.lang, llm_history=ctx.llm_history)
 
     def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
         # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.

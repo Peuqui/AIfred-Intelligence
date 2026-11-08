@@ -96,9 +96,8 @@ def test_new_session_is_stamped_on_every_creation_path(session_dir):
     create_empty_session(SESSION_A, owner=OWNER)
     update_chat_data(SESSION_B, [], owner=OWNER)
     save_session(SESSION_C, {"data": {}, "owner": OWNER})
-    assert session_storage.queue_pending_message(SESSION_D, "hallo") is True
 
-    for session_id in (SESSION_A, SESSION_B, SESSION_C, SESSION_D):
+    for session_id in (SESSION_A, SESSION_B, SESSION_C):
         session = load_session(session_id)
         assert session is not None
         assert session["last_message_at"] == session["created_at"]

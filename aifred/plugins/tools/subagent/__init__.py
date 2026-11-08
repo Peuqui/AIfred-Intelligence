@@ -179,22 +179,8 @@ def inherit_reasoning(own: LLMOptions, caller: LLMOptions) -> LLMOptions:
     return replace(own, enable_thinking=caller.enable_thinking, reasoning_effort=caller.reasoning_effort)
 
 
-def resolve_run_params(agent_id: str, state: Any) -> RunParams:
-    """Model, context and temperature for the sub-agent's inference."""
-    if state is not None:
-        from ....lib.agent_settings import get_agent_base_model_id
-        from ....lib.agent_settings import resolve_agent_temperature
-        from ....lib.research.context_utils import get_agent_num_ctx
-        model = state._effective_model_id(agent_id) or state._effective_model_id("aifred")
-        base_id = get_agent_base_model_id(state, agent_id)
-        num_ctx, _ = get_agent_num_ctx(agent_id, state, base_id)
-        return RunParams(
-            backend_type=state.backend_type,
-            backend_url=state.backend_url,
-            model=model,
-            num_ctx=num_ctx,
-            temperature=resolve_agent_temperature(state, agent_id),
-        )
+def resolve_run_params(agent_id: str) -> RunParams:
+    """Model, context and temperature for the sub-agent's inference, from settings.json."""
     from ....lib.agent_settings import get_persisted_tuning
     from ....lib.config import (
         BACKEND_URLS,
@@ -374,7 +360,6 @@ async def build_subagent_toolkit(
         lang=ctx.lang,
         memory_enabled=False,
         research_tools_enabled=True,
-        state=ctx.state,
         session_id=ctx.session_id,
         llm_history=[],
         max_tier=ctx.max_tier,
@@ -433,11 +418,11 @@ async def run_subagent(
         {"role": "user", "content": user_text},
     ]
 
-    params = resolve_run_params(target_agent, ctx.state)
-    caller_model = resolve_run_params(ctx.agent_id, ctx.state).model
+    params = resolve_run_params(target_agent)
+    caller_model = resolve_run_params(ctx.agent_id).model
     options = inherit_reasoning(
-        build_llm_options(ctx.state, target_agent, params.model, params.temperature, params.num_ctx),
-        build_llm_options(ctx.state, ctx.agent_id, caller_model, params.temperature, params.num_ctx),
+        build_llm_options(None, target_agent, params.model, params.temperature, params.num_ctx),
+        build_llm_options(None, ctx.agent_id, caller_model, params.temperature, params.num_ctx),
     )
 
     transcript: list[str] = [f"{labels['task']}:\n{task}\n\n{labels['expected']}:\n{expected_result}"]
