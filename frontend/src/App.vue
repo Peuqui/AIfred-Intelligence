@@ -12,6 +12,7 @@ import { loadLanguage, t } from "./i18n";
 import { useAuth } from "./stores/auth";
 import { useChat } from "./stores/chat";
 import { useSettings } from "./stores/settings";
+import hatIcon from "../../assets/AIfred-Zylinder.png";
 
 const auth = useAuth();
 const chat = useChat();
@@ -37,7 +38,7 @@ onMounted(async () => {
   <LoginForm v-if="auth.checked && !auth.user" />
   <div v-else-if="auth.user && settings.current" class="app">
     <header class="top">
-      <strong>🎩 AIfred Intelligence</strong>
+      <strong><img :src="hatIcon" alt="" class="hat" /> AIfred Intelligence</strong>
       <RouterLink v-if="route.path !== '/'" to="/" class="back">💬 {{ t("nav_chat") }}</RouterLink>
       <span class="user">{{ auth.user }}</span>
       <button class="burger" :aria-expanded="menuOpen" :title="t('settings')" @click="menuOpen = !menuOpen">☰</button>
@@ -77,6 +78,7 @@ body {
 /* One column of at most 1200 px, as under Reflex. */
 .app { display: flex; flex-direction: column; min-height: 100vh; width: 100%; max-width: 1200px; margin: 0 auto; padding: 0 16px; box-sizing: border-box; }
 .top { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--aifred-border); }
+.hat { width: 32px; height: 32px; vertical-align: middle; } /* the picture, not the emoji: its band is red (Reflex's header) */
 .top strong { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .back { color: var(--aifred-text-secondary); text-decoration: none; white-space: nowrap; }
 .user { color: var(--aifred-text-secondary); white-space: nowrap; }

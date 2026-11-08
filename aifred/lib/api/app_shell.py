@@ -10,17 +10,41 @@ from pathlib import Path
 from fastapi.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 
-from ...theme import css_variables
+from ...theme import COLORS, css_variables
 from ..i18n import TranslationManager
 from ..user_error import Missing
 from .app import api_app
 
 FRONTEND_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+APP_NAME = "AIfred Intelligence"
+APP_SHORT_NAME = "AIfred"
 
 
 @api_app.get("/app/theme.css", include_in_schema=False)
 async def app_theme() -> Response:
     return Response(css_variables(), media_type="text/css")
+
+
+@api_app.get("/app/manifest.webmanifest", include_in_schema=False)
+async def app_manifest() -> JSONResponse:
+    """What makes the shell installable as an app (home screen icon, own window), without a service worker. The
+    colours come from theme.py; the icons are the hat (frontend/public). Paths are relative to this file."""
+    return JSONResponse(
+        {
+            "name": APP_NAME,
+            "short_name": APP_SHORT_NAME,
+            "start_url": "./",
+            "scope": "./",
+            "display": "standalone",
+            "background_color": COLORS["page_bg"],
+            "theme_color": COLORS["page_bg"],
+            "icons": [
+                {"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
+                {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"},
+            ],
+        },
+        media_type="application/manifest+json",
+    )
 
 
 @api_app.get("/app/ui-settings", tags=["App"])
@@ -39,6 +63,6 @@ async def app_texts(lang: str) -> JSONResponse:
     return JSONResponse(texts)
 
 
-# Registered after the two routes above, so they win over the mount. check_dir=False: before
+# Registered after the routes above, so they win over the mount. check_dir=False: before
 # the first `npm run build` the folder does not exist and /app/ answers 404.
 api_app.mount("/app", StaticFiles(directory=FRONTEND_DIST, html=True, check_dir=False), name="app_shell")
