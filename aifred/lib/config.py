@@ -479,6 +479,11 @@ SESSION_TITLE_NUM_PREDICT = 2000
 # der "processing"-Toast frueher.
 SESSION_TITLE_TIMEOUT_SECONDS = 300.0
 
+# „Merken“ (lib/session_memory.py): the summary of a chat for the agents' long-term memory. Room for the answer of a
+# thinking model as for the title; the conversation fills the rest of the model's context.
+SESSION_MEMORY_NUM_PREDICT = 2000
+SESSION_MEMORY_TEMPERATURE = 0.3
+
 # Heartbeat-Intervall (s) fuer lang laufende Tool-Calls: solange ein Tool
 # awaited wird (z. B. VLM-Analyse > 60 s), sendet die Pipeline alle N s einen
 # tool_progress-Tick Richtung Browser. Ohne den Tick ist die Antwort-

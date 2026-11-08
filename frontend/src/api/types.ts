@@ -12,6 +12,7 @@ export type Utterance = Schemas["Utterance"];
 export type UploadedImage = Schemas["UploadedImage"];
 export type CropBox = Schemas["CropBox"];
 export type ChatExported = Schemas["ChatExported"];
+export type SessionRemembered = Schemas["SessionRemembered"];
 export type DictationAccepted = Schemas["DictationAccepted"];
 export type DictatedTextResult = Schemas["DictatedTextResult"];
 export type Settings = Schemas["SettingsResponse"];

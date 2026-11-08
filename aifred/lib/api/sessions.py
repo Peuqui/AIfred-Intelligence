@@ -485,6 +485,23 @@ async def sessions_stop(session_id: str, request: Request) -> dict[str, bool]:
     return {"cancelled": cancelled}
 
 
+class SessionRemembered(BaseModel):
+    agents: list[str] = Field(description="Display names of the agents that keep the summary")
+    stored: int
+    updated: int = Field(description="Earlier summaries of this session, replaced")
+    summary: str
+
+
+@api_app.post("/sessions/{session_id}/remember", response_model=SessionRemembered, tags=["Sessions"])
+async def sessions_remember(session_id: str, request: Request) -> SessionRemembered:
+    """„Merken“: the chat summarized by AIfred's model, kept in the memory of every agent that spoke in it."""
+    from ..session_memory import remember_session
+
+    owned_session(request, session_id)
+    done = await remember_session(session_id)
+    return SessionRemembered(agents=list(done.agents), stored=done.stored, updated=done.updated, summary=done.summary)
+
+
 class ChatExported(BaseModel):
     url: str = Field(description="The standalone page, under /_upload/html_preview/")
     download_name: str = Field(description="A plain ASCII file name for saving it")

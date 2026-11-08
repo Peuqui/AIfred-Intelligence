@@ -430,7 +430,12 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   3. Statuszeile für Sprachmodell, Beschreiber, STT und TTS (Restzeit, Laden/Entladen, Karte freihalten); die API
      ist da, keine Komponente nutzt sie.
   4. Sichtbarer Audio-Player (Pause, Spulen, Lautstärke, was läuft); Musik lässt sich sonst nicht anhalten.
-  5. „Merken“: den Chat zusammenfassen und ins Gedächtnis der beteiligten Agenten schreiben.
+  5. ~~„Merken“~~ (erledigt 08.11.: 📌 in der Kopfleiste, `POST /api/sessions/{id}/remember`,
+     `lib/session_memory.py`). Beim Umzug geändert: Prompt in `prompts/<lang>/utility/session_memory.txt` (stand
+     englisch im Code), das Gespräch füllt den Kontext des Modells, neueste Zeilen zuerst, statt auf 4.000 Zeichen
+     gekürzt zu werden; jede Zeile zeigt, was die Blase zeigt (`tts_text_filter`, vorher landete der Denkprozess
+     mit in der Zusammenfassung); Systemagenten nach ihrer Rolle, nicht nach dem Namen „vision“. Live geprüft mit
+     dem 30B-Modell.
   6. Hinweise des Message Hub und des Schedulers, die Sitzungsliste lädt neue Kanal-Sitzungen nach.
   7. Systemagenten und Automatik-LLM im Editor (Prompts, Modell und Reasoning des Kalibrier-Agenten).
   8. ~~„Chat löschen“~~ (erledigt 08.11.: 🗑️ in der Kopfleiste, `POST /api/sessions/{id}/clear`,

@@ -131,6 +131,14 @@ onMounted(() => void start());
             {{ chat.config.incognito ? "🔒" : "🔓" }}
           </button>
           <button class="clear" :disabled="!chat.history.length" :title="t('clear_chat')" @click="chat.clearChat">🗑️</button>
+          <button
+            class="remember"
+            :disabled="!hasReplies || chat.remembering || chat.running"
+            :title="`${t('save_memory')} — ${t('save_memory_hint')}`"
+            @click="chat.remember"
+          >
+            📌
+          </button>
           <button class="export" :disabled="!chat.history.length || exporting" :title="t('share_chat')" @click="shareChat">🔗</button>
           <button class="export" :disabled="!chat.history.length || exporting" :title="t('download_chat')" @click="downloadChat">💾</button>
           <AgentSelect :agents="agents" :active="chat.config.active_agent" @choose="(agent) => chat.configure({ active_agent: agent })" />
@@ -153,6 +161,7 @@ onMounted(() => void start());
           <p v-if="chat.toolStatus" class="tool">{{ chat.toolStatus }}</p>
         </article>
         <p v-if="chat.notice" class="notice">⚠️ {{ chat.notice }}</p>
+        <p v-if="chat.info" class="info">{{ chat.info }}</p>
         <p v-if="settings.notice" class="notice">⚠️ {{ settings.notice }}</p>
       </div>
       <ChatInput
@@ -199,8 +208,8 @@ onMounted(() => void start());
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 1rem; }
 .choices { display: flex; align-items: center; gap: 10px; }
-.incognito, .regenerate, .agent-choices, .export, .clear { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
-.regenerate:disabled, .export:disabled { opacity: 0.7; cursor: progress; }
+.incognito, .regenerate, .agent-choices, .export, .clear, .remember { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
+.regenerate:disabled, .export:disabled, .remember:disabled { opacity: 0.7; cursor: progress; }
 .clear:disabled { opacity: 0.5; cursor: default; }
 .incognito.on { border-color: var(--aifred-accent-amber); }
 .messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
@@ -208,6 +217,7 @@ h2 { margin: 0; font-size: 1rem; }
 .streaming header { font-size: 0.8rem; font-weight: 600; color: var(--aifred-primary); }
 .tool { margin: 4px 0 0; font-size: 0.8rem; color: var(--aifred-accent-cyan); }
 .notice { color: var(--aifred-accent-amber); }
+.info { color: var(--aifred-accent-success); }
 @media (max-width: 760px) {
   .layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   .side { max-height: 30vh; }

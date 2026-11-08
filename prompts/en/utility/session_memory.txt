@@ -1,0 +1,3 @@
+Summarize this conversation in 4 to 5 sentences. Keep the key topics, decisions, insights and the user's preferences. Write in the language of the conversation.
+
+{conversation}

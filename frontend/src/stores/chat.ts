@@ -14,8 +14,10 @@ import type {
   SessionConfig,
   SessionConfigUpdate,
   SessionDetail,
+  SessionRemembered,
   UploadedImage,
 } from "../api/types";
+import { t } from "../i18n";
 import * as media from "../lib/media";
 import * as speech from "../lib/speech";
 import { useSessions } from "./sessions";
@@ -40,6 +42,9 @@ export const useChat = defineStore("chat", () => {
   const streaming = ref<Streaming | null>(null);
   const toolStatus = ref("");
   const notice = ref("");
+  // What an action of the chat's toolbar reports (not a warning): "Merken".
+  const info = ref("");
+  const remembering = ref(false);
   const queued = ref<string[]>([]);
   // Images uploaded for the next message (they sit in the session's upload folder until it is sent).
   const pendingImages = ref<UploadedImage[]>([]);
@@ -67,6 +72,7 @@ export const useChat = defineStore("chat", () => {
     streaming.value = null;
     toolStatus.value = "";
     notice.value = "";
+    info.value = "";
     queued.value = [];
     pendingImages.value = [];
     draft.value = "";
@@ -86,6 +92,7 @@ export const useChat = defineStore("chat", () => {
       case "turn_started":
         running.value = true;
         notice.value = "";
+        info.value = "";
         queued.value = queued.value.slice(1);
         history.value = [...history.value, data.user_entry as ChatEntry];
         break;
@@ -128,6 +135,7 @@ export const useChat = defineStore("chat", () => {
         streaming.value = null;
         toolStatus.value = "";
         notice.value = "";
+        info.value = "";
         title.value = "";
         void useSessions().refresh();
         break;
@@ -260,6 +268,21 @@ export const useChat = defineStore("chat", () => {
     }
   }
 
+  // „Merken“: the chat summarized into the memory of the agents that spoke in it.
+  async function remember(): Promise<void> {
+    if (!sessionId.value) return;
+    remembering.value = true;
+    info.value = "";
+    try {
+      const done = await api<SessionRemembered>(`sessions/${sessionId.value}/remember`, { method: "POST" });
+      info.value = t("save_memory_done", { agents: done.agents.join(", "), stored: done.stored, updated: done.updated });
+    } catch (error) {
+      notice.value = error instanceof ApiError ? error.detail : String(error);
+    } finally {
+      remembering.value = false;
+    }
+  }
+
   // The chat emptied on the server; every tab of the session, this one too, follows chat_cleared.
   async function clearChat(): Promise<void> {
     if (!sessionId.value) return;
@@ -341,9 +364,10 @@ export const useChat = defineStore("chat", () => {
   }
 
   return {
-    sessionId, title, history, debugLines, config, running, streaming, toolStatus, notice, queued,
+    sessionId, title, history, debugLines, config, running, streaming, toolStatus, notice, info, queued,
     pendingImages, uploading, draft, dictations, open, close, send, stop, configure,
     uploadImages, removeImage, dictate, dictated,
     readAgain, regenerating, regenerateAll, rotateImage, cropImage, exportChat, clearChat,
+    remembering, remember,
   };
 });

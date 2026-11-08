@@ -1,0 +1,3 @@
+Fasse dieses Gespräch in 4 bis 5 Sätzen zusammen. Halte die wichtigsten Themen, Entscheidungen, Erkenntnisse und Vorlieben des Benutzers fest. Schreibe in der Sprache des Gesprächs.
+
+{conversation}
