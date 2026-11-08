@@ -5,9 +5,8 @@ lets /app/ through; it holds no user data. Everything the app does afterwards go
 the cookie-protected endpoints.
 """
 
-from pathlib import Path
-
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
