@@ -3,6 +3,7 @@
 // dot (green loaded and breathing, yellow loading and faster, grey nothing loaded, red not reachable); open, a line
 // per loaded thing with the time until it unloads and its button (unload, load, hold a machine's card free). The
 // refresh button reads STT and TTS anew. The page counts down from the moment the snapshot arrived.
+import { Power, RefreshCw } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { language, t } from "../i18n";
 import { type Action, type Color, type Row, SERVICES, type Service, formatRemaining, hostRows, serviceRows, summaryColor } from "../lib/serviceStatus";
@@ -72,7 +73,7 @@ onBeforeUnmount(() => window.clearInterval(timer));
       <span v-for="service in SERVICES" :key="service" class="badge" :class="badgeColor(service)" :title="t(NAMES[service])">
         <img :src="ICONS[service]" alt="" /><span class="dot" />
       </span>
-      <button class="refresh" :title="t('service_status_refresh')" @click.prevent="status.fetch(true)">↻</button>
+      <button class="refresh" :title="t('service_status_refresh')" @click.prevent="status.fetch(true)"><RefreshCw :size="14" /></button>
     </summary>
     <div v-if="rows" class="list">
       <template v-for="service in SERVICES" :key="service">
@@ -80,15 +81,24 @@ onBeforeUnmount(() => window.clearInterval(timer));
           <span class="badge" :class="row.color"><img :src="ICONS[service]" alt="" /><span class="dot" /></span>
           <span class="label">{{ t(NAMES[service]) }}:</span>
           <span class="value" :title="row.title ?? row.text">{{ row.text }}</span>
-          <span v-if="row.remaining !== null" class="time">{{ timeText(row) }}</span>
-          <button v-if="row.action" class="power" :disabled="status.acting" :title="t(ACTION_TITLES[row.action.verb])" @click="status.act(row.action)">⏻</button>
+          <span class="time">{{ row.remaining !== null ? timeText(row) : "" }}</span>
+          <span class="act">
+            <button v-if="row.action" class="power" :disabled="status.acting" :title="t(ACTION_TITLES[row.action.verb])" @click="status.act(row.action)">
+              <Power :size="14" />
+            </button>
+          </span>
         </div>
       </template>
       <div v-for="host in machines" :key="host.label" class="line">
         <span class="badge" :class="host.color"><img :src="ICONS.host" alt="" /><span class="dot" /></span>
         <span class="label">{{ host.label }}:</span>
         <span class="value" :title="host.title ?? host.text">{{ host.text }}</span>
-        <button v-if="host.action" class="power" :disabled="status.acting" :title="t(ACTION_TITLES[host.action.verb])" @click="status.act(host.action)">⏻</button>
+        <span class="time" />
+        <span class="act">
+          <button v-if="host.action" class="power" :disabled="status.acting" :title="t(ACTION_TITLES[host.action.verb])" @click="status.act(host.action)">
+            <Power :size="14" />
+          </button>
+        </span>
       </div>
       <p v-if="status.notice" class="notice">⚠️ {{ status.notice }}</p>
       <p class="lifecycle"><HelpButton topic="lifecycle" /> {{ t("model_lifecycle_help_tooltip") }}</p>
@@ -110,10 +120,15 @@ summary::-webkit-details-marker { display: none; }
 .red .dot { background: var(--aifred-danger); }
 @keyframes breathe { 50% { opacity: 0.4; } }
 @media (prefers-reduced-motion: reduce) { .dot { animation: none !important; } }
-.refresh, .power { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; padding: 0 6px; font: inherit; }
+.refresh, .power { display: inline-flex; align-items: center; background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: var(--aifred-text-secondary); cursor: pointer; padding: 3px 6px; font: inherit; }
+.refresh:hover, .power:hover:not(:disabled) { color: var(--aifred-primary); border-color: var(--aifred-primary); }
 .refresh { margin-left: auto; }
-.list { display: flex; flex-direction: column; gap: 4px; padding: 6px 0 2px; }
-.line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* A table: every line shares the columns (sign, service, model, time left, button), so the buttons stand one under the
+   other whatever the length of a model's name. */
+.list { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; align-items: center; gap: 4px 10px; padding: 6px 0 2px; }
+.line { display: contents; }
+.act { display: flex; justify-content: flex-end; }
+.notice, .lifecycle { grid-column: 1 / -1; }
 .label { color: var(--aifred-text-secondary); white-space: nowrap; }
 .value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .time { color: var(--aifred-text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
