@@ -1342,5 +1342,14 @@
   "error_live_analysis_not_started": "The live analysis of {camera} did not start: {reason}",
   "vision_interval": "{seconds} s",
   "vision_interval_rate": "{seconds} s · {rate}/s",
-  "vision_preview_face_similarity": "{percent} %"
+  "vision_preview_face_similarity": "{percent} %",
+  "error_no_plugin": "There is no plugin “{plugin}”.",
+  "error_no_plugin_form": "“{plugin}” has no settings.",
+  "error_no_plugin_oauth": "“{plugin}” does not connect through OAuth.",
+  "error_channel_not_configured": "{plugin} is not set up yet — fill in its settings first.",
+  "error_unknown_tier": "Unknown security tier: {value}",
+  "error_unknown_option": "{field}: “{value}” is not among the choices.",
+  "plugin_channel_listener": "Listen",
+  "plugin_needs_connection": "Connect in its settings first",
+  "plugin_password_stored": "stored — leave empty to keep it"
 }

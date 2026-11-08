@@ -13,6 +13,7 @@ import reflex as rx
 from reflex.event import EventSpec
 
 from ..lib.i18n import TranslationManager
+from ..lib.plugin_admin import translated_key, translated_options
 from ..lib.plugin_base import plugin_display_name
 from ..lib.settings import (
     SETTINGS_FILE,
@@ -24,26 +25,6 @@ from ..lib.settings import (
 if TYPE_CHECKING:
     from ..lib.plugin_base import CredentialField
     from ..lib.agent_tuning import AgentTuning
-
-
-def _translate_cred_key(key: str, plugin: object, lang: str) -> str | None:
-    """Resolve an i18n key of a credential field from the plugin's own
-    i18n.json — channel and tool plugins alike, every plugin ships its texts
-    itself. None when the plugin does not know the key (a plain-text label)."""
-    from ..lib.plugin_base import load_plugin_i18n, plugin_dir_of
-    text = load_plugin_i18n(plugin_dir_of(plugin)).get(key, {}).get(lang, "")
-    return text or None
-
-
-def _translated_options(field: CredentialField, plugin: object, lang: str) -> list[tuple[str, str]]:
-    """Dropdown options with their labels translated. A label that is no
-    i18n key stays as written, so plain-text labels keep working."""
-    if not field.options:
-        return []
-    return [
-        (value, _translate_cred_key(label, plugin, lang) or label)
-        for value, label in field.options
-    ]
 
 
 class SettingsMixin(rx.State, mixin=True):
@@ -587,7 +568,7 @@ class SettingsMixin(rx.State, mixin=True):
                 raw_value = plugin_settings.get(field.env_key, os.environ.get(field.env_key, field.default))
 
             # Map stored value to display label for dropdown fields
-            options = _translated_options(field, plugin or tool, lang)
+            options = translated_options(field, plugin or tool, lang)
             if options:
                 value_to_label = {val: lbl for val, lbl in options}
                 values[field.env_key] = value_to_label.get(raw_value, raw_value)
@@ -598,8 +579,8 @@ class SettingsMixin(rx.State, mixin=True):
             # the RAW i18n keys (plugin i18n → central i18n): the UI only ever
             # sees translated text. Tooltip convention: <label_key>_tooltip,
             # no hit → "" = no lightbulb.
-            label = _translate_cred_key(field.label_key, plugin or tool, lang) or field.label_key
-            tooltip = _translate_cred_key(f"{field.label_key}_tooltip", plugin or tool, lang) or ""
+            label = translated_key(field.label_key, plugin or tool, lang) or field.label_key
+            tooltip = translated_key(f"{field.label_key}_tooltip", plugin or tool, lang) or ""
 
             field_descriptors.append({
                 "env_key": field.env_key,
@@ -870,7 +851,7 @@ class SettingsMixin(rx.State, mixin=True):
             val = self.channel_credential_values.get(field.env_key, "")
             # Map display label back to stored value for dropdown fields
             if field.options:
-                label_to_value = {lbl: v for v, lbl in _translated_options(field, channel or tool, lang)}
+                label_to_value = {lbl: v for v, lbl in translated_options(field, channel or tool, lang)}
                 val = label_to_value.get(val, val)
 
             if field.is_secret:
@@ -905,7 +886,7 @@ class SettingsMixin(rx.State, mixin=True):
         for field in fields:
             val = self.channel_credential_values.get(field.env_key, "")
             if field.options:
-                label_to_value = {lbl: v for v, lbl in _translated_options(field, channel or tool, lang)}
+                label_to_value = {lbl: v for v, lbl in translated_options(field, channel or tool, lang)}
                 val = label_to_value.get(val, val)
             saved_values[field.env_key] = val
 

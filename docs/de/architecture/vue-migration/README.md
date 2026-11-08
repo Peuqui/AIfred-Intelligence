@@ -248,6 +248,20 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   im Paket ab. Offen: Erfolgsmeldungen einiger alter Endpunkte (`SystemActionResponse.message`) sind
   noch englisch; die Gründe des Audio-Auflösers (`audio_sources`) sind fürs Modell geschrieben und
   stehen englisch in der 404 des Audio-Stroms.
+- **Plugins und Kanäle (erledigt 08.11.2026):** Auf der Einstellungsseite `PluginSettings.vue`: die Kanäle mit
+  Schalter, Mithören, Auto-Reply und Sicherheitsstufe, die Werkzeug-Plugins mit Schalter; ⚙️ öffnet
+  `PluginForm.vue` (Felder in den Worten des Plugins, in Zeilen gruppiert, Auswahlfelder, OAuth mit Anmeldeseite im
+  neuen Tab und Warten auf die Verbindung). Die Logik stand nur im Reflex-State, jetzt in `lib/plugin_admin.py` für
+  beide Seiten (Helfer für übersetzte Felder dorthin, der Mixin ruft sie): `GET /plugins`, `PUT /plugins/tools/{name}`,
+  `PATCH /plugins/channels/{name}`, `GET/PUT /plugins/{name}/form`, `GET /plugins/{name}/oauth-link?origin=`,
+  `DELETE /plugins/{name}/oauth`. Behoben: Die Reflex-Seite legte jedes gespeicherte Passwort in den State des
+  Browsers; jetzt verlässt ein Passwort den Server nie, das Formular sagt „gespeichert“, ein leeres Feld behält es.
+  Ein Kanal ohne Einrichtung lässt sich nicht einschalten (409, die Seite öffnet sein Formular). Abweichung von
+  Reflex: Ein OAuth-Plugin ohne Verbindung lässt sich einschalten (die Sperre griff dort nur bei geladenem Plugin);
+  es bietet ohne Verbindung keine Werkzeuge, die Liste zeigt den Hinweis. Geprüft gegen die Testinstanz: alle
+  Formulare ohne ein einziges Passwort in der Antwort, Rechner aus und an, Formular geöffnet und verworfen; Kanäle
+  dort bewusst nicht geschaltet (ein Listener der Testinstanz antwortete neben der Produktion), das Schalten und
+  Speichern ist mit Stellvertretern getestet. Noch Reflex-only: Speicher-Reiter (Exporte, Sandbox) und Audit-Log.
 - **Einstellungen, Teil 2 (offen):** Backend-Wechsel, Kalibrierung, Neustarts von Backend und AIfred,
   Grundeinstellungen laden. Neustarts treffen die gemeinsamen Dienste (llama-swap,
   Produktionsdienst): nur mit Peuqui abgestimmt testen.

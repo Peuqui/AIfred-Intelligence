@@ -1342,5 +1342,14 @@
   "error_live_analysis_not_started": "Die Live-Analyse von {camera} ließ sich nicht starten: {reason}",
   "vision_interval": "{seconds} s",
   "vision_interval_rate": "{seconds} s · {rate}/s",
-  "vision_preview_face_similarity": "{percent} %"
+  "vision_preview_face_similarity": "{percent} %",
+  "error_no_plugin": "Ein Plugin „{plugin}“ gibt es nicht.",
+  "error_no_plugin_form": "„{plugin}“ hat keine Einstellungen.",
+  "error_no_plugin_oauth": "„{plugin}“ verbindet sich nicht über OAuth.",
+  "error_channel_not_configured": "{plugin} ist noch nicht eingerichtet — zuerst die Einstellungen ausfüllen.",
+  "error_unknown_tier": "Unbekannte Sicherheitsstufe: {value}",
+  "error_unknown_option": "{field}: „{value}“ steht nicht zur Wahl.",
+  "plugin_channel_listener": "Mithören",
+  "plugin_needs_connection": "Erst in den Einstellungen verbinden",
+  "plugin_password_stored": "gespeichert — leer lassen, um es zu behalten"
 }

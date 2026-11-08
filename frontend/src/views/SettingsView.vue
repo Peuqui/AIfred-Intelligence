@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// AIfred's general settings, part one: language and the user, debate. Speech output has its own page
-// (🔊), the agents' models and switches are their quick choices (🎛️ in the chat); backend, calibration
-// and restarts follow.
+// AIfred's general settings: language and the user, debate, the plugins (channels and tools with their settings).
+// Speech output has its own page (🔊), the agents' models and switches are their quick choices (🎛️ in the chat);
+// backend, calibration and restarts follow.
+import PluginSettings from "../components/PluginSettings.vue";
 import { t } from "../i18n";
 import { useSettings } from "../stores/settings";
 
@@ -50,6 +51,7 @@ function named(event: Event): void {
         </select>
       </label>
     </section>
+    <PluginSettings />
   </main>
 </template>
 
