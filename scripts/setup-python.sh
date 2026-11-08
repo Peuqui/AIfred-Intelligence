@@ -41,11 +41,12 @@ fi
 PYTHON_VERSION_FULL=$(python3 --version)
 echo -e "${GREEN}✅ $PYTHON_VERSION_FULL gefunden${NC}"
 
-# Verify version >= 3.10 (Reflex requirement)
+# Verify version >= 3.12: requirements.txt pins wheels tested on 3.12 (cp312), and the face detection
+# preloads CUDA's libraries from venv/lib/python3.12 (vision_filters/face_detect.py).
 PY_MAJOR=$(python3 -c 'import sys; print(sys.version_info.major)')
 PY_MINOR=$(python3 -c 'import sys; print(sys.version_info.minor)')
-if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 10 ]; }; then
-    echo -e "${RED}❌ Python ${PY_MAJOR}.${PY_MINOR} ist zu alt — mindestens 3.10 wird benötigt.${NC}"
+if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 12 ]; }; then
+    echo -e "${RED}❌ Python ${PY_MAJOR}.${PY_MINOR} ist zu alt — mindestens 3.12 wird benötigt.${NC}"
     exit 1
 fi
 
@@ -124,21 +125,13 @@ else
     echo "   Nachholen mit: source venv/bin/activate && playwright install --with-deps chromium"
 fi
 echo ""
-
-# Reflex-Patches (Typ-Marker und -Stubs für mypy, Upload-Kontext; Liste im
-# Docstring von patch-reflex.py, siehe CLAUDE.md → "Reflex Patch"). Idempotent:
-# Gepatchte Stellen werden übersprungen; fehlt der Originaltext (upstream
-# geändert), meldet das Skript es und lässt die Datei unverändert.
-echo "🔧 Wende Reflex-Patches an..."
-python "$SCRIPT_DIR/patch-reflex.py" || true
-
-echo ""
 echo "=================================================="
 echo -e "${GREEN}✅ Python Setup abgeschlossen!${NC}"
 echo "=================================================="
 echo ""
 echo "📊 Nützliche Befehle:"
 echo "   Virtual Environment aktivieren: source venv/bin/activate"
-echo "   AIfred starten: reflex run"
+echo "   Oberfläche bauen: ./scripts/build-frontend.sh"
+echo "   AIfred starten: venv/bin/python -m aifred.server"
 echo "   Tests ausführen: pytest"
 echo ""

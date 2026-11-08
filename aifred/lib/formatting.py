@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from collections import OrderedDict
 from .logging_utils import log_message
-from .config import get_xml_tag_config, BACKEND_URL, DATA_DIR, PROJECT_ROOT, HTML_PREVIEW_MAX_FILES
+from .config import get_xml_tag_config, DATA_DIR, PROJECT_ROOT, HTML_PREVIEW_MAX_FILES
 from .perf_metrics import InferenceWork
 from .html_tags import HTML_TAG_BLACKLIST  # HTML tags to exclude from XML processing
 from datetime import datetime
@@ -724,13 +724,8 @@ def _save_html_to_assets(html_code: str, title: str = "") -> str:
 
     log_message(f"🌐 HTML Preview: File saved → {filepath} (Cache: {len(_html_file_cache)}/{HTML_PREVIEW_MAX_FILES})")
 
-    # Return URL - absolute with BACKEND_URL if set, otherwise relative
-    # With NGINX: BACKEND_URL="" → relative URL works (NGINX routes to backend)
-    # Without NGINX (dev): BACKEND_URL="http://host:8002" → absolute URL to backend
-    relative_path = f"/_upload/html_preview/{filename}"
-    if BACKEND_URL:
-        return f"{BACKEND_URL}{relative_path}"
-    return relative_path
+    # The page and its folders share one origin (aifred.server), so the path from the root is the whole URL.
+    return f"/_upload/html_preview/{filename}"
 
 
 def cleanup_session_html(session_data: dict) -> int:

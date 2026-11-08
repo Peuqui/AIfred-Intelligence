@@ -174,7 +174,7 @@ fi
 # which is delegated below in Step 3.
 # ============================================================
 if [ "$DRY_RUN" = "1" ]; then
-    echo -e "${YELLOW}📝 DRY-RUN: skipping Steps 1-2g (system deps, Python env,${NC}"
+    echo -e "${YELLOW}📝 DRY-RUN: skipping Steps 1-2g (system deps, Python env, interface,${NC}"
     echo -e "${YELLOW}              ChromaDB, TTS-Suite, Whisper, SearXNG).${NC}"
     echo "   These steps are idempotent on a real run. To see actual"
     echo "   install effects, re-run without --dry-run."
@@ -305,10 +305,6 @@ install_one "curl (Ollama installer fetches install.sh via curl)" "command -v cu
 # (seen on a fresh Ubuntu 24.04 minimal install).
 install_one "zstd (Ollama installer unpacks with it)" "command -v zstd" \
     apt:zstd dnf:zstd pacman:zstd brew:zstd
-# Reflex installs its JS runtime (bun) on first start and unpacks it with
-# unzip — without it the AIfred service dies in a restart loop.
-install_one "unzip (Reflex unpacks its JS runtime bun with it)" "command -v unzip" \
-    apt:unzip dnf:unzip pacman:unzip brew:unzip
 # ca-certificates: without an up-to-date cert bundle, TLS connects to
 # huggingface.co/ollama.com fail on some minimal images. Only needed
 # on apt (dnf/pacman/brew ship one with their TLS tools).
@@ -513,8 +509,8 @@ verify_step "venv Python: $PROJECT_DIR/venv/bin/python" \
 verify_step "venv pip callable" \
     "'$PROJECT_DIR/venv/bin/python' -m pip --version" \
     "ensurepip problem — sudo apt install python3-venv python3-pip"
-verify_step "import reflex" \
-    "'$PROJECT_DIR/venv/bin/python' -c 'import reflex'" \
+verify_step "import uvicorn (AIfred's server)" \
+    "'$PROJECT_DIR/venv/bin/python' -c 'import uvicorn'" \
     "pip install -r requirements.txt in venv"
 verify_step "import chromadb (vector cache client)" \
     "'$PROJECT_DIR/venv/bin/python' -c 'import chromadb'" \
@@ -580,14 +576,29 @@ verify_step "Playwright Chromium browser installed" \
 verify_step "Playwright Chromium launchable (system libs complete)" \
     "'$PROJECT_DIR/venv/bin/python' -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True); b.close(); p.stop()'" \
     "sudo venv/bin/playwright install-deps chromium"
-# Reflex patch idempotently checked — patch-reflex.py --check returns 0 if ok.
-verify_step "Reflex frontend_path patch applied (or fixed upstream)" \
-    "'$PROJECT_DIR/venv/bin/python' '$SCRIPT_DIR/patch-reflex.py' --check" \
-    "python scripts/patch-reflex.py — re-run"
 
 step_summary "2 — Python environment"
 echo ""
 sleep 1
+
+# ============================================================
+# STEP 2a: The interface (Vue, built with Node.js — NO sudo)
+# ============================================================
+# frontend/dist is not in the repository; the server serves it under /api/app/.
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}  Step 2a: Build the interface${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+set +e
+bash "$SCRIPT_DIR/build-frontend.sh"
+set -e
+echo ""
+echo -e "${BLUE}🔎 Verifying the interface...${NC}"
+verify_step "interface built (frontend/dist/index.html)" \
+    "[ -f '$PROJECT_DIR/frontend/dist/index.html' ]" \
+    "./scripts/build-frontend.sh  (needs Node.js ^20.19 or >= 22.12)"
+step_summary "2a — Interface"
+echo ""
 
 # ============================================================
 # STEP 2b: Project initialization (.env, directories, embedding model)
@@ -1440,8 +1451,7 @@ else
     echo ""
     echo "   You can start AIfred manually with:"
     echo "   cd $PROJECT_DIR"
-    echo "   source venv/bin/activate"
-    echo "   reflex run"
+    echo "   venv/bin/python -m aifred.server"
 fi
 
 # ─── Verification of step 3: only when user chose systemd ───
@@ -1468,14 +1478,8 @@ elif [ "$SYSTEMD_CHOSEN" = "1" ]; then
     verify_step "aifred-intelligence.service is-active" \
         "systemctl is-active aifred-intelligence.service" \
         "sudo systemctl start aifred-intelligence.service"
-    # AIfred needs ~30-90s on a fresh start until backend port 8002
-    # listens: Reflex initializes Bun on the very first start (downloads
-    # Bun binary, installs node_modules) and compiles the frontend.
-    # With a warm .web/ cache it's 10-15s, on a cold start it can be
-    # 60s+. We poll generously for 120s — the backend port listens
-    # as soon as Reflex's Granian has started, so independent of the
-    # frontend build.
-    echo "   ⏳ Waiting for AIfred backend (port 8002, max 120s)..."
+    # The server listens once ChromaDB, the plugins and the channels are open (some 10-30 s).
+    echo "   ⏳ Waiting for AIfred (port 8002, max 120s)..."
     aifred_port_ok=0
     for _ in $(seq 1 60); do
         if (echo > /dev/tcp/localhost/8002) &>/dev/null; then
@@ -1485,76 +1489,13 @@ elif [ "$SYSTEMD_CHOSEN" = "1" ]; then
         sleep 2
     done
     if [ "$aifred_port_ok" = "1" ]; then
-        echo -e "   ${GREEN}✅ verified:${NC} AIfred backend listens on port 8002"
+        echo -e "   ${GREEN}✅ verified:${NC} AIfred listens on port 8002"
     else
-        echo -e "   ${RED}❌ MISSING:${NC} AIfred backend not reachable on port 8002 after 120s"
+        echo -e "   ${RED}❌ MISSING:${NC} AIfred not reachable on port 8002 after 120s"
         echo -e "      ${YELLOW}→ journalctl -u aifred-intelligence.service -e --no-pager${NC}"
-        STEP_FAILURES+=("AIfred backend port 8002 not listening")
-    fi
-    # Frontend port 3002 takes even longer on the very first start
-    # (Bun setup, Vite build of _index.jsx with all eager-loaded
-    # modals). On a first start 2-5 min is realistic. Only poll for
-    # 60s — if it doesn't work, warning instead of blocker. The
-    # backend alone is enough for CLI/API access.
-    echo "   ⏳ Waiting for AIfred frontend (port 3002, max 60s)..."
-    frontend_port_ok=0
-    for _ in $(seq 1 30); do
-        if (echo > /dev/tcp/localhost/3002) &>/dev/null; then
-            frontend_port_ok=1
-            break
-        fi
-        sleep 2
-    done
-    if [ "$frontend_port_ok" = "1" ]; then
-        echo -e "   ${GREEN}✅ verified:${NC} AIfred frontend listens on port 3002"
-    else
-        echo -e "   ${YELLOW}⚠️  Frontend port 3002 not open yet (first-time build can take 2-5 min)${NC}"
-        echo -e "      ${YELLOW}→ journalctl -u aifred-intelligence.service -f${NC}"
-        STEP_WARNINGS+=("AIfred frontend port 3002 taking longer — first Bun/Vite build")
+        STEP_FAILURES+=("AIfred port 8002 not listening")
     fi
     step_summary "3 — Systemd services"
-fi
-
-# ============================================================
-# STEP 3b: Reverse proxy (Caddy, optional, WITH sudo)
-# ============================================================
-# Without one, images, audio and camera previews stay blank: their routes
-# (/api, /_upload) exist only on the backend (see deployment guide, "Access
-# the web UI"). deploy/Caddyfile is the whole configuration.
-echo ""
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}  Step 3b: Reverse proxy (Caddy)${NC}"
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo "AIfred needs a reverse proxy in front of its two processes, otherwise"
-echo "images, audio and camera previews stay blank. This installs Caddy with"
-echo "the minimal config deploy/Caddyfile (port 8080 → frontend + backend)."
-if [ "$DRY_RUN" = "1" ]; then
-    echo -e "${YELLOW}📝 DRY-RUN: no sudo, no disk writes — Caddy would be installed and configured.${NC}"
-else
-    echo -e "${YELLOW}⚠️  Needs sudo! An existing /etc/caddy/Caddyfile is kept as Caddyfile~.${NC}"
-    echo ""
-    ask AIFRED_INSTALL_PROXY "Install Caddy as reverse proxy? (Y/n): "
-    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-        install_one "Caddy" "command -v caddy" apt:caddy dnf:caddy pacman:caddy
-        if cmp -s "$PROJECT_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile; then
-            echo -e "${GREEN}✅ /etc/caddy/Caddyfile is already up to date${NC}"
-        else
-            sudo install -b -D -m 644 "$PROJECT_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile
-        fi
-        sudo systemctl enable caddy
-        sudo systemctl restart caddy
-        echo ""
-        echo -e "${BLUE}🔎 Verifying reverse proxy...${NC}"
-        verify_step "caddy.service is-active" \
-            "systemctl is-active caddy.service" \
-            "journalctl -u caddy.service -e --no-pager"
-        PROXY_INSTALLED=1
-    else
-        echo -e "${YELLOW}⏭️  Reverse proxy skipped${NC}"
-        STEP_WARNINGS+=("No reverse proxy — images, audio and camera previews stay blank  (deployment guide: Access the web UI)")
-    fi
-    step_summary "3b — Reverse proxy"
 fi
 
 echo ""
@@ -1608,16 +1549,11 @@ if systemctl is-enabled aifred-intelligence.service &>/dev/null; then
     echo "   journalctl -u aifred-intelligence.service -f    # logs"
 else
     echo "   cd $PROJECT_DIR"
-    echo "   source venv/bin/activate"
-    echo "   reflex run"
+    echo "   venv/bin/python -m aifred.server"
 fi
 echo ""
 echo "2. Open browser, register with the whitelist username:"
-if [ "${PROXY_INSTALLED:-0}" = "1" ]; then
-    echo "   http://localhost:8080   (through the Caddy reverse proxy)"
-else
-    echo "   http://localhost:3002   (without a reverse proxy: no images/audio, see deployment guide)"
-fi
+echo "   http://localhost:8002"
 echo ""
 echo "3. Set up at least ONE LLM backend (otherwise no agent answers):"
 echo "   • Ollama (easiest start, local):"
@@ -1647,9 +1583,8 @@ echo "       https://github.com/mostlygeek/llama-swap"
 echo "       Binary into ~/bin, config in ~/.config/llama-swap/config.yaml,"
 echo "       systemd unit into /etc/systemd/system/llama-swap.service (own research)."
 echo ""
-echo "   • Own domain behind the reverse proxy (TLS: see the Caddy docs or the nginx example):"
-echo "       # set AIFRED_ALLOWED_HOST=your-domain.tld in .env, then restart:"
-echo "       sudo systemctl restart aifred-intelligence"
+echo "   • Own domain with TLS: a reverse proxy (nginx, Caddy) in front of port 8002"
+echo "       (deployment guide: Access the web UI)"
 echo ""
 echo "📚 Documentation: $PROJECT_DIR/README.md"
 echo ""

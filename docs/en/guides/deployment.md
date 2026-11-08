@@ -4,11 +4,11 @@
 
 Setup guide for a fresh AIfred installation with the llama.cpp backend (llama-swap).
 
-**Last updated:** 2026-10-25
+**Last updated:** 2026-11-08
 
 > **TL;DR — fastest path:** `./scripts/install-all.sh` from a fresh
-> clone handles dependencies, venv, Playwright, the Reflex routing
-> patch, optional systemd services, `.env`, the `bge-m3` embedding pull,
+> clone handles dependencies, venv, Playwright, the interface build
+> (Node.js), optional systemd services, `.env`, the `bge-m3` embedding pull,
 > the companion services (TTS-Suite, STT-Suite, SearXNG, GPU-Orc) and a
 > first whitelist user in one go. The sections below describe
 > the same flow **manually** for debugging and for non-standard setups
@@ -23,7 +23,7 @@ multiple models and loads them on demand. The **autoscan** mechanism detects new
 models automatically and configures them without any manual YAML editing.
 
 ```
-User <-> AIfred (Reflex web app) <-> llama-swap (:11435) <-> llama-server (per model)
+User <-> AIfred (server + Vue interface, :8002) <-> llama-swap (:11435) <-> llama-server (per model)
 ```
 
 Next to AIfred run three services of their own, each from its own repository; the installer sets
@@ -46,7 +46,9 @@ them up:
 ### Software
 - Linux with systemd (Ubuntu/Debian recommended)
 - CUDA Toolkit >= 12.0
-- Python 3.10+ (the TTS-Suite and GPU-Orc need 3.12+)
+- Python 3.12+ (`requirements.txt` pins wheels tested on 3.12)
+- Node.js ^20.19 or >= 22.12 with npm, to build the interface (Vite 8). Ubuntu 24.04 and Debian 12
+  ship Node 18, which is too old
 - Git
 - polkit (`polkitd` on Debian/Ubuntu; the installer adds it): your user restarts the units of the
   TTS-Suite and GPU-Orc without sudo, and AIfred starts the TTS-Suite when it is needed
@@ -96,8 +98,12 @@ git clone https://github.com/Peuqui/AIfred-Intelligence ~/Projekte/AIfred-Intell
 cd ~/Projekte/AIfred-Intelligence
 
 python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+venv/bin/pip install -r requirements.txt
+# insightface and the GPU build of onnxruntime: without their own dependency lists, last
+venv/bin/pip install --no-deps --force-reinstall -r requirements-nodeps.txt
+
+# The interface: frontend/ → frontend/dist (npm ci, npm run build); again after every update of frontend/
+./scripts/build-frontend.sh
 ```
 
 ### Unattended install
@@ -110,7 +116,6 @@ is asked as usual, or takes its default when there is no terminal:
 |---|---|---|
 | `AIFRED_INSTALL_OLLAMA` | install Ollama (`curl \| sh`) | `y` / `n` (default `y`) |
 | `AIFRED_INSTALL_SYSTEMD` | install the systemd services | `y` / `n` (default `y`) |
-| `AIFRED_INSTALL_PROXY` | install Caddy as reverse proxy (sudo, config `deploy/Caddyfile`, port 8080) | `y` / `n` (default `y`) |
 | `AIFRED_INSTALL_USER` | first whitelist user | a username, or `skip` (default: `$USER`) |
 | `AIFRED_INSTALL_TTS_SYSTEMD` | install the TTS-Suite as system service `tts-suite@<user>` (sudo, with the polkit rule) | `y` / `n` (default `y`; `n`: user service, runs only while you are logged in) |
 | `AIFRED_INSTALL_GPU_ORC_SYSTEMD` | install GPU-Orc as system service `gpu-orc@<user>` (sudo, with the polkit rule) | `y` / `n` (default `y`; `n`: user service, runs only while you are logged in) |
@@ -140,13 +145,13 @@ sudo ./scripts/install-services.sh --no-overwrite  # keep existing service
 
 The script reports `= Unchanged`, `♻️ Updated`, `✅ Newly installed` or
 `🛡 Kept` per file. `daemon-reload` only fires when a unit changed, and a
-service is only restarted when its own unit or drop-in changed — re-runs on
+service is only restarted when its own unit changed — re-runs on
 a clean system are no-ops.
 
 | Unit | Runs |
 |---|---|
 | `aifred-chromadb.service` | `docker compose up -d chromadb searxng` — vector store + web search |
-| `aifred-intelligence.service` | the Reflex app (frontend `3002`, backend `8002`) |
+| `aifred-intelligence.service` | AIfred's server on port `8002`: API, interface, folders |
 | `aifred-bibliothek.service` | optional search & admin API of the AIfred Bibliothek (`127.0.0.1:8005`, for `deploy/bibliothek/`) |
 
 The companion services bring their own units, installed by the scripts of their repositories (which
@@ -166,13 +171,16 @@ are **system-level services** (`WantedBy=multi-user.target`, running as
 > frequent `restart llama-swap` / `restart aifred-intelligence` during
 > tuning. Without such a rule, prefix them with `sudo`.
 
-The AIfred unit runs Reflex directly via the venv Python:
+The AIfred unit starts the server with the venv Python, one process:
 
 ```
-ExecStartPre=/bin/bash <project>/scripts/patch-vite-config.sh
-ExecStart=<project>/venv/bin/python -m reflex run \
-    --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
+ExecStart=<project>/venv/bin/python -m aifred.server
 ```
+
+It serves the API under `/api`, the built interface under `/api/app/` (`/` redirects there), the folders
+under `/_upload/` and the libraries of sandbox pages under `/vendor/`. `KillMode=control-group` also ends
+its child processes (the face worker). After an update of `frontend/`, run `./scripts/build-frontend.sh`
+before the restart.
 
 Don't edit the units under `/etc/systemd/system/` by hand — the templates in
 `systemd/` contain `__USER__` / `__PROJECT_DIR__` / `__DOCKER_BIN__`
@@ -260,17 +268,16 @@ Manager), which writes them back to `.env`.
 | Variable | Purpose |
 |---|---|
 | `MESSAGE_HUB_OWNER` | **Required.** AIfred account that owns Message-Hub sessions (channels, scheduler, webhook); written by `install-all.sh` with the first user — AIfred refuses to start without it |
-| `AIFRED_ALLOWED_HOST` | Your external domain — becomes Vite's `allowedHosts` (via `vite_allowed_hosts` in `rxconfig.py`) |
+| `AIFRED_SERVER_HOST`, `AIFRED_SERVER_PORT` | Where the server listens (default `0.0.0.0`, `8002`) |
 | `INJECT_API_TOKEN` | Token for `/api/chat/inject` (see [REST API](rest-api.md)) |
 | `WEBHOOK_API_TOKEN` | Token for `/api/agent/trigger` |
 | `ANNOUNCE_API_TOKEN` | Bearer token for `/api/audio/announce` |
 | `TTS_CONTROL_API_TOKEN` | Bearer token of the TTS start/stop API (service control page) |
+| `GPU_RELEASE_API_TOKEN` | Bearer token of `/api/gpu/holders` and `/api/gpu/release`: GPU-Orc ends the face worker with it ([9c](#9c-clearing-the-cards-gpu-orc)) |
 | `LIST_DEFAULT`, `READ_MEMORY_GUARD_BYTES` and further tunables | See [Configuration → Environment variables and plugin settings](configuration.md#environment-variables-and-plugin-settings) |
 | `AIFRED_SESSION_SECRET` | Signs the login cookies (optional — a random secret is persisted otherwise) |
 | `LLAMACPP_URL` | llama-swap URL (default `http://localhost:11435/v1`) |
 | `LLAMACPP_CALIBRATION_PORT` | Port of the temporary calibration server (default `9999`) |
-| `AIFRED_FRONTEND_PATH` | URL prefix when the app lives under a sub-path of a reverse proxy, e.g. `aifred` for `/aifred/` (default: none) |
-| `BACKEND_URL` | Only without a reverse proxy: backend URL for `/_upload/` as seen by the browser |
 | `BRAVE_API_KEY`, `TAVILY_API_KEY` | Optional extra search APIs (SearXNG needs no key) |
 | `ANTHROPIC_API_KEY`, `DASHSCOPE_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY` | Cloud LLM providers; `DASHSCOPE_API_KEY` also enables the cloud TTS engine Qwen-Audio 3 |
 | `DEEPL_API_KEY` | Translator plugin |
@@ -311,55 +318,13 @@ sudo chmod 644 /etc/polkit-1/rules.d/10-aifred.rules
 
 The rule grants exactly these three units to exactly that user.
 
-### How the frontend finds the backend
+### How the interface reaches the server
 
-`rxconfig.py` sets `api_url` to `http://0.0.0.0:8002`; the Reflex frontend
-replaces `0.0.0.0` with the host the page was loaded from — no URL setting
-needed:
-- Over HTTPS (reverse proxy) it switches to `https`/`wss` on the standard port
-  **443** — the proxy must listen on 443 too, even if you open the page on
-  another port such as 8443.
-- Over plain HTTP (e.g. `http://<LAN-IP>:3002`) the browser talks to port
-  **8002** on that host directly — that is why the backend listens on all
-  interfaces (`--backend-host 0.0.0.0`). Every `/api` route except the token
-  endpoints requires the login cookie.
-
-### Why dev mode
-
-The service runs `reflex run` without `--env prod`. Production mode causes a
-flash of unstyled content on every reload (React Router 7 with
-`prerender: true` loads the CSS asynchronously). Dev mode costs a little more
-RAM, non-minified bundles and more console warnings — negligible for a home
-server.
-
-Two consequences:
-- The generated `.web/vite.config.js` is **rewritten on every compile**
-  (Reflex 0.9), so patching the file afterwards does not stick.
-  `allowedHosts` comes from `AIFRED_ALLOWED_HOST` through `vite_allowed_hosts`
-  in `rxconfig.py`; `dedupe` for shared frontend libraries (without it
-  `react-helmet` ends up in several lazy chunks and the browser crashes with
-  *"Identifier 'scrollState' has already been declared"*) is set by
-  `scripts/patch-reflex.py` in the Reflex template. `scripts/patch-vite-config.sh`
-  (ExecStartPre) is therefore ineffective.
-- `/api`, `/_upload` and `/_event` are **not** proxied by Vite — the reverse
-  proxy routes them to the backend (see [Access the web UI](#access-the-web-ui)).
-
-### Reflex patches
-
-`scripts/patch-reflex.py` (run by the installer; `--check` reports whether the
-patches are in place) applies these patches against Reflex 0.9 problems; re-run
-it after every Reflex upgrade:
-
-| Patch | Why |
-|---|---|
-| `reflex/utils/exec.py` — `run_granian_backend()`: `reload=False`, `respawn_failed_workers=True`, `respawn_interval=3.5` | Without it a backend worker that dies from a C-level crash is never respawned and AIfred stays dead until a manual restart |
-| `reflex_base/compiler/templates.py` — `resolve.dedupe` in the generated `vite.config.js` | Without it `react-helmet` ends up in several chunks and the browser crashes |
-| `py.typed` markers in `reflex_components_*` and TypeVars moved in `reflex_components_core/core/cond.py` | Only for `mypy` (development), no runtime effect: without the markers mypy ignores the shipped stubs, without the moved TypeVars every `rx.cond(var, "a", "b")` fails |
-| Type patches in `reflex_base`: overloads of `Field.__get__` (`vars/base.py`), `rx.event` as an overloaded function and the return type of `EventCallback.__get__` (`event/__init__.py`), `ObjectVar.__getitem__` for dataclass values (`vars/object.py`) | Only for `mypy` (development), no runtime effect: without them every `dict` field becomes an `ArrayVar[Never]`, no `@rx.event` method is checked, and mypy reports hundreds of errors in `aifred/ui` |
-| `reflex_base/event/processor/event_processor.py` — `enqueue_stream_delta`: the upload gets a txid of its own (`fork()` instead of `replace()` of the root context) | Without it every other event, from any tab, becomes a child of a running upload; the upload request waits for all of them and cancels them when it ends early. A dictation sent with *Send directly* died that way when the tab closed |
-
-The first patch also turns off backend hot reload — restart the service after
-code changes.
+The interface lives on the same origin as the API: it addresses the API relative to its own address
+(`../` from `/api/app/`), so it works on `http://<host>:8002/` as well as behind a proxy under a
+sub-path. The live updates come as server-sent events (no WebSocket). Every `/api` route except the
+token endpoints and the login requires the login cookie, and so do the folders under `/_upload/` (except the share
+links under `/_upload/html_preview`).
 
 ---
 
@@ -524,67 +489,39 @@ search starts; with a single GPU it is omitted.
 
 ### Access the web UI
 
-AIfred runs as **two processes** behind a single port that a reverse proxy
-ties together:
+One process serves everything: open **`http://<host>:8002/`** (it redirects to the interface under
+`/api/app/`). No reverse proxy is needed for that.
 
-| Process | Default port | Serves |
-|---------|-------------|--------|
-| Reflex **frontend** (Node) | `3002` | the app pages + WebSocket state channel |
-| Reflex **backend** (Granian/FastAPI) | `8002` | `/api/*` (REST, Casus frames, audio SSE), `/_upload/*` (images, face crops, documents), `/_event` |
-
-**The frontend port alone is not enough.** If you open the app directly on
-`http://<host>:3002/aifred/`, the pages load and the WebSocket works, but every
-`/api/*` and `/_upload/*` request 404s — so camera thumbnails, the Vigilantia
-live modal, Casus previews and audio playback stay blank. Those routes only
-exist on the backend, and only a reverse proxy in front of both processes makes
-them reachable under one origin.
-
-**The installer sets this up:** `install-all.sh` offers to install Caddy with the
-minimal config `deploy/Caddyfile` (copied to `/etc/caddy/Caddyfile`; an existing
-file is kept as `Caddyfile~`). Open **`http://<host>:8080/`** afterwards. Port 8080 and the
-upstream ports can be changed with `AIFRED_PROXY_PORT`, `AIFRED_BACKEND_PORT`
-and `AIFRED_FRONTEND_PORT` in the Caddy service environment. For TLS or your own
-domain, adapt that file (see the Caddy docs) or use nginx as below.
-
-**Alternatively, any reverse proxy (nginx/Caddy)** that routes by path prefix to the
-two upstreams. Minimal nginx sketch (generic — substitute your own host,
-ports and, if desired, TLS/auth):
+For your own domain, TLS or a sub-path, put a reverse proxy in front. It forwards the sub-path to the
+server's root, and `/_upload/` and `/vendor/` as they are: links to files in answers and the libraries
+of sandbox pages start at the root. Minimal nginx sketch (generic — substitute your own host, ports and,
+if desired, TLS/auth):
 
 ```nginx
 server {
     listen 80;
     server_name your-host.example;   # or a LAN IP
+    client_max_body_size 2G;         # uploads (audio up to AUDIO_UPLOAD_MAX_MB, default 2048 MB)
 
-    # App pages + WebSocket → frontend
+    # API, interface, server-sent events → the server's root
     location /aifred/ {
-        proxy_pass http://127.0.0.1:3002/aifred/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;      # WebSocket
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-    }
-
-    # REST API, uploads, server-sent events → backend
-    location ~ ^/(api|_upload|_event) {
-        proxy_pass http://127.0.0.1:8002;
+        proxy_pass http://127.0.0.1:8002/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        # `/_upload/*` is cookie-gated by AIfred's own login; add
-        # auth_basic here as a second factor if the proxy is exposed.
+    }
+
+    # Files and the libraries of sandbox pages, linked from the root
+    location ~ ^/(_upload|vendor)/ {
+        proxy_pass http://127.0.0.1:8002;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
     }
 }
 ```
 
-With the proxy in place, open **`http://your-host.example/aifred/`** (no port).
-The `/_upload/*` static mounts are additionally cookie-gated by the web login
-(`AuthenticatedStaticFiles`), so only the share-links under
-`/_upload/html_preview` are reachable without a session.
-
-> **Quick local check without a proxy:** the app is usable on `:3002` for
-> everything that goes over the WebSocket (chat, settings), but treat missing
-> images/audio there as expected, not a bug — reach it through the proxy to see
-> the full UI.
+With the proxy in place, open **`http://your-host.example/aifred/`**. The event streams send no buffering
+header (`X-Accel-Buffering: no`) and a keep-alive every 15 s, so nginx needs no extra settings for them.
 
 ---
 
@@ -764,6 +701,13 @@ process itself.
 - **AIfred's side:** `GPU_ORC_URL` in `.env` (default `http://127.0.0.1:5070`) and
   `GPU_ORC_MODEL_SERVER` (the consumer name of the model server in GPU-Orc's configuration, default
   `llama-swap`). AIfred takes its HTTP timeout from GPU-Orc's `/health`.
+- **AIfred as a consumer:** its face detection runs in a process of its own and gives its card back
+  through the suites' interface (`/api/gpu/holders`, `/api/gpu/release`, item `face-worker`, released
+  once nvidia-smi no longer lists the process). Put `GPU_RELEASE_API_TOKEN` into `.env`, the same token
+  into a file only the service user can read, and add to GPU-Orc's configuration (0.8.0 or later):
+  `{name: aifred, type: gpu-release, url: http://127.0.0.1:8002/api, token_file: <that file>, busy_wait_s: 5}`.
+  While the light is red the face detection starts on the CPU and moves back onto its card at the first
+  detection after green.
 - **Without GPU-Orc** AIfred runs and loads anyway, but every load says loudly in the log that the
   cards could not be cleared, and the describer's room check finds no room. **Without an NVIDIA GPU**
   GPU-Orc runs, but there is nothing to clear.

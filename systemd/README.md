@@ -11,12 +11,11 @@ via `docker compose up -d chromadb searxng`.
 - Starts on boot, waits for Docker, restarts on failure
 
 ### 2. `aifred-intelligence.service`
-The main AIfred service (Reflex app, frontend `3002`, backend `8002`).
+The main AIfred service: one process (`venv/bin/python -m aifred.server`) on port `8002` serves the
+API, the Vue interface (`frontend/dist`, built by `scripts/build-frontend.sh`) and the folders.
 
-- Runs `scripts/patch-vite-config.sh` before every start
 - Waits for Ollama and ChromaDB (soft dependency, see Notes)
-- Drop-in `aifred-intelligence.service.d/hardening.conf`: larger Bun/Node heap,
-  `Wants=` instead of `Requires=`
+- `KillMode=control-group`: a stop also ends its child processes (the face worker)
 - Automatic restart on failure, logging via journald
 
 ### 3. `aifred-bibliothek.service` (optional)
@@ -39,14 +38,15 @@ sudo ./scripts/install-services.sh --no-overwrite   # keep locally modified unit
 systemctl status aifred-chromadb.service aifred-intelligence.service
 ```
 
-It renders and installs units and drop-ins, runs `daemon-reload` when a unit
+It renders and installs the units, runs `daemon-reload` when a unit
 changed, enables the services, starts them, restarts only services whose own
 unit changed, and links `scripts/llama-swap-restart` to `~/bin`.
 
 ### After Code Updates
 
 ```bash
-# Restart AIfred only (ChromaDB keeps running)
+# Rebuild the interface when frontend/ changed, then restart AIfred only (ChromaDB keeps running)
+./scripts/build-frontend.sh
 sudo systemctl restart aifred-intelligence.service
 ```
 
@@ -129,11 +129,10 @@ systemctl list-dependencies aifred-intelligence.service
 ### Environment Variables
 
 The service reads the optional `.env` in the project root (`EnvironmentFile=-…/.env`) —
-secrets and machine-specific overrides, see `.env.example`. Behind nginx under a
-sub-path, set `AIFRED_FRONTEND_PATH` (e.g. `aifred`). No URL or mode variable is
-needed: the frontend derives the backend address from the page's own hostname
-(see [Deployment → How the frontend finds the backend](../docs/en/guides/deployment.md#how-the-frontend-finds-the-backend)).
-All variables: [Deployment → Environment](../docs/en/guides/deployment.md#environment-env).
+secrets and machine-specific overrides, see `.env.example` (address and port of the server:
+`AIFRED_SERVER_HOST`, `AIFRED_SERVER_PORT`). Behind nginx under a sub-path, the proxy forwards
+`/aifred/` to the server's `/`, and `/_upload/` and `/vendor/` as they are (links to files and the
+libraries of sandbox pages start at the root). All variables: [Deployment → Environment](../docs/en/guides/deployment.md#environment-env).
 
 ## Command Reference
 

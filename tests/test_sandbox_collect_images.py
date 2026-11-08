@@ -21,7 +21,6 @@ def dirs(tmp_path, monkeypatch) -> tuple[Path, Path]:
     work = tmp_path / "work"
     work.mkdir()
     monkeypatch.setattr(config, "SANDBOX_OUTPUT_DIR", output)
-    monkeypatch.setattr(config, "BACKEND_URL", "")
     return work, output
 
 

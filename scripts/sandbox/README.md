@@ -50,7 +50,7 @@ sudo ./scripts/sandbox/run-test.sh --shell
 - venv + `pip install -r requirements.txt` (also `insightface` and
   `onnxruntime-gpu` — without a CUDA runtime in the sandbox they
   fall back to the CPU provider)
-- Reflex patch, patch-vite-config
+- Frontend build (`scripts/build-frontend.sh`: `npm ci`, `npm run build`)
 - `install-services.sh` path (service-file diff, backup logic)
 - Idempotency on a second run
 

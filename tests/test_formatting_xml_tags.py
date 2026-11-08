@@ -25,7 +25,6 @@ def test_html_preview_url_is_known_from_the_answer_text(tmp_path, monkeypatch) -
     from aifred.lib.message_builder import with_history_notes
 
     monkeypatch.setattr(fmt, "_HTML_PREVIEW_DIR", tmp_path)
-    monkeypatch.setattr(fmt, "BACKEND_URL", "")
     text = "Hier ist es:\n```html\n<p>Fibonacci</p>\n```\nFertig."
     (url,) = fmt.html_preview_urls(text)
     assert fmt._save_html_to_assets("<p>Fibonacci</p>") == url

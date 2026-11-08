@@ -207,7 +207,7 @@ cd AIfred-Intelligence
 ./scripts/install-all.sh
 ```
 
-The interactive installer handles system packages (apt, dnf, pacman, brew), the Python venv and requirements, the Playwright browser, the Reflex patch, `.env`, ChromaDB + SearXNG, the two speech services, each cloned next to AIfred and set up by its own scripts — the [TTS-Suite](https://github.com/Peuqui/TTS-Suite) (spoken output: service on port 5090, optionally as system unit with the polkit rule so AIfred can start it) and the [STT-Suite](https://github.com/Peuqui/STT-Suite) (speech recognition: container on port 5080, on a machine without an NVIDIA GPU with its CPU compose file), then [GPU-Orc](https://github.com/Peuqui/GPU-Orc) (clears the cards before a model loads: service on port 5070, optionally as system unit with the polkit rule), Ollama (offered via its official `curl | sh` installer, default yes) with the bge-m3 embedding model, a first whitelist user and the systemd services. Every step verifies itself and the run ends with a summary of what is missing.
+The interactive installer handles system packages (apt, dnf, pacman, brew), the Python venv and requirements, the Playwright browser, the interface (built with Node.js, `scripts/build-frontend.sh`), `.env`, ChromaDB + SearXNG, the two speech services, each cloned next to AIfred and set up by its own scripts — the [TTS-Suite](https://github.com/Peuqui/TTS-Suite) (spoken output: service on port 5090, optionally as system unit with the polkit rule so AIfred can start it) and the [STT-Suite](https://github.com/Peuqui/STT-Suite) (speech recognition: container on port 5080, on a machine without an NVIDIA GPU with its CPU compose file), then [GPU-Orc](https://github.com/Peuqui/GPU-Orc) (clears the cards before a model loads: service on port 5070, optionally as system unit with the polkit rule), Ollama (offered via its official `curl | sh` installer, default yes) with the bge-m3 embedding model, a first whitelist user and the systemd services. Every step verifies itself and the run ends with a summary of what is missing.
 
 Tested end to end on a fresh Ubuntu 24.04 (container with GPU passthrough, October 2026; without a GPU and with every question answered by Enter, GPU-Orc included, 25 October 2026). Every question can be answered in advance for an unattended install, e.g. `AIFRED_INSTALL_SYSTEMD=y AIFRED_INSTALL_USER=alice ./scripts/install-all.sh` — all variables: [Unattended install](docs/en/guides/deployment.md#unattended-install).
 
@@ -215,7 +215,7 @@ Tested end to end on a fresh Ubuntu 24.04 (container with GPU passthrough, Octob
 
 Then:
 1. **Register** in the web UI with the whitelisted username (`./aifred-admin add <name>` for more users)
-2. **Open `http://localhost:8080`** — the installer sets up a minimal Caddy reverse proxy (`deploy/Caddyfile`) in front of the two processes (frontend `3002`, backend `8002`); without a proxy images and audio stay blank. Own domain or nginx instead: [Access the web UI](docs/en/guides/deployment.md#access-the-web-ui)
+2. **Open `http://localhost:8002`** — one process serves the API, the interface and the files. Own domain with TLS behind nginx or Caddy: [Access the web UI](docs/en/guides/deployment.md#access-the-web-ui)
 3. **Add models** and **calibrate** them in the UI
 
 Step by step, services, `.env`, Polkit, vision and camera setup: [Deployment Guide](docs/en/guides/deployment.md).

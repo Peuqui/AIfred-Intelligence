@@ -521,9 +521,20 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   eine Suche und eine Verteilung `query_assignments`). Außerdem stand die Antwort der Such-APIs als leere Quelle im
   Kontext, und ohne gelesene Seite kam diese statt „No results found“. Live geprüft: Ranking läuft, Quellen nur
   gelesene Seiten.
-  `patch-vite-config.sh` geht erst mit der Unit (Paket 4). Ein Archiv-Tag für den Reflex-Stand gehört vor den Merge
-  auf `main` (Paket 5, mit Peuqui). Beim Umschalten: `.web/`, `.states/` und `data/sessions/*.pending` der
-  Produktion entfernen, nginx `/vendor/` auf den Server.
+  **Paket 4, Installer (erledigt 08.11.2026):** Die Unit startet `venv/bin/python -m aifred.server`; weg sind
+  `patch-vite-config.sh`, das Drop-in `hardening.conf` (Bun-Heap, das `Requires=`-Leeren war nach `Wants=` in der
+  Unit ohne Wirkung) samt Drop-in-Code in `install-services.sh`, Caddy (`deploy/Caddyfile`, Schritt 3b von
+  `install-all.sh`: nur nötig, weil Reflex zwei Prozesse hatte) und `BACKEND_URL` (eine Herkunft). Neu
+  `scripts/build-frontend.sh` (`npm ci`, `npm run build`, braucht das venv für die API-Typen), Schritt 2a von
+  `install-all.sh`; `setup-python.sh` verlangt Python 3.12. Ein frisches venv aus `requirements.txt` +
+  `requirements-nodeps.txt` (2:01 min) trägt die volle Suite (235 Dateien grün, 4:32 min). **Offen:** Node.js
+  ^20.19/>= 22.12 installiert der Installer noch nicht (Ubuntu 24.04 und Debian 12 haben Node 18), Frage an Peuqui.
+  Ein Archiv-Tag für den Reflex-Stand gehört vor den Merge auf `main` (Paket 5, mit Peuqui). Beim Umschalten:
+  `.web/`, `.states/` und `data/sessions/*.pending` der Produktion entfernen; `./scripts/build-frontend.sh`;
+  `sudo ./scripts/install-services.sh`, danach `/etc/systemd/system/aifred-intelligence.service.d/hardening.conf`
+  von Hand löschen (der Installer kennt keine Drop-ins mehr); aus der `.env` `AIFRED_ALLOWED_HOST` und
+  `AIFRED_FRONTEND_PATH` streichen; nginx: `/aifred/` auf die Wurzel des Servers (8002), `/_upload/` und
+  `/vendor/` unverändert dorthin, die `sub_filter` für `0.0.0.0:8002` und die Regeln für Port 3002 und `/_event` weg.
 - **Temperatur nur noch von Hand (erledigt 07.11.2026, Peuqui):** Jeder Agent antwortet mit seiner
   eigenen Temperatur (`agent_settings.resolve_agent_temperature`); der Modus auto, die Temperaturen je
   Absicht (`INTENT_TEMPERATURE_*`) und der Aufschlag für Sokrates und Salomo (`temperature_offset`) sind

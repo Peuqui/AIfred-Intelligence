@@ -136,7 +136,7 @@ def sandbox_output_hash(url: str) -> str | None:
 
 def sandbox_output_path(url: str) -> Path | None:
     """The file behind a sandbox output URL
-    (``[BACKEND_URL]/_upload/sandbox_output/<session>/<name>``), or None when
+    (``/_upload/sandbox_output/<session>/<name>``, with or without scheme and host), or None when
     the URL is not one, the session id is unsafe or the file is gone."""
     marker = "/_upload/sandbox_output/"
     if marker not in url:
@@ -178,10 +178,8 @@ def documents_html_path(url: str) -> Path | None:
 
 
 def _sandbox_url(session_id: str, filename: str) -> str:
-    """Build full URL for a sandbox output file (respects BACKEND_URL)."""
-    from .config import BACKEND_URL
-    relative = f"/_upload/sandbox_output/{session_id}/{filename}"
-    return f"{BACKEND_URL}{relative}" if BACKEND_URL else relative
+    """The URL of a sandbox output file: its path from the root (the page and its folders share one origin)."""
+    return f"/_upload/sandbox_output/{session_id}/{filename}"
 
 
 # Browser screenshots are a by-product of render_html — proof that a page

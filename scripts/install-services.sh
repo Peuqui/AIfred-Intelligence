@@ -120,7 +120,7 @@ fi
 #   * exists + differs           → backup .pre-aifred-<timestamp> + write
 #                                  (SERVICES_CHANGED=1)
 # SERVICES_CHANGED (global) decides the daemon-reload; CHANGED_SERVICES
-# lists the services whose own unit or drop-in was written — only those
+# lists the services whose own unit was written — only those
 # get restarted. Idempotent re-runs can therefore run daily without
 # interrupting a service.
 SERVICES_CHANGED=0
@@ -197,76 +197,9 @@ install_service() {
     _mark_changed "$name"
 }
 
-# Helper: idempotently install a drop-in config (override.conf,
-# hardening.conf, …) under /etc/systemd/system/<service>.d/. Same
-# logic as install_service: only writes on mismatch, makes a backup
-# beforehand.
-install_dropin() {
-    local svc_name="$1"      # e.g. aifred-intelligence.service
-    local src="$2"           # path to source drop-in
-    local dst_dir="/etc/systemd/system/${svc_name}.d"
-    local name="$(basename "$src")"
-    local dst="${dst_dir}/${name}"
-    [ "$DRY_RUN" = "1" ] || mkdir -p "$dst_dir"
-    local tmp; tmp="$(mktemp)"
-    _render_service_template "$src" > "$tmp"
-
-    if [ ! -f "$dst" ]; then
-        if [ "$DRY_RUN" = "1" ]; then
-            echo "   📝 WOULD create dropin: ${svc_name}.d/${name}"
-            rm -f "$tmp"
-        else
-            mv "$tmp" "$dst"
-            chmod 644 "$dst"
-            echo "   ✅ Drop-in new: ${svc_name}.d/${name}"
-        fi
-        _mark_changed "$svc_name"
-        return 0
-    fi
-
-    if cmp -s "$tmp" "$dst"; then
-        rm -f "$tmp"
-        echo "   = Drop-in unchanged: ${svc_name}.d/${name}"
-        return 0
-    fi
-
-    if [ "$NO_OVERWRITE" = "1" ]; then
-        echo "   🛡  Drop-in kept: ${svc_name}.d/${name}  (--no-overwrite — diff:)"
-        diff -u "$dst" "$tmp" | sed 's/^/      /' | head -30 || true
-        rm -f "$tmp"
-        return 0
-    fi
-    if [ "$DRY_RUN" = "1" ]; then
-        echo "   📝 WOULD update dropin: ${svc_name}.d/${name}  (current → new diff):"
-        diff -u "$dst" "$tmp" | sed 's/^/      /' | head -30 || true
-        rm -f "$tmp"
-    else
-        local stamp; stamp="$(date +%Y%m%d-%H%M%S)"
-        local backup="${dst}.pre-aifred-${stamp}"
-        cp -p "$dst" "$backup"
-        mv "$tmp" "$dst"
-        chmod 644 "$dst"
-        echo "   ♻️  Drop-in updated: ${svc_name}.d/${name}  (backup: $(basename "$backup"))"
-    fi
-    _mark_changed "$svc_name"
-}
-
 echo "1️⃣  Installing main services (chromadb + aifred-intelligence)..."
 install_service "$SYSTEMD_DIR/aifred-chromadb.service"
 install_service "$SYSTEMD_DIR/aifred-intelligence.service"
-
-# Install drop-in for aifred-intelligence.service if present. The
-# hardening.conf drop-in raises the Bun/Node heap (the frontend crashes
-# with the 512 MB default), clears Requires= and sets Wants= so a
-# ChromaDB recreate (docker auto-update) doesn't cascade-stop AIfred.
-# Hot-reload exclusions are computed by rxconfig.py, not set here.
-DROPIN_DIR="$SYSTEMD_DIR/aifred-intelligence.service.d"
-if [ -d "$DROPIN_DIR" ]; then
-    for dropin in "$DROPIN_DIR"/*.conf; do
-        [ -f "$dropin" ] || continue
-        install_dropin "aifred-intelligence.service" "$dropin"
-    done
-fi
 
 echo
 echo "   Configured with:"
@@ -508,35 +441,19 @@ fi
 
 check_service_active aifred-intelligence.service
 
-# AIfred backend takes ~30-90s on first start (Bun setup, Reflex
-# compiles the frontend, loads models from config.py etc.). Poll
-# generously for 120s.
+# AIfred's server takes some 10-30 s to listen (it opens ChromaDB, the plugins and the channels
+# before the port). Poll generously for 120s.
 aifred_port_ok=0
 for _ in $(seq 1 60); do
     (echo > /dev/tcp/localhost/8002) &>/dev/null && { aifred_port_ok=1; break; }
     sleep 2
 done
 if [ "$aifred_port_ok" = "1" ]; then
-    echo "   ✅ Port 8002 (AIfred backend) open"
+    echo "   ✅ Port 8002 (AIfred: API, Vue app, folders) open"
 else
-    echo "   ❌ Port 8002 (AIfred backend) not reachable after 120s"
+    echo "   ❌ Port 8002 (AIfred) not reachable after 120s"
     echo "      → journalctl -u aifred-intelligence.service -e --no-pager"
-    SERVICE_FAILURES+=("AIfred backend port 8002 not reachable")
-fi
-
-# Frontend port 3002: first start realistically takes 2-5 min (Bun
-# setup, Vite build). Poll 60s — warning, not failure, since the
-# backend alone is enough for CLI/API.
-frontend_port_ok=0
-for _ in $(seq 1 30); do
-    (echo > /dev/tcp/localhost/3002) &>/dev/null && { frontend_port_ok=1; break; }
-    sleep 2
-done
-if [ "$frontend_port_ok" = "1" ]; then
-    echo "   ✅ Port 3002 (AIfred frontend) open"
-else
-    echo "   ⚠️  Port 3002 (AIfred frontend) not open yet — first-time build can take 2-5 min"
-    echo "      → journalctl -u aifred-intelligence.service -f"
+    SERVICE_FAILURES+=("AIfred port 8002 not reachable")
 fi
 
 if [ "$BIBLIOTHEK_AUTOSTART" = "1" ]; then

@@ -19,7 +19,6 @@ def output_root(tmp_path, monkeypatch):
     root = tmp_path / "sandbox_output"
     root.mkdir()
     monkeypatch.setattr(config, "SANDBOX_OUTPUT_DIR", root)
-    monkeypatch.setattr(config, "BACKEND_URL", "")
     return root
 
 

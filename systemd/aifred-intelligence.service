@@ -1,5 +1,5 @@
 [Unit]
-Description=AIfred Intelligence Voice Assistant (Reflex Version)
+Description=AIfred Intelligence Voice Assistant
 # After= keeps the order when Ollama is used as backend; Wants= does not
 # pull it in — the Ollama installer enables ollama.service itself, and
 # setups on llama-swap/vLLM do not need it running.
@@ -21,30 +21,19 @@ Group=__USER__
 WorkingDirectory=__PROJECT_DIR__
 Environment="PATH=__PROJECT_DIR__/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
-# Hot-Reload-Ausschluesse berechnet rxconfig.py aus dem Verzeichnisinhalt
-# (alles ausser aifred/) — hier bewusst KEIN REFLEX_HOT_RELOAD_EXCLUDE_PATHS,
-# eine feste Liste mit einem fehlenden Pfad laesst das Backend beim Start sterben.
-# Heap-Size fuer Bun (Frontend-Runner) und Node (react-router dev) hochsetzen.
-# Default ist 512 MB — bei einem 793 KB grossen _index.jsx (alle Modals
-# eager im Bundle) crasht der Frontend-Prozess regelmaessig mit SIGTERM
-# und reisst das Backend mit. 4 GB Heap gibt deutlich mehr Headroom waehrend
-# laufender Indexierungs-Jobs (viele State-Updates).
-Environment="NODE_OPTIONS=--max-old-space-size=4096"
-Environment="BUN_MAX_OLD_SPACE_SIZE=4096"
 # ─────────────────────────────────────────────────────────────────
 # Machine-specific values do NOT belong here: install-services.sh
 # re-renders this file on every run and would overwrite them. Put them
 # into <project>/.env (loaded via EnvironmentFile above), e.g.
-#   AIFRED_FRONTEND_PATH=aifred           # app behind a proxy at /aifred
+#   AIFRED_SERVER_PORT=8002               # the default; API, Vue app and folders on one port
 #   LLAMACPP_URL=http://localhost:11435/v1
 #   LLAMACPP_CALIBRATION_PORT=19999       # the default; set another one if 19999 is taken
 # Extra ExecStartPre/ExecStopPost lines: a drop-in via
 # `sudo systemctl edit aifred-intelligence` (survives re-installs).
 # ─────────────────────────────────────────────────────────────────
-# Vite patch — allowedHosts from AIFRED_ALLOWED_HOST (.env) + dedupe of
-# shared frontend libs. Idempotent: safe to run on every start.
-ExecStartPre=/bin/bash __PROJECT_DIR__/scripts/patch-vite-config.sh
-ExecStart=__PROJECT_DIR__/venv/bin/python -m reflex run --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
+# One process serves the API, the built Vue app (frontend/dist, scripts/build-frontend.sh) and the folders.
+# KillMode=control-group also ends its child processes (the face worker).
+ExecStart=__PROJECT_DIR__/venv/bin/python -m aifred.server
 Restart=always
 KillMode=control-group
 RestartSec=10

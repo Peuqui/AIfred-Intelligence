@@ -4,11 +4,11 @@
 
 Anleitung zur Einrichtung einer neuen AIfred-Installation mit dem llama.cpp-Backend (llama-swap).
 
-**Zuletzt aktualisiert:** 25.10.2026
+**Zuletzt aktualisiert:** 08.11.2026
 
 > **TL;DR – der schnellste Weg:** `./scripts/install-all.sh` aus einem frischen
-> Klon kümmert sich in einem Durchgang um Abhängigkeiten, venv, Playwright, den Reflex-Routing-
-> Patch, optionale systemd-Dienste, `.env`, den `bge-m3`-Embedding-Pull,
+> Klon kümmert sich in einem Durchgang um Abhängigkeiten, venv, Playwright, den Bau der
+> Oberfläche (Node.js), optionale systemd-Dienste, `.env`, den `bge-m3`-Embedding-Pull,
 > die Begleitdienste (TTS-Suite, STT-Suite, SearXNG, GPU-Orc) und einen ersten
 > Whitelist-Benutzer. Die folgenden Abschnitte beschreiben
 > denselben Ablauf **manuell** für die Fehlersuche und für nicht standardmäßige Konfigurationen
@@ -23,7 +23,7 @@ mehrere Modelle und lädt sie bei Bedarf. Der **autoscan**-Mechanismus erkennt n
 Modelle automatisch und konfiguriert sie, ohne dass manuelle YAML-Bearbeitung nötig ist.
 
 ```
-User <-> AIfred (Reflex web app) <-> llama-swap (:11435) <-> llama-server (per model)
+User <-> AIfred (Server + Vue-Oberfläche, :8002) <-> llama-swap (:11435) <-> llama-server (per model)
 ```
 
 Neben AIfred laufen drei eigene Dienste, jeder aus einem eigenen Repository; der Installer richtet sie
@@ -46,7 +46,9 @@ ein:
 ### Software
 - Linux mit systemd (Ubuntu/Debian empfohlen)
 - CUDA Toolkit >= 12.0
-- Python 3.10+ (TTS-Suite und GPU-Orc brauchen 3.12+)
+- Python 3.12+ (`requirements.txt` legt Wheels fest, die unter 3.12 getestet sind)
+- Node.js ^20.19 oder >= 22.12 mit npm, zum Bauen der Oberfläche (Vite 8). Ubuntu 24.04 und Debian 12
+  bringen Node 18 mit, das ist zu alt
 - Git
 - polkit (`polkitd` unter Debian/Ubuntu; der Installer richtet es ein): Dein Benutzer startet die Units
   von TTS-Suite und GPU-Orc ohne sudo neu, und AIfred startet die TTS-Suite, wenn sie gebraucht wird
@@ -96,8 +98,12 @@ git clone https://github.com/Peuqui/AIfred-Intelligence ~/Projekte/AIfred-Intell
 cd ~/Projekte/AIfred-Intelligence
 
 python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+venv/bin/pip install -r requirements.txt
+# insightface und der GPU-Build von onnxruntime: ohne ihre eigenen Abhängigkeitslisten, zuletzt
+venv/bin/pip install --no-deps --force-reinstall -r requirements-nodeps.txt
+
+# Die Oberfläche: frontend/ → frontend/dist (npm ci, npm run build); nach jedem Update von frontend/ erneut
+./scripts/build-frontend.sh
 ```
 
 ### Installation ohne Rückfragen
@@ -110,7 +116,6 @@ gewohnt gefragt — ohne Terminal gilt die Standardantwort:
 |---|---|---|
 | `AIFRED_INSTALL_OLLAMA` | Ollama installieren (`curl \| sh`) | `y` / `n` (Standard `y`) |
 | `AIFRED_INSTALL_SYSTEMD` | systemd-Dienste installieren | `y` / `n` (Standard `y`) |
-| `AIFRED_INSTALL_PROXY` | Caddy als Reverse-Proxy installieren (sudo, Konfiguration `deploy/Caddyfile`, Port 8080) | `y` / `n` (Standard `y`) |
 | `AIFRED_INSTALL_USER` | erster Whitelist-Benutzer | ein Benutzername oder `skip` (Standard: `$USER`) |
 | `AIFRED_INSTALL_TTS_SYSTEMD` | TTS-Suite als Systemdienst `tts-suite@<Benutzer>` installieren (sudo, mit Polkit-Regel) | `y` / `n` (Standard `y`; `n`: Benutzerdienst, läuft nur, solange du angemeldet bist) |
 | `AIFRED_INSTALL_GPU_ORC_SYSTEMD` | GPU-Orc als Systemdienst `gpu-orc@<Benutzer>` installieren (sudo, mit Polkit-Regel) | `y` / `n` (Standard `y`; `n`: Benutzerdienst, läuft nur, solange du angemeldet bist) |
@@ -140,13 +145,13 @@ sudo ./scripts/install-services.sh --no-overwrite  # keep existing service
 
 Das Skript meldet pro Datei `= Unchanged`, `♻️ Updated`, `✅ Newly installed`
 oder `🛡 Kept`. `daemon-reload` wird nur ausgelöst, wenn sich eine Unit geändert hat, und ein
-Dienst wird nur neu gestartet, wenn sich seine eigene Unit oder sein Drop-in geändert hat – erneute
+Dienst wird nur neu gestartet, wenn sich seine eigene Unit geändert hat – erneute
 Ausführungen auf einem sauberen System haben keine Auswirkungen.
 
 | Unit | Startet |
 |---|---|
 | `aifred-chromadb.service` | `docker compose up -d chromadb searxng` — Vector Store + Websuche |
-| `aifred-intelligence.service` | die Reflex-App (Frontend `3002`, Backend `8002`) |
+| `aifred-intelligence.service` | AIfreds Server auf Port `8002`: API, Oberfläche, Ordner |
 | `aifred-bibliothek.service` | optionale Such- und Verwaltungs-API der AIfred Bibliothek (`127.0.0.1:8005`, für `deploy/bibliothek/`) |
 
 Die Begleitdienste bringen eigene Units mit, eingerichtet von den Skripten ihrer Repositories (die
@@ -167,13 +172,16 @@ sind **Dienste auf Systemebene** (`WantedBy=multi-user.target`, laufen als
 > häufigen `restart llama-swap` / `restart aifred-intelligence` während der
 > Feinabstimmung. Ohne eine solche Regel musst du ihnen `sudo` voranstellen.
 
-Die AIfred-Einheit führt Reflex direkt über das Python-venv aus:
+Die AIfred-Einheit startet den Server mit dem Python des venv, ein Prozess:
 
 ```
-ExecStartPre=/bin/bash <project>/scripts/patch-vite-config.sh
-ExecStart=<project>/venv/bin/python -m reflex run \
-    --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
+ExecStart=<project>/venv/bin/python -m aifred.server
 ```
+
+Er liefert die API unter `/api`, die gebaute Oberfläche unter `/api/app/` (`/` leitet dorthin), die
+Ordner unter `/_upload/` und die Bibliotheken der Sandbox-Seiten unter `/vendor/` aus.
+`KillMode=control-group` beendet auch seine Kindprozesse (den Arbeitsprozess der Gesichtserkennung).
+Nach einem Update von `frontend/` vor dem Neustart `./scripts/build-frontend.sh` ausführen.
 
 Bearbeite die Units unter `/etc/systemd/system/` nicht von Hand – die Vorlagen in
 `systemd/` enthalten die Platzhalter `__USER__` / `__PROJECT_DIR__` / `__DOCKER_BIN__`,
@@ -260,17 +268,16 @@ Manager), die sie nach `.env` zurückschreibt.
 | Variable | Zweck |
 |---|---|
 | `MESSAGE_HUB_OWNER` | **Pflicht.** AIfred-Konto, dem die Message-Hub-Sessions gehören (Kanäle, Scheduler, Webhook); schreibt `install-all.sh` mit dem ersten Benutzer — ohne den Wert startet AIfred nicht |
-| `AIFRED_ALLOWED_HOST` | Deine externe Domain — wird zu Vites `allowedHosts` (über `vite_allowed_hosts` in `rxconfig.py`) |
+| `AIFRED_SERVER_HOST`, `AIFRED_SERVER_PORT` | Wo der Server lauscht (Standard `0.0.0.0`, `8002`) |
 | `INJECT_API_TOKEN` | Token für `/api/chat/inject` (siehe [REST API](rest-api.md)) |
 | `WEBHOOK_API_TOKEN` | Token für `/api/agent/trigger` |
 | `ANNOUNCE_API_TOKEN` | Bearer-Token für `/api/audio/announce` |
 | `TTS_CONTROL_API_TOKEN` | Bearer-Token der TTS-Start/Stopp-API (Dienste-Steuerseite) |
+| `GPU_RELEASE_API_TOKEN` | Bearer-Token von `/api/gpu/holders` und `/api/gpu/release`: GPU-Orc beendet damit den Arbeitsprozess der Gesichtserkennung ([9c](#9c-karten-freiräumen-gpu-orc)) |
 | `LIST_DEFAULT`, `READ_MEMORY_GUARD_BYTES` und weitere Stellschrauben | Siehe [Konfiguration → Umgebungsvariablen und Plugin-Einstellungen](configuration.md#umgebungsvariablen-und-plugin-einstellungen) |
 | `AIFRED_SESSION_SECRET` | Signiert die Login-Cookies (optional — sonst wird ein Zufalls-Secret persistiert) |
 | `LLAMACPP_URL` | llama-swap-URL (Standard `http://localhost:11435/v1`) |
 | `LLAMACPP_CALIBRATION_PORT` | Port des temporären Kalibrier-Servers (Standard `9999`) |
-| `AIFRED_FRONTEND_PATH` | URL-Präfix, wenn die App unter einem Unterpfad eines Reverse-Proxys liegt, z. B. `aifred` für `/aifred/` (Standard: keiner) |
-| `BACKEND_URL` | Nur ohne Reverse-Proxy: Backend-URL für `/_upload/`, wie der Browser sie sieht |
 | `BRAVE_API_KEY`, `TAVILY_API_KEY` | Optionale zusätzliche Such-APIs (SearXNG braucht keinen Key) |
 | `ANTHROPIC_API_KEY`, `DASHSCOPE_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY` | Cloud-LLM-Provider; `DASHSCOPE_API_KEY` schaltet auch die Cloud-TTS-Engine Qwen-Audio 3 frei |
 | `DEEPL_API_KEY` | Translator-Plugin |
@@ -311,54 +318,13 @@ sudo chmod 644 /etc/polkit-1/rules.d/10-aifred.rules
 
 Die Regel gewährt genau diese drei Units genau diesem User.
 
-### Wie das Frontend das Backend findet
+### Wie die Oberfläche den Server erreicht
 
-`rxconfig.py` setzt `api_url` auf `http://0.0.0.0:8002`; das Reflex-Frontend
-ersetzt `0.0.0.0` durch den Host, von dem die Seite geladen wurde — keine URL-Einstellung
-nötig:
-- Über HTTPS (Reverse-Proxy) wechselt es auf `https`/`wss` am Standardport
-  **443** — der Proxy muss also auch auf 443 lauschen, selbst wenn du die Seite über
-  einen anderen Port wie 8443 öffnest.
-- Über reines HTTP (z. B. `http://<LAN-IP>:3002`) spricht der Browser direkt mit Port
-  **8002** auf diesem Host — deshalb lauscht das Backend auf allen
-  Interfaces (`--backend-host 0.0.0.0`). Jede `/api`-Route außer den Token-Endpoints
-  verlangt den Login-Cookie.
-
-### Warum Dev-Modus
-
-Der Dienst führt `reflex run` ohne `--env prod` aus. Der Produktionsmodus verursacht bei
-jedem Neuladen ein kurzes Aufblitzen ungestylter Inhalte (React Router 7 mit
-`prerender: true` lädt das CSS asynchron). Der Dev-Modus kostet etwas mehr
-RAM, nicht minifizierte Bundles und mehr Konsolenwarnungen — vernachlässigbar für einen Heim-
-server.
-
-Zwei Konsequenzen:
-- Die generierte `.web/vite.config.js` wird bei **jedem Compile neu geschrieben**
-  (Reflex 0.9), ein nachträglicher Patch der Datei hält deshalb nicht.
-  `allowedHosts` kommt aus `AIFRED_ALLOWED_HOST` über `vite_allowed_hosts` in
-  `rxconfig.py`; `dedupe` für gemeinsam genutzte Frontend-Bibliotheken (ohne das landet
-  `react-helmet` in mehreren Lazy-Chunks und der Browser stürzt ab mit
-  *"Identifier 'scrollState' has already been declared"*) setzt `scripts/patch-reflex.py`
-  im Reflex-Template. `scripts/patch-vite-config.sh` (ExecStartPre) ist damit wirkungslos.
-- `/api`, `/_upload` und `/_event` werden **nicht** von Vite weitergeleitet — der Reverse-
-  Proxy leitet sie ans Backend (siehe [Auf die Web-UI zugreifen](#auf-die-web-ui-zugreifen)).
-
-### Reflex-Patches
-
-`scripts/patch-reflex.py` (läuft im Installationsskript; `--check` meldet, ob die
-Patches eingespielt sind) wendet diese Patches gegen Probleme in Reflex 0.9 an;
-nach jedem Reflex-Upgrade erneut ausführen:
-
-| Patch | Warum |
-|---|---|
-| `reflex/utils/exec.py` — `run_granian_backend()`: `reload=False`, `respawn_failed_workers=True`, `respawn_interval=3.5` | Ohne ihn wird ein Backend-Worker, der durch einen C-Level-Crash stirbt, nie neu gestartet, und AIfred bleibt tot bis zum manuellen Neustart |
-| `reflex_base/compiler/templates.py` — `resolve.dedupe` in der erzeugten `vite.config.js` | Ohne ihn landet `react-helmet` in mehreren Chunks und der Browser stürzt ab |
-| `py.typed`-Marker in `reflex_components_*` und verschobene TypeVars in `reflex_components_core/core/cond.py` | Nur für `mypy` (Entwicklung), keine Laufzeitwirkung: Ohne Marker ignoriert mypy die mitgelieferten Stubs, ohne die verschobenen TypeVars scheitert jedes `rx.cond(var, "a", "b")` |
-| Typ-Patches in `reflex_base`: Überladungen von `Field.__get__` (`vars/base.py`), `rx.event` als überladene Funktion und der Rückgabetyp von `EventCallback.__get__` (`event/__init__.py`), `ObjectVar.__getitem__` für Dataclass-Werte (`vars/object.py`) | Nur für `mypy` (Entwicklung), keine Laufzeitwirkung: Ohne sie wird aus jedem `dict`-Feld eine `ArrayVar[Never]`, jede `@rx.event`-Methode ungeprüft und mypy meldet in `aifred/ui` Hunderte Fehler |
-| `reflex_base/event/processor/event_processor.py` — `enqueue_stream_delta`: der Upload bekommt eine eigene txid (`fork()` statt `replace()` des Wurzelkontexts) | Ohne ihn hängt während eines Uploads jedes andere Ereignis, aus jedem Tab, als Kind an diesem Upload; die Upload-Anfrage wartet auf alle und bricht sie ab, wenn sie vorzeitig endet. Ein Diktat „Direkt senden“ starb so beim Schließen des Tabs |
-
-Der erste Patch schaltet außerdem den Backend-Hot-Reload ab — starte den Dienst nach
-Code-Änderungen neu.
+Die Oberfläche liegt auf demselben Ursprung wie die API: Sie spricht die API relativ zu ihrer eigenen
+Adresse an (`../` von `/api/app/` aus) und funktioniert deshalb unter `http://<host>:8002/` ebenso wie
+hinter einem Proxy unter einem Unterpfad. Die Live-Aktualisierungen kommen als Server-Sent Events (kein
+WebSocket). Jede `/api`-Route außer den Token-Endpunkten und dem Login verlangt das Login-Cookie, ebenso
+die Ordner unter `/_upload/` (außer den Freigabe-Links unter `/_upload/html_preview`).
 
 ---
 
@@ -524,67 +490,40 @@ fehlt sie.
 
 ### Auf die Web-UI zugreifen
 
-AIfred läuft als **zwei Prozesse** hinter einem einzigen Port, die ein Reverse-Proxy
-miteinander verbindet:
+Ein Prozess liefert alles aus: **`http://<host>:8002/`** öffnen (leitet zur Oberfläche unter `/api/app/`
+weiter). Dafür braucht es keinen Reverse-Proxy.
 
-| Prozess | Standardport | Bietet |
-|---------|-------------|--------|
-| Reflex **Frontend** (Node) | `3002` | die App-Seiten + WebSocket-Statuskanal |
-| Reflex **Backend** (Granian/FastAPI) | `8002` | `/api/*` (REST, Casus-Frames, Audio-SSE), `/_upload/*` (Bilder, Face-Crops, Dokumente), `/_event` |
-
-**Der Frontend-Port allein reicht nicht aus.** Wenn du die App direkt unter
-`http://<host>:3002/aifred/` öffnest, werden die Seiten geladen und der WebSocket funktioniert, aber jede
-`/api/*`- und `/_upload/*`-Anfrage liefert einen 404-Fehler – daher bleiben Kamera-Miniaturansichten, das Vigilantia-
-Live-Modal, Casus-Vorschauen und die Audiowiedergabe leer. Diese Routen existieren nur
-im Backend, und nur ein Reverse-Proxy vor beiden Prozessen macht
-sie unter einem gemeinsamen Origin erreichbar.
-
-**Der Installer richtet das ein:** `install-all.sh` bietet an, Caddy mit der
-minimalen Konfiguration `deploy/Caddyfile` zu installieren (kopiert nach `/etc/caddy/Caddyfile`; eine
-vorhandene Datei bleibt als `Caddyfile~` erhalten). Danach **`http://<host>:8080/`** öffnen. Port 8080 und die
-Upstream-Ports lassen sich mit `AIFRED_PROXY_PORT`, `AIFRED_BACKEND_PORT`
-und `AIFRED_FRONTEND_PORT` in der Umgebung des Caddy-Dienstes ändern. Für TLS oder eine eigene
-Domain passt du diese Datei an (siehe Caddy-Doku) oder nimmst nginx wie unten.
-
-**Alternativ ein beliebiger Reverse-Proxy (nginx/Caddy)**, der anhand des Pfadpräfixes zu den
-beiden Upstreams weiterleitet. Minimaler nginx-Sketch (generisch – ersetze deinen eigenen Host,
-Ports und, falls gewünscht, TLS/Authentifizierung):
+Für eine eigene Domain, TLS oder einen Unterpfad kommt ein Reverse-Proxy davor. Er leitet den Unterpfad
+auf die Wurzel des Servers weiter, `/_upload/` und `/vendor/` unverändert: Links auf Dateien in Antworten
+und die Bibliotheken der Sandbox-Seiten beginnen an der Wurzel. Minimale nginx-Skizze (generisch — eigenen
+Host, Ports und bei Bedarf TLS/Auth einsetzen):
 
 ```nginx
 server {
     listen 80;
-    server_name your-host.example;   # or a LAN IP
+    server_name your-host.example;   # oder eine LAN-IP
+    client_max_body_size 2G;         # Uploads (Audio bis AUDIO_UPLOAD_MAX_MB, Standard 2048 MB)
 
-    # App pages + WebSocket → frontend
+    # API, Oberfläche, Server-Sent Events → Wurzel des Servers
     location /aifred/ {
-        proxy_pass http://127.0.0.1:3002/aifred/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;      # WebSocket
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-    }
-
-    # REST API, uploads, server-sent events → backend
-    location ~ ^/(api|_upload|_event) {
-        proxy_pass http://127.0.0.1:8002;
+        proxy_pass http://127.0.0.1:8002/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        # `/_upload/*` is cookie-gated by AIfred's own login; add
-        # auth_basic here as a second factor if the proxy is exposed.
+    }
+
+    # Dateien und Bibliotheken der Sandbox-Seiten, ab der Wurzel verlinkt
+    location ~ ^/(_upload|vendor)/ {
+        proxy_pass http://127.0.0.1:8002;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
     }
 }
 ```
 
-Sobald der Proxy eingerichtet ist, öffne **`http://your-host.example/aifred/`** (ohne Port).
-Die statischen Einbindungen unter `/_upload/*` sind zusätzlich durch die Web-Anmeldung
-(`AuthenticatedStaticFiles`) mit Cookies geschützt, sodass nur die Freigabelinks unter
-`/_upload/html_preview` ohne Login erreichbar sind.
-
-> **Schnelle lokale Überprüfung ohne Proxy:** Die App ist unter `:3002` für
-> alles nutzbar, was über den WebSocket läuft (Chat, Einstellungen), aber behandle fehlende
-> Bilder/Audiodateien dort wie erwartet, nicht als Fehler – greife über den Proxy darauf zu, um
-> die vollständige Benutzeroberfläche zu sehen.
+Mit dem Proxy **`http://your-host.example/aifred/`** öffnen. Die Ereignisströme senden den Kopf gegen
+Pufferung (`X-Accel-Buffering: no`) und alle 15 s ein Keep-alive, nginx braucht für sie keine weiteren
+Einstellungen.
 
 ---
 
@@ -770,6 +709,13 @@ Speicher je Karte); er beendet nie selbst einen Prozess.
 - **AIfreds Seite:** `GPU_ORC_URL` in `.env` (Standard `http://127.0.0.1:5070`) und
   `GPU_ORC_MODEL_SERVER` (der Name des Modellservers unter den Verbrauchern in GPU-Orcs Konfiguration,
   Standard `llama-swap`). Sein HTTP-Timeout nimmt AIfred aus GPU-Orcs `/health`.
+- **AIfred als Verbraucher:** Seine Gesichtserkennung läuft in einem eigenen Prozess und gibt ihre
+  Karte über die Schnittstelle der Suiten zurück (`/api/gpu/holders`, `/api/gpu/release`, Element
+  `face-worker`, freigegeben, sobald nvidia-smi den Prozess nicht mehr führt). `GPU_RELEASE_API_TOKEN` in
+  die `.env`, dasselbe Token in eine Datei nur für den Dienstnutzer, und in GPU-Orcs Konfiguration (ab
+  0.8.0): `{name: aifred, type: gpu-release, url: http://127.0.0.1:8002/api, token_file: <diese Datei>, busy_wait_s: 5}`.
+  Bei roter Ampel startet die Gesichtserkennung auf der CPU und zieht bei der ersten Erkennung nach Grün
+  zurück auf ihre Karte.
 - **Ohne GPU-Orc** läuft und lädt AIfred trotzdem, aber jedes Laden meldet laut im Log, dass die
   Karten nicht freigeräumt werden konnten, und die Platzprüfung des Describers findet keinen Platz.
   **Ohne NVIDIA-Karte** läuft GPU-Orc, hat aber nichts freizuräumen.

@@ -71,14 +71,6 @@ HF_HUB_CACHE_DIR = Path(
 OPERATING_POINTS_DIR = DATA_DIR / "operating_points"
 
 # ============================================================
-# BACKEND URL FOR STATIC FILES (HTML Preview, Images)
-# ============================================================
-# With NGINX proxy: Leave empty ("") - NGINX routes /_upload/ to backend
-# Without NGINX (dev): Set to backend URL, e.g. "http://localhost:8002"
-# Example for WSL dev: BACKEND_URL=http://172.30.8.72:8002
-BACKEND_URL = os.environ.get("BACKEND_URL", "")
-
-# ============================================================
 # LOGGING CONFIGURATION
 # ============================================================
 # File Debug: Write messages to log file
