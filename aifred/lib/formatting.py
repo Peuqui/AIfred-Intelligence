@@ -1183,14 +1183,17 @@ def format_thinking_process(
 def build_sandbox_iframe(url: str) -> str:
     """Build a collapsible with embedded iframe for sandbox HTML output."""
     from .config import SANDBOX_IFRAME_HEIGHT
+    from .i18n import t
+
+    lang = get_ui_locale()
     return (
         f'<details data-sandbox style="font-size: 0.9em; margin-bottom: 0.5em;">'
         f'<summary style="cursor: pointer; font-weight: bold; color: var(--aifred-text-secondary); '
         f'position: sticky; top: 0; z-index: 2; background: var(--aifred-input-bg); padding: 4px 0;">'
-        f'📊 Interaktive Visualisierung — '
+        f'{t("collapsible_sandbox_visualization", lang=lang)} — '
         f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
         f'style="color: var(--aifred-accent-blue); text-decoration: none;" '
-        f'>Im Browser öffnen</a></summary>'
+        f'>{t("collapsible_sandbox_open", lang=lang)}</a></summary>'
         f'<iframe src="{url}" '
         f'style="width: 100%; height: {SANDBOX_IFRAME_HEIGHT}; '
         f'border: 1px solid var(--aifred-border-light); border-radius: 8px; '
@@ -1227,13 +1230,15 @@ def build_thumbnail_row(urls: list[str]) -> str:
 
 def build_sandbox_image(url: str) -> str:
     """Build a collapsible with embedded image for sandbox plot output."""
+    from .i18n import t
+
     return (
         f'<details data-sandbox style="font-size: 0.9em; margin-bottom: 0.5em;">'
         f'<summary style="cursor: pointer; font-weight: bold; color: var(--aifred-text-secondary);">'
         f'📊 Plot — '
         f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
         f'style="color: var(--aifred-accent-blue); text-decoration: none;" '
-        f'>Vollbild</a></summary>'
+        f'>{t("collapsible_sandbox_fullscreen", lang=get_ui_locale())}</a></summary>'
         f'<img src="{url}" style="max-width: 100%; max-height: 480px; '
         f'border-radius: 8px; border: 1px solid var(--aifred-border-light); margin-top: 0.4em;" '
         f'alt="Plot" />'
