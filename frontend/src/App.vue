@@ -149,5 +149,6 @@ body {
   .top { padding: 8px 10px; gap: 8px; }
   .hat { width: 34px; height: 34px; }
   .brand strong { font-size: 1.15rem; }
+  .user { display: none; } /* room for the title; the name is in every bubble of the user */
 }
 </style>
