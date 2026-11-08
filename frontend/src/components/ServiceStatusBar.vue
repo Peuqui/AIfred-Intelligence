@@ -7,6 +7,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { language, t } from "../i18n";
 import { type Action, type Color, type Row, SERVICES, type Service, formatRemaining, hostRows, serviceRows, summaryColor } from "../lib/serviceStatus";
 import { useServiceStatus } from "../stores/serviceStatus";
+import HelpButton from "./help/HelpButton.vue";
 import hatIcon from "../../../assets/AIfred-Zylinder.png";
 import describerIcon from "../assets/status-icons/vision-describer-icon.svg";
 import sttIcon from "../assets/status-icons/stt-suite-icon.svg";
@@ -90,6 +91,7 @@ onBeforeUnmount(() => window.clearInterval(timer));
         <button v-if="host.action" class="power" :disabled="status.acting" :title="t(ACTION_TITLES[host.action.verb])" @click="status.act(host.action)">⏻</button>
       </div>
       <p v-if="status.notice" class="notice">⚠️ {{ status.notice }}</p>
+      <p class="lifecycle"><HelpButton topic="lifecycle" /> {{ t("model_lifecycle_help_tooltip") }}</p>
     </div>
   </details>
 </template>
@@ -98,6 +100,7 @@ onBeforeUnmount(() => window.clearInterval(timer));
 .status { border-bottom: 1px solid var(--aifred-border); padding: 4px 0; font-size: 0.85rem; }
 summary { display: flex; align-items: center; gap: 10px; cursor: pointer; list-style: none; }
 summary::-webkit-details-marker { display: none; }
+.lifecycle { display: flex; align-items: center; gap: 8px; margin: 4px 0 0; color: var(--aifred-text-secondary); }
 .badge { position: relative; display: inline-flex; width: 22px; height: 22px; }
 .badge img { width: 22px; height: 22px; object-fit: contain; }
 .dot { position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--aifred-page-bg); }

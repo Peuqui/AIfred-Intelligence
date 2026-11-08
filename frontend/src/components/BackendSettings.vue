@@ -7,6 +7,7 @@ import { computed, onMounted, ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { BackendOverview, CalibrationOverview, GpuCard, LayerSplit, ModelInUse } from "../api/types";
 import CalibrationPanel from "./CalibrationPanel.vue";
+import HelpButton from "./help/HelpButton.vue";
 import { formatNumber, loadLanguage, t } from "../i18n";
 import { useSettings } from "../stores/settings";
 
@@ -167,6 +168,7 @@ function contextLines(model: ModelInUse): string[] {
     <details @toggle="openCalibration">
       <summary>{{ t("calibration_title") }}</summary>
       <template v-if="calibration">
+        <p class="lifecycle"><HelpButton topic="lifecycle" /> {{ t("model_lifecycle_help_tooltip") }}</p>
         <p class="subtitle">{{ t("calibration_models_title") }}</p>
         <div v-for="model in calibration.models" :key="model.model_id" class="model">
           <div class="model-name">{{ model.model_id }} <span class="hint">{{ model.agents.join(", ") }}</span></div>
@@ -198,4 +200,5 @@ details p { margin: 6px 0 0; }
 .subtitle { font-weight: 600; font-size: 0.85rem; margin-top: 12px !important; }
 .model { margin-top: 6px; }
 .model-name { font-size: 0.9rem; word-break: break-all; }
+.lifecycle { display: flex; align-items: center; gap: 8px; color: var(--aifred-text-secondary); }
 </style>

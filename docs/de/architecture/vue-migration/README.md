@@ -475,7 +475,15 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   14. ~~Bilder in Chat-Blasen vergrößern~~ (erledigt 08.11.: ein Klick auf ein Bild der Blase öffnet `ImageLightbox.vue`,
       die anderen Bilder der Blase mit ← →, Esc schließt; ein Bild hinter einem Link behält seinen Link).
   15. ~~Schriftgröße im Chat~~ (erledigt 08.11.: A− / A+ in der Kopfleiste, 80 bis 200 %, je Gerät wie in Reflex).
-  16. Hilfe-Fenster (Diskussionsmodi, Reasoning/Thinking, Modell-Lebenszyklus, Vigilantia).
+  16. ~~Hilfe-Fenster~~ (erledigt 08.11.: `components/help/`, ein Dialog für alle Themen, 💡 neben der Moduswahl, in der
+      Schnellwahl und auf der Agenten-Seite (Reasoning/Thinking), auf der Vision-Seite (Vigilantia, mit Sprung zum
+      Lebenszyklus), in den Ereignissen (Casus), in der aufgeklappten Statuszeile und bei der Kalibrierung (Lebenszyklus).
+      Die Reflex-Texte waren zu großen Teilen veraltet und sind neu geschrieben, jede Aussage gegen den Code geprüft:
+      Rollen statt fester Namen, im Auto-Konsens entscheidet die Abstimmung; Bildbeschreiber über llama-swap-Profile und
+      die Beschreiber-Liste statt Ollama, ⏻ in den Einstellungen und in der Statuszeile, ein Modellwechsel lädt nichts,
+      dazu Personenerkennung und Spracherkennung; Reiter statt Popups, das Auge im Chat zeigt nur an, Edge-AI über
+      ONVIF, ein Vorkommnis endet nach 10 s Lücke (höchstens 5 Minuten). Escape schließt nur den obersten Dialog.
+      Im Browser geprüft.)
   17. ~~Fortschrittsanzeige vor der ersten Antwort~~ (erledigt 08.11.: Ereignis `turn_phase` über
       `debug_bus.report_phase`, das die Sitzung des Zugs schon kennt, auch tief in einem Werkzeug. Phasen `intent`
       (Automatik-Aufruf), `images` (Bildbeschreibung), `compress` (auch wenn die Zusammenfassung scheitert) und

@@ -12,6 +12,7 @@ import { ApiError, PROGRESS_POLL_MS, api, apiUrl } from "../api/client";
 import type { CasusChoices, CasusEvent, CasusPage, CasusRuns, FilmPicture } from "../api/types";
 import { formatNumber, t, tCount } from "../i18n";
 import ImageLightbox from "./ImageLightbox.vue";
+import HelpButton from "./help/HelpButton.vue";
 
 const choices = ref<CasusChoices | null>(null);
 // A person's or a camera's events open from elsewhere: #/vision/events?face=<id> or ?source=<id>.
@@ -217,6 +218,7 @@ const value = (event: Event): string => (event.target as HTMLSelectElement).valu
       <label class="switch" :title="t('casus_help_grouped_body')"><input v-model="grouped" type="checkbox" /> {{ t("casus_cluster_mode_label") }}</label>
       <button :title="t('casus_refresh')" @click="load">🔄</button>
       <button @click="clearFilters">{{ t("casus_filter_clear") }}</button>
+      <HelpButton topic="casus" />
       <span class="grow"></span>
       <template v-if="list?.total">
         <button v-if="!confirming" class="danger" @click="confirming = true">🗑️ {{ t("delete_all") }}</button>

@@ -3,8 +3,11 @@
 import { type Component, provide, ref } from "vue";
 import { t } from "../../i18n";
 import ModalDialog from "../ModalDialog.vue";
+import CasusHelp from "./CasusHelp.vue";
 import DebateHelp from "./DebateHelp.vue";
+import LifecycleHelp from "./LifecycleHelp.vue";
 import ThinkingHelp from "./ThinkingHelp.vue";
+import VigilantiaHelp from "./VigilantiaHelp.vue";
 import { HELP_TOPICS, type HelpTopic, OPEN_HELP } from "./topics";
 
 const props = defineProps<{ topic: HelpTopic }>();
@@ -12,7 +15,9 @@ const emit = defineEmits<{ close: [] }>();
 const current = ref<HelpTopic>(props.topic);
 provide(OPEN_HELP, (topic) => (current.value = topic));
 
-const BODIES: Record<HelpTopic, Component> = { debate: DebateHelp, thinking: ThinkingHelp };
+const BODIES: Record<HelpTopic, Component> = {
+  debate: DebateHelp, thinking: ThinkingHelp, lifecycle: LifecycleHelp, vigilantia: VigilantiaHelp, casus: CasusHelp,
+};
 </script>
 
 <template>

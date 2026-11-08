@@ -7,6 +7,7 @@ import VisionEvents from "../components/VisionEvents.vue";
 import VisionLive from "../components/VisionLive.vue";
 import VisionPersons from "../components/VisionPersons.vue";
 import VisionSettings from "../components/VisionSettings.vue";
+import HelpButton from "../components/help/HelpButton.vue";
 import { t } from "../i18n";
 
 const route = useRoute();
@@ -23,6 +24,7 @@ const tabs = [
   <main class="vision">
     <nav class="tabs">
       <RouterLink v-for="entry in tabs" :key="entry.id" :to="`/vision/${entry.id}`" :class="{ on: tab === entry.id }">{{ t(entry.label) }}</RouterLink>
+      <HelpButton topic="vigilantia" />
     </nav>
     <VisionLive v-if="tab === 'live'" />
     <VisionEvents v-else-if="tab === 'events'" />
@@ -33,7 +35,7 @@ const tabs = [
 
 <style scoped>
 .vision { display: flex; flex-direction: column; gap: 10px; padding: 12px 0; min-height: 0; overflow-y: auto; }
-.tabs { display: flex; gap: 6px; }
+.tabs { display: flex; align-items: center; gap: 6px; }
 .tabs a { color: var(--aifred-text-secondary); text-decoration: none; padding: 3px 10px; border-radius: 6px; border: 1px solid transparent; }
 .tabs a.on { color: var(--aifred-text-primary); border-color: var(--aifred-border); background: var(--aifred-input-bg); }
 </style>
