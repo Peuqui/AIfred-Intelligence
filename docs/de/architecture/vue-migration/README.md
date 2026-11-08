@@ -386,6 +386,28 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   ihn immer „fertig“; jetzt `pipeline_registry.is_pipeline_running`. Live geprüft auf der Testinstanz ohne offenen Tab:
   zwei Nachrichten per Inject, die erste startete, die zweite wartete (`queued: true`) und lief danach, beide
   beantwortet. Suite 239 Dateien grün.
+  Dazu: Der Server liefert die JS-Bibliotheken der Sandbox-Artefakte unter `/vendor/` aus (`VENDOR_DIR`/`VENDOR_URL`
+  in `config.py`, vorher je fest in Sandbox-Plugin und Render-Browser); bisher tat das nur das Reflex-Frontend unter
+  `/aifred/vendor/`, ein Artefakt im Browser fand three.js & Co. nicht. Die Vue-Oberfläche bettet Sandbox-
+  Visualisierungen wieder ein (DOMPurify entfernte jedes iframe; jetzt bleibt eines, das aufgelöst auf
+  `/_upload/sandbox_output/` zeigt, immer mit `sandbox="allow-scripts"`), ihre Beschriftung kommt aus den
+  Übersetzungen. **Beim Umschalten (Paket 5):** nginx braucht eine Regel `/vendor/` auf den Server.
+- **Schritt 6, Paket 2: Reflex entfernen (Plan, 08.11.2026).** Zuerst die Reflex-Teile selbst: `aifred/aifred.py`,
+  `aifred/state/`, `aifred/ui/`, `rxconfig.py`, `reflex.lock/`, die Reflex-Dateien in `assets/` (CSS/JS der alten
+  Oberfläche, Zonen-Editor-HTML, Favicons; `vendor/`, `katex/` und `status-icons/` braucht der Server bzw. Vue
+  weiter), `scripts/patch-reflex.py`, `scripts/render_pages.py`, die Tests der Mixins und Reflex-Pakete in
+  `requirements.txt`, `mypy.ini`, `CLAUDE.md`. Danach zeigt mypy jeden Verweis der lib auf Entferntes. Bekannt:
+  `lib/toast.py`, `lib/browser_storage.py` (nur der Cookie-Name bleibt), `lib/multi_agent.py` (`count_lgtm_votes`,
+  `check_consensus` ziehen um), `research_tools.execute_research` und der `state`-Zweig im Recherche-Plugin,
+  `api/app.get_global_backend_state` (`/health`, `/models`), `/browser/stream/…`, `/vision/zone-editor` und
+  `/vision/motion-min`, `debate_seats.REFLEX_SEATS`, die Weigerung `agent_needed_by_reflex`, `is_generating` in
+  `update_chat_data`, die `.pending`-Markierung neben der Warteschlange (sparte dem Reflex-Poll das Lesen),
+  `state: Any`-Parameter in `agent_settings`, `vision_utils`, `llm_engine`, `agent_memory` und im Subagent-Plugin
+  (werden `RuntimeSettings`). `BACKEND_URL` gab es nur, weil Reflex-Frontend und Backend auf zwei Ports liefen; mit
+  ihm fallen die doppelten Upload-Pfade (`html_preview`, `sandbox_output` an fünf Stellen) auf eine Quelle zusammen.
+  Zum Schluss toter Code mechanisch: jede Funktion und Klasse ohne Verweis (auch ohne Klammer gesucht).
+  `patch-vite-config.sh` geht erst mit der Unit (Paket 4). Ein Archiv-Tag für den Reflex-Stand gehört vor den Merge
+  auf `main` (Paket 5, mit Peuqui).
 - **Temperatur nur noch von Hand (erledigt 07.11.2026, Peuqui):** Jeder Agent antwortet mit seiner
   eigenen Temperatur (`agent_settings.resolve_agent_temperature`); der Modus auto, die Temperaturen je
   Absicht (`INTENT_TEMPERATURE_*`) und der Aufschlag für Sokrates und Salomo (`temperature_offset`) sind
