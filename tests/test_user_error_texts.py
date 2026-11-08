@@ -15,6 +15,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 I18N = ROOT / "aifred" / "lib" / "i18n"
 BASE = "UserError"
+# Names of t()'s own: a value called so would choose the language or the plural form instead of filling the text.
+RESERVED = {"lang", "count"}
 
 
 def _trees() -> dict[Path, ast.Module]:
@@ -64,6 +66,9 @@ def _problems(raises: list[tuple[str, ast.Call]], texts: dict[str, dict[str, str
             continue
         key = f"error_{call.args[0].value}"
         given = {keyword.arg for keyword in call.keywords if keyword.arg}
+        if given & RESERVED:
+            problems.append(f"{where}: values named {sorted(given & RESERVED)} belong to t() itself")
+            continue
         for lang, table in texts.items():
             if key not in table:
                 problems.append(f"{where}: {key} missing in {lang}.json")
@@ -95,8 +100,9 @@ def test_the_check_sees_a_missing_text_and_a_wrong_value() -> None:
         "raise Own('known', other=2)\n"
         "raise Invalid(name)\n"
         "raise ValueError('not a refusal')\n"
+        "raise Invalid('known', lang='de')\n"
     )
     trees = {ROOT / "sample.py": ast.parse(source)}
     texts = {"de": {"error_known": "{value}"}, "en": {"error_known": "{value}"}}
     problems = _problems(_raises(trees, _error_kinds(trees)), texts)
-    assert [problem.split(":")[1] for problem in problems] == ["5", "5", "6", "6", "7"]
+    assert [problem.split(":")[1] for problem in problems] == ["5", "5", "6", "6", "7", "9"]

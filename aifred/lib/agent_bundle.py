@@ -29,20 +29,35 @@ import json
 import re
 import time
 import zipfile
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
 
 from .agent_config import load_agents_raw, save_agents_raw
 from .config import PROJECT_ROOT
+from .i18n import t
 from .settings import SETTINGS_FILE, save_settings
 from .tts_client import get_tts_client
+from .user_error import BadRequest, Conflict, Missing
 
 BUNDLE_FORMAT_VERSION = 1
 
-# What an unreadable bundle raises in peek_bundle and import_bundle: no ZIP, a file
-# missing in it, broken JSON, or contents the checks refuse.
-BUNDLE_READ_ERRORS = (zipfile.BadZipFile, KeyError, ValueError)
+
+
+class BundleUnreadable(BadRequest):
+    """A bundle peek_bundle and import_bundle cannot take: no ZIP, a file missing in it, broken JSON, or contents the
+    checks refuse."""
+
+
+@contextmanager
+def _opened(zip_bytes: bytes) -> Iterator[zipfile.ZipFile]:
+    """The bundle as a ZIP; what the archive or its JSON cannot give becomes ``BundleUnreadable`` with the reason."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            yield zf
+    except (zipfile.BadZipFile, KeyError, json.JSONDecodeError) as error:  # no ZIP, a member missing, broken JSON
+        raise BundleUnreadable("bundle_unreadable", reason=str(error)) from error
 
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 
@@ -96,10 +111,10 @@ def export_bundle(agent_ids: Iterable[str]) -> bytes:
 
     requested = list(agent_ids)
     if not requested:
-        raise ValueError("No agents selected for export")
+        raise BadRequest("no_agents_selected")
     missing = [a for a in requested if a not in agents]
     if missing:
-        raise KeyError(f"Agents not found: {', '.join(missing)}")
+        raise Missing("agents_not_found", agents=", ".join(missing))
 
     voices_dir = get_tts_client().voices_dir()
     manifest = {
@@ -179,27 +194,25 @@ def peek_bundle(zip_bytes: bytes) -> dict:
 
     Used by the UI to show a checkbox list and warn about ID collisions.
     """
-    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+    with _opened(zip_bytes) as zf:
         manifest = json.loads(zf.read("manifest.json"))
 
         if manifest.get("format_version") != BUNDLE_FORMAT_VERSION:
-            raise ValueError(
-                f"Unsupported bundle format version: {manifest.get('format_version')}"
-            )
+            raise BundleUnreadable("bundle_version", version=manifest.get("format_version"))
 
         agent_ids = list(manifest.get("agent_ids") or [])
         if not agent_ids:
-            raise ValueError("Bundle contains no agents")
+            raise BundleUnreadable("bundle_empty")
 
         existing = set(load_agents_raw().keys())
         agents_info: list[dict] = []
         for agent_id in agent_ids:
             if not _AGENT_ID_RE.match(agent_id):
-                raise ValueError(f"Invalid agent_id in bundle: {agent_id!r}")
+                raise BundleUnreadable("bundle_bad_id", agent=agent_id)
             try:
                 cfg = json.loads(zf.read(f"agents/{agent_id}/config.json"))
-            except KeyError:
-                raise ValueError(f"Bundle missing config for agent: {agent_id}")
+            except KeyError as error:
+                raise BundleUnreadable("bundle_no_config", agent=agent_id) from error
             agents_info.append({
                 "agent_id": agent_id,
                 "display_name": cfg.get("display_name", agent_id),
@@ -218,32 +231,31 @@ def import_bundle(
     zip_bytes: bytes,
     selected_ids: Iterable[str] | None = None,
     conflict: ConflictStrategy = "abort",
+    lang: str | None = None,
 ) -> tuple[list[str], list[str]]:
     """Unpack a bundle and write the selected (or all) agents into the install.
 
-    Returns ``(effective_agent_ids, warnings)``. Effective IDs may differ
-    from bundle IDs when ``conflict='rename'`` is applied.
+    Returns ``(effective_agent_ids, warnings)``, the warnings in ``lang`` (None: the UI language). Effective IDs may
+    differ from bundle IDs when ``conflict='rename'`` is applied.
     """
     warnings: list[str] = []
     effective_ids: list[str] = []
 
-    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+    with _opened(zip_bytes) as zf:
         voices_dir: Path | None = None  # asked of the TTS service when the first voice file comes
         for member in zf.namelist():
             if not _is_safe_member(member):
-                raise ValueError(f"Unsafe path in bundle: {member!r}")
+                raise BundleUnreadable("bundle_unsafe_path", member=member)
 
         manifest = json.loads(zf.read("manifest.json"))
         if manifest.get("format_version") != BUNDLE_FORMAT_VERSION:
-            raise ValueError(
-                f"Unsupported bundle format version: {manifest.get('format_version')}"
-            )
+            raise BundleUnreadable("bundle_version", version=manifest.get("format_version"))
 
         bundle_ids = list(manifest.get("agent_ids") or [])
         wanted = list(selected_ids) if selected_ids is not None else bundle_ids
         unknown = [a for a in wanted if a not in bundle_ids]
         if unknown:
-            raise ValueError(f"Bundle does not contain: {', '.join(unknown)}")
+            raise BundleUnreadable("bundle_lacks", agents=", ".join(unknown))
 
         agents = load_agents_raw()
         settings = _load_settings()
@@ -251,21 +263,16 @@ def import_bundle(
 
         for bundle_id in wanted:
             if not _AGENT_ID_RE.match(bundle_id):
-                raise ValueError(f"Invalid agent_id in bundle: {bundle_id!r}")
+                raise BundleUnreadable("bundle_bad_id", agent=bundle_id)
 
             if bundle_id in agents:
                 if conflict == "abort":
-                    raise FileExistsError(
-                        f"Agent '{bundle_id}' existiert schon. "
-                        f"Wähle 'overwrite' oder 'rename'."
-                    )
+                    raise Conflict("bundle_agent_exists", agent=bundle_id)
                 if conflict == "rename":
                     effective_id = _resolve_id_collision(
                         bundle_id, set(agents.keys()) | set(effective_ids)
                     )
-                    warnings.append(
-                        f"'{bundle_id}' existierte schon — importiert als '{effective_id}'."
-                    )
+                    warnings.append(t("bundle_renamed", lang=lang, agent=bundle_id, new=effective_id))
                 else:
                     effective_id = bundle_id
             else:
@@ -288,7 +295,7 @@ def import_bundle(
                 if len(parts) != 2 or parts[0] not in ("de", "en"):
                     continue
                 if not _BUNDLE_FILE_RE.match(parts[1]):
-                    warnings.append(f"Skipped unsafe prompt filename: {member}")
+                    warnings.append(t("bundle_skipped_prompt_name", lang=lang, member=member))
                     continue
                 target_dir = PROMPTS_DIR / parts[0] / effective_id
                 target_dir.mkdir(parents=True, exist_ok=True)
@@ -296,7 +303,7 @@ def import_bundle(
                 try:
                     target_path.relative_to(prompts_root)
                 except ValueError:
-                    warnings.append(f"Skipped prompt outside prompts/: {member}")
+                    warnings.append(t("bundle_skipped_prompt_outside", lang=lang, member=member))
                     continue
                 target_path.write_bytes(zf.read(member))
 
@@ -314,10 +321,7 @@ def import_bundle(
                 tts_root.setdefault(engine, {})[effective_id] = entry
 
             if (config.get("tools") or []):
-                warnings.append(
-                    f"'{effective_id}': Tool-Whitelist übernommen — fehlende Tools "
-                    f"werden zur Laufzeit ignoriert."
-                )
+                warnings.append(t("bundle_tools_kept", lang=lang, agent=effective_id))
 
             effective_ids.append(effective_id)
 
@@ -332,13 +336,13 @@ def import_bundle(
                 continue
             voice_name, filename = vparts[1], vparts[2]
             if not all(_BUNDLE_FILE_RE.match(part) and not part.startswith(".") for part in (voice_name, filename)):
-                warnings.append(f"Skipped unsafe voice path: {member}")
+                warnings.append(t("bundle_skipped_voice_path", lang=lang, member=member))
                 continue
             if voices_dir is None:
                 voices_dir = get_tts_client().voices_dir()
             target = voices_dir / voice_name / filename
             if target.exists():
-                warnings.append(f"Voice '{voice_name}/{filename}' existierte schon — übersprungen.")
+                warnings.append(t("bundle_voice_exists", lang=lang, voice=f"{voice_name}/{filename}"))
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(zf.read(member))

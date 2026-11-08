@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .user_error import Invalid
+
 SEAT_MAIN = "main"       # the author
 SEAT_CRITIC = "critic"
 SEAT_JUDGE = "judge"
@@ -24,7 +26,7 @@ CHOSEN_SEATS = (SEAT_CRITIC, SEAT_JUDGE)
 REFLEX_SEATS = {SEAT_MAIN: "aifred", SEAT_CRITIC: "sokrates", SEAT_JUDGE: "salomo"}
 
 
-class SeatError(ValueError):
+class SeatError(Invalid):
     """A seat names no agent that can take it (deleted, or a system agent)."""
 
 
@@ -43,12 +45,14 @@ def session_seats(session_config: dict[str, Any]) -> dict[str, str]:
 
 def check_seat_agent(seat: str, agent: str) -> None:
     """``agent`` can take ``seat``: it is selectable (exists, no system agent, not switched off)."""
-    from .agent_config import selectable_agents
+    from .agent_config import agent_display_name, selectable_agents
 
     if seat not in CHOSEN_SEATS:
-        raise SeatError(f"No seat '{seat}' to choose (one of {CHOSEN_SEATS})")
+        raise SeatError("no_seat", seat=seat)
     if agent not in selectable_agents():
-        raise SeatError(f"No agent '{agent}' can take the seat '{seat}' (unknown, a system agent or switched off)")
+        if seat == SEAT_CRITIC:
+            raise SeatError("critic_unfit", agent=agent_display_name(agent))
+        raise SeatError("judge_unfit", agent=agent_display_name(agent))
 
 
 def seat_names(seats: dict[str, str]) -> dict[str, str]:

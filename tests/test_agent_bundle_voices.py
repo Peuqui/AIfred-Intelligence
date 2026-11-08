@@ -10,6 +10,7 @@ import pytest
 from fake_tts_service import FakeTTSService, install_fake_service
 
 from aifred.lib import agent_bundle
+from aifred.lib.i18n import t
 
 
 @pytest.fixture
@@ -54,14 +55,15 @@ def test_import_writes_voice_folder_and_keeps_existing_ones(
     monkeypatch.setattr(agent_bundle, "load_agents_raw", dict)
     monkeypatch.setattr(agent_bundle, "save_agents_raw", lambda agents: saved.update(agents=agents))
     monkeypatch.setattr(agent_bundle, "save_settings", lambda settings: saved.update(settings=settings))
-    _ids, warnings = agent_bundle.import_bundle(buf.getvalue())
+    _ids, warnings = agent_bundle.import_bundle(buf.getvalue(), lang="de")
     assert (bundle_env / "Neu" / "Neu.wav").read_bytes() == b"neu"
-    assert any("existierte schon" in w for w in warnings)
+    assert t("bundle_voice_exists", lang="de", voice="Codine/Codine.wav") in warnings
 
 
 def test_import_rejects_a_bundle_with_a_path_escape() -> None:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as out:
         out.writestr("voices/../escape.wav", b"x")
-    with pytest.raises(ValueError, match="Unsafe path"):
+    with pytest.raises(agent_bundle.BundleUnreadable) as refused:
         agent_bundle.import_bundle(buf.getvalue())
+    assert (refused.value.key, refused.value.values) == ("bundle_unsafe_path", {"member": "voices/../escape.wav"})

@@ -27,6 +27,7 @@ class ImageMixin(rx.State, mixin=True):
         debug_messages: rx.Field[list[str]]
         logged_in_user: rx.Field[str]
         session_id: rx.Field[str]
+        ui_language: rx.Field[str]
         vision_models_cache: rx.Field[list[str]]
 
         def _chat_sub(self): ...
@@ -137,11 +138,8 @@ class ImageMixin(rx.State, mixin=True):
 
     async def _process_image_upload(self, files: list[rx.UploadFile], from_camera: bool = False):
         """Internal handler for image uploads with validation (async generator for UI updates)"""
-        from ..lib.vision_utils import (
-            get_image_url,
-            save_session_upload,
-            validate_image_file,
-        )
+        from ..lib.user_error import Invalid, said
+        from ..lib.vision_utils import check_image_file, get_image_url, save_session_upload
 
         # POST /_upload reaches this handler with any client token, a fresh one gives a state
         # without login: nothing may touch the disk before this check.
@@ -188,9 +186,10 @@ class ImageMixin(rx.State, mixin=True):
 
                 # Validate
                 filename = file.filename or "unknown.jpg"
-                valid, error = validate_image_file(filename, len(content))
-                if not valid:
-                    self.image_upload_warning = error or ""
+                try:
+                    check_image_file(filename)
+                except Invalid as refused:  # a format the upload does not take: the next file goes on
+                    self.image_upload_warning = f"⚠️ {said(refused, self.ui_language)}"
                     continue
 
                 # Resized, unique name (original stem + timestamp; camera shots

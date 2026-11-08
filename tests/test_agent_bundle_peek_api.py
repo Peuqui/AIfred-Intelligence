@@ -11,6 +11,7 @@ from aifred.lib.agent_bundle import BUNDLE_FORMAT_VERSION
 from aifred.lib.api.app import api_app
 from aifred.lib.auth import sign_username
 from aifred.lib.browser_storage import USERNAME_COOKIE_NAME
+from aifred.lib.i18n import t
 
 
 def _zip(files: dict[str, bytes]) -> bytes:
@@ -25,9 +26,9 @@ def _zip(files: dict[str, bytes]) -> bytes:
     (b"no zip at all", "File is not a zip file"),
     (_zip({"readme.txt": b"x"}), "manifest.json"),
     (_zip({"manifest.json": b"{not json"}), "Expecting property name"),
-    (_zip({"manifest.json": json.dumps({"format_version": "0"}).encode()}), "Unsupported bundle format version"),
+    (_zip({"manifest.json": json.dumps({"format_version": "0"}).encode()}), t("error_bundle_version", version="0")),
     (_zip({"manifest.json": json.dumps({"format_version": BUNDLE_FORMAT_VERSION, "agent_ids": []}).encode()}),
-     "Bundle contains no agents"),
+     t("error_bundle_empty")),
 ])
 def test_an_unreadable_bundle_is_a_400_with_its_reason(upload: bytes, reason: str) -> None:
     client = TestClient(api_app)

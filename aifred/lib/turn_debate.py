@@ -56,6 +56,7 @@ from .turn_service import (
     session_llm_history,
     stream_call,
 )
+from .user_error import Conflict, Invalid
 
 if TYPE_CHECKING:
     from ..backends.base import LLMOptions
@@ -109,7 +110,7 @@ def plan_turn(
     if mode == "symposion":
         return _plan_symposion(routed, symposion_agents)
     if mode not in _DEBATE_SEATS:
-        raise TurnRejected("mode", f"Unknown multi-agent mode '{mode}'")
+        raise TurnRejected("mode", Invalid("unknown_mode", value=mode))
     _speaker(routed)
     if addressed_to == BASE_AGENT:   # addressing AIfred by name in a debate mode asks for his answer alone
         return TurnPlan(routed)
@@ -119,7 +120,7 @@ def plan_turn(
             if seat != SEAT_MAIN:
                 check_seat_agent(seat, seated[seat])
     except SeatError as error:
-        raise TurnRejected("seat", str(error)) from error
+        raise TurnRejected("seat", error) from error
     return TurnPlan(routed, {seat: seated[seat] for seat in _DEBATE_SEATS[mode]}, seats=seated)
 
 
@@ -128,8 +129,9 @@ def _speaker(agent: str) -> str:
     never replaced by another."""
     if agent not in selectable_agents():
         config = get_agent_config(agent)
-        why = "is switched off" if config is not None and not config.enabled else "is no agent a chat can address"
-        raise TurnRejected("agent", f"{agent_display_name(agent)} {why}: choose another agent")
+        if config is not None and not config.enabled:
+            raise TurnRejected("agent", Conflict("agent_switched_off", agent=agent_display_name(agent)))
+        raise TurnRejected("agent", Invalid("agent_not_addressable", agent=agent_display_name(agent)))
     return agent
 
 

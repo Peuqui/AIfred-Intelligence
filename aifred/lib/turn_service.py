@@ -39,11 +39,13 @@ from .config import LLAMASWAP_BACKENDS, TURN_TOKEN_EVENT_INTERVAL_S
 from .debate_seats import session_seats
 from .debug_bus import debug, session_scope
 from .logging_utils import log_exception, log_message
+from .prompt_loader import get_language
 from .runtime_settings import (
     RuntimeSettings,
     effective_automatik_id,
     effective_model_id,
 )
+from .user_error import Conflict, Invalid, UserError
 
 if TYPE_CHECKING:
     from ..backends.base import LLMOptions
@@ -55,12 +57,13 @@ if TYPE_CHECKING:
 
 
 class TurnRejected(Exception):
-    """The turn cannot start; ``reason`` is a stable key for the client, ``message`` the reason in words."""
+    """The turn cannot start; ``reason`` is a stable key for the client, ``refusal`` the reason in words (it reaches
+    the client in the UI language)."""
 
-    def __init__(self, reason: str, message: str) -> None:
-        super().__init__(message)
+    def __init__(self, reason: str, refusal: UserError) -> None:
+        super().__init__(str(refusal))
         self.reason = reason
-        self.message = message
+        self.refusal = refusal
 
 
 @dataclass(frozen=True)
@@ -144,8 +147,9 @@ async def run_turn(request: TurnRequest) -> TurnOutcome:
             await _run(request, turn_id, routing)
         except TurnRejected as rejection:
             status = "rejected"
-            debug(f"⚠️ {rejection.message}")
-            session_events.publish(session_id, "turn_rejected", {"reason": rejection.reason, "message": rejection.message})
+            debug(f"⚠️ {rejection.refusal}")
+            session_events.publish(session_id, "turn_rejected",
+                                   {"reason": rejection.reason, "message": rejection.refusal.message(get_language())})
         except asyncio.CancelledError:
             status = "cancelled"
             debug("⏹️ Turn cancelled")
@@ -219,15 +223,15 @@ async def _run(request: TurnRequest, turn_id: str, routing: _Routing) -> None:
     user_text = request.text.strip()
     try:
         images = session_images(session_id, list(request.images))
-    except ValueError as error:
-        raise TurnRejected("images", str(error)) from error
+    except Invalid as error:
+        raise TurnRejected("images", error) from error
     if not user_text and not images:
-        raise TurnRejected("empty", "Nothing to send")
+        raise TurnRejected("empty", Invalid("nothing_to_send"))
     if is_calibration_active():
-        raise TurnRejected("calibration", "Inference blocked: calibration in progress")
+        raise TurnRejected("calibration", Conflict("calibration_running"))
     view = load_runtime_settings()
     if not view.agent_tuning["aifred"].model_id:
-        raise TurnRejected("no_model", "No model selected — pick one in the settings")
+        raise TurnRejected("no_model", Conflict("no_model"))
 
     session_events.clear_replay(session_id, keep=frozenset({"service_status"}))
     origin = request.origin
@@ -533,7 +537,7 @@ def agent_identity(agent: str) -> AgentConfig:
 
     config = get_agent_config(agent)
     if config is None:
-        raise TurnRejected("agent", f"Unknown agent: {agent}")
+        raise TurnRejected("agent", Invalid("unknown_agent", agent=agent))
     return config
 
 

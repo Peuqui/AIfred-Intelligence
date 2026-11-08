@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from aifred.lib import agent_config, agent_memory
+from aifred.lib.user_error import Invalid
 from aifred.state import AIState
 
 
@@ -42,7 +43,7 @@ def deleted(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     def fake_delete(agent_id: str) -> None:
         if agent_id == "aifred":
-            raise ValueError("Cannot delete default agent 'aifred'")
+            raise Invalid("base_agent_stays", agent="AIfred")
         calls.append(agent_id)
 
     monkeypatch.setattr(agent_config, "delete_agent", fake_delete)
@@ -73,7 +74,7 @@ def test_failed_delete_stays_on_the_agent(deleted: list[str]) -> None:
     assert editor.delete_agent_editor("aifred") is None
     assert editor.loaded == [] and editor.dropdown_refreshes == 0
     assert editor.editor_delete_confirm == ""
-    assert "Cannot delete default agent" in editor.debug[-1]
+    assert "AIfred is the base agent" in editor.debug[-1]           # the log reads in English
 
 
 def test_second_click_clears_the_memory(monkeypatch: pytest.MonkeyPatch) -> None:

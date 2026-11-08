@@ -9,7 +9,7 @@ import asyncio
 import json
 from typing import Any
 
-from fastapi import Form, HTTPException, Request, UploadFile
+from fastapi import Form, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,6 +17,7 @@ from .. import session_events
 from ..config import MULTI_AGENT_MODES
 from ..session_storage import DEFAULT_SESSION_CONFIG
 from ..turn_images import TurnImage
+from ..user_error import Conflict, Invalid, Missing, Refused
 from .app import api_app
 
 SSE_KEEPALIVE_S = 15.0
@@ -29,7 +30,7 @@ def current_user(request: Request) -> str:
 
     user = verify_signed_username(request.cookies.get(USERNAME_COOKIE_NAME, ""))
     if user is None:
-        raise HTTPException(status_code=403, detail="Login cookie required")
+        raise Refused("login_required")
     return user
 
 
@@ -43,7 +44,7 @@ def owned_session(request: Request, session_id: str) -> dict[str, Any]:
     except ValueError:  # not a session id (32 hex characters)
         session = None
     if session is None or str(session.get("owner", "")).lower() != user:
-        raise HTTPException(status_code=404, detail="No such session")
+        raise Missing("no_session")
     return session
 
 
@@ -198,24 +199,21 @@ class SessionConfigUpdate(BaseModel):
 @api_app.patch("/sessions/{session_id}/config", response_model=SessionConfig, tags=["Sessions"])
 async def sessions_configure(session_id: str, update: SessionConfigUpdate, request: Request) -> SessionConfig:
     from ..agent_config import get_agent_config
-    from ..debate_seats import SeatError, check_seat_agent
+    from ..debate_seats import check_seat_agent
     from ..session_storage import get_session_config, update_session_config
 
     owned_session(request, session_id)
     changes = update.model_dump(exclude_none=True)
     if "debate_seats" in changes:
-        try:
-            for seat, agent in changes["debate_seats"].items():
-                check_seat_agent(seat, agent)
-        except SeatError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
+        for seat, agent in changes["debate_seats"].items():
+            check_seat_agent(seat, agent)
         changes["debate_seats"] = {**get_session_config(session_id)["debate_seats"], **changes["debate_seats"]}
     agents = [*([changes["active_agent"]] if "active_agent" in changes else []), *changes.get("symposion_agents", [])]
     unknown = [agent for agent in agents if get_agent_config(agent) is None]
     if unknown:
-        raise HTTPException(status_code=422, detail=f"Unknown agent: {', '.join(unknown)}")
+        raise Invalid("unknown_agent", agent=", ".join(unknown))
     if changes.get("multi_agent_mode", "standard") not in MULTI_AGENT_MODES:
-        raise HTTPException(status_code=422, detail=f"Unknown multi-agent mode: {changes['multi_agent_mode']}")
+        raise Invalid("unknown_mode", value=changes["multi_agent_mode"])
     if changes:
         update_session_config(session_id, **changes)
     public = _config_of(session_id)
@@ -256,13 +254,10 @@ async def sessions_send(session_id: str, message: MessageIn, request: Request) -
 
     owned_session(request, session_id)
     if not message.text.strip() and not message.images:
-        raise HTTPException(status_code=422, detail="Empty message")
+        raise Invalid("empty_message")
     if len(message.images) > MAX_IMAGES_PER_MESSAGE:
-        raise HTTPException(status_code=422, detail=f"At most {MAX_IMAGES_PER_MESSAGE} images per message")
-    try:
-        session_images(session_id, message.images)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+        raise Invalid("too_many_images", limit=MAX_IMAGES_PER_MESSAGE)
+    session_images(session_id, message.images)
     return MessageAccepted(queued=submit_turn(TurnRequest(session_id, message.text, images=tuple(message.images))))
 
 
@@ -284,13 +279,13 @@ async def sessions_read_bubble(session_id: str, bubble: BubbleRef, request: Requ
     session = owned_session(request, session_id)
     entry = next((m for m in session.get("data", {}).get("chat_history", []) if m.get("timestamp") == bubble.timestamp), None)
     if entry is None or entry.get("role") != "assistant":
-        raise HTTPException(status_code=404, detail="No reply with this timestamp")
+        raise Missing("no_reply")
     view = load_runtime_settings()
     if not view.enable_tts:
-        raise HTTPException(status_code=409, detail="Speech output is off")
+        raise Conflict("speech_off")
     text = bubble_reading_text(entry)
     if not text:
-        raise HTTPException(status_code=422, detail="Nothing to read in this reply")
+        raise Invalid("nothing_to_read")
     with session_scope(session_id):
         await read_bubble(session_id, entry, text, view, view.ui_language)
     return Response(status_code=204)
@@ -308,10 +303,10 @@ async def sessions_regenerate_speech(session_id: str, request: Request) -> Respo
     owned_session(request, session_id)
     view = load_runtime_settings()
     if not view.enable_tts:
-        raise HTTPException(status_code=409, detail="Speech output is off")
+        raise Conflict("speech_off")
     with session_scope(session_id):
         if not reply_speech.regenerate_all(session_id, view, view.ui_language):
-            raise HTTPException(status_code=409, detail="Every reply is being read again already")
+            raise Conflict("reading_all_running")
     return Response(status_code=204)
 
 
@@ -333,24 +328,23 @@ def _pending_image(request: Request, session_id: str, name: str) -> TurnImage:
     from ..turn_images import session_images
 
     owned_session(request, session_id)
+    url = f"/_upload/images/{session_id}/{name}"
     try:
-        return session_images(session_id, [f"/_upload/images/{session_id}/{name}"])[0]
-    except ValueError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
+        return session_images(session_id, [url])[0]
+    except Invalid as error:  # the image asked for by its address: not there is a 404
+        raise Missing("not_session_image", url=url) from error
 
 
 @api_app.post("/sessions/{session_id}/images", response_model=list[UploadedImage], tags=["Sessions"])
 async def sessions_upload_images(session_id: str, files: list[UploadFile], request: Request) -> list[UploadedImage]:
     """Images for the next message: checked, made smaller like every upload, kept in the session's
     upload folder (deleted with the session). The message names them by URL."""
-    from ..vision_utils import get_image_url, save_session_upload, validate_image_file
+    from ..vision_utils import check_image_file, get_image_url, save_session_upload
 
     owned_session(request, session_id)
     uploads = [(file.filename or "image.jpg", await file.read()) for file in files]
-    for filename, content in uploads:
-        valid, error = validate_image_file(filename, len(content))
-        if not valid:
-            raise HTTPException(status_code=422, detail=error)
+    for filename, _content in uploads:
+        check_image_file(filename)
     stored = []
     for filename, content in uploads:
         stem, _, ext = filename.rpartition(".")
@@ -414,16 +408,13 @@ async def sessions_dictation(
     """A recording (``source=mic``: dictation) or an audio file (``source=file``) becomes text on the
     server (lib/dictation.py); the rest arrives on the session's event stream. ``job_id`` (a UUID)
     comes from the client, which knows it before the first event of the job."""
-    from ..dictation import DictationRejected, accept
+    from ..dictation import accept
     from ..prompt_loader import get_language
 
     owned_session(request, session_id)
     if source not in ("mic", "file"):
-        raise HTTPException(status_code=422, detail=f"Unknown source: {source}")
-    try:
-        job = accept(job_id, session_id, file.filename or "audio", await file.read(), source, get_language())
-    except DictationRejected as rejection:
-        raise HTTPException(status_code=422, detail=rejection.message) from rejection
+        raise Invalid("unknown_dictation_source", source=source)
+    job = accept(job_id, session_id, file.filename or "audio", await file.read(), source, get_language())
     return DictationAccepted(job_id=job.id)
 
 
@@ -434,7 +425,7 @@ async def sessions_dictation_answer(session_id: str, job_id: str, reply: Dictati
 
     owned_session(request, session_id)
     if not answer(session_id, job_id, reply.yes):
-        raise HTTPException(status_code=404, detail="No question of this dictation is open")
+        raise Missing("no_dictation_question")
     return Response(status_code=204)
 
 
@@ -456,7 +447,7 @@ async def sessions_dictation_text(session_id: str, dictated: DictatedText, reque
     owned_session(request, session_id)
     text = dictated.text.strip()
     if not text:
-        raise HTTPException(status_code=422, detail="Empty dictation")
+        raise Invalid("empty_dictation")
     with session_scope(session_id):
         return DictatedTextResult(sent=hand_on(session_id, text))
 

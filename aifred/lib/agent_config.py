@@ -19,6 +19,7 @@ import re
 from dataclasses import asdict, dataclass, field
 
 from .config import DATA_DIR
+from .user_error import Invalid, Missing, UserError
 
 AGENTS_FILE = DATA_DIR / "agents.json"
 
@@ -247,15 +248,15 @@ def set_agent_enabled(agent_id: str, enabled: bool) -> AgentConfig:
     """Switch an agent on or off. The base agent and the system agents are never switched off.
 
     Raises:
-        ValueError: the agent does not exist, is the base agent or a system agent
+        Missing: the agent does not exist; Invalid: it is the base agent or a system agent
     """
     config = get_agent_config(agent_id)
     if config is None:
-        raise ValueError(f"Agent '{agent_id}' not found")
+        raise Missing("unknown_agent", agent=agent_id)
     if not enabled and agent_id == BASE_AGENT:
-        raise ValueError(f"'{agent_id}' is the base agent: it is never switched off")
+        raise Invalid("base_agent_stays_on", agent=config.display_name)
     if config.role == ROLE_SYSTEM:
-        raise ValueError(f"'{agent_id}' is a system agent: it is not switched on or off")
+        raise Invalid("system_agent_no_switch", agent=config.display_name)
     return update_agent(agent_id, {"enabled": enabled})
 
 
@@ -355,15 +356,15 @@ def create_agent(
         The newly created AgentConfig
 
     Raises:
-        ValueError: If agent_id already exists or is no valid id
+        Invalid: If agent_id already exists or is no valid id
     """
     if not re.fullmatch(AGENT_ID_PATTERN, agent_id):
         # The id names the agent's prompt folder: nothing outside prompts/<lang>/, never the template.
-        raise ValueError(f"Invalid agent id '{agent_id}': lowercase letters, digits and _ only")
+        raise Invalid("agent_id_format", agent=agent_id)
 
     agents = load_agents_raw()
     if agent_id in agents:
-        raise ValueError(f"Agent '{agent_id}' already exists")
+        raise Invalid("agent_exists", agent=agent_id)
 
     # Build prompt paths for the new agent
     prompts = {
@@ -392,7 +393,7 @@ def create_agent(
     return config
 
 
-def deletion_refusal(agent_id: str) -> str | None:
+def deletion_refusal(agent_id: str) -> UserError | None:
     """Why the agent cannot be deleted, None when it can. The base agent never is, nor a system agent
     (it backs an internal workflow). Sokrates and Salomo can be once Reflex is gone: its state still
     reaches into their tuning by name (docs/de/architecture/vue-migration/README.md, step 6)."""
@@ -400,13 +401,13 @@ def deletion_refusal(agent_id: str) -> str | None:
 
     config = get_agent_config(agent_id)
     if config is None:
-        return f"Agent '{agent_id}' not found"
+        return Missing("unknown_agent", agent=agent_id)
     if agent_id == BASE_AGENT:
-        return f"'{agent_id}' is the base agent: it is never deleted"
+        return Invalid("base_agent_stays", agent=config.display_name)
     if config.role == ROLE_SYSTEM:
-        return f"'{agent_id}' is a system agent: it backs an internal workflow"
+        return Invalid("system_agent_stays", agent=config.display_name)
     if agent_id in CANONICAL_AGENTS:
-        return f"'{agent_id}' can be deleted once the Reflex interface is gone (it still needs the agent by name)"
+        return Invalid("agent_needed_by_reflex", agent=config.display_name)
     return None
 
 
@@ -414,7 +415,7 @@ def delete_agent(agent_id: str) -> None:
     """Delete an agent from config and remove prompt files from disk.
 
     Raises:
-        ValueError: the agent cannot be deleted (deletion_refusal says why)
+        UserError: the agent cannot be deleted (deletion_refusal says why)
     """
     import shutil
 
@@ -422,7 +423,7 @@ def delete_agent(agent_id: str) -> None:
 
     refusal = deletion_refusal(agent_id)
     if refusal is not None:
-        raise ValueError(refusal)
+        raise refusal
     agents = load_agents_raw()
 
     # Get prompt directory name from config before deleting
@@ -458,11 +459,11 @@ def update_agent(agent_id: str, updates: dict) -> AgentConfig:
         Updated AgentConfig
 
     Raises:
-        ValueError: If agent doesn't exist
+        Missing: If agent doesn't exist
     """
     agents = load_agents_raw()
     if agent_id not in agents:
-        raise ValueError(f"Agent '{agent_id}' not found")
+        raise Missing("unknown_agent", agent=agent_id)
 
     agents[agent_id].update(updates)
     save_agents_raw(agents)

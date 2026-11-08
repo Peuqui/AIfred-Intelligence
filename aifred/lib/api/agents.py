@@ -5,11 +5,12 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import BackgroundTasks, File, Form, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_exception, log_message
+from ..user_error import BadRequest, Invalid, Missing, NotDone, UserError
 from .app import api_app
 from .schemas import CallerName
 
@@ -73,7 +74,7 @@ async def trigger_agent(request: AgentTriggerRequest, background_tasks: Backgrou
     session_id = secrets.token_hex(16)
     channel_id = secrets.token_hex(8)
     if not create_empty_session(session_id, owner=MESSAGE_HUB_OWNER):
-        raise HTTPException(status_code=500, detail="Failed to create session")
+        raise NotDone("session_not_created")
     routing_table.set_route("webhook", channel_id, session_id)
 
     async def _run():
@@ -181,11 +182,7 @@ async def oauth_auth_url(provider: str, redirect_uri: str, scopes: str = "") -> 
     """
     from ..oauth import oauth_broker
     scope_list = [s.strip() for s in scopes.split(",") if s.strip()]
-    try:
-        url = oauth_broker.get_auth_url(provider, scope_list, redirect_uri)
-        return {"auth_url": url}
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    return {"auth_url": oauth_broker.get_auth_url(provider, scope_list, redirect_uri)}
 
 
 @api_app.delete("/oauth/{provider}")
@@ -238,13 +235,16 @@ class AgentSwitch(BaseModel):
 
 def _card(agent_id: str) -> AgentCard:
     from ..agent_config import BASE_AGENT, deletion_refusal, get_agent_config
+    from ..prompt_loader import get_language
 
     config = get_agent_config(agent_id)
     if config is None:
-        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+        raise Missing("unknown_agent", agent=agent_id)
+    refusal = deletion_refusal(agent_id)
     return AgentCard(
         id=agent_id, display_name=config.display_name, emoji=config.emoji, description=config.description,
-        enabled=config.enabled, base=agent_id == BASE_AGENT, delete_refusal=deletion_refusal(agent_id),
+        enabled=config.enabled, base=agent_id == BASE_AGENT,
+        delete_refusal=refusal.message(get_language()) if refusal else None,
     )
 
 
@@ -263,10 +263,7 @@ async def agents_switch(agent_id: str, switch: AgentSwitch) -> AgentCard:
     from ..agent_config import set_agent_enabled
 
     _card(agent_id)
-    try:
-        set_agent_enabled(agent_id, switch.enabled)
-    except ValueError as refused:
-        raise HTTPException(status_code=422, detail=str(refused)) from refused
+    set_agent_enabled(agent_id, switch.enabled)
     log_message(f"🎛️ Agent '{agent_id}' switched {'on' if switch.enabled else 'off'}")
     return _card(agent_id)
 
@@ -277,10 +274,7 @@ async def agents_delete(agent_id: str) -> Response:
     from ..agent_config import delete_agent
 
     _card(agent_id)
-    try:
-        delete_agent(agent_id)
-    except ValueError as refused:
-        raise HTTPException(status_code=422, detail=str(refused)) from refused
+    delete_agent(agent_id)
     log_message(f"🗑️ Agent '{agent_id}' deleted")
     return Response(status_code=204)
 
@@ -351,7 +345,7 @@ def _chat_agent(agent_id: str) -> "AgentConfig":
 
     config = get_agent_config(agent_id)
     if config is None or config.role == ROLE_SYSTEM:
-        raise HTTPException(status_code=404, detail=f"No chat agent '{agent_id}'")
+        raise Missing("no_chat_agent", agent=agent_id)
     return config
 
 
@@ -370,10 +364,10 @@ def _prompt_file(agent_id: str, lang: str, key: str) -> Path:
 
     config = _chat_agent(agent_id)
     if key not in config.prompts:
-        raise HTTPException(status_code=404, detail=f"'{agent_id}' has no prompt '{key}'")
+        raise Missing("no_prompt", agent=config.display_name, prompt=key)
     path = prompt_path(lang, config.prompts[key])
     if path is None:
-        raise HTTPException(status_code=422, detail=f"No prompt file for '{key}' in '{lang}'")
+        raise Invalid("no_prompt_file", prompt=key, language=lang)
     return path
 
 
@@ -461,10 +455,7 @@ async def agents_create(new: NewAgent) -> AgentCard:
     422 for an id taken or no valid folder name."""
     from ..agent_config import create_agent
 
-    try:
-        create_agent(agent_id=new.id, display_name=new.display_name, emoji=new.emoji, description=new.description)
-    except ValueError as refused:
-        raise HTTPException(status_code=422, detail=str(refused)) from refused
+    create_agent(agent_id=new.id, display_name=new.display_name, emoji=new.emoji, description=new.description)
     log_message(f"✨ Agent '{new.id}' created")
     return _card(new.id)
 
@@ -481,17 +472,15 @@ async def export_agents_endpoint(ids: str) -> Response:
 
     agent_ids = [a.strip() for a in ids.split(",") if a.strip()]
     if not agent_ids:
-        raise HTTPException(status_code=400, detail="No agents selected")
+        raise BadRequest("no_agents_selected")
 
     try:
         data = export_bundle(agent_ids)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:  # noqa: BLE001 — the caller gets the reason, the log the traceback
+    except UserError:
+        raise
+    except Exception as exc:  # the voices or the archive failed: the caller gets the reason, the log the traceback
         log_exception("export_bundle failed", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise NotDone("bundle_export_failed", reason=str(exc)) from exc
 
     if len(agent_ids) == 1:
         filename = f"{agent_ids[0]}.aifred-agent.zip"
@@ -528,13 +517,9 @@ async def peek_agent_bundle(file: UploadFile = File(...)) -> dict:
     """Inspect a bundle without writing — returns the list of agents inside
     plus a flag per agent indicating whether it already exists locally.
     """
-    from ..agent_bundle import BUNDLE_READ_ERRORS, peek_bundle
+    from ..agent_bundle import peek_bundle
 
-    zip_bytes = await file.read()
-    try:
-        return peek_bundle(zip_bytes)
-    except BUNDLE_READ_ERRORS as exc:
-        raise HTTPException(status_code=400, detail=f"Bundle nicht lesbar: {exc}")
+    return peek_bundle(await file.read())
 
 
 @api_app.post("/agents/import", response_model=BundleImported, tags=["Agents"])
@@ -548,24 +533,22 @@ async def import_agents_endpoint(
     ``ids`` (comma-separated) selects which agents to import; empty means
     all agents in the bundle. ``conflict`` is one of abort|overwrite|rename.
     """
-    from ..agent_bundle import BUNDLE_READ_ERRORS, import_bundle
+    from ..agent_bundle import import_bundle
 
     if conflict not in ("abort", "overwrite", "rename"):
-        raise HTTPException(status_code=400, detail=f"Invalid conflict strategy: {conflict}")
+        raise BadRequest("conflict_strategy", value=conflict)
 
     selected = [a.strip() for a in ids.split(",") if a.strip()] or None
 
+    zip_bytes = await file.read()
     try:
-        zip_bytes = await file.read()
         effective_ids, warnings = import_bundle(
             zip_bytes, selected_ids=selected, conflict=conflict,  # type: ignore[arg-type]
         )
-    except FileExistsError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    except BUNDLE_READ_ERRORS as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:  # noqa: BLE001 — the caller gets the reason, the log the traceback
+    except UserError:
+        raise
+    except Exception as exc:  # writing the agents failed midway: the caller gets the reason, the log the traceback
         log_exception("import_bundle failed", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise NotDone("bundle_import_failed", reason=str(exc)) from exc
 
     return {"success": True, "agent_ids": effective_ids, "warnings": warnings}

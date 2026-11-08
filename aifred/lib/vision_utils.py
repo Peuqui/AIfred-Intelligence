@@ -18,6 +18,7 @@ from typing import Any
 from .config import DATA_DIR, LLAMASWAP_BACKENDS
 from .logging_utils import log_message
 from .session_storage import SESSION_ID_RE
+from .user_error import Invalid
 
 # Vision images live in two session-scoped trees:
 #   data/vigilantia/toolcall/<session>/ — on-demand camera captures
@@ -502,30 +503,14 @@ def _is_vision_model_by_name(model_name: str) -> bool:
     return is_vision
 
 
-def validate_image_file(filename: str, size_bytes: int) -> tuple[bool, str | None]:
-    """
-    Validate uploaded image file.
+IMAGE_UPLOAD_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")
 
-    Args:
-        filename: Original filename
-        size_bytes: File size in bytes (not currently used, but kept for future limits)
 
-    Returns:
-        (success, error_message) tuple
-
-    Notes:
-        - No hard file size limit (aspect ratio more important than file size)
-        - Images will be resized to max 2048px dimension
-        - Supported formats: JPG, PNG, GIF, WebP, BMP
-    """
-    # Check file extension
-    valid_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
-    ext = Path(filename).suffix.lower()
-
-    if ext not in valid_extensions:
-        return False, f"⚠️ File format not supported. Allowed: {', '.join(valid_extensions)}"
-
-    return True, None
+def check_image_file(filename: str) -> None:
+    """An uploaded image is one of the formats the upload takes (``Invalid`` else). No size limit: every upload is
+    made smaller (``save_session_upload``)."""
+    if Path(filename).suffix.lower() not in IMAGE_UPLOAD_EXTENSIONS:
+        raise Invalid("image_format", allowed=", ".join(IMAGE_UPLOAD_EXTENSIONS))
 
 
 async def get_vision_model_capabilities(backend_url: str, model_name: str) -> tuple[bool, int | None]:

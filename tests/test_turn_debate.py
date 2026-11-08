@@ -13,6 +13,7 @@ import pytest
 
 from aifred.lib import agent_config, session_events, session_storage, turn_service
 from aifred.lib.agent_tuning import default_agent_tuning
+from aifred.lib.i18n import t
 from aifred.lib.llm_pipeline import PipelineResult
 from aifred.lib.runtime_settings import RuntimeSettings
 
@@ -250,7 +251,7 @@ def test_a_seat_whose_agent_is_gone_rejects_the_turn(world: dict[str, Any]) -> N
     _mode("tribunal", debate_seats={"critic": "gibt-es-nicht"})
     _turn()
     rejected = _events("turn_rejected")
-    assert rejected[0]["reason"] == "seat" and "'gibt-es-nicht'" in rejected[0]["message"]
+    assert (rejected[0]["reason"], rejected[0]["message"]) == ("seat", t("error_critic_unfit", agent="gibt-es-nicht"))
     assert [entry["role"] for entry in _data()["chat_history"]] == ["user"]
     assert _events("agent_started") == []                  # rejected before anyone spoke
 
@@ -264,7 +265,7 @@ def test_an_answering_agent_switched_off_rejects_the_turn_out_loud(world: dict[s
     session_storage.update_session_config(SESSION, active_agent="sokrates")
     _turn()
     rejected = _events("turn_rejected")
-    assert rejected[0]["reason"] == "agent" and "Sokrates is switched off" in rejected[0]["message"]
+    assert (rejected[0]["reason"], rejected[0]["message"]) == ("agent", t("error_agent_switched_off", agent="Sokrates"))
     assert _events("agent_started") == []                  # nobody answers in its place
 
 
@@ -273,7 +274,7 @@ def test_an_agent_switched_off_takes_no_seat(world: dict[str, Any]) -> None:
     _mode("critical_review")                                # Sokrates is the default critic
     _turn()
     rejected = _events("turn_rejected")
-    assert rejected[0]["reason"] == "seat" and "switched off" in rejected[0]["message"]
+    assert (rejected[0]["reason"], rejected[0]["message"]) == ("seat", t("error_critic_unfit", agent="Sokrates"))
     assert _events("agent_started") == []
 
 

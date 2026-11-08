@@ -50,6 +50,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         # against the real definitions.
         agent_editor_mode: rx.Field[str]
         editor_agent_id: rx.Field[str]
+        ui_language: rx.Field[str]
 
         def _refresh_agent_dropdown(self) -> None: ...
         @rx.event
@@ -483,7 +484,8 @@ class MemoryBrowserMixin(rx.State, mixin=True):
     async def handle_bundle_upload(self, files: list[rx.UploadFile]) -> None:
         """Reflex on_drop callback — read ZIP, peek manifest, open modal."""
         import base64
-        from ..lib.agent_bundle import BUNDLE_READ_ERRORS, peek_bundle
+        from ..lib.agent_bundle import BundleUnreadable, peek_bundle
+        from ..lib.user_error import said
 
         if not files:
             return
@@ -497,8 +499,8 @@ class MemoryBrowserMixin(rx.State, mixin=True):
 
         try:
             info = peek_bundle(zip_bytes)
-        except BUNDLE_READ_ERRORS as exc:
-            self.bundle_import_error = f"Kein gültiges Agent-Bundle: {exc}"
+        except BundleUnreadable as exc:
+            self.bundle_import_error = said(exc, self.ui_language)
             self.bundle_import_open = True
             return
 
@@ -533,7 +535,8 @@ class MemoryBrowserMixin(rx.State, mixin=True):
     def confirm_bundle_import(self) -> None:
         """Decode the staged bundle and write the selected agents."""
         import base64
-        from ..lib.agent_bundle import BUNDLE_READ_ERRORS, import_bundle
+        from ..lib.agent_bundle import import_bundle
+        from ..lib.user_error import UserError, said
 
         if not self.bundle_import_uploaded_b64 or not self.bundle_import_selected:
             return
@@ -544,12 +547,10 @@ class MemoryBrowserMixin(rx.State, mixin=True):
                 zip_bytes,
                 selected_ids=self.bundle_import_selected,
                 conflict=self.bundle_import_conflict,  # type: ignore[arg-type]
+                lang=self.ui_language,
             )
-        except FileExistsError as exc:
-            self.bundle_import_error = str(exc)
-            return
-        except (*BUNDLE_READ_ERRORS, OSError) as exc:  # OSError: writing the agent files
-            self.bundle_import_error = f"Import fehlgeschlagen: {exc}"
+        except (UserError, OSError) as exc:  # unreadable, an agent there already, or writing the agent files
+            self.bundle_import_error = said(exc, self.ui_language)
             return
 
         for w in warnings:

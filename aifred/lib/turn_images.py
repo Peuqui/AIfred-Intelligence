@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .agent_tuning import AgentTuning
+from .user_error import Invalid
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,7 @@ def session_images(session_id: str, urls: list[str]) -> list[TurnImage]:
     """The uploaded images of the session behind ``urls``, each under its canonical URL.
 
     Raises:
-        ValueError: a URL is not an upload of this session, or its file is gone.
+        Invalid: a URL is not an upload of this session, or its file is gone.
     """
     from .vision_utils import UPLOAD_IMAGES_DIR, get_image_url, url_to_file_path
 
@@ -40,7 +41,7 @@ def session_images(session_id: str, urls: list[str]) -> list[TurnImage]:
     for url in urls:
         path = url_to_file_path(url, session_id)
         if path is None or not path.is_relative_to(UPLOAD_IMAGES_DIR.resolve()) or not path.is_file():
-            raise ValueError(f"not an image of this session: {url}")
+            raise Invalid("not_session_image", url=url)
         images.append(TurnImage(path.name, get_image_url(path), path))
     return images
 

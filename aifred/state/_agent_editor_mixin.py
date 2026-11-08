@@ -16,6 +16,7 @@ from reflex.event import EventSpec
 from ..lib.config import TTS_DEFAULT_ENGINE
 from ..lib.logging_utils import log_exception
 from ..lib.scheduler import CRON_PRESETS
+from ..lib.user_error import Invalid, UserError, said
 
 
 class AgentEditorMixin(rx.State, mixin=True):
@@ -1370,9 +1371,9 @@ class AgentEditorMixin(rx.State, mixin=True):
                     emoji=self.editor_emoji,
                     description=self._editor_description,
                 )
-            except ValueError as error:  # id taken or no valid folder name: the user sees why
+            except Invalid as error:  # id taken or no valid folder name: the user sees why
                 self.add_debug(f"\u26a0\ufe0f {error}")
-                return rx.toast.error(str(error), duration=6000)
+                return rx.toast.error(said(error, self.ui_language), duration=6000)
             self.add_debug(
                 f"\u2705 Agent '{self.editor_display_name}' created"
             )
@@ -1400,7 +1401,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         self.editor_delete_confirm = ""
         try:
             delete_agent(agent_id)
-        except ValueError as e:
+        except UserError as e:  # gone meanwhile, or an agent that stays (deletion_refusal)
             self.add_debug(f"\u26a0\ufe0f {e}")
             return None  # nothing deleted: stay on this agent
         self.add_debug(f"\U0001f5d1\ufe0f Agent '{agent_id}' deleted")

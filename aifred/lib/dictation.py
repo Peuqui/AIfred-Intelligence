@@ -30,6 +30,7 @@ from typing import Any
 from . import session_events
 from .debug_bus import debug, session_scope
 from .logging_utils import log_exception
+from .user_error import Invalid
 
 AUDIO_EXTENSIONS = (".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm")
 
@@ -50,12 +51,8 @@ def needs_review(text: str) -> bool:
     return bool(_STRUCTURED_DATA_RE.search(text.lower()))
 
 
-class DictationRejected(Exception):
-    """The upload cannot be transcribed; ``message`` says why, in the user's language."""
-
-    def __init__(self, message: str) -> None:
-        super().__init__(message)
-        self.message = message
+class DictationRejected(Invalid):
+    """The upload cannot be transcribed."""
 
 
 @dataclass
@@ -84,22 +81,20 @@ def accept(job_id: str, session_id: str, filename: str, content: bytes, source: 
     """
     from .config import AUDIO_UPLOAD_MAX_MB
     from .formatting import format_number
-    from .i18n import t
 
     try:
         job_id = uuid.UUID(job_id).hex
     except ValueError as error:
-        raise DictationRejected(f"not a job id: {job_id!r}") from error
+        raise DictationRejected("not_a_dictation_id", job=job_id) from error
     if job_id in _jobs:
-        raise DictationRejected(f"job {job_id} runs already")
+        raise DictationRejected("dictation_running")
     extension = os.path.splitext(filename)[1].lower()
     if extension not in AUDIO_EXTENSIONS:
-        raise DictationRejected(t("stt_format_unsupported", lang=lang, ext=extension or "–", allowed=", ".join(AUDIO_EXTENSIONS)))
+        raise DictationRejected("dictation_format", ext=extension or "–", allowed=", ".join(AUDIO_EXTENSIONS))
     size_mb = len(content) / (1024 * 1024)
     if size_mb > AUDIO_UPLOAD_MAX_MB:
-        raise DictationRejected(t(
-            "stt_too_large", lang=lang, size=format_number(size_mb, 1), limit=format_number(AUDIO_UPLOAD_MAX_MB, 0),
-        ))
+        raise DictationRejected("dictation_too_large", size=format_number(size_mb, 1),
+                                limit=format_number(AUDIO_UPLOAD_MAX_MB, 0))
     with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as upload:
         upload.write(content)
     size_display = f"{format_number(len(content) / 1024, 0)} KB" if size_mb < 1 else f"{format_number(size_mb, 1)} MB"

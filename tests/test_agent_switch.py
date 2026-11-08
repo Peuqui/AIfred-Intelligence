@@ -17,6 +17,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from aifred.lib import agent_config
+from aifred.lib.i18n import t
 
 PROBE = "probe_agent"   # an agent of this test; its prompt folder does not exist
 
@@ -51,8 +52,9 @@ def _switch_off(agents_file: Path, agent: str) -> None:
 def test_the_cards_show_every_chat_agent_and_what_may_be_deleted(client: TestClient) -> None:
     cards = {card["id"]: card for card in client.get("/agents").json()}
     assert "vision" not in cards and "calibration" not in cards                 # system agents
-    assert cards["aifred"]["base"] and "base agent" in cards["aifred"]["delete_refusal"]
-    assert "Reflex" in cards["sokrates"]["delete_refusal"] and "Reflex" in cards["salomo"]["delete_refusal"]
+    assert cards["aifred"]["base"] and cards["aifred"]["delete_refusal"] == t("error_base_agent_stays", agent="AIfred")
+    assert cards["sokrates"]["delete_refusal"] == t("error_agent_needed_by_reflex", agent="Sokrates")
+    assert cards["salomo"]["delete_refusal"] == t("error_agent_needed_by_reflex", agent="Salomo")
     assert cards[PROBE]["delete_refusal"] is None and all(card["enabled"] for card in cards.values())
 
 
@@ -74,7 +76,7 @@ def test_an_agent_switched_off_vanishes_from_every_choice(client: TestClient) ->
 
 def test_the_base_agent_and_a_system_agent_stay_on(client: TestClient) -> None:
     refused = client.patch("/agents/aifred", json={"enabled": False})
-    assert refused.status_code == 422 and "base agent" in refused.json()["detail"]
+    assert (refused.status_code, refused.json()["detail"]) == (422, t("error_base_agent_stays_on", agent="AIfred"))
     assert client.patch("/agents/vision", json={"enabled": False}).status_code == 422
     assert client.patch("/agents/gibt_es_nicht", json={"enabled": False}).status_code == 404
 
@@ -82,9 +84,10 @@ def test_the_base_agent_and_a_system_agent_stay_on(client: TestClient) -> None:
 def test_deleting_takes_the_agent_away_and_refuses_with_the_reason(client: TestClient) -> None:
     assert client.delete(f"/agents/{PROBE}").status_code == 204
     assert PROBE not in [card["id"] for card in client.get("/agents").json()]
-    for agent, reason in (("aifred", "base agent"), ("sokrates", "Reflex"), ("vision", "system agent")):
+    for agent, key in (("aifred", "base_agent_stays"), ("sokrates", "agent_needed_by_reflex"), ("vision", "system_agent_stays")):
         refused = client.delete(f"/agents/{agent}")
-        assert refused.status_code == 422 and reason in refused.json()["detail"]
+        expected = t(f"error_{key}", agent=agent_config.agent_display_name(agent))
+        assert (refused.status_code, refused.json()["detail"]) == (422, expected)
     assert client.delete(f"/agents/{PROBE}").status_code == 404
 
 

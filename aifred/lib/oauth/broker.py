@@ -29,6 +29,7 @@ import httpx
 from cryptography.fernet import Fernet
 
 from ..config import DATA_DIR
+from ..user_error import Missing
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,7 @@ class OAuthBroker:
     def get_auth_url(self, provider_name: str, scopes: list[str], redirect_uri: str) -> str:
         """Generate an authorization URL.  State token is stored for CSRF check."""
         if provider_name not in self._providers:
-            raise KeyError(f"Unknown OAuth provider: {provider_name}")
+            raise Missing("unknown_oauth_provider", provider=provider_name)
         state = secrets.token_urlsafe(32)
         self._pending[state] = (provider_name, time.time() + _STATE_TTL_SECONDS, redirect_uri)
         self._purge_expired_states()
