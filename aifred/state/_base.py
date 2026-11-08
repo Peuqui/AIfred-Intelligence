@@ -55,7 +55,6 @@ _global_backend_state: dict[str, Any] = {
     "aifred_model": None,
     "automatik_model": None,
     "available_models": [],
-    "gpu_info": None,
 }
 
 # Lock to prevent race conditions during backend initialization

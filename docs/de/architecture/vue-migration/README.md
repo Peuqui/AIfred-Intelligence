@@ -332,6 +332,15 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   an der Testinstanz ohne Start, Reflex-Rendering unverändert. **Offen: ein echter Lauf** (stoppt llama-swap,
   belegt alle Karten; der Ollama-Dienst ist auf dem Mini aus) — in Peuquis Zeitfenster, am besten ein kleines GGUF
   unter llama.cpp mit „Kein VLM | Kein TTS“, danach eine TTS-Zelle und ein Abbruch.
+- **Server-Start in lib (Vorarbeit für Schritt 6, 08.11.2026):** `lib/server_startup.py` hält, was AIfred einmal je
+  Prozess startet (`start_process_tasks`: Debug-Log, Plattform, die Aufräum-Tasks, Audio-Index, Vision-Prewarm im
+  Live-Modus, GPU-Erkennung, Ollama leeren), und die Lifespans `session_events_lifespan`, `message_hub_lifespan` (Hub,
+  Scheduler, Vigilantia-Autostart) und `service_status_lifespan`, vorher in `aifred.py`. Reiner Umzug: Reflex ruft
+  `start_process_tasks` weiter beim ersten Seitenaufruf, registriert dieselben Lifespans; Rendering unverändert. Die
+  GPU-Info liest die Sitzung aus `gpu_detection.server_gpu_info` statt aus `_global_backend_state`. Für Schritt 6
+  offen: Der Server ohne Reflex muss `start_process_tasks` im Lifespan rufen (heute laufen diese Tasks erst, wenn
+  jemand die Reflex-Seite öffnet); die Testinstanz darf das nicht, weil etwa das Aufräumen des vLLM-Compile-Caches
+  mit den leeren Betriebspunkten des Worktrees die Caches der Produktion als verworfen ansähe.
 - **Temperatur nur noch von Hand (erledigt 07.11.2026, Peuqui):** Jeder Agent antwortet mit seiner
   eigenen Temperatur (`agent_settings.resolve_agent_temperature`); der Modus auto, die Temperaturen je
   Absicht (`INTENT_TEMPERATURE_*`) und der Aufschlag für Sokrates und Salomo (`temperature_offset`) sind

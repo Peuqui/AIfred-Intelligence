@@ -1215,96 +1215,14 @@ from .lib.upload_files import mount_upload_folders
 
 mount_upload_folders(app._api)
 
-# ---------------------------------------------------------------------------
-# Message Hub — background workers for channel listeners (email, discord, …)
-# ---------------------------------------------------------------------------
-import contextlib
+# Lifespans (lib/server_startup.py): the session events' loop, the Message Hub with scheduler and Vigilantia, the
+# service status.
+from .lib.server_startup import (
+    message_hub_lifespan,
+    service_status_lifespan,
+    session_events_lifespan,
+)
 
-
-@contextlib.asynccontextmanager
-async def _message_hub_lifespan():
-    """Start Message Hub on ASGI startup, stop on shutdown.
-
-    This handles the initial start. on_load() provides a safety net
-    for Granian worker respawns where the lifespan doesn't re-run.
-    """
-    from .lib.config import MESSAGE_HUB_OWNER
-    from .lib.message_hub import message_hub, register_channel_workers
-    from .lib.scheduler import scheduler_loop
-
-    if not MESSAGE_HUB_OWNER:
-        raise RuntimeError(
-            "MESSAGE_HUB_OWNER is not set — add MESSAGE_HUB_OWNER=<your AIfred "
-            "username> to .env (the account that owns Message-Hub sessions)"
-        )
-    register_channel_workers(message_hub)
-    if not message_hub.is_running("scheduler"):
-        message_hub.register("scheduler", scheduler_loop)
-    await message_hub.start_all()
-    # Vigilantia: Hintergrund-Watcher für Quellen mit auto_start=True.
-    # Läuft unabhängig vom Browser-Tab — solange der AIfred-Service da
-    # ist, ist die Detection scharf.
-    try:
-        from .lib.vision_autostart import (
-            ensure_schedule_supervisor,
-            start_all_background_watchers,
-        )
-        await start_all_background_watchers()
-        # Dauer-Supervisor: startet/stoppt die Watcher an den Pro-Kamera-
-        # Zeitfenster-Grenzen (z.B. Stopp um 06:00). Lief bisher nie, weil
-        # nur start_all aufgerufen wurde — Kameras blieben nach Fenster-Ende
-        # scharf. Idempotent (Granian-Respawn-sicher).
-        ensure_schedule_supervisor()
-    except Exception as e:  # Vigilantia must not keep AIfred from starting; logged
-        import logging
-        logging.getLogger(__name__).warning(
-            "vigilantia autostart failed: %s", e, exc_info=True,
-        )
-    try:
-        yield
-    finally:
-        from .lib.logging_utils import log_exception
-        await message_hub.stop_all()
-        try:
-            from .lib.vision_watcher import get_default_watcher
-            await get_default_watcher().shutdown()
-        except Exception as exc:  # noqa: BLE001 — shutting down: the camera logout below must still run
-            log_exception("Shutdown: vision watcher", exc)
-        # Geteilte Kamera-Snap-/AI-Clients sauber abmelden (Reolink-Logout →
-        # gibt die Session frei). Gegen Token-Leaks bei Service-Neustarts,
-        # die sonst das „max session"-Kontingent der Kamera füllen.
-        try:
-            from .lib.vision_snap import close_clients
-            await close_clients()
-        except Exception as exc:  # noqa: BLE001 — shutting down: logged, nothing else depends on it
-            log_exception("Shutdown: camera clients", exc)
-
-
-@contextlib.asynccontextmanager
-async def _service_status_lifespan():
-    """Hold llama-swap's event stream and read STT/TTS state, for the page's status line."""
-    import asyncio
-
-    from .lib.service_status import get_monitor
-
-    task = asyncio.create_task(get_monitor().run())
-    try:
-        yield
-    finally:
-        task.cancel()
-
-
-@contextlib.asynccontextmanager
-async def _session_events_lifespan():
-    """The event hub belongs to this loop; publishes from the hub thread are handed over to it."""
-    import asyncio
-
-    from .lib import session_events
-
-    session_events.bind_home_loop(asyncio.get_running_loop())
-    yield
-
-
-app.register_lifespan_task(_session_events_lifespan)
-app.register_lifespan_task(_message_hub_lifespan)
-app.register_lifespan_task(_service_status_lifespan)
+app.register_lifespan_task(session_events_lifespan)
+app.register_lifespan_task(message_hub_lifespan)
+app.register_lifespan_task(service_status_lifespan)

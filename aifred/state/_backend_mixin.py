@@ -9,20 +9,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 
-import os
-import subprocess
 import uuid
 
 import reflex as rx
 
-from ..lib.logging_utils import initialize_debug_log, log_exception, log_message
+from ..lib.logging_utils import log_exception, log_message
 from ..lib import config
 from ..lib.config import (
     CLOUD_API_PROVIDERS,
 )
 from ..backends.cloud_api import is_cloud_api_configured
 from ..lib.gpu_utils import total_actual_vram_gb
-from ..lib.stt_client import get_default_client as get_stt_client
 
 if TYPE_CHECKING:
     from ..lib.agent_tuning import AgentTuning
@@ -265,108 +262,8 @@ class BackendMixin(rx.State, mixin=True):
                     print("🚀 FIRST-TIME SERVER INITIALIZATION...")
                     print("=" * 60)
 
-                    initialize_debug_log(force_reset=False)
-
-                    import platform
-                    kernel = platform.release()
-                    is_wsl = "microsoft" in kernel.lower()
-                    is_windows = os.name == "nt"
-                    if is_wsl:
-                        env_label = "WSL2 (WDDM — VRAM swapping possible)"
-                    elif is_windows:
-                        env_label = "Windows (WDDM — VRAM swapping possible)"
-                    else:
-                        env_label = "Native Linux (no VRAM swapping)"
-                    log_message(f"🖥️ Platform: {platform.system()} {kernel} — {env_label}")
-
-
-                    # Audio state cleanup task
-                    import asyncio as _asyncio
-                    from ..lib.audio_state import cleanup_audio_state_task
-                    _asyncio.create_task(cleanup_audio_state_task())
-
-                    # Vision pre-warm: when vision_mode is "live" the VLM
-                    # is supposed to stay resident in VRAM. Fire-and-forget
-                    # because the load can take seconds and we don't want
-                    # to block server startup behind it. On-demand mode
-                    # deliberately skips this — the whole point of
-                    # on-demand is lazy loading.
-                    from ..lib.vision_prewarm import get_vision_mode, prewarm_vlm
-                    if get_vision_mode() == "live":
-                        log_message("🎥 Vision pre-warm: starting (mode=live)")
-                        _asyncio.create_task(prewarm_vlm())
-
-                    # Lookup-Cache cleanup task (Speculative-Decoding-Caches einsammeln)
-                    from ..lib.lookup_cache_cleanup import cleanup_lookup_cache_task
-                    _asyncio.create_task(cleanup_lookup_cache_task())
-
-                    # Vision cleanup task — räumt alte Face-Crops, Motion-
-                    # Frames und Vision-DB-Events auf, TTL aus
-                    # plugins/tools/vision/settings.json face_recognition.retention_days.
-                    from ..lib.vision_cleanup import cleanup_vision_task
-                    _asyncio.create_task(cleanup_vision_task())
-
-                    # Audit-Log cleanup task — prunt die append-only tool_audit-
-                    # Tabelle (SECURITY_AUDIT_RETENTION_DAYS) am selben Slot.
-                    from ..lib.security import cleanup_audit_log_task
-                    _asyncio.create_task(cleanup_audit_log_task())
-
-                    # vLLM-Compile-Cache cleanup task — Artefakte geloeschter
-                    # Modelle und verworfener Betriebspunkte (Alter oder
-                    # Obergrenze, siehe VLLM_PRODUCTION_CACHE_*) am selben Slot.
-                    from ..lib.calibration.vllm_probe import cleanup_vllm_compile_cache_task
-                    _asyncio.create_task(cleanup_vllm_compile_cache_task())
-
-                    # Audio index incremental sync (only for sources already populated)
-                    from ..lib.audio_index import sync_audio_index_task
-                    _asyncio.create_task(sync_audio_index_task())
-
-                    # Whisper STT: Docker container (started on demand or always-on)
-                    if get_stt_client().is_ready():
-                        log_message("✅ Whisper: Docker service ready")
-                    else:
-                        log_message("⚠️ Whisper: Docker service not running (will start on first STT request)")
-
-                    # GPU Detection (once per server)
-                    log_message("🔍 Detecting GPU capabilities...")
-                    try:
-                        from ..lib.gpu_detection import server_gpu_info
-                        gpu_info = server_gpu_info()
-                        if gpu_info:
-                            _global_backend_state["gpu_info"] = gpu_info
-
-                            total_vram_gb = total_actual_vram_gb(gpu_info)
-
-                            unique_names = list(dict.fromkeys(gpu_info.all_gpu_names))
-                            if gpu_info.gpu_count == 1:
-                                log_message(f"✅ GPU: {gpu_info.name} (Compute {gpu_info.compute_capability}, {total_vram_gb} GB)")
-                            elif len(unique_names) == 1:
-                                log_message(f"✅ GPU: {gpu_info.gpu_count}x {gpu_info.name} (Compute {gpu_info.compute_capability}, {total_vram_gb} GB total)")
-                            else:
-                                log_message(f"✅ GPU: {' + '.join(unique_names)} ({total_vram_gb} GB total)")
-
-                            if gpu_info.unsupported_backends:
-                                log_message(f"⚠️ Incompatible backends: {', '.join(gpu_info.unsupported_backends)}")
-                            if gpu_info.warnings:
-                                for warning in gpu_info.warnings[:2]:
-                                    log_message(f"⚠️ {warning}")
-                        else:
-                            log_message("ℹ️ No GPU detected or nvidia-smi not available")
-                    except (subprocess.CalledProcessError, ImportError, RuntimeError) as e:
-                        log_message(f"⚠️ GPU detection failed: {e}")
-
-                    # Unload all Ollama models to ensure clean VRAM slate
-                    try:
-                        from ..backends.ollama import OllamaBackend
-                        ollama = OllamaBackend()
-                        _success, unloaded = await ollama.unload_all_models(wait_for_stability=False)
-                        if unloaded:
-                            log_message(f"🧹 Startup: Unloaded {len(unloaded)} model(s) from VRAM: {', '.join(unloaded)}")
-                        else:
-                            log_message("🧹 Startup: No models to unload (VRAM clean)")
-                        await ollama.client.aclose()
-                    except (RuntimeError, OSError) as e:
-                        log_message(f"ℹ️ Ollama not available for startup cleanup: {e}")
+                    from ..lib.server_startup import start_process_tasks
+                    await start_process_tasks()
 
                     # Start Message Hub (channel listeners, scheduler)
                     from ..lib.message_hub import message_hub, register_channel_workers
@@ -487,8 +384,9 @@ class BackendMixin(rx.State, mixin=True):
                 if not self.session_id:
                     self.session_id = str(uuid.uuid4())
 
-                # Restore GPU info from global state
-                gpu_info = _global_backend_state.get("gpu_info")
+                # GPU info of this server (detected once, lib/gpu_detection.server_gpu_info)
+                from ..lib.gpu_detection import server_gpu_info
+                gpu_info = server_gpu_info()
                 if gpu_info:
                     self.gpu_detected = True
                     self.gpu_name = gpu_info.name
