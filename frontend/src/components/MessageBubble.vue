@@ -97,15 +97,16 @@ header { font-size: 0.8rem; font-weight: 600; color: var(--aifred-primary); marg
    bubble, at most so high (config.py, theme.css) with a scrollbar of its own; its title line sticks at its top. A
    sandbox page keeps its own height and no frame. */
 .content :deep(details) {
-  background: var(--aifred-input-bg);
-  border: 1px solid var(--aifred-border);
+  background: var(--aifred-collapsible-bg);
+  border: 1px solid var(--aifred-border-light);
   border-radius: 6px;
   padding: 0 0.75em 0.5em;
   margin: 0.4em 0 1em;
   max-height: var(--thinking-max-height-desktop);
   overflow-y: auto;
 }
-.content :deep(details > summary) { padding: 6px 0 !important; color: var(--aifred-text-secondary); }
+/* The title line carries input_bg in the answer's HTML (formatting.py); only !important brings it to the box's colour. */
+.content :deep(details > summary) { padding: 6px 0 !important; color: var(--aifred-text-secondary); background: var(--aifred-collapsible-bg) !important; }
 .content :deep(details[data-sandbox]) { max-height: var(--sandbox-max-height); overflow: hidden; background: transparent; border: none; padding: 0; }
 .content :deep(.thinking-compact) { color: var(--aifred-text-soft); }
 .content :deep(details a) { color: var(--aifred-accent-cyan); }

@@ -17,6 +17,7 @@ COLORS = {
     "page_bg": "#0d1117",        # Seite, Debug-Konsole (darkest)
     "card_bg": "#161b22",        # Karten, Chat-Bubble der KI, Popups, eingelassene Flächen
     "input_bg": "#21262d",       # Eingaben, User-Bubble, erhöhte Flächen (Zeilen, Pillen)
+    "collapsible_bg": "#2b323c",  # Aufklappbereich in einer Antwort (Denkprozess, Quellen): deutlich heller als die Bubble
     "media_bg": "#000000",       # Hinter Bildern, Videos und Frames
     "backdrop": "rgba(0, 0, 0, 0.85)",  # Abdunkelung hinter einem Dialog über dem Bild (Zuschnitt)
 
