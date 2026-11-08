@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .base import BaseTool, RateLimitError, APIKeyMissingError
 from ..logging_utils import log_exception
-from .url_utils import deduplicate_urls, deduplicate_urls_with_metadata
+from .url_utils import deduplicate_urls_with_metadata
 
 # Logging Setup
 logger = logging.getLogger(__name__)
@@ -388,128 +388,19 @@ class MultiAPISearchTool(BaseTool):
             return "empty"  # reached server, just no hits
         return str(result.get("error_type", "http"))  # 'network' or 'http'
 
-    def execute(self, query: str, **kwargs) -> dict:
-        """
-        Execute search in PARALLEL - collect URLs from ALL APIs!
-
-        Parallel Execution: All APIs start simultaneously.
-        Collect All: Wait for all APIs, collect all URLs.
-        Deduplication: Remove duplicate URLs (www, trailing slash, etc.)
-        """
-        if not self.apis:
-            logger.error("❌ No Search APIs configured!")
-            return {
-                'success': False,
-                'source': 'Multi-API Search',
-                'query': query,
-                'related_urls': [],
-                'error': 'No Search APIs available'
-            }
-
-        logger.info(f"🚀 Parallel Search: {len(self.apis)} APIs simultaneously")
-
-        # Parallel Execution - Collect ALL results
-        all_urls = []
-        successful_apis = []
-        failed_apis = []
-        network_failures = 0  # APIs that never reached a server (DNS/conn/timeout)
-        server_reached = 0    # APIs that got an answer (hits, empty, or HTTP error)
-
-        with ThreadPoolExecutor(max_workers=len(self.apis)) as executor:
-            # Start all APIs in parallel
-            future_to_api = {
-                executor.submit(api.execute, query, **kwargs): api
-                for api in self.apis
-            }
-
-            # Collect results from ALL APIs
-            for future in as_completed(future_to_api):
-                api = future_to_api[future]
-                try:
-                    result = future.result(timeout=15)  # Max 15s per API
-                    kind = self._outcome_kind(result)
-
-                    if kind == "urls":
-                        urls = result['related_urls']
-                        logger.info(f"✅ {api.name}: {len(urls)} URLs found")
-                        all_urls.extend(urls)
-                        successful_apis.append(api.name)
-                        server_reached += 1
-                    elif kind == "network":
-                        logger.warning(f"⚠️ {api.name}: unreachable ({result.get('error')})")
-                        failed_apis.append((api.name, "network"))
-                        network_failures += 1
-                    else:  # 'empty' or 'http' — server answered
-                        logger.warning(f"⚠️ {api.name}: No URLs found")
-                        failed_apis.append((api.name, "No URLs"))
-                        server_reached += 1
-
-                except RateLimitError as e:
-                    logger.warning(f"⚠️ {api.name}: {e}")
-                    failed_apis.append((api.name, str(e)))
-                    server_reached += 1  # 429 means the server did answer
-
-                except APIKeyMissingError as e:
-                    logger.warning(f"⚠️ {api.name}: {e}")
-                    failed_apis.append((api.name, str(e)))  # config issue, neither
-
-                except TimeoutError:
-                    logger.error(f"❌ {api.name}: timed out")
-                    failed_apis.append((api.name, "timeout"))
-                    network_failures += 1  # never completed
-
-                except Exception as e:  # noqa: BLE001 — one broken API must not stop the others; not an outage
-                    log_exception(f"Web search: {api.name} failed", e)
-                    failed_apis.append((api.name, str(e)))
-
-        # At least one API successful?
-        if not all_urls:
-            logger.error("❌ All Search APIs failed!")
-            error_summary = ", ".join([f"{name}: {err}" for name, err in failed_apis])
-            response = {
-                'success': False,
-                'source': 'Multi-API Search',
-                'query': query,
-                'related_urls': [],
-                'error': f'All APIs failed. Details: {error_summary}'
-            }
-            # Pure network outage: no server was ever reached, yet at least one
-            # API failed on the network. Flag it so callers report "offline"
-            # instead of "no results" (which the agent would treat as fact).
-            if network_failures > 0 and server_reached == 0:
-                response['error_type'] = 'network'
-            return response
-
-        # Deduplication
-        unique_urls = deduplicate_urls(all_urls)
-
-        logger.info(f"🔄 Collected: {len(all_urls)} URLs from {len(successful_apis)} APIs → {len(unique_urls)} unique URLs")
-
-        return {
-            'success': True,
-            'source': 'Multi-API Search',
-            'apis_used': successful_apis,
-            'query': query,
-            'related_urls': unique_urls,
-            'stats': {
-                'total_urls': len(all_urls),
-                'unique_urls': len(unique_urls),
-                'duplicates_removed': len(all_urls) - len(unique_urls),
-                'successful_apis': len(successful_apis),
-                'failed_apis': len(failed_apis)
-            }
-        }
+    def query_assignments(self, queries: list[str]) -> list[tuple[str, BaseTool]]:
+        """Which API searches which query: one query goes to every API; several are distributed 1:1 in
+        the order of ``self.apis``, round-robin when there are more queries than APIs."""
+        if len(queries) == 1:
+            return [(queries[0], api) for api in self.apis]
+        return [(query, self.apis[i % len(self.apis)]) for i, query in enumerate(queries)]
 
     def execute_multi_query(self, queries: list[str], **kwargs) -> dict:
         """
-        Distribute multiple queries across available APIs (1:1 mapping)
+        Search the queries in parallel and collect the hits of every API, with titles and snippets (the URL
+        ranking reads them; until 08.11.2026 a single query went through a second method that dropped them).
 
-        Query 1 → API 1 (Tavily)
-        Query 2 → API 2 (Brave)
-        Query 3 → API 3 (SearXNG)
-
-        If more queries than APIs: Round-Robin (Query 4 → API 1, etc.)
-        If fewer queries than APIs: Only the first N APIs are used
+        Who searches what: ``query_assignments``.
 
         Args:
             queries: List of search queries (typically 1-3)
@@ -542,12 +433,9 @@ class MultiAPISearchTool(BaseTool):
 
         logger.info(f"🚀 Multi-Query Search: {num_queries} Queries → {num_apis} APIs")
 
-        # Create Query-API mapping (Round-Robin when more queries than APIs)
-        query_api_pairs = []
-        for i, query in enumerate(queries):
-            api = self.apis[i % num_apis]  # Round-Robin
-            query_api_pairs.append((query, api))
-            logger.info(f"   Query {i+1} → {api.name}: {query[:50]}...")
+        query_api_pairs = self.query_assignments(queries)
+        for query, api in query_api_pairs:
+            logger.info(f"   {api.name}: {query[:50]}...")
 
         # Parallel Execution
         all_urls = []
