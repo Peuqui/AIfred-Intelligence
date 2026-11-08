@@ -225,9 +225,9 @@ async def prewarm_vlm(
 
 
 async def is_vlm_loaded(model: str | None = None, host: str | None = None) -> bool:
-    """Prüft via Ollama ``/api/ps`` ob das angegebene Modell aktuell
-    im VRAM liegt. Ohne ``model``-Arg wird der konfigurierte VLM aus
-    settings.json genommen.
+    """Liegt das Modell gerade im VRAM? Ein Modell mit ``-visiond``-Profil läuft als Describer von
+    llama-swap (dorthin lädt es :func:`prewarm_vlm`): geladen, wenn eine seiner Platzierungen geladen ist;
+    jedes andere fragt Ollama (``/api/ps``). Ohne ``model`` das konfigurierte VLM.
 
     Wird vom Load/Unload-Toggle in der UI gerufen, um den Initial-
     Status zu setzen — sonst weiß die UI nicht, ob das Modell vor
@@ -235,6 +235,10 @@ async def is_vlm_loaded(model: str | None = None, host: str | None = None) -> bo
     target = model or get_active_vlm_model()
     if not target:
         return False
+    from .vision_routing import loaded_describer_placements
+    placements = await asyncio.to_thread(loaded_describer_placements, target)
+    if placements is not None:
+        return bool(placements)
     try:
         from ollama import AsyncClient
     except ImportError as e:
@@ -266,15 +270,24 @@ def prewarm_vlm_sync(**kwargs: Any) -> bool:
 
 
 async def unload_vlm_model(model: str, host: str | None = None) -> bool:
-    """Aus dem Ollama-VRAM entfernen. Wird beim Modell-Wechsel im
-    Settings-/Popup-Header gerufen, damit das alte Modell nicht
-    parallel zum neuen geladen bleibt.
+    """Aus dem VRAM entfernen: ein Modell mit ``-visiond``-Profil, indem llama-swap jede geladene Platzierung
+    stoppt; jedes andere über Ollama (gleicher generate-Call wie beim Pre-Warm, aber mit ``keep_alive=0``).
+    Wird vom Power-Knopf und beim Modell-Wechsel gerufen, damit das alte Modell nicht parallel zum neuen
+    geladen bleibt.
 
-    Mechanismus: gleicher generate-Call wie beim Pre-Warm, aber mit
-    ``keep_alive=0`` — Ollama lädt das Modell sofort aus.
+    Raises:
+        ServiceControlRefused: llama-swap kennt eine Platzierung nicht, lehnt ab oder antwortet nicht.
     """
     if not model:
         return False
+    from .vision_routing import loaded_describer_placements
+    placements = await asyncio.to_thread(loaded_describer_placements, model)
+    if placements is not None:
+        from .service_control import unload_llamaswap_model
+        for profile in placements:
+            logger.info("unload_vlm_model: llama-swap stops describer %s", profile)
+            await asyncio.to_thread(unload_llamaswap_model, profile)
+        return True
     try:
         from ollama import AsyncClient
     except ImportError as e:

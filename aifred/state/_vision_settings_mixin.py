@@ -849,15 +849,15 @@ class VisionSettingsMixin(rx.State, mixin=True):
         await stop_all_background_watchers()
 
     async def _refresh_vlm_loaded(self) -> None:
-        """Status frisch von Ollama abfragen. Wird vom on_load des
-        Vorschau-Popups gerufen, damit der Power-Button den realen
-        Zustand zeigt."""
+        """Status frisch abfragen (llama-swap-Describer oder Ollama, siehe
+        ``is_vlm_loaded``). Wird vom on_load des Vorschau-Popups gerufen,
+        damit der Power-Button den realen Zustand zeigt."""
         from ..lib.vision_prewarm import is_vlm_loaded
         self.vlm_model_loaded = await is_vlm_loaded(self.vision_model_value)
 
     @rx.event
     async def toggle_vlm_model_loaded(self) -> None:
-        """Power-Toggle: Modell laden ↔ entladen via Ollama. Vor dem
+        """Power-Toggle: Modell laden ↔ entladen (llama-swap-Describer oder Ollama). Vor dem
         Toggle wird der echte Status abgefragt (idempotent — wenn der
         State falsch war, gleicht er sich aus)."""
         if self.vlm_model_busy:
@@ -879,7 +879,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 # laden — auch im on-demand-Modus, wo prewarm_vlm() sonst ein
                 # No-op ist und irreführend True zurückgibt (stiller Fallback).
                 # keep_alive_override umgeht diesen Kurzschluss; danach fragen
-                # wir den ECHTEN Ollama-Zustand ab, statt dem Return zu trauen.
+                # wir den ECHTEN Zustand ab, statt dem Return zu trauen.
                 keep_alive = str(load_vision_settings().get("vlm", {}).get("keep_alive", "30m"))
                 await prewarm_vlm(keep_alive_override=keep_alive)
                 self.vlm_model_loaded = await is_vlm_loaded(model)

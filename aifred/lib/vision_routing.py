@@ -426,6 +426,18 @@ def loaded_llamaswap_profiles() -> list[str]:
     ]
 
 
+def loaded_describer_placements(name: str) -> list[str] | None:
+    """Die Platzierungen des Describers von ``name`` (Heimat ``<base>-visiond`` oder ``-visiond-gpu<N>``), die
+    llama-swap gerade geladen hält; ``None``, wenn ``name`` kein ``-visiond``-Profil hat (dann ist es ein
+    Ollama-Modell). Blockierend (Config lesen, llama-swap fragen)."""
+    from .vlm_naming import visiond_home
+
+    home = visiond_profile_for(name)
+    if home is None:
+        return None
+    return [profile for profile in loaded_llamaswap_profiles() if visiond_home(profile) == home]
+
+
 def load_in_progress() -> str | None:
     """Warum gerade nichts Neues auf die Karten darf, ``None`` wenn doch (GPU-Orcs Ampel: ein großes
     Modell lädt, oder jemand hält die Karten frei).

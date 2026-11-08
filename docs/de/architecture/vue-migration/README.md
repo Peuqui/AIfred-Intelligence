@@ -432,8 +432,12 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   das Gesichtsmodell auf der CPU), Takt geändert, aus, Seitenwechsel und geschlossener Tab beenden die Analyse, die
   Ansicht danach wie vorher. Mit vllm-research abgestimmt (06:27) auch mit echtem Modell: Qwen3VL-4B-visiond auf
   Karte 4 (GPU-Orc), erste Beschreibung nach 13 s, über und unter dem Bild. Dabei gefunden (bestehend, Reflex und Vue):
-  Der Power-Knopf des Bildmodells (`vision_prewarm.is_vlm_loaded`/`unload_vlm_model`) fragt nur Ollama; läuft der
-  Beschreiber über ein llama-swap-Profil (`-visiond`), meldet er „nicht geladen“ und entlädt nicht.
+  Der Power-Knopf des Bildmodells (`vision_prewarm.is_vlm_loaded`/`unload_vlm_model`) fragte nur Ollama; lief der
+  Beschreiber über ein llama-swap-Profil (`-visiond`), meldete er „nicht geladen“ und entlud nicht. Behoben 08.11.2026:
+  Ein Modell mit `-visiond`-Profil gilt als geladen, wenn eine seiner Platzierungen (Heimat oder `-visiond-gpu<N>`) bei
+  llama-swap geladen ist (`vision_routing.loaded_describer_placements`), Entladen stoppt jede davon; eine Ablehnung
+  von llama-swap kommt als 409 mit Grund. Live an der Testinstanz: Laden 8,5 s (Karte 4, 7.202 MiB), Status
+  „geladen“, Entladen 0,5 s, Karte leer.
 - **Vision, Paket 3: Einstellungen (erledigt 07.11.2026):** `VisionSettings.vue` (Reiter ⚙️): das Auge (`lib/vigilantia.py`;
   scharf/unscharf startet und stoppt die Hintergrund-Wächter), Modus und Bildmodell samt Laden/Entladen, Gesichts- und
   Personenerkennung, Aufbewahrung; die Benachrichtigungs-Regeln als Tabelle Kategorie × Kanal mit Bild-Text
