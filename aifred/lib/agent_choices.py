@@ -11,6 +11,7 @@ model. The Reflex state applies them to its own fields; the server reads setting
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
@@ -357,15 +358,22 @@ async def quick_choices(view: RuntimeSettings, catalog: dict[str, str], lang: st
     """Every row of the quick choices from the settings (``view``) and the backend's models."""
     from .agent_config import get_agent_config
 
-    vision = get_agent_config("vision")
-    rows = [agent_row(view, agent, name, emoji, lang) for agent, name, emoji in chat_agents()]
-    rows.append(agent_row(view, "vision", vision.display_name if vision else "Vision", (vision.emoji if vision else "") or "📷", lang))
+    def rows() -> list[AgentChoices]:
+        vision = get_agent_config("vision")
+        listed = [agent_row(view, agent, name, emoji, lang) for agent, name, emoji in chat_agents()]
+        listed.append(agent_row(view, "vision", vision.display_name if vision else "Vision", (vision.emoji if vision else "") or "📷", lang))
+        return listed
+
+    # The rows (contexts, calibrations) and the vision options (Ollama, llama-swap, the cards) block: in a thread,
+    # or the server answers nothing else meanwhile (08.11.2026: 52 s, every page stalled behind it).
+    agent_rows = await asyncio.to_thread(rows)
     candidates = await vision_candidates(view, catalog, view.backend_url)
+    options = await asyncio.to_thread(vision_options, view, candidates)
     return QuickChoices(
-        agents=tuple(rows),
+        agents=tuple(agent_rows),
         automatik_model_id=view.automatik_model_id,
         models=tuple(ModelOption(model, label) for model, label in catalog.items()),
-        vision_models=tuple(vision_options(view, candidates)),
+        vision_models=tuple(options),
         sampling_ranges={field: SamplingRange(*limits) for field, limits in SAMPLING_RANGES.items()},
         manual_context_offered=view.backend_type == "ollama",
     )
