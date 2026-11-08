@@ -269,7 +269,8 @@ h2 { margin: 0; font-size: 1rem; }
 }
 .bubbles { display: flex; flex-direction: column; gap: 10px; zoom: calc(var(--chat-zoom) / var(--ui-zoom)); }
 .turn { display: flex; flex-direction: column; gap: 10px; }
-.turn > .pinned { position: sticky; top: -10px; z-index: 1; box-shadow: 0 4px 10px var(--aifred-page-bg); }
+/* Above the collapsibles' headers, which stick too (formatting.py writes them with z-index 2 into the answer). */
+.turn > .pinned { position: sticky; top: -10px; z-index: 3; box-shadow: 0 4px 10px var(--aifred-page-bg); }
 .streaming { align-self: flex-start; max-width: min(860px, 92%); padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light); }
 .streaming header { font-size: 0.8rem; font-weight: 600; color: var(--aifred-primary); }
 .tool { margin: 4px 0 0; font-size: 0.8rem; color: var(--aifred-accent-cyan); }
