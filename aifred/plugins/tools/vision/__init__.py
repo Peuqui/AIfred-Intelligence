@@ -38,10 +38,7 @@ from ....lib.vision_analyzer import (
     DEFAULT_NUM_CTX,
     analyze_sequence,
 )
-from ....lib.vision_filters.face_detect import (
-    get_default_detector,
-    set_default_detector_kwargs,
-)
+from ....lib.vision_filters.face_detect import get_default_detector
 from ....lib.vision_gpu_select import resolve_gpu_id
 from ....lib.vision_settings import VISION_SETTINGS_PATH, load_vision_settings
 from ....lib.vision_store import VisionStore
@@ -60,37 +57,6 @@ from ....lib.vision_watch_types import WatchConfig
 from ....lib.vision_watcher import VisionWatcher, get_default_watcher
 
 logger = logging.getLogger(__name__)
-
-def _apply_face_detector_settings() -> None:
-    """Wire face-recognition settings (provider, gpu_id, det_size) into the
-    module-level default detector. Has effect only before first use.
-
-    ``gpu_id`` accepts an integer, ``"auto"`` (selected via
-    ``vision_gpu_select.pick_vlm_gpu()`` — second-best GPU of the top
-    compute class so the chat-LLM keeps the fastest one), or ``null``
-    for CPU-only.
-    """
-    cfg = load_vision_settings().get("face_recognition", {})
-    kwargs: dict[str, Any] = {}
-    if "providers" in cfg:
-        kwargs["providers"] = list(cfg["providers"])
-    resolved = resolve_gpu_id(cfg.get("gpu_id"))
-    if resolved is None:
-        # No GPU available / disabled → drop CUDA from the provider list
-        # so onnxruntime doesn't crash trying to allocate on a missing device.
-        kwargs["providers"] = [
-            p for p in kwargs.get("providers", ["CUDAExecutionProvider", "CPUExecutionProvider"])
-            if p != "CUDAExecutionProvider"
-        ] or ["CPUExecutionProvider"]
-    else:
-        kwargs["gpu_id"] = resolved
-    if "det_size" in cfg:
-        kwargs["det_size"] = int(cfg["det_size"])
-    if "model_name" in cfg:
-        kwargs["model_name"] = str(cfg["model_name"])
-    if kwargs:
-        set_default_detector_kwargs(**kwargs)
-
 
 def _watch_config_from_settings(overrides: dict[str, Any] | None = None) -> WatchConfig:
     """``WatchConfig`` aus der Sektion ``watch`` der settings.json; was dort
@@ -230,7 +196,6 @@ class VisionPlugin:
         # versucht nicht, Bild-Operationen zu starten.
         if _vision_mode() == "off":
             return []
-        _apply_face_detector_settings()
         tools = [
             self._tool_list_sources(ctx),
             self._tool_rescan_sources(ctx),

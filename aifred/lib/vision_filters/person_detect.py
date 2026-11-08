@@ -278,25 +278,10 @@ class PersonDetector:
         return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
 
-# ── Module-level convenience singleton ────────────────────────────────
+# ── Module-level singleton ────────────────────────────────────────────
 
 _default_detector: PersonDetector | None = None
-_default_kwargs: dict[str, Any] = {}
 _default_lock = Lock()
-
-
-def set_default_detector_kwargs(**kwargs: Any) -> None:
-    """Konfiguriert den Default-Detector. Muss VOR dem ersten
-    ``get_default_detector()``-Call aufgerufen werden (z.B. in Tests)."""
-    global _default_kwargs
-    with _default_lock:
-        if _default_detector is not None:
-            logger.warning(
-                "set_default_detector_kwargs called after detector was already "
-                "instantiated — new settings will be ignored"
-            )
-            return
-        _default_kwargs = dict(kwargs)
 
 
 def get_default_detector() -> PersonDetector:
@@ -310,21 +295,17 @@ def get_default_detector() -> PersonDetector:
         return _default_detector
     with _default_lock:
         if _default_detector is None:
-            kwargs = dict(_default_kwargs)
-            if "providers" not in kwargs:
-                from ..config import PERSON_DETECT_USE_GPU
-                if PERSON_DETECT_USE_GPU:
-                    from .face_detect import _preload_cuda_runtime
-                    if _preload_cuda_runtime():
-                        kwargs["providers"] = ["CUDAExecutionProvider"]
-                        logger.info("person_detect: using CUDAExecutionProvider")
-                    else:
-                        raise RuntimeError(
-                            "PERSON_DETECT_USE_GPU=True but CUDA libs could not "
-                            "be preloaded. Check nvidia-cudnn-cu12 in venv."
-                        )
-                else:
-                    kwargs["providers"] = ["CPUExecutionProvider"]
-                    logger.info("person_detect: using CPUExecutionProvider (config default)")
-            _default_detector = PersonDetector(**kwargs)
+            from ..config import PERSON_DETECT_USE_GPU
+            if PERSON_DETECT_USE_GPU:
+                from .face_detect import _preload_cuda_runtime
+                if not _preload_cuda_runtime():
+                    raise RuntimeError(
+                        "PERSON_DETECT_USE_GPU=True but CUDA libs could not "
+                        "be preloaded. Check nvidia-cudnn-cu12 in venv."
+                    )
+                providers = ["CUDAExecutionProvider"]
+            else:
+                providers = ["CPUExecutionProvider"]
+            logger.info("person_detect: using %s", providers[0])
+            _default_detector = PersonDetector(providers=providers)
         return _default_detector

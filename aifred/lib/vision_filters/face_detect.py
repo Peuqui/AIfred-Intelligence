@@ -36,7 +36,7 @@ def _preload_cuda_runtime() -> bool:
     sie findet — ohne LD_LIBRARY_PATH-Setup wird die cuda-EP-DLL nicht
     geladen.
 
-    Nur gerufen wenn ``FACE_DETECT_USE_GPU=True`` in der config. Returnt
+    Gerufen, wenn die Gesichtserkennung CUDA nutzen soll (_detector_kwargs). Returnt
     True wenn alle nötigen Libs geladen wurden, False wenn nicht — der
     Caller entscheidet dann ob CUDA-EP überhaupt registriert wird.
 
@@ -316,81 +316,69 @@ class FaceDetector:
         return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
 
-# ── Module-level convenience singleton ────────────────────────────────
-# Settings (provider, gpu_id) können später per-Process geändert werden.
-# Tests und CPU-only Hosts setzen vor Erstaufruf:
-#   set_default_detector_kwargs(providers=["CPUExecutionProvider"])
+# ── Module-level singleton ────────────────────────────────────────────
 
 _default_detector: FaceDetector | None = None
-_default_kwargs: dict[str, Any] = {}
 _default_lock = Lock()
 
 
-def set_default_detector_kwargs(**kwargs: Any) -> None:
-    """Konfiguriert den Default-Detector. Muss VOR dem ersten
-    ``get_default_detector()``-Call aufgerufen werden, sonst wirkungslos.
+_CUDA = "CUDAExecutionProvider"
+_CPU = "CPUExecutionProvider"
 
-    Erlaubte Keys: ``model_name``, ``providers``, ``gpu_id``, ``det_size``,
-    ``min_score``, ``min_size_px``, ``roi_dedupe_iou``.
-    """
-    global _default_kwargs
-    with _default_lock:
-        if _default_detector is not None:
-            logger.warning(
-                "set_default_detector_kwargs called after detector was already "
-                "instantiated — new settings will be ignored"
-            )
-            return
-        _default_kwargs = dict(kwargs)
+
+def _detector_kwargs() -> dict[str, Any]:
+    """What the detector is built with: the vision settings (``face_recognition``: providers, gpu_id where "auto"
+    picks a card and None or no card free means the CPU, det_size, model_name), without providers there config's
+    FACE_DETECT_USE_GPU. Read when the detector is made, by whoever needs it first: until 08.11.2026 only the vision
+    plugin's tools applied the settings, and a watcher that came first after a start ran on the CPU until the next.
+    CUDA asked for and its libraries not loadable is an error, not the CPU."""
+    from ..config import (
+        FACE_DETECT_GPU_ID,
+        FACE_DETECT_MIN_SCORE,
+        FACE_DETECT_MIN_SIZE_PX,
+        FACE_DETECT_ROI_DEDUPE_IOU,
+        FACE_DETECT_USE_GPU,
+    )
+    from ..vision_gpu_select import resolve_gpu_id
+    from ..vision_settings import load_vision_settings
+
+    settings = load_vision_settings().get("face_recognition") or {}
+    kwargs: dict[str, Any] = {
+        "min_score": FACE_DETECT_MIN_SCORE, "min_size_px": FACE_DETECT_MIN_SIZE_PX, "roi_dedupe_iou": FACE_DETECT_ROI_DEDUPE_IOU,
+    }
+    if "providers" in settings:
+        providers = list(settings["providers"])
+        gpu_id = resolve_gpu_id(settings.get("gpu_id"))
+        if gpu_id is None:
+            providers = [provider for provider in providers if provider != _CUDA] or [_CPU]
+        else:
+            kwargs["gpu_id"] = gpu_id
+    elif FACE_DETECT_USE_GPU:
+        providers = [_CUDA]
+        kwargs["gpu_id"] = FACE_DETECT_GPU_ID
+    else:
+        providers = [_CPU]
+    if _CUDA in providers and not _preload_cuda_runtime():
+        raise RuntimeError(
+            "Face detection should run on CUDA, but the CUDA libraries could not be preloaded. "
+            "Check nvidia-cudnn-cu12 / nvidia-cuda-runtime-cu12 in the venv."
+        )
+    kwargs["providers"] = providers
+    if "det_size" in settings:
+        kwargs["det_size"] = int(settings["det_size"])
+    if "model_name" in settings:
+        kwargs["model_name"] = str(settings["model_name"])
+    return kwargs
 
 
 def get_default_detector() -> FaceDetector:
-    """Singleton-Detector — Provider-Liste kommt aus der config:
-
-    * ``FACE_DETECT_USE_GPU=False`` (Default): CPUExecutionProvider only,
-      GPU bleibt frei für VLM/TTS/LLMs.
-    * ``FACE_DETECT_USE_GPU=True``: lädt cuDNN/CUDA vor + nutzt
-      CUDAExecutionProvider (falls Preload klappte), sonst eindeutiger
-      Fehler — kein silent CPU-Fallback.
-
-    Explizite ``set_default_detector_kwargs(...)``-Calls vor dem Erst-
-    Aufruf überschreiben das Verhalten — z.B. für Tests."""
+    """The process's detector, built on first use with :func:`_detector_kwargs`."""
     global _default_detector
     if _default_detector is not None:
         return _default_detector
     with _default_lock:
         if _default_detector is None:
-            # Provider aus config nur dann setzen, wenn der User nichts
-            # eigenes über set_default_detector_kwargs() gesetzt hat.
-            kwargs = dict(_default_kwargs)
-            from ..config import (
-                FACE_DETECT_MIN_SCORE,
-                FACE_DETECT_MIN_SIZE_PX,
-                FACE_DETECT_ROI_DEDUPE_IOU,
-            )
-            kwargs.setdefault("min_score", FACE_DETECT_MIN_SCORE)
-            kwargs.setdefault("min_size_px", FACE_DETECT_MIN_SIZE_PX)
-            kwargs.setdefault("roi_dedupe_iou", FACE_DETECT_ROI_DEDUPE_IOU)
-            if "providers" not in kwargs:
-                from ..config import FACE_DETECT_GPU_ID, FACE_DETECT_USE_GPU
-                if FACE_DETECT_USE_GPU:
-                    if _preload_cuda_runtime():
-                        kwargs["providers"] = ["CUDAExecutionProvider"]
-                        kwargs.setdefault("gpu_id", FACE_DETECT_GPU_ID)
-                        logger.info(
-                            "face_detect: using CUDAExecutionProvider on GPU %d",
-                            FACE_DETECT_GPU_ID,
-                        )
-                    else:
-                        # GPU angefragt, aber Preload gescheitert —
-                        # eindeutiger Hinweis statt silent fallback.
-                        raise RuntimeError(
-                            "FACE_DETECT_USE_GPU=True but CUDA libs could "
-                            "not be preloaded. Check nvidia-cudnn-cu12 / "
-                            "nvidia-cuda-runtime-cu12 in venv."
-                        )
-                else:
-                    kwargs["providers"] = ["CPUExecutionProvider"]
-                    logger.info("face_detect: using CPUExecutionProvider (config default)")
+            kwargs = _detector_kwargs()
+            logger.info("face_detect: providers %s, gpu_id %s", kwargs["providers"], kwargs.get("gpu_id", "–"))
             _default_detector = FaceDetector(**kwargs)
         return _default_detector
