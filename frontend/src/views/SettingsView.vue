@@ -1,7 +1,9 @@
 <script setup lang="ts">
-// AIfred's general settings: language and the user, debate, the plugins (channels and tools with their settings).
+// AIfred's general settings: language and the user, debate, the plugins (channels and tools with their settings),
+// the local files nothing deletes by itself and the audit log.
 // Speech output has its own page (🔊), the agents' models and switches are their quick choices (🎛️ in the chat);
 // backend, calibration and restarts follow.
+import HousekeepingSettings from "../components/HousekeepingSettings.vue";
 import PluginSettings from "../components/PluginSettings.vue";
 import { t } from "../i18n";
 import { useSettings } from "../stores/settings";
@@ -52,6 +54,7 @@ function named(event: Event): void {
       </label>
     </section>
     <PluginSettings />
+    <HousekeepingSettings />
   </main>
 </template>
 

@@ -1351,5 +1351,7 @@
   "error_unknown_option": "{field}: “{value}” is not among the choices.",
   "plugin_channel_listener": "Listen",
   "plugin_needs_connection": "Connect in its settings first",
-  "plugin_password_stored": "stored — leave empty to keep it"
+  "plugin_password_stored": "stored — leave empty to keep it",
+  "error_showcase_not_copied": "{file} could not be copied into the showcase (HTML exports only).",
+  "storage_copied_to_showcase": "Copied into the showcase: {name}"
 }

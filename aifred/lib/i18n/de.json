@@ -1351,5 +1351,7 @@
   "error_unknown_option": "{field}: „{value}“ steht nicht zur Wahl.",
   "plugin_channel_listener": "Mithören",
   "plugin_needs_connection": "Erst in den Einstellungen verbinden",
-  "plugin_password_stored": "gespeichert — leer lassen, um es zu behalten"
+  "plugin_password_stored": "gespeichert — leer lassen, um es zu behalten",
+  "error_showcase_not_copied": "{file} ließ sich nicht in den Showcase übernehmen (nur HTML-Exporte).",
+  "storage_copied_to_showcase": "In den Showcase übernommen: {name}"
 }
