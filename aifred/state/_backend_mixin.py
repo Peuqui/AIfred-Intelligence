@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ..lib.config import LLAMASWAP_BACKENDS
 
 import os
 import subprocess
@@ -22,7 +21,6 @@ from ..lib.config import (
     CLOUD_API_PROVIDERS,
 )
 from ..backends.cloud_api import is_cloud_api_configured
-from ..lib.model_manager import sort_models_grouped
 from ..lib.gpu_utils import total_actual_vram_gb
 from ..lib.stt_client import get_default_client as get_stt_client
 
@@ -676,126 +674,29 @@ class BackendMixin(rx.State, mixin=True):
             self.backend_info = f"{self.backend_type} initializing..."
             self.add_debug(f"⚡ Backend: {self.backend_type} (skip health check)")
 
-            # Load models using centralized discovery module
-            from ..lib.model_discovery import discover_models
+            # The catalog of the backend (rule: backend_switch.model_catalog; starts llama-swap when it is down)
+            from ..lib.backend_switch import drop_unavailable_models, model_catalog
             try:
-                if self.backend_type in LLAMASWAP_BACKENDS:
-                    # Beide Backends sind Sichten auf denselben llama-swap-
-                    # Katalog: llamacpp zeigt die GGUF-Eintraege, vllm die
-                    # "-vllm"-Eintraege (vLLM-Checkpoints als llama-swap-
-                    # Eintraege, gestartet/gestoppt von llama-swap selbst).
-                    models_dict = discover_models(
-                        self.backend_type,
-                        backend_url=self.backend_url
-                    )
-                    if not models_dict:
-                        self.add_debug("⚠️ llama-swap not reachable, starting service...")
-                        try:
-                            import asyncio
-                            from ..lib.process_utils import start_llama_swap
-                            start_llama_swap()
-                            await asyncio.sleep(2.0)
-                            models_dict = discover_models(
-                                self.backend_type,
-                                backend_url=self.backend_url
-                            )
-                            if models_dict:
-                                self.add_debug("✅ llama-swap auto-started")
-                        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                            self.add_debug(f"⚠️ Could not start llama-swap: {e}")
-
-                    if models_dict:
-                        self.available_models_dict = models_dict
-                        self.available_models = list(self.available_models_dict.values())
-                        kind = "vLLM" if self.backend_type == "vllm" else "llama.cpp"
-                        self.add_debug(f"📂 Found {len(self.available_models)} {kind} models")
-                    else:
-                        self._clear_models_state()
-                        self.add_debug(f"⚠️ llama-swap not reachable at {self.backend_url}")
-                        self.add_debug("💡 Install llama-swap service or start manually")
-
-                elif self.backend_type == "cloud_api":
-                    provider_config = CLOUD_API_PROVIDERS.get(self.cloud_api_provider)
-                    if provider_config:
-                        self.cloud_api_key_configured = is_cloud_api_configured(self.cloud_api_provider)
-                        if self.cloud_api_key_configured:
-                            self.add_debug(f"✅ API key configured ({provider_config['env_key']})")
-                            try:
-                                from ..backends.cloud_api import CloudAPIBackend, get_cloud_api_key
-                                api_key = get_cloud_api_key(self.cloud_api_provider)
-                                temp_backend = CloudAPIBackend(
-                                    base_url=provider_config["base_url"],
-                                    api_key=api_key or "",
-                                    provider=self.cloud_api_provider
-                                )
-                                models = await temp_backend.list_models()
-                                await temp_backend.close()
-
-                                if models:
-                                    self.available_models_dict = sort_models_grouped({m: m for m in models})
-                                    self.available_models = list(self.available_models_dict.values())
-                                    self.add_debug(f"☁️ {provider_config['name']}: {len(models)} models loaded")
-                                else:
-                                    self._clear_models_state()
-                                    self.add_debug(f"⚠️ No models returned from {provider_config['name']} API")
-                            except (RuntimeError, ValueError, KeyError) as e:
-                                self._clear_models_state()
-                                self.add_debug(f"⚠️ Failed to fetch models: {e}")
-                        else:
-                            self._clear_models_state()
-                            self.add_debug(f"⚠️ API key missing: Set {provider_config['env_key']} in .env")
-                    else:
-                        self._clear_models_state()
-                        self.add_debug(f"⚠️ Unknown cloud provider: {self.cloud_api_provider}")
-
+                if self.backend_type == "cloud_api":
+                    self.cloud_api_key_configured = is_cloud_api_configured(self.cloud_api_provider)
+                models_dict, notes = await model_catalog(self.backend_type, self.cloud_api_provider, start_service=True)
+                for note in notes:
+                    self.add_debug(note)
+                if models_dict:
+                    self.available_models_dict = models_dict
+                    self.available_models = list(models_dict.values())
                 else:
-                    # Ollama
-                    self.available_models_dict = discover_models(
-                        self.backend_type,
-                        backend_url=self.backend_url
-                    )
-                    self.available_models = list(self.available_models_dict.values())
+                    self._clear_models_state()
 
-                # Validate and sync aifred_model (model_id is always base ID)
-                self.add_debug(f"🔍 Checking: '{self.agent_tuning["aifred"].model_id}' available in {self.backend_type}?")
-
-                if self.agent_tuning["aifred"].model_id in self.available_models_dict:
-                    self.agent_tuning["aifred"].model = self._label_for("aifred", self.agent_tuning["aifred"].model_id)
-                    self.add_debug(f"✅ Model found: {self.agent_tuning["aifred"].model_id}")
-                elif self.available_models_dict:
-                    # Stale main model (not pulled / deleted). Clear it instead
-                    # of silently substituting another model — the user picks
-                    # or pulls one. The guard (available_models_dict non-empty)
-                    # means a transient backend outage never wipes the choice.
-                    self.add_debug(f"⚠️ '{self.agent_tuning["aifred"].model_id}' not in {self.backend_type} — cleared, pick a model")
-                    log_message(f"⚠️ Configured model '{self.agent_tuning["aifred"].model_id}' not available — cleared")
-                    self.agent_tuning["aifred"].model_id = ""
-                    self.agent_tuning["aifred"].model = ""
-
-                # Validate and sync automatik_model
-                if not self.automatik_model_id:
-                    pass
-                elif self.automatik_model_id in self.available_models_dict:
-                    self.automatik_model = self._label_for("automatik", self.automatik_model_id)
-                elif self.available_models_dict:
-                    log_message(f"⚠️ Configured automatik model '{self.automatik_model_id}' not found, using same as AIfred")
-                    self.automatik_model_id = ""
-                    self.automatik_model = ""
-
-                # Validate and sync secondary-agent models (Sokrates/Salomo/
-                # custom). Clearing the id to "" means "same as AIfred" (the
-                # default dropdown option). Only clear when discovery actually
-                # returned models (available_models_dict non-empty) — a
-                # transient backend outage must not wipe the choice.
+                # Saved models the backend does not offer (rule: backend_switch.drop_unavailable_models);
+                # the ones it offers show their label (the Vision agent's comes from its own catalog below).
+                for note in drop_unavailable_models(self, self.available_models_dict):
+                    self.add_debug(note)
                 for agent, tuning in self.agent_tuning.items():
-                    if agent in ("aifred", "vision"):
-                        continue
-                    if tuning.model_id and tuning.model_id in self.available_models_dict:
+                    if agent != "vision" and tuning.model_id in self.available_models_dict:
                         tuning.model = self.available_models_dict[tuning.model_id]
-                    elif tuning.model_id and self.available_models_dict:
-                        log_message(f"⚠️ Configured {agent} model '{tuning.model_id}' not available — reset to 'same as AIfred'")
-                        tuning.model_id = ""
-                        tuning.model = ""
+                if self.automatik_model_id in self.available_models_dict:
+                    self.automatik_model = self.available_models_dict[self.automatik_model_id]
 
                 self.model_count = len(self.available_models)
                 self.backend_info = f"{self.model_count} models"
@@ -856,7 +757,7 @@ class BackendMixin(rx.State, mixin=True):
 
             # Check backend capabilities for model switching
             from aifred.backends import BackendFactory
-            temp_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)  # type: ignore[assignment]
+            temp_backend = BackendFactory.create(self.backend_type, base_url=self.backend_url)
             caps = temp_backend.get_capabilities()
 
             if not caps.get("dynamic_models", True) and self.automatik_model_id and self.automatik_model_id != self.agent_tuning["aifred"].model_id:
@@ -1025,20 +926,15 @@ class BackendMixin(rx.State, mixin=True):
 
         self.add_debug(f"✅ Found {len(vision_model_ids)} vision-capable models")
 
-        # Auto-select vision_model if not set or empty
-        if (not self.agent_tuning["vision"].model_id or self.agent_tuning["vision"].model_id.strip() == "") and vision_model_ids:
-            self.agent_tuning["vision"].model_id = vision_model_ids[0]
-            self.agent_tuning["vision"].model = self._label_for("vision", self.agent_tuning["vision"].model_id)
-            self.add_debug(f"⚙️ Auto-selected vision_model: {self.agent_tuning["vision"].model_id}")
+        # The vision model when there is none or the backend lacks it (rule: backend_switch.choose_vision_model)
+        from ..lib.backend_switch import choose_vision_model
+        chosen = choose_vision_model(self, candidates)
+        for note in chosen:
+            self.add_debug(note)
+        if chosen:
             self._save_settings()
-        elif self.agent_tuning["vision"].model_id and vision_model_ids:
-            if self.agent_tuning["vision"].model_id in vision_model_ids:
-                self.agent_tuning["vision"].model = self._label_for("vision", self.agent_tuning["vision"].model_id)
-            else:
-                self.add_debug(f"⚠️ Saved vision_model '{self.agent_tuning["vision"].model_id}' not found in vision models, auto-selecting...")
-                self.agent_tuning["vision"].model_id = vision_model_ids[0]
-                self.agent_tuning["vision"].model = self._label_for("vision", self.agent_tuning["vision"].model_id)
-                self._save_settings()
+        if self.agent_tuning["vision"].model_id in candidates:
+            self.agent_tuning["vision"].model = self._label_for("vision", self.agent_tuning["vision"].model_id)
 
         if self.agent_tuning["vision"].model_id:
             from ..lib.agent_config import get_agent_label as _get_label
@@ -1052,36 +948,10 @@ class BackendMixin(rx.State, mixin=True):
     # ================================================================
 
     async def _cleanup_old_backend(self, old_backend: str, new_backend: str) -> None:
-        """Clean up resources from previous backend before switching."""
-        if old_backend == "ollama":
-            self.add_debug("🧹 Unloading Ollama models from VRAM...")
-            try:
-                from ..lib.llm_client import LLMClient
-                llm_client = LLMClient(backend_type="ollama", base_url=config.DEFAULT_OLLAMA_URL)
-                backend = llm_client._get_backend()
-
-                if hasattr(backend, 'unload_all_models'):
-                    _success, unloaded_models = await backend.unload_all_models()
-                    count = len(unloaded_models)
-                    if count > 0:
-                        self.add_debug(f"✅ Unloaded {count} Ollama model(s)")
-                    else:
-                        self.add_debug("ℹ️ No Ollama models were loaded")
-            except (RuntimeError, AttributeError) as e:
-                self.add_debug(f"⚠️ Error unloading Ollama models: {e}")
-
-        elif old_backend in LLAMASWAP_BACKENDS:
-            # Beide sind Sichten auf denselben llama-swap — beim Wechsel
-            # innerhalb der Familie laeuft der Dienst einfach weiter.
-            if new_backend in LLAMASWAP_BACKENDS:
-                self.add_debug("ℹ️ llama-swap keeps running (same service)")
-                return
-            self.add_debug("🛑 Stopping llama-swap service...")
-            from ..lib.process_utils import stop_llama_swap
-            if stop_llama_swap():
-                self.add_debug("✅ llama-swap stopped")
-            else:
-                self.add_debug("⚠️ Could not stop llama-swap")
+        """Free what the old backend holds (rule: ``backend_switch.leave_backend``)."""
+        from ..lib.backend_switch import leave_backend
+        for note in await leave_backend(old_backend, new_backend):
+            self.add_debug(note)
 
     # ================================================================
     # BACKEND SWITCHING
@@ -1118,50 +988,19 @@ class BackendMixin(rx.State, mixin=True):
 
             await self._cleanup_old_backend(old_backend, new_backend)
 
+            # The models the new backend has saved, else config.py's (rules: lib/runtime_settings); the
+            # catalog check follows in initialize_backend.
+            from ..lib.runtime_settings import apply_default_models, apply_saved_models
             from ..lib.settings import load_settings
-            settings = load_settings() or {}
-            backend_models = settings.get("backend_models", {})
-
-            target_main_model = None
-            target_auto_model = None
-            target_vision_model = None
-            target_sokrates_model = None
-            target_salomo_model = None
-
-            self.add_debug(f"🔍 Settings contains backends: {list(backend_models.keys())}")
-            if new_backend in backend_models:
-                saved_models = backend_models[new_backend]
-                target_main_model = saved_models.get("aifred")
-                target_auto_model = saved_models.get("automatik")
-                target_vision_model = saved_models.get("vision")
-                target_sokrates_model = saved_models.get("sokrates", "")
-                target_salomo_model = saved_models.get("salomo", "")
-                self.add_debug(f"📝 Loading {new_backend} from settings: AIfred={target_main_model}, Auto={target_auto_model}, Vision={target_vision_model}, Sokrates={target_sokrates_model or '(Main)'}, Salomo={target_salomo_model or '(Main)'}")
-            else:
-                default_models = config.BACKEND_DEFAULT_MODELS.get(new_backend, {})
-                target_main_model = default_models.get("aifred")
-                target_auto_model = default_models.get("automatik")
-                target_sokrates_model = default_models.get("sokrates", "")
-                target_salomo_model = default_models.get("salomo", "")
-                self.add_debug(f"📝 No settings for {new_backend}, using config.py defaults: AIfred={target_main_model}, Auto={target_auto_model}")
-
-            if target_main_model:
-                self.agent_tuning["aifred"].model = target_main_model
-                self.agent_tuning["aifred"].model_id = target_main_model
-            if target_auto_model is not None:
-                self.automatik_model = target_auto_model
-                self.automatik_model_id = target_auto_model
-            if target_vision_model:
-                self.agent_tuning["vision"].model = target_vision_model
-                self.agent_tuning["vision"].model_id = target_vision_model
-            self.agent_tuning["sokrates"].model_id = target_sokrates_model or ""
-            self.agent_tuning["sokrates"].model = target_sokrates_model or ""
-            self.agent_tuning["salomo"].model_id = target_salomo_model or ""
-            self.agent_tuning["salomo"].model = target_salomo_model or ""
-
             self.backend_type = new_backend
             self.backend_id = new_backend
             self.current_backend_label = self.available_backends_dict.get(new_backend, new_backend)
+            for tuning in self.agent_tuning.values():  # the old backend's models are no choice of the new one
+                tuning.model_id = tuning.model = ""
+            self.automatik_model_id = self.automatik_model = ""
+            had_backend_settings = apply_saved_models(self, load_settings() or {})
+            for agent, model in apply_default_models(self, had_backend_settings):
+                self.add_debug(f"📝 {agent}: config.py default {model or '(none)'}")
             _global_backend_state["_init_complete"] = False
             await self.initialize_backend()
 
@@ -1191,70 +1030,47 @@ class BackendMixin(rx.State, mixin=True):
 
     @rx.event
     async def set_cloud_api_provider(self, provider: str):
-        """Switch Cloud API provider (claude, qwen, kimi)."""
+        """Switch Cloud API provider (rules: ``backend_switch``): its catalog, AIfred's model (the first unless
+        the provider offers his), every other agent's (kept if offered, else AIfred's), the vision model."""
         if provider not in CLOUD_API_PROVIDERS:
             self.add_debug(f"⚠️ Unknown cloud provider: {provider}")
             return
 
+        from ..lib.agent_choices import vision_candidates
+        from ..lib.backend_switch import (
+            choose_cloud_main_model,
+            choose_vision_model,
+            drop_unavailable_models,
+            model_catalog,
+        )
+
         provider_config = CLOUD_API_PROVIDERS[provider]
         self.cloud_api_provider = provider
         self.cloud_api_provider_label = provider_config["name"]
-
         self.cloud_api_key_configured = is_cloud_api_configured(provider)
-
         self.add_debug(f"☁️ Switching to {provider_config['name']}...")
 
-        if self.cloud_api_key_configured:
-            self.add_debug(f"✅ API key found ({provider_config['env_key']})")
-            try:
-                from ..backends.cloud_api import CloudAPIBackend, get_cloud_api_key
-                api_key = get_cloud_api_key(provider)
-                temp_backend = CloudAPIBackend(
-                    base_url=provider_config["base_url"],
-                    api_key=api_key or "",
-                    provider=provider
-                )
-                models = await temp_backend.list_models()
-                await temp_backend.close()
-
-                if models:
-                    self.available_models_dict = {m: m for m in models}
-                    self.available_models = models.copy()
-                    self.add_debug(f"📋 {len(models)} models available")
-
-                    from ..lib.vision_utils import is_vision_model_sync
-                    vl_models = [m for m in models if is_vision_model_sync(m)]
-                    self.vision_models_cache = vl_models
-                    self.available_vision_models_list = vl_models
-                    # Cloud-API kennt kein lokales VRAM-Swap — kein Badge.
-                    self.available_vision_models_rich = [
-                        {"name": m, "badge": "", "color": ""} for m in vl_models
-                    ]
-                    if vl_models:
-                        self.add_debug(f"📷 {len(vl_models)} vision models")
-
-                    default_model = models[0]
-                    self.agent_tuning["aifred"].model = default_model
-                    self.agent_tuning["aifred"].model_id = default_model
-                    self.automatik_model = default_model
-                    self.automatik_model_id = default_model
-
-                    if vl_models:
-                        self.agent_tuning["vision"].model = vl_models[0]
-                        self.agent_tuning["vision"].model_id = vl_models[0]
-                    else:
-                        self.agent_tuning["vision"].model = ""
-                        self.agent_tuning["vision"].model_id = ""
-                else:
-                    self._clear_models_state(include_vision=True)
-                    self.add_debug("⚠️ No models returned from API")
-            except Exception as e:  # noqa: BLE001 — boundary of the backend start: the UI shows the error state, the log the traceback
-                log_exception("⚠️ Failed to fetch cloud models", e)
+        try:
+            catalog, notes = await model_catalog("cloud_api", provider)
+            for note in notes:
+                self.add_debug(note)
+            if catalog:
+                self.available_models_dict = catalog
+                self.available_models = list(catalog.values())
+                candidates = await vision_candidates(self, catalog, self.backend_url)
+                self.vision_models_cache = list(candidates)
+                self.available_vision_models_list = list(candidates.values())
+                self.available_vision_models_rich = self._build_vision_rich(self.vision_models_cache)
+                for note in [*choose_cloud_main_model(self, catalog), *drop_unavailable_models(self, catalog),
+                             *choose_vision_model(self, candidates)]:
+                    self.add_debug(note)
+                self._sync_agent_display_names()
+            else:
                 self._clear_models_state(include_vision=True)
-                self.add_debug(f"⚠️ Failed to fetch models: {e}")
-        else:
+        except Exception as e:  # noqa: BLE001 — boundary of the backend start: the UI shows the error state, the log the traceback
+            log_exception("⚠️ Failed to fetch cloud models", e)
             self._clear_models_state(include_vision=True)
-            self.add_debug(f"⚠️ Set {provider_config['env_key']} in .env")
+            self.add_debug(f"⚠️ Failed to fetch models: {e}")
 
         self._save_settings()
         yield

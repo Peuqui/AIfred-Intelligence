@@ -1,7 +1,8 @@
 """Restarting the Ollama backend reports what systemctl did.
 
 restart_service(check=True) catches the failure itself and returns False; the restart button
-ignored that and reported a success after a failed restart.
+ignored that and reported a success after a failed restart. Now backend_switch.restart_backend
+raises NotDone for it, and the Reflex button words that refusal.
 """
 
 import asyncio
@@ -29,6 +30,8 @@ class _Restarting(_StateBase):
         self.backend_switching = False
         self.backend_type = "ollama"
         self.backend_url = "http://ollama.test"
+        self.cloud_api_provider = "qwen"
+        self.ui_language = "en"
         self.debug: list[str] = []
 
     def add_debug(self, message: str) -> None:
@@ -51,8 +54,8 @@ class _OllamaUp:
         return httpx.Response(200, json={"models": []})
 
 
-SUCCESS = "✅ OLLAMA service restarted"
-FAILURE = "⚠️ OLLAMA service restart failed"
+SUCCESS = "✅ OLLAMA ready after"
+FAILURE = "❌ OLLAMA: The service of “ollama” could not be restarted (systemctl)."
 
 
 @pytest.mark.parametrize(("restarted", "reported", "not_reported"), [(True, SUCCESS, FAILURE), (False, FAILURE, SUCCESS)])
@@ -61,6 +64,7 @@ def test_the_report_follows_systemctl(
 ) -> None:
     monkeypatch.setattr(process_utils, "restart_service", lambda name, check=False: restarted)
     monkeypatch.setattr(httpx, "AsyncClient", _OllamaUp)
+    monkeypatch.setattr("aifred.lib.model_discovery.discover_models", lambda _backend, _url: {})
     monkeypatch.setattr(_base, "_global_backend_state", {})
     state = _Restarting()
 
@@ -69,5 +73,6 @@ def test_the_report_follows_systemctl(
             pass
 
     asyncio.run(run())
-    assert reported in state.debug and not_reported not in state.debug
+    assert any(line.startswith(reported) for line in state.debug)
+    assert not any(line.startswith(not_reported) for line in state.debug)
     assert state.backend_switching is False

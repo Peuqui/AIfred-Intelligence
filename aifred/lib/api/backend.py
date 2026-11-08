@@ -1,10 +1,12 @@
-"""Backend and calibration as the settings page reads them: the backend in use with the ones these GPUs can run,
-the cloud providers, the GPUs (lib/backend_overview.py), and the calibration of the models the agents run on
-with the matrix of AIfred's model (lib/calibration/matrix.py, model_info.py). Reading only; switching the
-backend and starting a calibration follow."""
+"""Backend and calibration on the settings page: the backend in use with the ones these GPUs can run, the cloud
+providers, the GPUs (lib/backend_overview.py); switching the backend and the cloud provider (lib/backend_switch.py);
+the calibration of the models the agents run on with the matrix of AIfred's model (lib/calibration/matrix.py,
+model_info.py). Restarting the backend's service is a system endpoint (api/system.py)."""
 
 import asyncio
 from dataclasses import dataclass
+
+from pydantic import BaseModel, ConfigDict
 
 from ..backend_overview import BackendOverview
 from ..calibration.matrix import CalibrationMatrix
@@ -27,11 +29,41 @@ class CalibrationOverview:
     models: tuple[ModelInUse, ...]
 
 
+class BackendChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    backend_type: str
+
+
+class CloudProviderChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider: str
+
+
 @api_app.get("/backend", response_model=BackendOverview, tags=["Backend"])
 async def backend() -> BackendOverview:
     from ..backend_overview import backend_overview
 
     return await asyncio.to_thread(backend_overview)
+
+
+@api_app.put("/backend", response_model=BackendOverview, tags=["Backend"])
+async def backend_switch(change: BackendChange) -> BackendOverview:
+    """Switch the backend: the old one frees its models (llama-swap stops when the new one is none of its family),
+    the new one's saved models are checked against its catalog. Answers when done (a start of llama-swap takes a
+    minute). 422 for a backend these GPUs cannot run, 409 while a switch or a calibration runs."""
+    from ..backend_switch import switch_backend
+
+    await switch_backend(change.backend_type)
+    return await backend()
+
+
+@api_app.put("/backend/cloud-provider", response_model=BackendOverview, tags=["Backend"])
+async def backend_cloud_provider(change: CloudProviderChange) -> BackendOverview:
+    """The cloud's provider; while the cloud is the backend its models change with it. 422 for an unknown one."""
+    from ..backend_switch import set_cloud_provider
+
+    await set_cloud_provider(change.provider)
+    return await backend()
 
 
 def _calibration_overview() -> CalibrationOverview:

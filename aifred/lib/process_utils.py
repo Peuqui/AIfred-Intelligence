@@ -44,6 +44,21 @@ def restart_service(service_name: str, check: bool = False) -> bool:
         return False
 
 
+def restart_aifred_soon() -> None:
+    """Restart AIfred's own service after ``AIFRED_RESTART_DELAY_S``, in a thread: the answer to the click still
+    reaches the browser before the process ends."""
+    import threading
+    import time
+
+    from .config import AIFRED_RESTART_DELAY_S, AIFRED_SERVICE_NAME
+
+    def later() -> None:
+        time.sleep(AIFRED_RESTART_DELAY_S)
+        restart_service(AIFRED_SERVICE_NAME)
+
+    threading.Thread(target=later, daemon=True).start()
+
+
 # ============================================================
 # Docker Container Management
 # ============================================================

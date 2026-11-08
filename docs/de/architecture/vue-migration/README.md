@@ -287,10 +287,32 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Kalibrier-Wahl, die VLM-Zeilen der vLLM-Matrix bleiben so leer (der Lauf ignoriert ohnehin die angehakten Zellen).
   Geprüft gegen die Testinstanz (llama.cpp: Basis grün, 32.768 Token, Vision 262.144) und lesend mit dem
   Produktionsmodell unter vLLM.
-- **Einstellungen, Teil 2, offen:** Paket 2 (Backend-Wechsel, Cloud-Anbieter, Neustarts von Backend und AIfred als
-  lib-Dienst, Grundeinstellungen laden) und Paket 3 (`CalibrationService`: der Lauf aus dem Mixin, Fortschritt und
-  Abbruch als Rückruf, Häkchen und Start in Vue). Neustarts und Kalibrierung treffen die gemeinsamen Dienste
-  (llama-swap, Produktionsdienst, alle Karten): nur mit Peuqui abgestimmt testen.
+- **Einstellungen, Teil 2, Paket 2: Wechsel und Neustarts (erledigt 08.11.2026):** In `BackendSettings.vue` wählt
+  man das Backend (nur die, die die Karten können) und, wenn die Cloud das Backend ist, ihren Anbieter; Knöpfe für
+  den Neustart des Backend-Dienstes, AIfreds Neustart und die Grundeinstellungen (beide mit Rückfrage). Der Dienst
+  `lib/backend_switch.py` hält, was vorher dreifach im State stand: der Katalog je Backend (`model_catalog`, auch die
+  Cloud; llama-swap startet er nur auf Wunsch, beim Wechsel, nie beim bloßen Ansehen, weil eine Kalibrierung es
+  absichtlich stoppt), `drop_unavailable_models` (gespeicherte Modelle, die das Backend nicht hat, vergessen: AIfreds
+  leer, die anderen auf AIfreds), `choose_vision_model`, `choose_cloud_main_model`, `leave_backend` (Ollama entlädt,
+  llama-swap stoppt beim Verlassen der Familie), `switch_backend`, `set_cloud_provider`, `restart_backend` (Ollama oder
+  llama-swap, wartet bis er antwortet). Reflex ruft dieselben Regeln (`initialize_backend`, `switch_backend`,
+  `set_cloud_api_provider`, `restart_backend`); die Modelle des Ziel-Backends lädt Reflex jetzt über
+  `runtime_settings.apply_saved_models`/`apply_default_models` statt einer eigenen Kopie, die nur Sokrates und Salomo
+  kannte. AIfreds Neustart: `process_utils.restart_aifred_soon` für beide. Endpunkte `PUT /backend`,
+  `PUT /backend/cloud-provider`, `POST /system/restart-backend` (ersetzt `/system/restart-ollama`, kann auch
+  llama-swap); die Schnellwahl nimmt denselben Katalog (kennt damit die Cloud). Behoben: Ein Anbieterwechsel in Reflex
+  baute Vision-Zeilen mit `name` statt `id`/`label` (Auswahlfeld leer), sortierte nicht, setzte die Automatik auf das
+  erste Modell statt „wie AIfred“ und ließ den übrigen Agenten Modelle des alten Anbieters; der Neustart las bei
+  llama-swap den Katalog nicht neu; die Kalibrier-Info las das Bildmodell unter vLLM als vLLM-Eintrag (jetzt nach
+  `model_discovery.is_vllm_entry`). Neu: Ein Wechsel ist während eines anderen Wechsels und während einer
+  Kalibrierung gesperrt (409). Geprüft an der Testinstanz: llama.cpp → vLLM → llama.cpp (llama-swap lief weiter, die
+  Modelle des jeweiligen Backends kamen aus `backend_models`), Anbieterwahl, unbekanntes Backend (422 in der
+  UI-Sprache), Grundeinstellungen (danach die Datei der Testinstanz zurückgespielt); Reflex-Rendering unverändert.
+  **Live noch offen** (trifft die Produktion, nur in Peuquis Zeitfenster): Neustart des Backends, AIfreds Neustart,
+  Wechsel zu Ollama (stoppt llama-swap) und zur Cloud.
+- **Einstellungen, Teil 2, Paket 3, offen:** `CalibrationService` (der Lauf aus dem Mixin, Fortschritt und Abbruch als
+  Rückruf, Häkchen und Start in Vue). Eine Kalibrierung belegt alle Karten und stoppt llama-swap: nur mit Peuqui
+  abgestimmt testen.
 - **Temperatur nur noch von Hand (erledigt 07.11.2026, Peuqui):** Jeder Agent antwortet mit seiner
   eigenen Temperatur (`agent_settings.resolve_agent_temperature`); der Modus auto, die Temperaturen je
   Absicht (`INTENT_TEMPERATURE_*`) und der Aufschlag für Sokrates und Salomo (`temperature_offset`) sind

@@ -3,7 +3,6 @@
 settings (settings.json), no choice of one session; a turn reads them when it starts.
 """
 
-import asyncio
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -30,11 +29,19 @@ class ChoicesChange(BaseModel):
     speed: bool | None = Field(None, description="The -speed variant (only where speed_available)")
 
 
+async def catalog_of(view: RuntimeSettings) -> dict[str, str]:
+    """The backend's models (lib/backend_switch.py), without starting a backend that does not answer."""
+    from ..backend_switch import model_catalog
+    from ..settings import persisted_settings
+
+    catalog, _notes = await model_catalog(view.backend_type, persisted_settings()["cloud_api_provider"])
+    return catalog
+
+
 @api_app.get("/agents/choices", response_model=QuickChoices, tags=["Agents"])
 async def agents_choices() -> QuickChoices:
     view = load_runtime_settings()
-    catalog = await asyncio.to_thread(rules.model_catalog, view)
-    return await rules.quick_choices(view, catalog, view.ui_language)
+    return await rules.quick_choices(view, await catalog_of(view), view.ui_language)
 
 
 @api_app.patch("/agents/{agent}/choices", response_model=QuickChoices, tags=["Agents"])
@@ -45,7 +52,7 @@ async def agents_change_choices(agent: str, change: ChoicesChange) -> QuickChoic
     if agent not in {row_agent for row_agent, _, _ in rules.chat_agents()} | {"vision", AUTOMATIK}:
         raise Missing("unknown_agent", agent=agent)
     backend = load_runtime_settings()
-    catalog = await asyncio.to_thread(rules.model_catalog, backend)
+    catalog = await catalog_of(backend)
     offered = catalog
     if agent == "vision" and change.model_id is not None:
         offered = await rules.vision_candidates(backend, catalog, backend.backend_url)

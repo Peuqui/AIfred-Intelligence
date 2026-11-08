@@ -26,8 +26,9 @@ Endpoints (all prefixed with /api):
 - GET  /documents/source/{key}/file/{id} - Download from a further document source (login cookie)
 - GET  /service-status     - Model, STT and TTS state with time left (login cookie)
 - GET  /backend             - Backend in use, the ones the GPUs can run, cloud providers, GPUs
+- PUT  /backend             - Switch the backend; PUT /backend/cloud-provider the cloud's provider
 - GET  /calibration         - Calibration of the agents' models, matrix of AIfred's model
-- POST /system/restart-ollama   - Restart Ollama service
+- POST /system/restart-backend  - Restart the backend's service (Ollama or llama-swap)
 - POST /system/restart-aifred   - Restart AIfred service
 - POST /system/reset-defaults   - Reset to default settings
 

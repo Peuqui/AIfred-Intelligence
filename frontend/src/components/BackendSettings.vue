@@ -1,32 +1,81 @@
 <script setup lang="ts">
-// The LLM backend as the server sees it: the backend in use and the ones these GPUs can run, the cloud provider with
-// the state of its key, the GPUs; and, when opened, the calibration: what the agents' models start with (context,
-// layer split over the cards, speed profile) and the matrix of AIfred's model (llama.cpp: which of its profiles are
-// calibrated; vLLM: its operating point and which describer/TTS pairs fit together on the side-channel card).
-// Reading only for now: switching the backend and starting a calibration follow.
+// The LLM backend: the one in use (switchable to the ones these GPUs can run), the cloud provider with the state of its
+// key, the GPUs, restarting the backend's service or AIfred, loading the default settings; and, when opened, the
+// calibration: what the agents' models start with (context, layer split over the cards, speed profile) and the matrix
+// of AIfred's model (llama.cpp: which of its profiles are calibrated; vLLM: its operating point and which describer/TTS
+// pairs fit together on the side-channel card). Starting a calibration follows.
 import { computed, onMounted, ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { BackendOverview, CalibrationOverview, GpuCard, LayerSplit, MatrixCell, ModelInUse } from "../api/types";
-import { formatNumber, t } from "../i18n";
+import { formatNumber, loadLanguage, t } from "../i18n";
+import { useSettings } from "../stores/settings";
 
+const settings = useSettings();
 const overview = ref<BackendOverview | null>(null);
 const calibration = ref<CalibrationOverview | null>(null);
+const calibrationOpen = ref(false);
 const notice = ref("");
+const done = ref("");
+const busy = ref(false);              // a switch or a restart runs: the controls wait
+const confirming = ref<"" | "defaults" | "aifred">("");
 
 async function call<T>(work: () => Promise<T>): Promise<T | null> {
   notice.value = "";
+  done.value = "";
+  busy.value = true;
   try {
     return await work();
   } catch (error) {
     notice.value = error instanceof ApiError ? error.detail : String(error);
     return null;
+  } finally {
+    busy.value = false;
   }
+}
+async function loadCalibration(): Promise<void> {
+  calibration.value = await call(() => api<CalibrationOverview>("calibration"));
 }
 onMounted(async () => {
   overview.value = await call(() => api<BackendOverview>("backend"));
 });
 async function openCalibration(event: Event): Promise<void> {
-  if ((event.target as HTMLDetailsElement).open) calibration.value = await call(() => api<CalibrationOverview>("calibration"));
+  calibrationOpen.value = (event.target as HTMLDetailsElement).open;
+  if (calibrationOpen.value) await loadCalibration();
+}
+// A switch changes the backend of settings.json and the agents' models: the page reads both again.
+async function changed(answer: BackendOverview | null): Promise<void> {
+  if (!answer) return;
+  overview.value = answer;
+  const language = settings.current?.ui_language;
+  await settings.load();
+  if (settings.current && settings.current.ui_language !== language) await loadLanguage(settings.current.ui_language);
+  if (calibrationOpen.value) await loadCalibration();
+}
+async function switchTo(event: Event): Promise<void> {
+  const backend_type = (event.target as HTMLSelectElement).value;
+  await changed(await call(() => api<BackendOverview>("backend", { method: "PUT", body: JSON.stringify({ backend_type }) })));
+}
+async function chooseProvider(event: Event): Promise<void> {
+  const provider = (event.target as HTMLSelectElement).value;
+  await changed(await call(() => api<BackendOverview>("backend/cloud-provider", { method: "PUT", body: JSON.stringify({ provider }) })));
+}
+async function restartBackend(): Promise<void> {
+  const answer = await call(() => api<{ backend_type: string; ready_after_s: number | null }>("system/restart-backend", { method: "POST" }));
+  if (!answer) return;
+  done.value = answer.ready_after_s === null
+    ? t("backend_not_ready_yet", { backend: backendLabel.value })
+    : t("backend_ready_after", { backend: backendLabel.value, seconds: formatNumber(answer.ready_after_s, 1) });
+  if (calibrationOpen.value) await loadCalibration();
+}
+async function restartAifred(): Promise<void> {
+  confirming.value = "";
+  if (await call(() => api("system/restart-aifred", { method: "POST" }))) done.value = t("aifred_restarting");
+}
+async function loadDefaults(): Promise<void> {
+  confirming.value = "";
+  if (!(await call(() => api("system/reset-defaults", { method: "POST" })))) return;
+  await changed(await call(() => api<BackendOverview>("backend")));
+  if (!notice.value) done.value = t("default_settings_loaded");
 }
 
 const backendLabel = computed(() =>
@@ -79,16 +128,38 @@ function cellTitle(cell: MatrixCell): string {
 
 <template>
   <section v-if="overview" class="backend">
-    <p v-if="notice" class="notice">{{ notice }}</p>
-    <div class="line">
+    <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
+    <p v-if="done" class="done">{{ done }}</p>
+    <label class="line">
       <span class="name">{{ t("backend") }}</span>
-      <strong>{{ backendLabel }}</strong>
-      <span class="hint">{{ t("gpu_available_prefix") }}{{ overview.backends.map((choice) => choice.label).join(", ") }}</span>
-    </div>
+      <select :value="overview.backend_type" :disabled="busy" @change="switchTo">
+        <option v-for="choice in overview.backends" :key="choice.id" :value="choice.id">{{ choice.label }}</option>
+      </select>
+      <span v-if="busy" class="hint">⏳ {{ t("backend_switching") }}</span>
+    </label>
     <div v-if="cloud" class="line">
       <span class="name">{{ t("cloud_api_provider") }}</span>
-      <span>{{ cloud.label }}</span>
+      <select :value="cloud.id" :disabled="busy" @change="chooseProvider">
+        <option v-for="provider in overview.cloud_providers" :key="provider.id" :value="provider.id">{{ provider.label }}</option>
+      </select>
       <span :class="cloud.key_configured ? 'ok' : 'missing'">{{ t(cloud.key_configured ? "cloud_api_key_configured" : "cloud_api_key_missing") }}</span>
+    </div>
+    <div class="line buttons">
+      <button v-if="overview.backend_type !== 'cloud_api'" :disabled="busy" :title="t('backend_restart_info')" @click="restartBackend">
+        {{ t("backend_restart", { backend: backendLabel }) }}
+      </button>
+      <template v-if="confirming === 'aifred'">
+        <span>{{ t("restart_aifred_confirm") }}</span>
+        <button class="danger" @click="restartAifred">{{ t("confirm_yes") }}</button>
+        <button @click="confirming = ''">{{ t("db_cancel") }}</button>
+      </template>
+      <button v-else :disabled="busy" :title="t('aifred_restart_info')" @click="confirming = 'aifred'">{{ t("restart_aifred") }}</button>
+      <template v-if="confirming === 'defaults'">
+        <span>{{ t("load_default_settings_confirm") }}</span>
+        <button class="danger" @click="loadDefaults">{{ t("confirm_yes") }}</button>
+        <button @click="confirming = ''">{{ t("db_cancel") }}</button>
+      </template>
+      <button v-else :disabled="busy" @click="confirming = 'defaults'">{{ t("load_default_settings") }}</button>
     </div>
     <details v-if="overview.gpu">
       <summary>{{ t("gpu_details") }}</summary>
@@ -142,6 +213,12 @@ function cellTitle(cell: MatrixCell): string {
 .name { min-width: 170px; font-weight: 600; font-size: 0.9rem; }
 .hint { color: var(--aifred-text-secondary); font-size: 0.85rem; }
 .notice { margin: 0; color: var(--aifred-accent-amber); }
+.done { margin: 0; color: var(--aifred-accent-success); }
+select, button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+button { cursor: pointer; }
+button:disabled, select:disabled { opacity: 0.5; cursor: default; }
+button.danger { border-color: var(--aifred-danger); color: var(--aifred-danger); }
+.buttons { gap: 8px; }
 .ok { color: var(--aifred-accent-success); font-size: 0.85rem; }
 .missing { color: var(--aifred-danger); font-size: 0.85rem; }
 summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; }

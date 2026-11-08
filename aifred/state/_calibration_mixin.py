@@ -6,7 +6,6 @@ including backend restart and vLLM restart.
 
 from __future__ import annotations
 
-from ..lib.config import LLAMASWAP_BACKENDS
 
 import asyncio
 import re
@@ -166,6 +165,7 @@ class CalibrationMixin(rx.State, mixin=True):
         backend_switching: rx.Field[bool]
         backend_type: rx.Field[str]
         backend_url: rx.Field[str]
+        cloud_api_provider: rx.Field[str]
         debug_messages: rx.Field[list[str]]
         ui_language: rx.Field[str]
 
@@ -3014,14 +3014,13 @@ class CalibrationMixin(rx.State, mixin=True):
 
     @rx.event
     async def restart_backend(self):
-        """Restart current LLM backend service and reload model list"""
-        import httpx
-        import asyncio
-
+        """Restart the backend's service, wait until it answers and read its catalog again (rules:
+        ``backend_switch.restart_backend``, ``model_catalog``)."""
+        from ..lib.backend_switch import model_catalog
+        from ..lib.backend_switch import restart_backend as restart_service_of
         from ..lib.formatting import format_number
-        from ..lib.model_manager import sort_models_grouped
+        from ..lib.user_error import UserError, said
 
-        # Prevent concurrent restarts
         if self.backend_switching:
             self.add_debug("⚠️ Backend restart already in progress, please wait...")
             return
@@ -3029,108 +3028,26 @@ class CalibrationMixin(rx.State, mixin=True):
         self.backend_switching = True
         yield  # Update UI to disable buttons
 
+        backend_name = self.backend_type.upper()
         try:
-            backend_name = self.backend_type.upper()
             self.add_debug(f"🔄 Restarting {backend_name} service...")
-            yield  # Update UI
-
-            if self.backend_type == "ollama":
-                from ..lib.process_utils import restart_service
-                # In a thread: systemctl waits for the restart; the event loop serves every session.
-                if await asyncio.to_thread(restart_service, "ollama", check=True):
-                    self.add_debug(f"✅ {backend_name} service restarted")
-                else:
-                    self.add_debug(f"⚠️ {backend_name} service restart failed")
-                yield  # Update UI after restart
-
-                # Wait for Ollama to be ready (active polling with retry)
-                self.add_debug("⏳ Waiting for Ollama API to be ready...")
-                yield  # Update UI
-
-                max_retries = 10
-                ollama_ready = False
-
-                for attempt in range(max_retries):
-                    try:
-                        endpoint = f'{self.backend_url}/api/tags'
-                        async with httpx.AsyncClient(timeout=2.0) as client:
-                            response = await client.get(endpoint)
-
-                        if response.status_code == 200:
-                            # Parse JSON to verify API is actually ready
-                            data = response.json()
-                            # Build dict: {model_id: display_label}
-                            unsorted_dict = {
-                                m['name']: f"{m['name']} ({format_number(m['size'] / (1024**3), 1)} GB)"
-                                for m in data.get("models", [])
-                            }
-                            # Sort by model family, then by size
-                            self.available_models_dict = sort_models_grouped(unsorted_dict)
-                            # Keep list for compatibility (DEPRECATED)
-                            self.available_models = list(self.available_models_dict.values())
-
-                            # Update global state — the mapping is the source
-                            # every reader needs, the label list only a view.
-                            from . import _base
-                            _base._global_backend_state["available_models"] = self.available_models
-                            _base._global_backend_state["available_models_dict"] = self.available_models_dict
-
-                            elapsed_time = (attempt + 1) * 0.5
-                            self.add_debug(f"✅ Ollama ready after {elapsed_time:.1f}s ({len(self.available_models)} models found)")
-                            ollama_ready = True
-                            break
-                    except httpx.RequestError:
-                        pass  # Retry on connection error
-
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(0.5)  # Short polling interval
-                        yield  # Update UI during polling
-
-                if not ollama_ready:
-                    self.add_debug("⚠️ Ollama API might not be ready yet (timeout after 5s)")
-                    yield
-
-            elif self.backend_type in LLAMASWAP_BACKENDS:
-                # llama-swap: restart via systemctl (system service) —
-                # traegt auch die vLLM-Eintraege (gleiche Sicht, gleicher Dienst)
-                from ..lib.process_utils import restart_llama_swap
-                # In a thread: with the autoscan a restart takes over a minute.
-                if await asyncio.to_thread(restart_llama_swap):
-                    self.add_debug("✅ llama-swap restarted (autoscan running...)")
-                else:
-                    self.add_debug("⚠️ llama-swap restart failed")
-                yield
-
-                # Wait for llama-swap to be ready (ExecStartPre/autoscan may take a few seconds)
-                self.add_debug("⏳ Waiting for llama-swap to be ready...")
-                yield
-
-                max_retries = 40  # up to 20s — autoscan ExecStartPre can take time
-                llamacpp_ready = False
-                # backend_url already includes /v1 (see config.BACKEND_URLS) —
-                # append only /models, not /v1/models.
-                models_url = f"{str(self.backend_url).rstrip('/')}/models"
-                for attempt in range(max_retries):
-                    try:
-                        async with httpx.AsyncClient(timeout=2.0) as client:
-                            response = await client.get(models_url)
-                        if response.status_code == 200:
-                            elapsed = (attempt + 1) * 0.5
-                            self.add_debug(f"✅ llama-swap ready after {elapsed:.1f}s")
-                            llamacpp_ready = True
-                            break
-                    except httpx.RequestError:
-                        pass
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(0.5)
-                        yield
-
-                if not llamacpp_ready:
-                    self.add_debug("⚠️ llama-swap might not be ready yet (timeout after 20s)")
-                yield
-
-        except (OSError, ValueError, KeyError) as e:  # systemctl not startable, or an unexpected Ollama answer
-            self.add_debug(f"❌ {backend_name} restart failed: {e}")
+            yield
+            seconds = await restart_service_of(self.backend_type)
+            if seconds is None:
+                self.add_debug(f"⚠️ {backend_name} might not be ready yet")
+            else:
+                self.add_debug(f"✅ {backend_name} ready after {format_number(seconds, 1)} s")
+            catalog, notes = await model_catalog(self.backend_type, self.cloud_api_provider)
+            for note in notes:
+                self.add_debug(note)
+            if catalog:
+                self.available_models_dict = catalog
+                self.available_models = list(catalog.values())
+                from . import _base
+                _base._global_backend_state["available_models"] = self.available_models
+                _base._global_backend_state["available_models_dict"] = self.available_models_dict
+        except UserError as error:
+            self.add_debug(f"❌ {backend_name}: {said(error, self.ui_language)}")
         finally:
             self.backend_switching = False
             yield  # Re-enable buttons
@@ -3142,21 +3059,9 @@ class CalibrationMixin(rx.State, mixin=True):
 
     @rx.event
     def restart_aifred(self):
-        """Restart AIfred service via systemctl"""
-        import threading
+        """Restart AIfred's service (rule: ``process_utils.restart_aifred_soon``)."""
+        from ..lib.process_utils import restart_aifred_soon
 
         self.add_debug("🔄 Restarting AIfred service...")
-
-        # Schedule systemd restart in background thread
-        # This allows us to return rx.call_script() BEFORE the service dies
-        from ..lib.process_utils import restart_service as do_restart_service
-
-        def delayed_restart():
-            import time
-            time.sleep(0.5)  # Short delay to let browser script execute first
-            do_restart_service("aifred-intelligence", check=False)
-
-        thread = threading.Thread(target=delayed_restart, daemon=True)
-        thread.start()
-
+        restart_aifred_soon()
         self.add_debug("✅ AIfred service restart initiated")

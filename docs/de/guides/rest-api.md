@@ -116,8 +116,11 @@ AIfred ins Internet stellst (siehe [Einrichtungsanleitung → Auf die Web-UI zug
 | `/api/health` | GET | Health-Check mit Backend-Typ/-Status |
 | `/api/settings` | GET / PATCH | Allgemeine Einstellungen: `ui_language`, `user_name`, `user_gender`, `enable_tts`, `tts_autoplay`, `dictation_engine`, `show_transcription`, `max_debate_rounds`, `consensus_type`; GET dazu `backend_type` und den Bereich der Debattenrunden (`debate_rounds_min`/`_max`). PATCH ändert nur die mitgeschickten Felder, ein unbekanntes Feld oder ein unbekannter Wert gibt 422. Modelle und Schalter der Agenten: `/api/agents/choices` |
 | `/api/models` | GET | Verfügbare Modelle des aktiven Backends + die Vision-fähigen |
+| `/api/backend` | GET / PUT | Backend (`lib/backend_overview.py`, `lib/backend_switch.py`): `{backend_type, backends: [{id, label}], cloud_provider, cloud_providers: [{id, label, key_configured}], gpu: {cards: [{name, vram_mb, compute_capability}], total_vram_gb, unsupported_backends}}` (`backends` = die, die die Karten können, und die Cloud; `gpu` null ohne Karte). PUT `{backend_type}` wechselt: das alte gibt seine Modelle frei (llama-swap stoppt, wenn das neue nicht zur Familie gehört), die gespeicherten Modelle des neuen werden gegen seinen Katalog geprüft; antwortet, wenn fertig. 422 für ein Backend, das die Karten nicht können, 409 während eines Wechsels oder einer Kalibrierung |
+| `/api/backend/cloud-provider` | PUT | `{provider}`: Anbieter der Cloud; ist die Cloud das Backend, ziehen die Modelle mit (AIfred das erste des Anbieters, wenn er seins nicht hat). 422 für einen unbekannten |
+| `/api/calibration` | GET | Kalibrierung (`lib/calibration/`): `{backend_type, model_id, matrix, models}` — `models` je Modell der Agenten `{model_id, agents, calibration: {context, cache_context, split, speed, rope_contexts}}`, `matrix` (llama.cpp, vLLM; sonst null) die Varianten von AIfreds Modell `{columns: [{tts_key, label}], rows: [{vlm_key, label, cells: [{key, status: done/failed/open}]}], tts_problem}` |
 | `/api/system/restart-aifred` | POST | AIfred-Dienst neu starten |
-| `/api/system/restart-ollama` | POST | Ollama neu starten |
+| `/api/system/restart-backend` | POST | Dienst des Backends neu starten (Ollama oder llama-swap) |
 | `/api/system/reset-defaults` | POST | Einstellungen auf Standardwerte zurücksetzen |
 
 ### Agenten, Webhook, OAuth

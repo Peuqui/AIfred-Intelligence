@@ -176,10 +176,14 @@ def test_ollama_lists_the_context_of_each_measured_rope_factor() -> None:
     assert info.rope_contexts == (RopeContext(1.0, 40960), RopeContext(2.0, 81920))
 
 
-def test_vllm_takes_the_context_of_its_entry(profiles: Profiles) -> None:
-    profiles({MODEL: "vllm serve /models/big --max-model-len 131072"})
-    info = model_calibration("vllm", MODEL)
+def test_vllm_takes_the_context_of_its_entry_and_a_describer_its_profile(profiles: Profiles) -> None:
+    profiles({f"{MODEL}-vllm": "vllm serve /models/big --max-model-len 131072", "Eyes-4B": "llama-server -m eyes.gguf -c 8192"})
+    _cache({"Eyes-4B": CALIBRATED})
+    info = model_calibration("vllm", f"{MODEL}-vllm")
     assert info is not None and info.context == 131072
+    # The describer is a llama.cpp profile under vLLM too.
+    describer = model_calibration("vllm", "Eyes-4B")
+    assert describer is not None and (describer.context, describer.cache_context) == (8192, 32768)
 
 
 def test_the_cloud_and_no_model_have_no_calibration() -> None:

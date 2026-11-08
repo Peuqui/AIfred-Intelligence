@@ -284,16 +284,6 @@ def vision_options(target: TuningTarget, candidates: dict[str, str]) -> list[Mod
 # ── The server's view and what it writes ─────────────────────────────────
 
 
-def model_catalog(view: RuntimeSettings) -> dict[str, str]:
-    """The models of the backend (id → label), as the Reflex UI lists them; empty for a backend
-    without a model list here (cloud APIs list theirs in the Reflex UI only)."""
-    from .model_discovery import discover_models
-
-    if view.backend_type not in ("ollama", *LLAMASWAP_BACKENDS):
-        return {}
-    return discover_models(view.backend_type, backend_url=view.backend_url)
-
-
 def models_in_use(view: TuningTarget, lang: str) -> list[tuple[str, list[str]]]:
     """Every model the agents run on (base ids, AIfred's first) with the names of who runs on it: the
     chat agents (one without a model of its own runs on AIfred's), the Automatik and the Vision agent."""

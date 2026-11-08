@@ -80,9 +80,16 @@ def _vllm(model_id: str) -> ModelCalibration:
 
 
 def model_calibration(backend_type: str, model_id: str) -> ModelCalibration | None:
-    """The calibration of ``model_id`` (a base id, no variant suffix); None for a backend that has none
-    (the cloud) or no model."""
-    readers = {"llamacpp": _llamacpp, "vllm": _vllm, "ollama": _ollama}
-    if not model_id or backend_type not in readers:
+    """The calibration of ``model_id`` (a base id, no variant suffix); None for a backend that has none (the cloud)
+    or no model. Under llama-swap the entry decides: a vLLM checkpoint or a GGUF profile (the describer stays a
+    llama.cpp profile when vLLM is the backend)."""
+    from ..config import LLAMASWAP_BACKENDS
+    from ..model_discovery import is_vllm_entry
+
+    if not model_id:
         return None
-    return readers[backend_type](model_id)
+    if backend_type in LLAMASWAP_BACKENDS:
+        return _vllm(model_id) if is_vllm_entry(model_id) else _llamacpp(model_id)
+    if backend_type == "ollama":
+        return _ollama(model_id)
+    return None

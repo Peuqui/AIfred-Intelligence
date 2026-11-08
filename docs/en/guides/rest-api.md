@@ -116,8 +116,11 @@ expose AIfred to the internet (see [Deployment → Access the web UI](deployment
 | `/api/health` | GET | Health check with backend type/status |
 | `/api/settings` | GET / PATCH | General settings: `ui_language`, `user_name`, `user_gender`, `enable_tts`, `tts_autoplay`, `dictation_engine`, `show_transcription`, `max_debate_rounds`, `consensus_type`; GET also `backend_type` and the range of debate rounds (`debate_rounds_min`/`_max`). PATCH only changes the fields you send, an unknown field or value answers 422. The agents' models and switches: `/api/agents/choices` |
 | `/api/models` | GET | Available models of the active backend + vision-capable ones |
+| `/api/backend` | GET / PUT | Backend (`lib/backend_overview.py`, `lib/backend_switch.py`): `{backend_type, backends: [{id, label}], cloud_provider, cloud_providers: [{id, label, key_configured}], gpu: {cards: [{name, vram_mb, compute_capability}], total_vram_gb, unsupported_backends}}` (`backends` = the ones the cards can run, and the cloud; `gpu` null without a card). PUT `{backend_type}` switches: the old one frees its models (llama-swap stops when the new one is none of its family), the new one's saved models are checked against its catalog; answers when done. 422 for a backend the cards cannot run, 409 during a switch or a calibration |
+| `/api/backend/cloud-provider` | PUT | `{provider}`: the cloud's provider; while the cloud is the backend its models follow (AIfred gets the provider's first unless it offers his). 422 for an unknown one |
+| `/api/calibration` | GET | Calibration (`lib/calibration/`): `{backend_type, model_id, matrix, models}` — `models` per model of the agents `{model_id, agents, calibration: {context, cache_context, split, speed, rope_contexts}}`, `matrix` (llama.cpp, vLLM; else null) the variants of AIfred's model `{columns: [{tts_key, label}], rows: [{vlm_key, label, cells: [{key, status: done/failed/open}]}], tts_problem}` |
 | `/api/system/restart-aifred` | POST | Restart the AIfred service |
-| `/api/system/restart-ollama` | POST | Restart Ollama |
+| `/api/system/restart-backend` | POST | Restart the backend's service (Ollama or llama-swap) |
 | `/api/system/reset-defaults` | POST | Reset settings to defaults |
 
 ### Agents, webhook, OAuth

@@ -132,7 +132,10 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     file = tmp_path / "settings.json"
     file.write_text(json.dumps({"backend_type": "llamacpp", "backend_models": {"llamacpp": {"aifred": SMALL, "vision": EYES}}}))
     monkeypatch.setattr(settings, "SETTINGS_FILE", file)
-    monkeypatch.setattr(agent_choices, "model_catalog", lambda _view: CATALOG)
+    async def catalog(_backend: str, _provider: str) -> tuple[dict[str, str], list[str]]:
+        return CATALOG, []
+
+    monkeypatch.setattr("aifred.lib.backend_switch.model_catalog", catalog)
 
     async def vision_candidates(_target: object, catalog: dict[str, str], _url: str) -> dict[str, str]:
         return {EYES: catalog[EYES]}

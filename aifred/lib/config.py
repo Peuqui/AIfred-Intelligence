@@ -296,6 +296,16 @@ LLAMASWAP_RUNNING_TIMEOUT_S = 5
 # Unloading one model on a click in the status line (POST /api/models/unload/<model>); a vLLM server
 # spread over several cards takes a while to stop.
 LLAMASWAP_UNLOAD_TIMEOUT_S = 120
+# Switching or restarting a backend (lib/backend_switch.py). llama-swap's start returns once systemctl is done (the
+# autoscan included); its listener needs a moment more before the catalog answers.
+LLAMASWAP_START_SETTLE_S = 2.0
+# After a restart the backend is polled this often until it answers, for at most this long.
+BACKEND_READY_POLL_S = 0.5
+OLLAMA_READY_TIMEOUT_S = 5.0
+LLAMASWAP_READY_TIMEOUT_S = 20.0
+# AIfred's own systemd unit, and how long a restart waits: the answer to the click reaches the browser first.
+AIFRED_SERVICE_NAME = "aifred-intelligence"
+AIFRED_RESTART_DELAY_S = 1.0
 
 # Service status (lib/service_status.py): STT-Suite and TTS-Suite report the time until they
 # end themselves for being idle, but push nothing — so AIfred looks again shortly before.
