@@ -15,7 +15,7 @@ import SessionList from "../components/SessionList.vue";
 import TurnProgress from "../components/TurnProgress.vue";
 import { t } from "../i18n";
 import { ZOOM, chatZoom, zoomBy } from "../lib/devicePrefs";
-import { followTop, isAtEnd } from "../lib/followScroll";
+import { answerStartTop, isAtEnd } from "../lib/followScroll";
 import HelpButton from "../components/help/HelpButton.vue";
 import { saveAs } from "../lib/download";
 import { renderMarkdown } from "../lib/markdown";
@@ -124,31 +124,38 @@ async function remove(sessionIds: string[]): Promise<void> {
   }
 }
 
-// The newest message stays in view while an answer streams, as long as the reader stands at the end (followScroll.ts);
-// a long answer stops with its start at the top, below its question. Measured before the change reaches the page (the
-// watcher runs first), scrolled after it.
+// While an answer streams the box follows its end, as long as the reader stands there (followScroll.ts); when it is
+// finished the box jumps once to its start, below its question, to be read from the beginning. Where the page itself
+// put the box still counts as following (the next agent of a debate streams in view too); scrolled by hand, it stays.
+// Measured before the change reaches the page (the watcher runs first), scrolled after it.
+let placedAt: number | null = null;
 watch(
-  () => [chat.history.length, chat.streaming?.text.length, progress.value?.text],
-  async () => {
+  () => [chat.history.length, chat.streaming?.text.length, progress.value?.text] as const,
+  async ([length], [lengthBefore]) => {
     const view = messages.value;
-    const atEnd = !view || isAtEnd(view);
+    if (!view) return;
+    const following = isAtEnd(view) || (placedAt !== null && Math.abs(view.scrollTop - placedAt) <= 1);
     await nextTick();
-    if (view && atEnd) view.scrollTop = followTop(view, ...newestAnswer(view));
+    if (!following) return;
+    const answer = length > lengthBefore ? finishedAnswer(view) : null;
+    // The turn's end (no stream, no progress line) leaves the box at the answer's start it jumped to.
+    if (!answer && !chat.streaming && !progress.value) return;
+    view.scrollTop = answer ? answerStartTop(view, ...answer) : view.scrollHeight;
+    placedAt = view.scrollTop;
   },
 );
 
-// The answer coming in now (streaming, or the last one of the last turn) and the question that sticks above it.
-function newestAnswer(view: HTMLElement): [HTMLElement | null, HTMLElement | null] {
+// The answer just added to the last turn (not its question) and the question that sticks above it.
+function finishedAnswer(view: HTMLElement): [HTMLElement, HTMLElement | null] | null {
   const turn = view.querySelector<HTMLElement>(".turn:last-of-type");
-  const question = turn?.querySelector<HTMLElement>(".pinned") ?? null;
-  const streaming = view.querySelector<HTMLElement>(".streaming");
-  if (streaming) return [streaming, question];
   const last = turn?.lastElementChild;
-  return last instanceof HTMLElement && !last.classList.contains("pinned") ? [last, question] : [null, null];
+  if (!(last instanceof HTMLElement) || last.classList.contains("pinned")) return null;
+  return [last, turn?.querySelector<HTMLElement>(".pinned") ?? null];
 }
 // A session opened shows its end.
 watch(() => chat.sessionId, async () => {
   await nextTick();
+  placedAt = null;
   if (messages.value) messages.value.scrollTop = messages.value.scrollHeight;
 });
 
