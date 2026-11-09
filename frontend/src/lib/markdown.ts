@@ -53,7 +53,8 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
 
 // The metrics line under an answer (formatting.py writes it as *( TTFT: … )* or *( Inference: … )*), marked so the bubble
 // sets it in the small size; chat_export.py does the same for the export.
-const METRICS_LINE = /<em>(\(\s*(?:TTFT|Inference):)/g;
+// After sanitizing, the line's no-break spaces stand as &nbsp;.
+const METRICS_LINE = /<em>(\((?:\s|&nbsp;)*(?:TTFT|Inference):)/g;
 
 export function renderMarkdown(text: string): string {
   const html = DOMPurify.sanitize(markdown.render(text), {

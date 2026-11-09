@@ -115,10 +115,21 @@ onMounted(() =>
             <button type="button" @click="setGroup(group.tools.map((tool) => tool.name), true)">{{ t("tools_all_on") }}</button>
             <button type="button" @click="setGroup(group.tools.map((tool) => tool.name), false)">{{ t("tools_all_off") }}</button>
           </legend>
-          <label v-for="tool in group.tools" :key="tool.name" class="tool">
-            <input type="checkbox" :checked="all || allowed.has(tool.name)" @change="toggleTool(tool.name)" />
-            <code>{{ tool.name }}</code><span class="tier">T{{ tool.tier }}</span>
-          </label>
+          <!-- A pill per tool, as on the Reflex page: orange when allowed, grey when not; beside it its security tier. -->
+          <div class="pills">
+            <span v-for="tool in group.tools" :key="tool.name" class="tool">
+              <button
+                type="button"
+                class="pill"
+                :class="{ on: all || allowed.has(tool.name) }"
+                :aria-pressed="all || allowed.has(tool.name)"
+                @click="toggleTool(tool.name)"
+              >
+                {{ tool.name }}
+              </button>
+              <span class="tier" :class="`t${tool.tier}`">T{{ tool.tier }}</span>
+            </span>
+          </div>
         </fieldset>
         <div class="actions"><button @click="saveRights">{{ t("agent_editor_save") }}</button></div>
       </section>
@@ -148,8 +159,18 @@ fieldset { border: 1px solid var(--aifred-border); border-radius: 8px; display: 
 fieldset:disabled { opacity: 0.55; }
 legend { display: flex; gap: 6px; align-items: center; font-weight: 500; padding: 0 4px; }
 legend button { font-size: 0.75rem; padding: 1px 6px; }
-.tool { display: flex; gap: 4px; align-items: center; font-size: 0.85rem; }
-.tier { font-size: 0.7rem; color: var(--aifred-text-muted); }
+.pills { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+.tool { display: inline-flex; gap: 3px; align-items: center; }
+.pill { border-radius: 999px; padding: 2px 10px; font-size: var(--text-small); color: var(--aifred-text-muted); background: var(--aifred-input-bg); border: 1px solid var(--aifred-border); cursor: pointer; }
+.pill.on { color: var(--aifred-primary); background: color-mix(in srgb, var(--aifred-primary) 18%, transparent); border-color: var(--aifred-primary); }
+.pill:disabled { cursor: default; }
+/* The security tiers' colours of the Reflex page: T0 green, T1 blue, T2 amber, T3 red, T4 purple. */
+.tier { font-size: 0.65rem; font-weight: 700; color: var(--aifred-text-muted); }
+.tier.t0 { color: var(--aifred-accent-success); }
+.tier.t1 { color: var(--aifred-accent-blue); }
+.tier.t2 { color: var(--aifred-accent-amber); }
+.tier.t3 { color: var(--aifred-danger); }
+.tier.t4 { color: var(--aifred-accent-purple); }
 @media (max-width: 760px) {
   .persona { grid-template-columns: 1fr; }
 }
