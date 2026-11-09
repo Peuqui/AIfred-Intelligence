@@ -71,16 +71,18 @@ function enlarge(event: MouseEvent): void {
 </template>
 
 <style scoped>
-.bubble { max-width: min(860px, 92%); padding: 10px 14px; border-radius: 10px; line-height: 1.45; overflow-wrap: anywhere; }
-.user { align-self: flex-end; background: var(--aifred-input-bg); }
+/* As on the Reflex page: an answer as wide as the chat (tables, code), the user's question at most 70 % on the right. */
+.bubble { box-sizing: border-box; padding: 10px 14px; border-radius: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+.user { align-self: flex-end; max-width: 70%; background: var(--aifred-input-bg); }
 /* Each agent a quiet tint of its own over card_bg (strength in theme.py). */
 .assistant {
   --tint: hsl(var(--agent-hue) 55% 55%);
-  align-self: flex-start;
+  width: 100%;
   background: color-mix(in srgb, var(--tint) var(--aifred-agent-tint-mix), var(--aifred-card-bg));
   border: 1px solid color-mix(in srgb, var(--tint) var(--aifred-agent-tint-border-mix), var(--aifred-border));
 }
-/* Sokrates bronze, Salomo gold, as on the Reflex page (theme.py). */
+/* AIfred neutral, Sokrates bronze, Salomo gold, as on the Reflex page (theme.py). */
+.agent-aifred { background: var(--aifred-card-bg); border-color: var(--aifred-aifred-bubble-border); }
 .agent-sokrates { background: var(--aifred-sokrates-bubble-bg); border-color: var(--aifred-sokrates-bubble-border); }
 .agent-salomo { background: var(--aifred-salomo-bubble-bg); border-color: var(--aifred-salomo-bubble-border); }
 .agent-salomo header { color: var(--aifred-accent-warning); }

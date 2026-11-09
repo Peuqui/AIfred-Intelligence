@@ -56,6 +56,8 @@ COLORS = {
     "sokrates_bubble_border": "rgba(205, 127, 50, 0.3)",
     "salomo_bubble_bg": "rgba(218, 165, 32, 0.08)",
     "salomo_bubble_border": "rgba(218, 165, 32, 0.3)",
+    # AIfred's bubble neutral, as on the Reflex page (card_bg, a faint light rim): no tint of its own.
+    "aifred_bubble_border": "rgba(255, 255, 255, 0.1)",
 
     # === WARNUNGS-FLÄCHEN (braun, 3 Stufen: Grund, Schalter, Hover) ===
     "warning_bg": "#2d1f00",
