@@ -15,7 +15,7 @@ import SessionList from "../components/SessionList.vue";
 import TurnProgress from "../components/TurnProgress.vue";
 import { t } from "../i18n";
 import { ZOOM, chatZoom, zoomBy } from "../lib/devicePrefs";
-import { isAtEnd } from "../lib/followScroll";
+import { followTop, isAtEnd } from "../lib/followScroll";
 import HelpButton from "../components/help/HelpButton.vue";
 import { saveAs } from "../lib/download";
 import { renderMarkdown } from "../lib/markdown";
@@ -124,17 +124,28 @@ async function remove(sessionIds: string[]): Promise<void> {
   }
 }
 
-// The newest message stays in view while an answer streams, as long as the reader stands at the end (followScroll.ts).
-// Measured before the change reaches the page (the watcher runs first), scrolled after it.
+// The newest message stays in view while an answer streams, as long as the reader stands at the end (followScroll.ts);
+// a long answer stops with its start at the top, below its question. Measured before the change reaches the page (the
+// watcher runs first), scrolled after it.
 watch(
   () => [chat.history.length, chat.streaming?.text.length, progress.value?.text],
   async () => {
     const view = messages.value;
     const atEnd = !view || isAtEnd(view);
     await nextTick();
-    if (view && atEnd) view.scrollTop = view.scrollHeight;
+    if (view && atEnd) view.scrollTop = followTop(view, ...newestAnswer(view));
   },
 );
+
+// The answer coming in now (streaming, or the last one of the last turn) and the question that sticks above it.
+function newestAnswer(view: HTMLElement): [HTMLElement | null, HTMLElement | null] {
+  const turn = view.querySelector<HTMLElement>(".turn:last-of-type");
+  const question = turn?.querySelector<HTMLElement>(".pinned") ?? null;
+  const streaming = view.querySelector<HTMLElement>(".streaming");
+  if (streaming) return [streaming, question];
+  const last = turn?.lastElementChild;
+  return last instanceof HTMLElement && !last.classList.contains("pinned") ? [last, question] : [null, null];
+}
 // A session opened shows its end.
 watch(() => chat.sessionId, async () => {
   await nextTick();
