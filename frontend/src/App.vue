@@ -120,9 +120,10 @@ html { font-size: var(--text-base); }
    vw/vh would grow with it (a dialog of 88vw became wider than the screen). Every size in screen units uses these. */
 :root { --vw: calc(1vw / var(--ui-zoom)); --vh: calc(1vh / var(--ui-zoom)); --dvh: calc(1dvh / var(--ui-zoom)); }
 button, input, select, textarea { font: inherit; }
+/* The interface's size on the body only: on html and body together it acted twice (130 % became 169 %). */
+body { zoom: var(--ui-zoom); }
 html,
 body {
-  zoom: var(--ui-zoom);
   margin: 0;
   background: var(--aifred-page-bg);
   color: var(--aifred-text-primary);
