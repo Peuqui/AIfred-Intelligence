@@ -60,4 +60,6 @@ watch(
 /* The console's own size; the interface's size is taken out again. */
 .text { zoom: calc(var(--console-zoom) / var(--ui-zoom)); }
 .error { color: var(--aifred-danger); }
+/* A wrapped line goes on under its text, not under the time: "14:17:48 | " is 11 characters of the monospace font. */
+.text > div { padding-left: 11ch; text-indent: -11ch; }
 </style>
