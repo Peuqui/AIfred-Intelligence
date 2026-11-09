@@ -1,18 +1,31 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from "vue";
 import { t } from "../i18n";
+import { isAtEnd } from "../lib/followScroll";
 
 const props = defineProps<{ lines: string[] }>();
 const open = ref(true); // shown, as it was under Reflex
 const list = ref<HTMLElement | null>(null);
 
-// New lines scroll into view while the console is open.
+// New lines scroll into view while the reader stands at the console's end (followScroll.ts); scrolled up to read, it
+// stays. Measured before the lines reach the page (the watcher runs first), scrolled after.
 watch(
   () => props.lines.length,
   async () => {
+    const box = list.value;
+    const atEnd = !box || isAtEnd(box);
     await nextTick();
-    if (list.value) list.value.scrollTop = list.value.scrollHeight;
+    if (list.value && atEnd) list.value.scrollTop = list.value.scrollHeight;
   },
+);
+// Opened (and when first shown), it starts at its end: it begins by following.
+watch(
+  open,
+  async (isOpen) => {
+    await nextTick();
+    if (isOpen && list.value) list.value.scrollTop = list.value.scrollHeight;
+  },
+  { immediate: true },
 );
 </script>
 

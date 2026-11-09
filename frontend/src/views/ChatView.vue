@@ -14,6 +14,7 @@ import SessionList from "../components/SessionList.vue";
 import TurnProgress from "../components/TurnProgress.vue";
 import { t } from "../i18n";
 import { ZOOM, chatZoom, zoomBy } from "../lib/devicePrefs";
+import { isAtEnd } from "../lib/followScroll";
 import { saveAs } from "../lib/download";
 import { renderMarkdown } from "../lib/markdown";
 import { successorSession } from "../lib/sessionSuccessor";
@@ -121,14 +122,13 @@ async function remove(sessionIds: string[]): Promise<void> {
   }
 }
 
-// The newest message stays in view while an answer streams, as long as the reader stands at the end: scrolled up
-// to read, the view stays where it is until they come back down (until 08.11.2026 every token pulled it down).
-const FOLLOW_SLACK_PX = 40;
+// The newest message stays in view while an answer streams, as long as the reader stands at the end (followScroll.ts).
+// Measured before the change reaches the page (the watcher runs first), scrolled after it.
 watch(
   () => [chat.history.length, chat.streaming?.text.length, progress.value?.text],
   async () => {
     const view = messages.value;
-    const atEnd = !view || view.scrollHeight - view.scrollTop - view.clientHeight < FOLLOW_SLACK_PX;
+    const atEnd = !view || isAtEnd(view);
     await nextTick();
     if (view && atEnd) view.scrollTop = view.scrollHeight;
   },
