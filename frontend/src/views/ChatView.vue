@@ -152,6 +152,13 @@ onMounted(() => void start());
     <main class="chat">
       <div class="toolbar">
         <h2>{{ chat.title || t("untitled_chat") }}</h2>
+        <!-- Who answers and how (Peuqui 09.11.2026: above), the camera watch's state at the right. -->
+        <div class="who">
+          <AgentSelect :agents="agents" :active="chat.config.active_agent" @choose="(agent) => chat.configure({ active_agent: agent })" />
+          <DebateControls :config="chat.config" :agents="agents" :modes="modes" @configure="chat.configure" />
+          <VisionBadge class="watch" />
+        </div>
+        <!-- The chat's tools beneath. -->
         <div class="choices">
           <HelpButton topic="chat" />
           <button class="zoom" :disabled="chatZoom <= ZOOM.min" :title="t('chat_font_smaller')" @click="zoomBy('chat', -1)">A−</button>
@@ -185,9 +192,6 @@ onMounted(() => void start());
           <button class="export" :disabled="!chat.history.length || exporting" :title="t('share_chat')" @click="shareChat">🔗</button>
           <button class="export" :disabled="!chat.history.length || exporting" :title="t('download_chat')" @click="downloadChat">💾</button>
           <button class="export" :disabled="!chat.sessionId" :title="t('sandbox_outputs_tooltip')" @click="outputsOpen = true">📂</button>
-          <AgentSelect :agents="agents" :active="chat.config.active_agent" @choose="(agent) => chat.configure({ active_agent: agent })" />
-          <DebateControls :config="chat.config" :agents="agents" :modes="modes" @configure="chat.configure" />
-          <VisionBadge />
         </div>
       </div>
       <div ref="messages" class="messages">
@@ -253,7 +257,9 @@ onMounted(() => void start());
    answer), input and console below it; the page scrolls. */
 .layout { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; }
 .chat { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding-bottom: 12px; }
-.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.toolbar { display: flex; flex-direction: column; gap: 8px; }
+.who { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.who .watch { margin-left: auto; }
 h2 { margin: 0; font-size: 1.1rem; }
 .choices { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .incognito, .regenerate, .agent-choices, .export, .clear, .remember, .zoom { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
