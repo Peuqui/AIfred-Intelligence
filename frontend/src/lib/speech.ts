@@ -87,11 +87,25 @@ export function togglePause(): void {
 export function keep(audioUrls: string[], browserSpeech: Utterance[]): void {
   kept = { audioUrls, browserSpeech };
   hasReading.value = audioUrls.length + browserSpeech.length > 0;
+  position.value = 0;
+  duration.value = 0;
+  // A single file has a length the player shows before it plays; a reading in pieces has none.
+  const [only] = audioUrls;
+  if (only !== undefined && audioUrls.length === 1 && browserSpeech.length === 0) {
+    const probe = new Audio();
+    probe.preload = "metadata";
+    probe.onloadedmetadata = () => {
+      if (kept?.audioUrls[0] === only && !speaking.value) duration.value = probe.duration;
+    };
+    probe.src = only;
+  }
 }
 
-// Plays the kept reading again from the start.
-export function replayKept(): void {
-  if (kept) replay(kept.audioUrls, kept.browserSpeech);
+// Plays the kept reading again, from the start or from a place in it (the file is one piece).
+export function replayKept(fromSeconds = 0): void {
+  if (!kept) return;
+  replay(kept.audioUrls, kept.browserSpeech);
+  if (current && fromSeconds > 0) current.currentTime = fromSeconds;
 }
 
 // Seconds from the start of the audio that plays (not for a reading that is still arriving).

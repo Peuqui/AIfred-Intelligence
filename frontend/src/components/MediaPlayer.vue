@@ -23,7 +23,9 @@ const name = computed(() => (isSpeech.value ? t("speech_player_title") : (media.
 const playing = computed(() => (isSpeech.value ? mode.value === "speech" && !speech.paused.value : media.playing.value));
 const position = computed(() => (isSpeech.value ? speech.position.value : media.position.value));
 const duration = computed(() => (isSpeech.value ? speech.duration.value : media.duration.value));
-const seekable = computed(() => mode.value !== "kept" && (!isSpeech.value || !speech.live.value) && Number.isFinite(duration.value) && duration.value > 0);
+// A reading that is still arriving comes piece by piece: its bar is there, but it cannot be moved.
+const seekable = computed(() => (!isSpeech.value || !speech.live.value) && Number.isFinite(duration.value) && duration.value > 0);
+const length = computed(() => (Number.isFinite(duration.value) && duration.value > 0 ? duration.value : 0)); // a stream has none
 const volume = computed({
   get: () => (isSpeech.value ? speech.volume.value : media.volume.value),
   set: (level: number) => {
@@ -40,7 +42,8 @@ function clock(seconds: number): string {
 }
 
 function seekTo(seconds: number): void {
-  if (isSpeech.value) speech.seek(seconds);
+  if (mode.value === "kept") speech.replayKept(seconds);
+  else if (isSpeech.value) speech.seek(seconds);
   else void chat.mediaControl("seek", Math.max(0, Math.min(media.duration.value, seconds)));
 }
 
@@ -58,22 +61,26 @@ function stop(): void {
 
 <template>
   <div v-if="mode" class="player" :title="name">
-    <button v-if="isSpeech" :title="t('audio_restart')" :disabled="!speech.hasReading.value" @click="speech.replayKept()">⏮</button>
-    <button :title="t('audio_back')" :disabled="!seekable" @click="seekTo(position - SKIP_SEC)">⏪</button>
-    <button :title="playing ? t('audio_pause') : t('audio_resume')" @click="playPause">{{ playing ? "⏸" : "▶" }}</button>
-    <button :title="t('audio_forward')" :disabled="!seekable" @click="seekTo(position + SKIP_SEC)">⏩</button>
-    <button :title="t('audio_stop')" :disabled="mode === 'kept'" @click="stop">⏹</button>
-    <template v-if="seekable">
+    <div class="controls">
+      <button v-if="isSpeech" :title="t('audio_restart')" :disabled="!speech.hasReading.value" @click="speech.replayKept()">⏮</button>
+      <button :title="t('audio_back')" :disabled="!seekable" @click="seekTo(position - SKIP_SEC)">⏪</button>
+      <button :title="playing ? t('audio_pause') : t('audio_resume')" @click="playPause">{{ playing ? "⏸" : "▶" }}</button>
+      <button :title="t('audio_forward')" :disabled="!seekable" @click="seekTo(position + SKIP_SEC)">⏩</button>
+      <button :title="t('audio_stop')" :disabled="mode === 'kept'" @click="stop">⏹</button>
+      <input v-model.number="volume" class="volume" type="range" min="0" max="1" step="0.05" :title="t('audio_volume')" />
+    </div>
+    <div class="progress">
       <span class="time">{{ clock(position) }}</span>
-      <input class="seek" type="range" min="0" :max="duration" step="1" :value="position" @change="seekTo(Number(($event.target as HTMLInputElement).value))" />
-      <span class="time">{{ clock(duration) }}</span>
-    </template>
-    <input v-model.number="volume" class="volume" type="range" min="0" max="1" step="0.05" :title="t('audio_volume')" />
+      <input class="seek" type="range" min="0" :max="length || 1" step="1" :value="position" :disabled="!seekable" @change="seekTo(Number(($event.target as HTMLInputElement).value))" />
+      <span class="time">{{ length ? clock(length) : "–:––" }}</span>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.player { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--aifred-border); font-size: 0.85rem; min-width: 0; }
+.player { display: flex; flex-direction: column; gap: 4px; padding: 4px 0; border-bottom: 1px solid var(--aifred-border); font-size: 0.85rem; min-width: 0; }
+.controls, .progress { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.controls { flex-wrap: nowrap; }
 button { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; padding: 0 8px; font: inherit; }
 button:disabled { opacity: 0.4; cursor: default; }
 .time { color: var(--aifred-text-muted); font-variant-numeric: tabular-nums; }
