@@ -19,6 +19,7 @@ import type {
 } from "../api/types";
 import { t } from "../i18n";
 import * as media from "../lib/media";
+import { withConfigChanges } from "../lib/sessionConfig";
 import * as speech from "../lib/speech";
 import type { TurnPhase } from "../lib/turnProgress";
 import { type HubNotice, useHubNotice } from "./hubNotice";
@@ -164,7 +165,8 @@ export const useChat = defineStore("chat", () => {
         void useSessions().refresh();
         break;
       case "session_config":
-        config.value = data as unknown as SessionConfig;
+        // While this tab's own changes are on their way, the last of them brings the state (configure).
+        if (!changesOnTheirWay) config.value = data as unknown as SessionConfig;
         break;
       case "session_title":
         title.value = String(data.title);
@@ -398,17 +400,31 @@ export const useChat = defineStore("chat", () => {
     await api<{ cancelled: boolean }>(`sessions/${sessionId.value}/stop`, { method: "POST" });
   }
 
-  // A choice of this session (agent, mode, seats, incognito); a refused one shows why.
-  async function configure(changes: SessionConfigUpdate): Promise<void> {
-    if (!sessionId.value) return;
-    try {
-      config.value = await api<SessionConfig>(`sessions/${sessionId.value}/config`, {
-        method: "PATCH",
-        body: JSON.stringify(changes),
-      });
-    } catch (error) {
-      notice.value = error instanceof ApiError ? error.detail : String(error);
-    }
+  // A choice of this session (agent, mode, seats, incognito); a refused one shows why. It shows at once and the
+  // changes go out one after another: the next click builds on what this one shows, not on the server's last answer
+  // (quick clicks on the symposion's pills overwrote each other, and answers could arrive in any order). The server's
+  // own state (its answer, its session_config event) is taken only once no change is on its way.
+  let configuring: Promise<void> = Promise.resolve();
+  let changesOnTheirWay = 0;
+
+  function configure(changes: SessionConfigUpdate): Promise<void> {
+    const id = sessionId.value;
+    if (!id) return configuring;
+    config.value = withConfigChanges(config.value, changes);
+    changesOnTheirWay += 1;
+    configuring = configuring.then(async () => {
+      let confirmed: SessionConfig | null = null;
+      try {
+        confirmed = await api<SessionConfig>(`sessions/${id}/config`, { method: "PATCH", body: JSON.stringify(changes) });
+      } catch (error) {
+        notice.value = error instanceof ApiError ? error.detail : String(error);
+      }
+      changesOnTheirWay -= 1;
+      if (changesOnTheirWay || sessionId.value !== id) return;
+      // After a refused change what shows is not what the server has: its state again.
+      config.value = confirmed ?? (await api<SessionDetail>(`sessions/${id}`)).config;
+    });
+    return configuring;
   }
 
   return {
