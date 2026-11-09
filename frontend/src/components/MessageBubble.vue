@@ -80,7 +80,7 @@ function enlarge(event: MouseEvent): void {
   width: 100%;
   background: var(--aifred-card-bg);
   border: 1px solid var(--aifred-agent-bubble-border);
-  border-left: 3px solid var(--agent-color, var(--aifred-agent-bubble-border));
+  border-left: 2px solid var(--agent-color, var(--aifred-agent-bubble-border));
 }
 .assistant header { color: var(--agent-color, var(--aifred-primary)); }
 .user-head { justify-content: flex-end; color: var(--aifred-user-name); }

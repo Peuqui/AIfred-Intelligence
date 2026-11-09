@@ -304,7 +304,7 @@ h2 { margin: 0; font-size: 1.1rem; }
 /* As the finished bubble (MessageBubble), its rim dashed while it streams. */
 .streaming {
   box-sizing: border-box; width: 100%; padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light);
-  border-left: 3px solid var(--agent-color, var(--aifred-border-light));
+  border-left: 2px solid var(--agent-color, var(--aifred-border-light));
 }
 .streaming header { font-size: var(--text-small); font-weight: 600; color: var(--agent-color, var(--aifred-primary)); }
 .tool { margin: 4px 0 0; font-size: var(--text-small); color: var(--aifred-accent-cyan); }
