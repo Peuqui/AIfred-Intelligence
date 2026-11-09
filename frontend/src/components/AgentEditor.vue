@@ -8,6 +8,7 @@ import type { AgentPersona, AgentRights } from "../api/types";
 import { t } from "../i18n";
 import { useAgents } from "../stores/agents";
 import ModalDialog from "./ModalDialog.vue";
+import ToggleSwitch from "./ToggleSwitch.vue";
 import PromptLayers from "./PromptLayers.vue";
 
 const props = defineProps<{ agentId: string }>();
@@ -112,8 +113,12 @@ onMounted(() =>
         <fieldset v-for="group in rights.groups" :key="group.name" :disabled="all">
           <legend>
             {{ group.name }}
-            <button type="button" @click="setGroup(group.tools.map((tool) => tool.name), true)">{{ t("tools_all_on") }}</button>
-            <button type="button" @click="setGroup(group.tools.map((tool) => tool.name), false)">{{ t("tools_all_off") }}</button>
+            <!-- On only when every tool of the group is allowed; flipping it allows or forbids them all (Reflex's switch). -->
+            <ToggleSwitch
+              :on="all || group.tools.every((tool) => allowed.has(tool.name))"
+              :disabled="all"
+              @toggle="(on) => setGroup(group.tools.map((tool) => tool.name), on)"
+            />
           </legend>
           <!-- A pill per tool, as on the Reflex page: orange when allowed, grey when not; beside it its security tier. -->
           <div class="pills">

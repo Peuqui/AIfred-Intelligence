@@ -1004,8 +1004,6 @@
   "agents_system_hint": "They work in the background and cannot be addressed in the chat: Vision describes images, Calibration drives the AI calibration, the Automatik detects addressee, language and mode switches and ranks search hits.",
   "agent_editor_description": "Description",
   "agent_editor_prompts": "Prompt Layers",
-  "tools_all_on": "All on",
-  "tools_all_off": "All off",
   "agent_editor_id": "Agent ID",
   "agent_editor_id_hint": "Lowercase, no spaces",
   "agent_editor_close": "Close",

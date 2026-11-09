@@ -1004,8 +1004,6 @@
   "agents_system_hint": "Sie arbeiten im Hintergrund und sind im Chat nicht ansprechbar: Vision beschreibt Bilder, Calibration steuert die KI-Kalibrierung, die Automatik erkennt Anrede, Sprache und Moduswechsel und sortiert Suchtreffer.",
   "agent_editor_description": "Beschreibung",
   "agent_editor_prompts": "Prompt-Layer",
-  "tools_all_on": "Alle an",
-  "tools_all_off": "Alle aus",
   "agent_editor_id": "Agent-ID",
   "agent_editor_id_hint": "Kleinbuchstaben, keine Leerzeichen",
   "agent_editor_close": "Schließen",
