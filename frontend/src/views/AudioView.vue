@@ -141,7 +141,8 @@ const picked = (event: Event): string => (event.target as HTMLSelectElement).val
         </select>
       </div>
       <p v-if="choices.service_error" class="error">{{ choices.service_error }}</p>
-      <table v-if="agents.length">
+      <div v-if="agents.length" class="table-scroll">
+      <table>
         <thead>
           <tr>
             <th></th>
@@ -192,6 +193,7 @@ const picked = (event: Event): string => (event.target as HTMLSelectElement).val
           </tr>
         </tbody>
       </table>
+      </div>
     </section>
 
     <section v-if="recognition">
@@ -225,6 +227,8 @@ input[type="checkbox"] { accent-color: var(--aifred-primary); width: 16px; heigh
 .status { font-size: 0.8rem; color: var(--aifred-text-secondary); }
 .badge { font-size: 0.72rem; color: var(--aifred-accent-amber); border: 1px solid var(--aifred-accent-amber); border-radius: 999px; padding: 0 6px; }
 .note { flex-basis: 100%; font-size: 0.78rem; color: var(--aifred-text-muted); padding-left: 56px; }
+/* Too many columns for a phone: the table scrolls sideways in its own box instead of widening the page. */
+.table-scroll { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; }
 th { text-align: left; font-size: 0.78rem; font-weight: 600; color: var(--aifred-text-secondary); padding: 4px 6px; }
 td { padding: 4px 6px; border-top: 1px solid var(--aifred-border); }

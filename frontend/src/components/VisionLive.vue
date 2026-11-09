@@ -299,7 +299,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 .chip.on { border-color: var(--aifred-primary); color: var(--aifred-primary); }
 .chip.away { opacity: 0.6; }
 .fps { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 12px; }
+/* At least 420 px a camera, but never wider than the screen (one column on a phone). */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); gap: 12px; }
 .grid.single { grid-template-columns: 1fr; }
 .camera { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 10px; }
 .camera header { display: flex; align-items: baseline; gap: 8px; }
