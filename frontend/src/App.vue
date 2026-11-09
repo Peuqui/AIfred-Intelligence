@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // The shell: the login, then the top bar (the pages behind ☰, as under Reflex) and the page itself. The chat
 // page stays alive while another page shows (its session and event stream go on).
+import { LogOut } from "lucide-vue-next";
 import { computed, onMounted, ref, watch, watchEffect } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
 import { UPDATE_CHECK_MS, api, checkForUpdate, newVersion } from "./api/client";
@@ -105,7 +106,7 @@ onMounted(async () => {
         <RouterLink to="/audio">{{ t("nav_audio") }}</RouterLink>
         <RouterLink to="/settings">{{ t("settings") }}</RouterLink>
       </nav>
-      <button class="logout" @click="logout">{{ t("logout") }}</button>
+      <button class="logout" :title="t('logout')" :aria-label="t('logout')" @click="logout"><LogOut :size="18" /></button>
     </header>
     <button v-if="newVersion" class="update" @click="reloadPage">{{ t("new_version_waiting") }}</button>
     <ServiceStatusBar />
@@ -197,7 +198,8 @@ body {
 .reset { align-self: flex-start; margin-top: 2px; background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; padding: 2px 8px; }
 .menu a:hover, .menu a.router-link-active { color: var(--aifred-text-primary); background: var(--aifred-input-bg); }
 .update { margin: 6px 0; padding: 6px 10px; border: 1px solid var(--aifred-primary); border-radius: 6px; background: var(--aifred-input-bg); color: var(--aifred-primary); cursor: pointer; font: inherit; }
-.logout { white-space: nowrap; background: none; border: 1px solid var(--aifred-border); color: inherit; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+/* Only the exit sign, everywhere: the tooltip names it. */
+.logout { display: inline-flex; align-items: center; background: none; border: 1px solid var(--aifred-border); color: inherit; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
 .page { flex: 1; }
 @media (max-width: 760px) {
   .app { padding: 0 8px; }
