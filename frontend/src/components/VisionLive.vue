@@ -218,7 +218,7 @@ const similarity = (value: number | null): string => (value === null ? "" : ` ·
             :title="t(focus ? 'vision_preview_focus_shrink' : 'vision_preview_focus_enlarge')"
             @click="focus = focus ? '' : camera.id"
           />
-          <ol v-if="analysisOf(camera).vlm && live.settings.teleprompter_mode === 'overlay' && feedOf(camera).descriptions.length" class="prompter over">
+          <ol v-if="live.settings.teleprompter_mode === 'overlay' && feedOf(camera).descriptions.length" class="prompter over">
             <li v-for="(line, index) in feedOf(camera).descriptions.slice(-3)" :key="index"><span class="times">{{ line.times }}</span> {{ line.text }}</li>
           </ol>
         </div>
@@ -246,15 +246,16 @@ const similarity = (value: number | null): string => (value === null ? "" : ` ·
             <option v-for="choice in resolutions[camera.id]" :key="choice.id" :value="choice.id">{{ choice.label }}</option>
           </select>
         </div>
-        <section v-if="analysisOf(camera).vlm && live.settings.teleprompter_mode === 'below'" class="prompter">
+        <!-- What was recognised stays after the analysis is switched off, until 🧹 clears it (Peuqui 09.11.2026). -->
+        <section v-if="live.settings.teleprompter_mode === 'below' && (analysisOf(camera).vlm || feedOf(camera).descriptions.length)" class="prompter">
           <strong>{{ t("vision_preview_teleprompter_label") }}</strong>
           <ol>
             <li v-for="(line, index) in feedOf(camera).descriptions" :key="index"><span class="times">{{ line.times }}</span> {{ line.text }}</li>
           </ol>
         </section>
-        <section v-if="analysisOf(camera).faces" class="prompter">
+        <section v-if="analysisOf(camera).faces || feedOf(camera).faces.length" class="prompter">
           <strong>{{ t("vision_preview_faces_section_label") }}</strong>
-          <p v-if="!feedOf(camera).faces.length" class="empty">{{ t("vision_preview_faces_idle") }}</p>
+          <p v-if="analysisOf(camera).faces && !feedOf(camera).faces.length" class="empty">{{ t("vision_preview_faces_idle") }}</p>
           <div v-for="face in feedOf(camera).faces" :key="face.key" class="face">
             <img v-if="face.crop" :src="face.crop" alt="" @click="opened = { images: [face.crop], start: 0 }" />
             <span class="who">
