@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Music } from "lucide-vue-next";
 import { computed, nextTick, ref, watch } from "vue";
 import type { Settings, SettingsUpdate, UploadedImage } from "../api/types";
 import { language, t } from "../i18n";
@@ -135,15 +136,20 @@ function audioPicked(event: Event): void {
         <DictationBadge :phase="badgePhase" />
       </button>
       <DictationMenu :settings="settings" @change="(changes) => emit('settings', changes)" />
-      <button class="tool" :title="t('audio_file_upload')" @click="audioPicker?.click()">🎵</button>
+      <button class="tool" :title="t('audio_file_upload')" @click="audioPicker?.click()"><Music :size="20" /></button>
       <span v-if="transcribing" class="transcribing">{{ t("dictation_running") }}</span>
       <span v-if="queued" class="queued">{{ t("messages_waiting", { count: queued }) }}</span>
       <label class="enter" :title="t('enter_sends_hint')">
         <input v-model="enterSends" type="checkbox" />
         {{ t("enter_sends") }}
       </label>
-      <button v-if="running || speaking" class="stop" @click="emit('stop')">⏹ {{ t("stop_turn") }}</button>
-      <button class="send" :disabled="!canSend" @click="send">{{ t("send_text") }}</button>
+      <!-- The chat's tools (ChatView) and the send button as one group: it wraps as a whole, never the send button
+           alone on a line of its own. -->
+      <span class="send-group">
+        <slot name="tools" />
+        <button v-if="running || speaking" class="stop" @click="emit('stop')">⏹ {{ t("stop_turn") }}</button>
+        <button class="send" :disabled="!canSend" @click="send">{{ t("send_text") }}</button>
+      </span>
     </div>
   </div>
 </template>
@@ -195,12 +201,14 @@ figure img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; b
 }
 .uploading { font-size: var(--text-small); color: var(--aifred-text-muted); }
 .actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.send-group { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 .hint, .queued { font-size: var(--text-small); color: var(--aifred-text-muted); margin-right: auto; }
 .enter { display: flex; align-items: center; gap: 4px; font-size: var(--text-small); color: var(--aifred-text-muted); margin-right: auto; cursor: pointer; }
 .enter input { accent-color: var(--aifred-primary); }
 .queued { color: var(--aifred-accent-amber); margin-right: 0; }
 button { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font: inherit; }
-.tool { background: none; border: 1px solid var(--aifred-border); padding: 4px 10px; }
+/* An icon in the text's colour: the 🎵 emoji is drawn black on Android and vanished on the dark page. */
+.tool { display: inline-flex; align-items: center; background: none; border: 1px solid var(--aifred-border); padding: 4px 10px; color: var(--aifred-text-primary); }
 .mic { background: none; border: none; padding: 0; width: 40px; height: 40px; display: inline-flex; }
 .mic svg { width: 100%; height: 100%; }
 .mic:disabled { cursor: default; }

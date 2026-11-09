@@ -2,6 +2,7 @@
 // The dictation's settings beside the microphone: who recognizes it (the STT-Suite on this machine or
 // the browser's own recognition, which sends the speech out of the house in Chrome and Edge) and
 // whether a dictation goes into the input field first. Both live in settings.json (lib/dictation.py).
+import { ChevronDown } from "lucide-vue-next";
 import { ref } from "vue";
 import type { Settings, SettingsUpdate } from "../api/types";
 import { t } from "../i18n";
@@ -13,7 +14,7 @@ const open = ref(false);
 
 <template>
   <span class="menu">
-    <button class="toggle" :title="t('dictation_settings')" :aria-expanded="open" @click="open = !open">▾</button>
+    <button class="toggle" :title="t('dictation_settings')" :aria-expanded="open" @click="open = !open"><ChevronDown :size="22" /></button>
     <div v-if="open" class="panel" role="dialog" :aria-label="t('dictation_settings')">
       <p class="heading">{{ t("dictation_engine") }}</p>
       <label>
@@ -49,7 +50,8 @@ const open = ref(false);
 
 <style scoped>
 .menu { position: relative; display: inline-flex; }
-.toggle { background: none; border: none; padding: 0 2px; cursor: pointer; color: var(--aifred-text-muted); font: inherit; }
+/* In the text's own colour: muted, the small ▾ vanished on the dark page (Peuqui 09.11.2026). */
+.toggle { display: inline-flex; align-items: center; background: none; border: none; padding: 0 2px; cursor: pointer; color: var(--aifred-text-primary); }
 .panel {
   position: absolute;
   bottom: calc(100% + 8px);

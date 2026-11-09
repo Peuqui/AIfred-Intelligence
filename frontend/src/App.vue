@@ -125,6 +125,10 @@ html { font-size: var(--text-base); }
    vw/vh would grow with it (a dialog of 88vw became wider than the screen). Every size in screen units uses these. */
 :root { --vw: calc(1vw / var(--ui-zoom)); --vh: calc(1vh / var(--ui-zoom)); --dvh: calc(1dvh / var(--ui-zoom)); }
 button, input, select, textarea { font: inherit; }
+/* A switch as a pill, as on the Reflex page: grey when off, a muted orange when on (tools of an agent, agents of the chat). */
+.pill { border-radius: 999px; padding: 2px 10px; font-size: var(--text-small); color: var(--aifred-text-muted); background: var(--aifred-input-bg); border: 1px solid var(--aifred-border); cursor: pointer; }
+.pill.on { color: var(--aifred-primary); background: color-mix(in srgb, var(--aifred-primary) 18%, transparent); border-color: var(--aifred-primary); }
+.pill:disabled { cursor: default; }
 /* The interface's size on the body only: on html and body together it acted twice (130 % became 169 %). */
 body { zoom: var(--ui-zoom); }
 html,

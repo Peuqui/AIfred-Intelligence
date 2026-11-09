@@ -149,7 +149,7 @@ onMounted(() =>
 .tabs button.active { border-color: var(--aifred-primary); color: var(--aifred-primary); }
 .close { background: none; border: none; font-size: 1.2rem; }
 /* border-box: a field at width 100 % keeps its padding and border inside (the emoji field ran over the edge). */
-button, input:not([type="checkbox"]), select { box-sizing: border-box; background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+button:not(.pill), input:not([type="checkbox"]), select { box-sizing: border-box; background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
 button { cursor: pointer; }
 button:disabled { opacity: 0.5; cursor: default; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); }
@@ -168,9 +168,6 @@ legend { display: flex; gap: 6px; align-items: center; font-weight: 500; padding
 legend button { font-size: 0.75rem; padding: 1px 6px; }
 .pills { display: flex; flex-wrap: wrap; gap: 6px 10px; }
 .tool { display: inline-flex; gap: 3px; align-items: center; }
-.pill { border-radius: 999px; padding: 2px 10px; font-size: var(--text-small); color: var(--aifred-text-muted); background: var(--aifred-input-bg); border: 1px solid var(--aifred-border); cursor: pointer; }
-.pill.on { color: var(--aifred-primary); background: color-mix(in srgb, var(--aifred-primary) 18%, transparent); border-color: var(--aifred-primary); }
-.pill:disabled { cursor: default; }
 /* The security tiers' colours of the Reflex page: T0 green, T1 blue, T2 amber, T3 red, T4 purple. */
 .tier { font-size: 0.65rem; font-weight: 700; color: var(--aifred-text-muted); }
 .tier.t0 { color: var(--aifred-accent-success); }

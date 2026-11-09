@@ -3,7 +3,7 @@ import { computed, defineAsyncComponent, nextTick, onMounted, ref, watch } from 
 import { api } from "../api/client";
 import type { AgentSummary, ChatEntry, CropBox, DebateMode } from "../api/types";
 import AgentChoicesModal from "../components/AgentChoicesModal.vue";
-import AgentSelect from "../components/AgentSelect.vue";
+import AgentPills from "../components/AgentPills.vue";
 import DebateControls from "../components/DebateControls.vue";
 import VisionBadge from "../components/VisionBadge.vue";
 import ChatInput from "../components/ChatInput.vue";
@@ -150,8 +150,8 @@ onMounted(() => void start());
   <div class="layout">
     <SessionList class="side" :current="chat.sessionId" @open="chat.open" @create="create" @remove="remove" />
     <main class="chat">
-      <!-- As on the Reflex page: the history's title with the text size above it; who answers, how and the tools below the
-           input (Peuqui 09.11.2026). -->
+      <!-- As on the Reflex page: the history's title with the text size above it; the chat's tools in the input's row of
+           the send button, who answers and how below it (Peuqui 09.11.2026). -->
       <div class="toolbar">
         <h2>{{ chat.title || t("untitled_chat") }}</h2>
         <button class="zoom" :disabled="chatZoom <= ZOOM.min" :title="t('chat_font_smaller')" @click="zoomBy('chat', -1)">A−</button>
@@ -199,9 +199,35 @@ onMounted(() => void start());
         @dictate="chat.dictate"
         @heard="chat.dictated"
         @settings="settings.change"
-      />
+      >
+        <template #tools>
+          <HelpButton topic="chat" />
+          <button class="agent-choices" :title="t('agent_choices_title')" @click="choicesOpen = true">🎛️</button>
+          <button
+            v-if="settings.current?.enable_tts && hasReplies"
+            class="regenerate"
+            :disabled="chat.regenerating"
+            :title="t('tts_regenerate_all')"
+            @click="chat.regenerateAll"
+          >
+            🔄
+          </button>
+          <button class="clear" :disabled="!chat.history.length" :title="t('clear_chat')" @click="chat.clearChat">🗑️</button>
+          <button
+            class="remember"
+            :disabled="!hasReplies || chat.remembering || chat.running"
+            :title="`${t('save_memory')} — ${t('save_memory_hint')}`"
+            @click="chat.remember"
+          >
+            📌
+          </button>
+          <button class="export" :disabled="!chat.history.length || exporting" :title="t('share_chat')" @click="shareChat">🔗</button>
+          <button class="export" :disabled="!chat.history.length || exporting" :title="t('download_chat')" @click="downloadChat">💾</button>
+          <button class="export" :disabled="!chat.sessionId" :title="t('sandbox_outputs_tooltip')" @click="outputsOpen = true">📂</button>
+        </template>
+      </ChatInput>
       <div class="who">
-        <AgentSelect :agents="agents" :active="chat.config.active_agent" @choose="(agent) => chat.configure({ active_agent: agent })" />
+        <AgentPills :config="chat.config" :agents="agents" @configure="chat.configure" />
         <DebateControls :config="chat.config" :agents="agents" :modes="modes" @configure="chat.configure" />
         <button
           class="incognito"
@@ -212,30 +238,6 @@ onMounted(() => void start());
           {{ chat.config.incognito ? "🔒" : "🔓" }}
         </button>
         <VisionBadge class="watch" />
-      </div>
-      <div class="choices">
-        <HelpButton topic="chat" />
-        <button class="agent-choices" :title="t('agent_choices_title')" @click="choicesOpen = true">🎛️</button>
-        <button
-          v-if="settings.current?.enable_tts && hasReplies"
-          class="regenerate"
-          :disabled="chat.regenerating"
-          @click="chat.regenerateAll"
-        >
-          {{ t("tts_regenerate_all") }}
-        </button>
-        <button class="clear" :disabled="!chat.history.length" :title="t('clear_chat')" @click="chat.clearChat">🗑️</button>
-        <button
-          class="remember"
-          :disabled="!hasReplies || chat.remembering || chat.running"
-          :title="`${t('save_memory')} — ${t('save_memory_hint')}`"
-          @click="chat.remember"
-        >
-          📌
-        </button>
-        <button class="export" :disabled="!chat.history.length || exporting" :title="t('share_chat')" @click="shareChat">🔗</button>
-        <button class="export" :disabled="!chat.history.length || exporting" :title="t('download_chat')" @click="downloadChat">💾</button>
-        <button class="export" :disabled="!chat.sessionId" :title="t('sandbox_outputs_tooltip')" @click="outputsOpen = true">📂</button>
       </div>
       <DebugConsole :lines="chat.debugLines" />
       <AgentChoicesModal v-if="choicesOpen" @close="choicesOpen = false" />
@@ -259,10 +261,10 @@ onMounted(() => void start());
 .chat { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding-bottom: 12px; }
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .toolbar h2 { margin-right: auto; }
-.who { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+/* The container of the agent pills' query: on a narrow row they show their emoji only. */
+.who { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; container-type: inline-size; }
 .who .watch { margin-left: auto; }
 h2 { margin: 0; font-size: 1.1rem; }
-.choices { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .incognito, .regenerate, .agent-choices, .export, .clear, .remember, .zoom { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
 .regenerate:disabled, .export:disabled, .remember:disabled { opacity: 0.7; cursor: progress; }
 .clear:disabled, .zoom:disabled { opacity: 0.5; cursor: default; }
