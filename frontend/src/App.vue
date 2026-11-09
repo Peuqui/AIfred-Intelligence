@@ -7,7 +7,6 @@ import { RouterLink, RouterView, useRoute } from "vue-router";
 import { UPDATE_CHECK_MS, api, checkForUpdate, newVersion } from "./api/client";
 import HubNoticeToast from "./components/HubNoticeToast.vue";
 import LoginForm from "./components/LoginForm.vue";
-import MediaPlayer from "./components/MediaPlayer.vue";
 import ServiceStatusBar from "./components/ServiceStatusBar.vue";
 import { loadLanguage, t } from "./i18n";
 import { useAuth } from "./stores/auth";
@@ -117,7 +116,6 @@ onMounted(async () => {
     <button v-if="newVersion" class="update" @click="reloadPage">{{ t("new_version_waiting") }}</button>
     <ServiceStatusBar />
     <div class="divider" role="separator" />
-    <MediaPlayer />
     <HubNoticeToast />
     <RouterView v-slot="{ Component }">
       <KeepAlive><component :is="Component" class="page" /></KeepAlive>

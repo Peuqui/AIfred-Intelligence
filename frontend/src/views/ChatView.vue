@@ -11,6 +11,7 @@ import VisionBadge from "../components/VisionBadge.vue";
 import ChatInput from "../components/ChatInput.vue";
 import DebugConsole from "../components/DebugConsole.vue";
 import ImageEditor from "../components/ImageEditor.vue";
+import MediaPlayer from "../components/MediaPlayer.vue";
 import MessageBubble from "../components/MessageBubble.vue";
 import SessionList from "../components/SessionList.vue";
 import TurnProgress from "../components/TurnProgress.vue";
@@ -224,6 +225,7 @@ onMounted(() => void start());
         <p v-if="settings.notice" class="notice">⚠️ {{ settings.notice }}</p>
         </div>
       </div>
+      <MediaPlayer />
       <ChatInput
         v-if="settings.current"
         v-model="chat.draft"

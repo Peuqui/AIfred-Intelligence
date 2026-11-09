@@ -57,8 +57,7 @@ function stop(): void {
 </script>
 
 <template>
-  <div v-if="mode" class="player">
-    <span class="what" :title="name">{{ isSpeech ? "🔊" : "🎵" }} {{ name }}</span>
+  <div v-if="mode" class="player" :title="name">
     <button v-if="isSpeech" :title="t('audio_restart')" :disabled="!speech.hasReading.value" @click="speech.replayKept()">⏮</button>
     <button :title="t('audio_back')" :disabled="!seekable" @click="seekTo(position - SKIP_SEC)">⏪</button>
     <button :title="playing ? t('audio_pause') : t('audio_resume')" @click="playPause">{{ playing ? "⏸" : "▶" }}</button>
@@ -69,20 +68,20 @@ function stop(): void {
       <input class="seek" type="range" min="0" :max="duration" step="1" :value="position" @change="seekTo(Number(($event.target as HTMLInputElement).value))" />
       <span class="time">{{ clock(duration) }}</span>
     </template>
-    <label class="volume" :title="t('audio_volume')">
-      🔊
-      <input v-model.number="volume" type="range" min="0" max="1" step="0.05" />
-    </label>
+    <input v-model.number="volume" class="volume" type="range" min="0" max="1" step="0.05" :title="t('audio_volume')" />
   </div>
 </template>
 
 <style scoped>
 .player { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--aifred-border); font-size: 0.85rem; min-width: 0; }
-.what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 30%; }
 button { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; padding: 0 8px; font: inherit; }
 button:disabled { opacity: 0.4; cursor: default; }
 .time { color: var(--aifred-text-muted); font-variant-numeric: tabular-nums; }
 .seek { flex: 1; min-width: 60px; accent-color: var(--aifred-primary); }
-.volume { display: flex; align-items: center; gap: 4px; }
-.volume input { width: 80px; accent-color: var(--aifred-primary); }
+/* A thin groove and a small knob; the slider sits right of the buttons. */
+.volume { -webkit-appearance: none; appearance: none; width: 80px; height: 10px; background: transparent; accent-color: var(--aifred-primary); }
+.volume::-webkit-slider-runnable-track { height: 2px; border-radius: 1px; background: var(--aifred-primary); }
+.volume::-moz-range-track { height: 2px; border-radius: 1px; background: var(--aifred-primary); }
+.volume::-webkit-slider-thumb { -webkit-appearance: none; width: 8px; height: 8px; margin-top: -3px; border-radius: 50%; border: none; background: var(--aifred-primary); }
+.volume::-moz-range-thumb { width: 8px; height: 8px; border-radius: 50%; border: none; background: var(--aifred-primary); }
 </style>
