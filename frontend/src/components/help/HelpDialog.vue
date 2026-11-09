@@ -7,6 +7,7 @@ import CasusHelp from "./CasusHelp.vue";
 import DebateHelp from "./DebateHelp.vue";
 import LifecycleHelp from "./LifecycleHelp.vue";
 import ThinkingHelp from "./ThinkingHelp.vue";
+import ChatToolbarHelp from "./ChatToolbarHelp.vue";
 import VigilantiaHelp from "./VigilantiaHelp.vue";
 import { HELP_TOPICS, type HelpTopic, OPEN_HELP } from "./topics";
 
@@ -16,7 +17,7 @@ const current = ref<HelpTopic>(props.topic);
 provide(OPEN_HELP, (topic) => (current.value = topic));
 
 const BODIES: Record<HelpTopic, Component> = {
-  debate: DebateHelp, thinking: ThinkingHelp, lifecycle: LifecycleHelp, vigilantia: VigilantiaHelp, casus: CasusHelp,
+  chat: ChatToolbarHelp, debate: DebateHelp, thinking: ThinkingHelp, lifecycle: LifecycleHelp, vigilantia: VigilantiaHelp, casus: CasusHelp,
 };
 </script>
 

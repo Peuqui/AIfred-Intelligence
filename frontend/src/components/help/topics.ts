@@ -2,9 +2,10 @@
 import type { InjectionKey } from "vue";
 import { t } from "../../i18n";
 
-export type HelpTopic = "debate" | "thinking" | "lifecycle" | "vigilantia" | "casus";
+export type HelpTopic = "chat" | "debate" | "thinking" | "lifecycle" | "vigilantia" | "casus";
 
 export const HELP_TOPICS: Record<HelpTopic, { title: () => string; tooltip: () => string }> = {
+  chat: { title: () => t("chat_toolbar_help_title"), tooltip: () => t("chat_toolbar_help_tooltip") },
   debate: { title: () => t("multi_agent_help_title"), tooltip: () => t("discussion_mode_tooltip") },
   thinking: { title: () => t("reasoning_thinking_help_title"), tooltip: () => t("reasoning_thinking_help_lightbulb_tooltip") },
   lifecycle: { title: () => t("model_lifecycle_help_title"), tooltip: () => t("model_lifecycle_help_tooltip") },

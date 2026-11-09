@@ -15,6 +15,7 @@ import TurnProgress from "../components/TurnProgress.vue";
 import { t } from "../i18n";
 import { ZOOM, chatZoom, zoomBy } from "../lib/devicePrefs";
 import { isAtEnd } from "../lib/followScroll";
+import HelpButton from "../components/help/HelpButton.vue";
 import { saveAs } from "../lib/download";
 import { renderMarkdown } from "../lib/markdown";
 import { successorSession } from "../lib/sessionSuccessor";
@@ -152,6 +153,7 @@ onMounted(() => void start());
       <div class="toolbar">
         <h2>{{ chat.title || t("untitled_chat") }}</h2>
         <div class="choices">
+          <HelpButton topic="chat" />
           <button class="zoom" :disabled="chatZoom <= ZOOM.min" :title="t('chat_font_smaller')" @click="zoomBy('chat', -1)">A−</button>
           <button class="zoom" :disabled="chatZoom >= ZOOM.max" :title="t('chat_font_larger')" @click="zoomBy('chat', 1)">A+</button>
           <button class="agent-choices" :title="t('agent_choices_title')" @click="choicesOpen = true">🎛️</button>
