@@ -137,8 +137,9 @@ function audioPicked(event: Event): void {
     <div class="actions">
       <input ref="picker" type="file" accept="image/*" multiple hidden @change="picked" />
       <input ref="audioPicker" type="file" accept="audio/*,.webm" hidden @change="audioPicked" />
-      <button class="tool-button" :title="t('upload_image')" @click="picker?.click()">🖼️</button>
+      <!-- First, right below the microphone it belongs to. -->
       <DictationMenu :settings="settings" @change="(changes) => emit('settings', changes)" />
+      <button class="tool-button" :title="t('upload_image')" @click="picker?.click()">🖼️</button>
       <button class="tool-button" :title="t('audio_file_upload')" @click="audioPicker?.click()"><Music :size="20" /></button>
       <!-- The chat's own tools (ChatView): help, the agents' choices, read aloud anew. -->
       <slot name="tools" />

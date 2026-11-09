@@ -2,7 +2,7 @@
 // The dictation's settings beside the microphone: who recognizes it (the STT-Suite on this machine or
 // the browser's own recognition, which sends the speech out of the house in Chrome and Edge) and
 // whether a dictation goes into the input field first. Both live in settings.json (lib/dictation.py).
-import { ChevronDown, Mic } from "lucide-vue-next";
+import { Settings as GearIcon } from "lucide-vue-next";
 import { ref } from "vue";
 import type { Settings, SettingsUpdate } from "../api/types";
 import { t } from "../i18n";
@@ -17,7 +17,7 @@ closeWhenBeside(open, box);
 
 <template>
   <span ref="box" class="menu">
-    <button class="tool-button" :title="t('dictation_settings')" :aria-expanded="open" @click="open = !open"><Mic :size="18" /><ChevronDown :size="14" /></button>
+    <button class="tool-button" :title="t('dictation_settings')" :aria-expanded="open" @click="open = !open"><GearIcon :size="18" /></button>
     <div v-if="open" class="panel" role="dialog" :aria-label="t('dictation_settings')">
       <p class="heading">{{ t("dictation_engine") }}</p>
       <label>
