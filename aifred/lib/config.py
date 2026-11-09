@@ -1758,6 +1758,10 @@ HTML_PREVIEW_MAX_FILES = env_int("HTML_PREVIEW_MAX_FILES", 200)  # LRU cache lim
 UI_THINKING_MAX_HEIGHT_DESKTOP = "450px"   # ~15-20 lines of text
 UI_THINKING_MAX_HEIGHT_MOBILE = "40vh"     # narrow screens (max-width 760px)
 UI_SANDBOX_MAX_HEIGHT = "60vh"             # details[data-sandbox]
+# The chat history's box; on a phone lower, so the input below it is in view when the page opens (dvh: the screen
+# without the browser's bars).
+UI_CHAT_HEIGHT_DESKTOP = "70vh"
+UI_CHAT_HEIGHT_MOBILE = "50dvh"            # narrow screens (max-width 760px)
 # The interface's text in two steps (theme.css: --text-base, --text-small): what one reads or writes in the base size,
 # what accompanies it (time, metrics, status, hints) in the small one; headings larger, thinking 0.9 of the base.
 UI_FONT_SIZE = "15px"

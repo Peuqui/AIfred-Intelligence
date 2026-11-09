@@ -37,9 +37,11 @@ async def _send_build_id(request: Request, call_next: Callable[[Request], Awaita
 
 @api_app.get("/app/theme.css", include_in_schema=False)
 async def app_theme() -> Response:
-    """The colours of theme.py, the text sizes and the heights of the collapsibles in answers (config.py) as CSS
-    variables."""
+    """The colours of theme.py, the text sizes, the heights of the collapsibles in answers and of the chat history
+    (config.py) as CSS variables."""
     from ..config import (
+        UI_CHAT_HEIGHT_DESKTOP,
+        UI_CHAT_HEIGHT_MOBILE,
         UI_FONT_SIZE,
         UI_FONT_SIZE_SMALL,
         UI_SANDBOX_MAX_HEIGHT,
@@ -51,6 +53,7 @@ async def app_theme() -> Response:
         f":root {{\n    --thinking-max-height-desktop: {UI_THINKING_MAX_HEIGHT_DESKTOP};\n"
         f"    --thinking-max-height-mobile: {UI_THINKING_MAX_HEIGHT_MOBILE};\n"
         f"    --sandbox-max-height: {UI_SANDBOX_MAX_HEIGHT};\n"
+        f"    --chat-height-desktop: {UI_CHAT_HEIGHT_DESKTOP};\n    --chat-height-mobile: {UI_CHAT_HEIGHT_MOBILE};\n"
         f"    --text-base: {UI_FONT_SIZE};\n    --text-small: {UI_FONT_SIZE_SMALL};\n}}"
     )
     return Response(f"{css_variables()}\n{heights}", media_type="text/css")

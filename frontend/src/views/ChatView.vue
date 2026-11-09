@@ -301,7 +301,7 @@ h2 { margin: 0; font-size: 1.1rem; }
 /* The box keeps 70 % of the screen whatever the sizes; only its content takes the chat's size (the interface's
    size, set on the page, is taken out again). */
 .messages {
-  height: calc(70vh / var(--ui-zoom));
+  height: calc(var(--chat-height-desktop) / var(--ui-zoom));
   overflow-y: auto;
   overflow-wrap: anywhere;
   /* No padding on top: the pinned question sticks where it sits (top: 0), so it does not move a pixel before it stops. */
@@ -309,6 +309,9 @@ h2 { margin: 0; font-size: 1.1rem; }
   background: var(--aifred-chat-panel-bg);
   border: 1px solid var(--aifred-border);
   border-radius: 8px;
+}
+@media (max-width: 760px) {
+  .messages { height: calc(var(--chat-height-mobile) / var(--ui-zoom)); }
 }
 .bubbles { display: flex; flex-direction: column; gap: 10px; zoom: calc(var(--chat-zoom) / var(--ui-zoom)); }
 .turn { display: flex; flex-direction: column; gap: 10px; }
