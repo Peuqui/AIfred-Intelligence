@@ -88,6 +88,8 @@ export const useChat = defineStore("chat", () => {
     sessionId.value = id;
     title.value = detail.title ?? null;
     history.value = detail.chat_history;
+    const lastSpoken = [...detail.chat_history].reverse().find((entry) => entry.metadata?.audio_urls?.length || entry.metadata?.browser_speech?.length);
+    speech.keep(lastSpoken?.metadata?.audio_urls ?? [], lastSpoken?.metadata?.browser_speech ?? []);
     debugLines.value = detail.debug_messages;
     config.value = detail.config;
     running.value = detail.running;

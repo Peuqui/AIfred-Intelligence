@@ -83,10 +83,10 @@ export function togglePause(): void {
   }
 }
 
-// A finished bubble's reading becomes the one the player offers; nothing plays.
+// A finished bubble's reading becomes the one the player offers; nothing plays. Without audio the player has none.
 export function keep(audioUrls: string[], browserSpeech: Utterance[]): void {
   kept = { audioUrls, browserSpeech };
-  hasReading.value = true;
+  hasReading.value = audioUrls.length + browserSpeech.length > 0;
 }
 
 // Plays the kept reading again from the start.
