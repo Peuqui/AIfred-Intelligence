@@ -68,70 +68,73 @@ function manualValue(event: Event): void {
 </script>
 
 <template>
-  <div class="row">
-    <span class="name">{{ label }}</span>
-    <select class="model" :value="modelId" :disabled="busy" @change="emit('change', { model_id: picked($event) })">
-      <option v-if="inherits" value="">{{ t("sokrates_llm_same") }}</option>
-      <option v-if="unlisted" :value="modelId">{{ modelId }}</option>
-      <option v-for="model in models" :key="model.id" :value="model.id">
-        {{ model.label }}{{ model.badge ? ` · ${model.badge}` : "" }}
-      </option>
-    </select>
-    <div v-if="row" class="switches">
-      <label :title="personalityTitle">
-        <input type="checkbox" :checked="row.personality" :disabled="busy" @change="emit('change', { personality: !row.personality })" />
-        {{ row.emoji }}
-      </label>
-      <label :title="t('reasoning_tooltip')">
-        <input type="checkbox" :checked="row.reasoning" :disabled="busy" @change="emit('change', { reasoning: !row.reasoning })" />
-        💭
-      </label>
-      <label :title="t('thinking_tooltip')">
-        🧠
-        <select :value="row.thinking" :disabled="busy || row.thinking_options.length < 2" @change="emit('change', { thinking: picked($event) })">
-          <option v-for="option in row.thinking_options" :key="option.value" :value="option.value">{{ option.label }}</option>
-        </select>
-      </label>
-      <label v-if="row.speed_available" :title="t('speed_switch_tooltip')">
-        <input type="checkbox" :checked="row.speed" :disabled="busy" @change="emit('change', { speed: !row.speed })" />
-        ⚡
-      </label>
-    </div>
-    <div v-if="row" class="context">
-      <span :title="manualOffered ? t('context_window_persist_hint') : t('context_window_fixed_hint')">
-        {{ t("context_window") }}: {{ formatNumber(row.context) }} <span class="source">({{ row.context_source }})</span>
-      </span>
-      <template v-if="manualOffered">
-        <label :title="t('context_window_persist_hint')">
-          <input
-            type="checkbox"
-            :checked="row.manual_context_enabled"
-            :disabled="busy"
-            @change="emit('change', { manual_context: { enabled: !row.manual_context_enabled, value: row.manual_context } })"
-          />
-          {{ t("context_manual_label") }}
+  <!-- Its own width decides the layout (a narrow card, a wide dialog), not the screen's. -->
+  <div class="choices-row">
+    <div class="row">
+      <span class="name">{{ label }}</span>
+      <select class="model" :value="modelId" :disabled="busy" @change="emit('change', { model_id: picked($event) })">
+        <option v-if="inherits" value="">{{ t("sokrates_llm_same") }}</option>
+        <option v-if="unlisted" :value="modelId">{{ modelId }}</option>
+        <option v-for="model in models" :key="model.id" :value="model.id">
+          {{ model.label }}{{ model.badge ? ` · ${model.badge}` : "" }}
+        </option>
+      </select>
+      <div v-if="row" class="switches">
+        <label :title="personalityTitle">
+          <input type="checkbox" :checked="row.personality" :disabled="busy" @change="emit('change', { personality: !row.personality })" />
+          {{ row.emoji }}
         </label>
-        <input v-if="row.manual_context_enabled" type="number" min="1" :value="row.manual_context" :disabled="busy" @change="manualValue" />
-      </template>
-    </div>
-    <details v-if="row && ranges" class="sampling">
-      <summary>{{ t("sampling_section_label") }}</summary>
-      <div class="values">
-        <label v-for="(range, field) in ranges" :key="field">
-          {{ t(SAMPLING_LABELS[field] ?? field) }}
-          <input
-            type="number"
-            :min="range.min"
-            :max="range.max"
-            :step="range.step"
-            :value="row.sampling[field]"
-            :disabled="busy"
-            @change="sampled(String(field), $event)"
-          />
+        <label :title="t('reasoning_tooltip')">
+          <input type="checkbox" :checked="row.reasoning" :disabled="busy" @change="emit('change', { reasoning: !row.reasoning })" />
+          💭
         </label>
-        <button class="reset" :title="t('sampling_reset_tooltip')" :disabled="busy" @click="emit('change', { reset_sampling: true })">↺</button>
+        <label :title="t('thinking_tooltip')">
+          🧠
+          <select :value="row.thinking" :disabled="busy || row.thinking_options.length < 2" @change="emit('change', { thinking: picked($event) })">
+            <option v-for="option in row.thinking_options" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+        </label>
+        <label v-if="row.speed_available" :title="t('speed_switch_tooltip')">
+          <input type="checkbox" :checked="row.speed" :disabled="busy" @change="emit('change', { speed: !row.speed })" />
+          ⚡
+        </label>
       </div>
-    </details>
+      <div v-if="row" class="context">
+        <span :title="manualOffered ? t('context_window_persist_hint') : t('context_window_fixed_hint')">
+          {{ t("context_window") }}: {{ formatNumber(row.context) }} <span class="source">({{ row.context_source }})</span>
+        </span>
+        <template v-if="manualOffered">
+          <label :title="t('context_window_persist_hint')">
+            <input
+              type="checkbox"
+              :checked="row.manual_context_enabled"
+              :disabled="busy"
+              @change="emit('change', { manual_context: { enabled: !row.manual_context_enabled, value: row.manual_context } })"
+            />
+            {{ t("context_manual_label") }}
+          </label>
+          <input v-if="row.manual_context_enabled" type="number" min="1" :value="row.manual_context" :disabled="busy" @change="manualValue" />
+        </template>
+      </div>
+      <details v-if="row && ranges" class="sampling">
+        <summary>{{ t("sampling_section_label") }}</summary>
+        <div class="values">
+          <label v-for="(range, field) in ranges" :key="field">
+            {{ t(SAMPLING_LABELS[field] ?? field) }}
+            <input
+              type="number"
+              :min="range.min"
+              :max="range.max"
+              :step="range.step"
+              :value="row.sampling[field]"
+              :disabled="busy"
+              @change="sampled(String(field), $event)"
+            />
+          </label>
+          <button class="reset" :title="t('sampling_reset_tooltip')" :disabled="busy" @click="emit('change', { reset_sampling: true })">↺</button>
+        </div>
+      </details>
+    </div>
   </div>
 </template>
 
@@ -140,7 +143,7 @@ function manualValue(event: Event): void {
 .name { font-weight: 600; font-size: 0.85rem; overflow-wrap: anywhere; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); }
 select { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 0.85rem; }
-.model { width: 100%; min-width: 0; }
+.model { width: 100%; min-width: 0; text-overflow: ellipsis; }
 .switches { grid-column: 2; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-size: 0.85rem; }
 .switches label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
 .context { grid-column: 2; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; font-size: 0.85rem; color: var(--aifred-text-secondary); }
@@ -153,8 +156,11 @@ select { background: var(--aifred-input-bg); color: inherit; border: 1px solid v
 .values label { display: flex; align-items: center; gap: 4px; }
 .values input { width: 5.5em; background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 4px; font: inherit; }
 .reset { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; padding: 1px 8px; }
-@media (max-width: 560px) {
+/* Narrow (a card on a phone): the name above, the model across the whole width, then the rest; every part in the one
+   column (the context line stayed in column 2 and made a hidden second one, squeezing the name to a letter a line). */
+.choices-row { container-type: inline-size; }
+@container (max-width: 520px) {
   .row { grid-template-columns: minmax(0, 1fr); }
-  .switches, .sampling { grid-column: 1; }
+  .name, .model, .switches, .context, .sampling { grid-column: 1; }
 }
 </style>
