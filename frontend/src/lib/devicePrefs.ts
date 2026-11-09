@@ -36,6 +36,11 @@ export const consoleZoom = stored("aifred-console-zoom", ZOOM.default, isZoom);
 const zooms = { chat: chatZoom, ui: uiZoom, console: consoleZoom };
 export type ZoomName = keyof typeof zooms;
 
+/** Every size of this device back to the default (the chat's, the interface's, the console's). */
+export function resetZooms(): void {
+  for (const zoom of Object.values(zooms)) zoom.value = ZOOM.default;
+}
+
 export function zoomBy(name: ZoomName, steps: number): void {
   const zoom = zooms[name];
   zoom.value = Math.min(ZOOM.max, Math.max(ZOOM.min, zoom.value + steps * ZOOM.step));

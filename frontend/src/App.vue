@@ -12,7 +12,7 @@ import { loadLanguage, t } from "./i18n";
 import { useAuth } from "./stores/auth";
 import { useChat } from "./stores/chat";
 import { useSettings } from "./stores/settings";
-import { ZOOM, type ZoomName, chatZoom, consoleZoom, uiZoom, zoomBy } from "./lib/devicePrefs";
+import { ZOOM, type ZoomName, chatZoom, consoleZoom, resetZooms, uiZoom, zoomBy } from "./lib/devicePrefs";
 import hatIcon from "../../assets/AIfred-Zylinder.png";
 
 const auth = useAuth();
@@ -89,6 +89,7 @@ onMounted(async () => {
             <button :disabled="size.value <= ZOOM.min" :title="t('chat_font_smaller')" @click="zoomBy(size.name, -1)">−</button>
             <button :disabled="size.value >= ZOOM.max" :title="t('chat_font_larger')" @click="zoomBy(size.name, 1)">+</button>
           </div>
+          <button class="reset" @click="resetZooms">{{ t("display_sizes_reset") }}</button>
         </div>
         <RouterLink to="/">💬 {{ t("nav_chat") }}</RouterLink>
         <RouterLink to="/agents">{{ t("nav_agents") }}</RouterLink>
@@ -144,6 +145,7 @@ body {
 .size span { flex: 1; }
 .size button { min-width: 32px; background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; }
 .size button:disabled { opacity: 0.4; cursor: default; }
+.reset { align-self: flex-start; margin-top: 2px; background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; padding: 2px 8px; }
 .menu a:hover, .menu a.router-link-active { color: var(--aifred-text-primary); background: var(--aifred-input-bg); }
 .update { margin: 6px 0; padding: 6px 10px; border: 1px solid var(--aifred-primary); border-radius: 6px; background: var(--aifred-input-bg); color: var(--aifred-primary); cursor: pointer; font: inherit; }
 .logout { white-space: nowrap; background: none; border: 1px solid var(--aifred-border); color: inherit; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
