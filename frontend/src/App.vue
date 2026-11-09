@@ -122,6 +122,9 @@ onMounted(async () => {
 /* One base size for the whole interface (config.py → theme.css); rem follows it. Form fields take the page's font:
    browsers do not pass it on by themselves (selects showed 13 px Arial). */
 html { font-size: var(--text-base); }
+/* No rectangle the phone's browser lays over a tapped button (on the round microphone it showed its box), as in
+   Agent-Orc; the buttons show a press by themselves. */
+html, body { -webkit-tap-highlight-color: transparent; }
 /* A hundredth of the screen with the interface's size taken out: the body is zoomed by --ui-zoom, and inside it
    vw/vh would grow with it (a dialog of 88vw became wider than the screen). Every size in screen units uses these. */
 :root { --vw: calc(1vw / var(--ui-zoom)); --vh: calc(1vh / var(--ui-zoom)); --dvh: calc(1dvh / var(--ui-zoom)); }
