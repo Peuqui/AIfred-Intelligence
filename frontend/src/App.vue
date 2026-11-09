@@ -140,6 +140,8 @@ body { zoom: var(--ui-zoom); }
 html,
 body {
   margin: 0;
+  /* The browser's own parts dark (scrollbars, opened selects, date fields), as the Reflex page had it (custom.css). */
+  color-scheme: dark;
   background: var(--aifred-page-bg);
   color: var(--aifred-text-soft);
   font-family: system-ui, sans-serif;
