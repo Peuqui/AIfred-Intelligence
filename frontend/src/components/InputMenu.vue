@@ -1,11 +1,12 @@
 <script setup lang="ts">
-// The dictation's settings beside the microphone: who recognizes it (the STT-Suite on this machine or
-// the browser's own recognition, which sends the speech out of the house in Chrome and Edge) and
-// whether a dictation goes into the input field first. Both live in settings.json (lib/dictation.py).
+// The input's settings behind the gear below the microphone: who recognizes a dictation (the STT-Suite on this machine
+// or the browser's own recognition, which sends the speech out of the house in Chrome and Edge) and whether it goes
+// into the field first (both in settings.json, lib/dictation.py), and whether Enter sends (this device only).
 import { Settings as GearIcon } from "lucide-vue-next";
 import { ref } from "vue";
 import type { Settings, SettingsUpdate } from "../api/types";
 import { t } from "../i18n";
+import { enterSends } from "../lib/devicePrefs";
 import { closeWhenBeside } from "../lib/dismiss";
 
 defineProps<{ settings: Settings }>();
@@ -17,8 +18,8 @@ closeWhenBeside(open, box);
 
 <template>
   <span ref="box" class="menu">
-    <button class="tool-button" :title="t('dictation_settings')" :aria-expanded="open" @click="open = !open"><GearIcon :size="18" /></button>
-    <div v-if="open" class="panel" role="dialog" :aria-label="t('dictation_settings')">
+    <button class="tool-button" :title="t('input_settings')" :aria-expanded="open" @click="open = !open"><GearIcon :size="18" /></button>
+    <div v-if="open" class="panel" role="dialog" :aria-label="t('input_settings')">
       <p class="heading">{{ t("dictation_engine") }}</p>
       <label>
         <input
@@ -47,6 +48,11 @@ closeWhenBeside(open, box);
         />
         {{ t("dictation_edit_first") }}
       </label>
+      <label class="edit" :title="t('enter_sends_hint')">
+        <input v-model="enterSends" type="checkbox" />
+        {{ t("enter_sends") }}
+      </label>
+      <p class="hint">{{ t("enter_sends_hint") }} · {{ t("input_settings_device_only") }}</p>
     </div>
   </span>
 </template>

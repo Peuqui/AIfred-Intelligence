@@ -7,7 +7,7 @@ import { enterSends } from "../lib/devicePrefs";
 import * as recorder from "../lib/recorder";
 import { speaking } from "../lib/speech";
 import DictationBadge, { type BadgePhase } from "./DictationBadge.vue";
-import DictationMenu from "./DictationMenu.vue";
+import InputMenu from "./InputMenu.vue";
 
 const props = defineProps<{
   running: boolean;
@@ -141,17 +141,13 @@ function audioPicked(event: Event): void {
       <input ref="picker" type="file" accept="image/*" multiple hidden @change="picked" />
       <input ref="audioPicker" type="file" accept="audio/*,.webm" hidden @change="audioPicked" />
       <!-- First, right below the microphone it belongs to. -->
-      <DictationMenu :settings="settings" @change="(changes) => emit('settings', changes)" />
+      <InputMenu :settings="settings" @change="(changes) => emit('settings', changes)" />
       <button class="tool-button" :title="t('upload_image')" @click="picker?.click()">🖼️</button>
       <button class="tool-button" :title="t('audio_file_upload')" @click="audioPicker?.click()"><Music :size="20" /></button>
       <!-- The chat's own tools (ChatView): help, the agents' choices, read aloud anew. -->
       <slot name="tools" />
       <span v-if="transcribing" class="transcribing">{{ t("dictation_running") }}</span>
       <span v-if="queued" class="queued">{{ t("messages_waiting", { count: queued }) }}</span>
-      <label class="enter" :title="t('enter_sends_hint')">
-        <input v-model="enterSends" type="checkbox" />
-        {{ t("enter_sends") }}
-      </label>
     </div>
     <!-- Stopping and what one does with the chat (ChatView), in one row as under Reflex. -->
     <div class="action-row">
@@ -223,8 +219,6 @@ figure img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; b
 .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 /* The query container of .bar-button (App.vue): its words show only where the row has room. */
 .action-row { display: flex; gap: 8px; container: action-row / inline-size; }
-.enter { display: flex; align-items: center; gap: 4px; font-size: var(--text-small); color: var(--aifred-text-muted); margin-left: auto; cursor: pointer; }
-.enter input { accent-color: var(--aifred-primary); }
 .queued { font-size: var(--text-small); color: var(--aifred-accent-amber); }
 /* Not the action row's buttons: they take their look from .bar-button (App.vue). :where keeps this as weak as a plain
    button selector, so .tool and .mic below still win. */
