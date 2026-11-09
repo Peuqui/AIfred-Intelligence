@@ -6,7 +6,7 @@ Under ``/vision/casus/…``: ``/vision/events/{source}`` is the live stream of a
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 
 from fastapi import Query
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,6 +15,7 @@ from starlette.responses import StreamingResponse
 from ..casus import EventFilter
 from ..config import VISION_CASUS_PAGE_SIZE
 from ..logging_utils import log_message
+from ..server_shutdown import until_shutdown
 from .app import api_app
 from .schemas import ChoiceOption
 
@@ -150,13 +151,13 @@ async def casus_stream() -> StreamingResponse:
     event was stored; the page loads its list again then."""
     from ..vision_store import VisionStore, stored_events
 
-    async def stream() -> AsyncIterator[bytes]:
+    async def stream() -> AsyncGenerator[bytes, None]:
         yield f"event: stored\ndata: {json.dumps({'latest': await asyncio.to_thread(VisionStore().latest_event_id)})}\n\n".encode()
         async for _ in stored_events():
             latest = await asyncio.to_thread(VisionStore().latest_event_id)
             yield f"event: stored\ndata: {json.dumps({'latest': latest})}\n\n".encode()
 
-    return StreamingResponse(stream(), media_type="text/event-stream",
+    return StreamingResponse(until_shutdown(stream()), media_type="text/event-stream",
                              headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 

@@ -10,6 +10,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_message
+from ..server_shutdown import until_shutdown
 from ..user_error import BadRequest, Invalid, Missing, UpstreamFailed
 
 # resolve_source_resolution lives in vision_utils.py — shared with the
@@ -212,7 +213,7 @@ async def vision_stream_endpoint(
     fps = max(0.1, min(30.0, float(fps) if fps else 1.0))
     w, h = _resolve_resolution(source_id, width, height)
     return StreamingResponse(
-        _mjpeg_stream(src, fps, w, h, motion_overlay=(overlay == "motion")),
+        until_shutdown(_mjpeg_stream(src, fps, w, h, motion_overlay=(overlay == "motion"))),
         media_type=f"multipart/x-mixed-replace; boundary={_MJPEG_BOUNDARY.decode().lstrip('-')}",
         headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
@@ -260,7 +261,7 @@ async def vision_events_endpoint(source_id: str) -> Any:
             yield f"data: {payload}\n\n".encode()
 
     return StreamingResponse(
-        _gen(),
+        until_shutdown(_gen()),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",

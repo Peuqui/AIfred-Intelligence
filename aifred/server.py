@@ -46,12 +46,11 @@ def create_app(lifespans: Sequence[Lifespan]) -> FastAPI:
 
 
 def main() -> None:
-    import uvicorn
-
     from .lib.config import AIFRED_SERVER_HOST, AIFRED_SERVER_PORT
+    from .lib.server_shutdown import serve
     from .lib.server_startup import SERVER_LIFESPANS
 
-    uvicorn.run(create_app(SERVER_LIFESPANS), host=AIFRED_SERVER_HOST, port=AIFRED_SERVER_PORT, log_level="warning")
+    serve(create_app(SERVER_LIFESPANS), AIFRED_SERVER_HOST, AIFRED_SERVER_PORT)
 
 
 if __name__ == "__main__":

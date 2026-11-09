@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .. import session_events
 from ..config import MULTI_AGENT_MODES
+from ..server_shutdown import until_shutdown
 from ..session_storage import DEFAULT_SESSION_CONFIG
 from ..turn_images import TurnImage
 from ..user_error import Conflict, Invalid, Missing, Refused
@@ -606,7 +607,7 @@ async def sessions_events(session_id: str, request: Request, after: int = 0) -> 
                 yield _sse(event)
 
     return StreamingResponse(
-        stream(),
+        until_shutdown(stream()),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
