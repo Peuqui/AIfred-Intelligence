@@ -14,7 +14,7 @@ import { t } from "../../i18n";
     <dt>🔗</dt><dd>{{ t("chat_toolbar_help_share") }}</dd>
     <dt>💾</dt><dd>{{ t("chat_toolbar_help_download") }}</dd>
     <dt>📂</dt><dd>{{ t("chat_toolbar_help_outputs") }}</dd>
-    <dt>🤖</dt><dd>{{ t("chat_toolbar_help_agent") }}</dd>
+    <dt>🎩 AIfred ▾</dt><dd>{{ t("chat_toolbar_help_agent") }}</dd>
     <dt>▾ 💡</dt><dd>{{ t("chat_toolbar_help_mode") }}</dd>
     <dt>🙈 / 👁️</dt><dd>{{ t("chat_toolbar_help_vision") }}</dd>
   </dl>
