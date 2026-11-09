@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Music } from "lucide-vue-next";
+import { Music, Send, Square } from "lucide-vue-next";
 import { computed, nextTick, ref, watch } from "vue";
 import type { Settings, SettingsUpdate, UploadedImage } from "../api/types";
 import { language, t } from "../i18n";
@@ -137,19 +137,24 @@ function audioPicked(event: Event): void {
       </button>
       <DictationMenu :settings="settings" @change="(changes) => emit('settings', changes)" />
       <button class="tool" :title="t('audio_file_upload')" @click="audioPicker?.click()"><Music :size="20" /></button>
+      <!-- The chat's own tools (ChatView): help, the agents' choices, read aloud anew. -->
+      <slot name="tools" />
       <span v-if="transcribing" class="transcribing">{{ t("dictation_running") }}</span>
       <span v-if="queued" class="queued">{{ t("messages_waiting", { count: queued }) }}</span>
       <label class="enter" :title="t('enter_sends_hint')">
         <input v-model="enterSends" type="checkbox" />
         {{ t("enter_sends") }}
       </label>
-      <!-- The chat's tools (ChatView) and the send button as one group: it wraps as a whole, never the send button
-           alone on a line of its own. -->
-      <span class="send-group">
-        <slot name="tools" />
-        <button v-if="running || speaking" class="stop" @click="emit('stop')">⏹ {{ t("stop_turn") }}</button>
-        <button class="send" :disabled="!canSend" @click="send">{{ t("send_text") }}</button>
-      </span>
+    </div>
+    <!-- Sending and what one does with the chat (ChatView), in one row as under Reflex. -->
+    <div class="action-row">
+      <button v-if="running || speaking" class="bar-button red" :title="t('stop_turn')" @click="emit('stop')">
+        <Square :size="16" /><span class="label">{{ t("stop_turn") }}</span>
+      </button>
+      <button class="bar-button send wide" :disabled="!canSend" :title="t('send_text')" @click="send">
+        <Send :size="18" /><span class="label">{{ t("send_text") }}</span>
+      </button>
+      <slot name="actions" />
     </div>
   </div>
 </template>
@@ -200,20 +205,19 @@ figure img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; b
   border: 1px solid var(--aifred-border-light);
 }
 .uploading { font-size: var(--text-small); color: var(--aifred-text-muted); }
-.actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
-.send-group { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-left: auto; }
-.hint, .queued { font-size: var(--text-small); color: var(--aifred-text-muted); margin-right: auto; }
-.enter { display: flex; align-items: center; gap: 4px; font-size: var(--text-small); color: var(--aifred-text-muted); margin-right: auto; cursor: pointer; }
+.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* The query container of .bar-button (App.vue): its words show only where the row has room. */
+.action-row { display: flex; gap: 8px; container: action-row / inline-size; }
+.enter { display: flex; align-items: center; gap: 4px; font-size: var(--text-small); color: var(--aifred-text-muted); margin-left: auto; cursor: pointer; }
 .enter input { accent-color: var(--aifred-primary); }
-.queued { color: var(--aifred-accent-amber); margin-right: 0; }
-button { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font: inherit; }
+.queued { font-size: var(--text-small); color: var(--aifred-accent-amber); }
+/* Not the action row's buttons: they take their look from .bar-button (App.vue). :where keeps this as weak as a plain
+   button selector, so .tool and .mic below still win. */
+:where(button:not(.bar-button)) { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font: inherit; }
 /* An icon in the text's colour: the 🎵 emoji is drawn black on Android and vanished on the dark page. */
 .tool { display: inline-flex; align-items: center; background: none; border: 1px solid var(--aifred-border); padding: 4px 10px; color: var(--aifred-text-primary); }
 .mic { background: none; border: none; padding: 0; width: 40px; height: 40px; display: inline-flex; }
 .mic svg { width: 100%; height: 100%; }
 .mic:disabled { cursor: default; }
 .transcribing { font-size: var(--text-small); color: var(--aifred-accent-cyan); }
-.send { background: var(--aifred-primary); color: var(--aifred-text-on-accent); }
-.send:disabled { opacity: 0.5; cursor: default; }
-.stop { background: var(--aifred-danger); color: var(--aifred-text-on-accent); }
 </style>

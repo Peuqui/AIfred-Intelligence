@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Download, FolderOpen, Pin, Share2, Trash2 } from "lucide-vue-next";
 import { computed, defineAsyncComponent, nextTick, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { AgentSummary, ChatEntry, CropBox, DebateMode } from "../api/types";
@@ -212,18 +213,28 @@ onMounted(() => void start());
           >
             🔄
           </button>
-          <button class="clear" :disabled="!chat.history.length" :title="t('clear_chat')" @click="chat.clearChat">🗑️</button>
+        </template>
+        <template #actions>
+          <button class="bar-button red" :disabled="!chat.history.length" :title="t('clear_chat')" @click="chat.clearChat">
+            <Trash2 :size="16" /><span class="label">{{ t("clear_chat") }}</span>
+          </button>
           <button
-            class="remember"
+            class="bar-button green"
             :disabled="!hasReplies || chat.remembering || chat.running"
             :title="`${t('save_memory')} — ${t('save_memory_hint')}`"
             @click="chat.remember"
           >
-            📌
+            <Pin :size="16" /><span class="label">{{ t("save_memory") }}</span>
           </button>
-          <button class="export" :disabled="!chat.history.length || exporting" :title="t('share_chat')" @click="shareChat">🔗</button>
-          <button class="export" :disabled="!chat.history.length || exporting" :title="t('download_chat')" @click="downloadChat">💾</button>
-          <button class="export" :disabled="!chat.sessionId" :title="t('sandbox_outputs_tooltip')" @click="outputsOpen = true">📂</button>
+          <button class="bar-button blue" :disabled="!chat.history.length || exporting" :title="t('share_chat')" @click="shareChat">
+            <Share2 :size="16" /><span class="label">{{ t("share_chat") }}</span>
+          </button>
+          <button class="bar-button blue" :disabled="!chat.history.length || exporting" :title="t('download_chat')" @click="downloadChat">
+            <Download :size="16" /><span class="label">{{ t("download_chat") }}</span>
+          </button>
+          <button class="bar-button blue" :disabled="!chat.sessionId" :title="t('sandbox_outputs_tooltip')" @click="outputsOpen = true">
+            <FolderOpen :size="16" /><span class="label">{{ t("sandbox_outputs") }}</span>
+          </button>
         </template>
       </ChatInput>
       <div class="who">
@@ -265,9 +276,9 @@ onMounted(() => void start());
 .who { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; container-type: inline-size; }
 .who .watch { margin-left: auto; }
 h2 { margin: 0; font-size: 1.1rem; }
-.incognito, .regenerate, .agent-choices, .export, .clear, .remember, .zoom { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
-.regenerate:disabled, .export:disabled, .remember:disabled { opacity: 0.7; cursor: progress; }
-.clear:disabled, .zoom:disabled { opacity: 0.5; cursor: default; }
+.incognito, .regenerate, .agent-choices, .zoom { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
+.regenerate:disabled { opacity: 0.7; cursor: progress; }
+.zoom:disabled { opacity: 0.5; cursor: default; }
 .incognito.on { border-color: var(--aifred-accent-amber); }
 /* The box keeps 70 % of the screen whatever the sizes; only its content takes the chat's size (the interface's
    size, set on the page, is taken out again). */

@@ -1177,6 +1177,7 @@
   "chat_toolbar_help_choices": "Quick choices “Agents and models”: every agent's model, thinking and sampling in one dialog.",
   "chat_toolbar_help_regenerate": "Regenerate all: reads every answer of this chat into speech again (only with speech output on).",
   "chat_toolbar_help_memory": "Memory: 🔓 the agents remember and learn, 🔒 incognito – no memory in this chat.",
+  "chat_toolbar_help_send": "Send: sends your message (or Enter, when “Enter sends” is on); while a turn runs it waits behind it.",
   "chat_toolbar_help_clear": "Clear the chat: deletes this chat's history; the chat itself stays in the list.",
   "chat_toolbar_help_remember": "Remember: stores the conversation in the agent's long-term memory, so it remembers it later.",
   "chat_toolbar_help_share": "Share the chat: makes a standalone HTML page of the chat and gives you its link.",

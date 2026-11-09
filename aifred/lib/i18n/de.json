@@ -1177,6 +1177,7 @@
   "chat_toolbar_help_choices": "Schnellwahl „Agenten und Modelle“: Modell, Denken und Sampling jedes Agenten in einem Dialog.",
   "chat_toolbar_help_regenerate": "Alles neu generieren: liest alle Antworten dieses Chats neu in Sprache ein (nur bei eingeschalteter Sprachausgabe).",
   "chat_toolbar_help_memory": "Gedächtnis: 🔓 die Agenten erinnern sich und lernen dazu, 🔒 Inkognito – in diesem Chat kein Gedächtnis.",
+  "chat_toolbar_help_send": "Senden: schickt deine Nachricht (oder Enter, wenn „Enter sendet“ an ist); läuft schon ein Zug, wartet sie dahinter.",
   "chat_toolbar_help_clear": "Chat leeren: löscht den Verlauf dieses Chats; der Chat selbst bleibt in der Liste.",
   "chat_toolbar_help_remember": "Merken: speichert die aktuelle Unterhaltung im Langzeitgedächtnis des Agenten, damit er sich später daran erinnert.",
   "chat_toolbar_help_share": "Chat teilen: erzeugt eine eigenständige HTML-Seite des Chats und gibt dir den Link.",
