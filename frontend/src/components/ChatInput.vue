@@ -137,9 +137,9 @@ function audioPicked(event: Event): void {
     <div class="actions">
       <input ref="picker" type="file" accept="image/*" multiple hidden @change="picked" />
       <input ref="audioPicker" type="file" accept="audio/*,.webm" hidden @change="audioPicked" />
-      <button class="tool" :title="t('upload_image')" @click="picker?.click()">🖼️</button>
+      <button class="tool-button" :title="t('upload_image')" @click="picker?.click()">🖼️</button>
       <DictationMenu :settings="settings" @change="(changes) => emit('settings', changes)" />
-      <button class="tool" :title="t('audio_file_upload')" @click="audioPicker?.click()"><Music :size="20" /></button>
+      <button class="tool-button" :title="t('audio_file_upload')" @click="audioPicker?.click()"><Music :size="20" /></button>
       <!-- The chat's own tools (ChatView): help, the agents' choices, read aloud anew. -->
       <slot name="tools" />
       <span v-if="transcribing" class="transcribing">{{ t("dictation_running") }}</span>
@@ -228,8 +228,6 @@ figure img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; b
 /* Not the action row's buttons: they take their look from .bar-button (App.vue). :where keeps this as weak as a plain
    button selector, so .tool and .mic below still win. */
 :where(button:not(.bar-button)) { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font: inherit; }
-/* An icon in the text's colour: the 🎵 emoji is drawn black on Android and vanished on the dark page. */
-.tool { display: inline-flex; align-items: center; background: none; border: 1px solid var(--aifred-border); padding: 4px 10px; color: var(--aifred-text-primary); }
 .mic {
   --mic-size: calc(var(--field-line) * 1em + 2 * var(--field-pad) + 2 * var(--field-border));
   flex: none; background: none; border: none; padding: 0; width: var(--mic-size); height: var(--mic-size); display: inline-flex;

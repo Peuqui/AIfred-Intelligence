@@ -160,6 +160,11 @@ button, input, select, textarea { font: inherit; }
 .bar-button svg { flex: none; }
 .bar-button .label { overflow: hidden; text-overflow: ellipsis; }
 .bar-button.wide { flex-grow: 2; }
+/* A tool beside the input (picture, music, the dictation's settings): an icon in the text's colour in a frame. */
+.tool-button {
+  display: inline-flex; align-items: center; gap: 1px; padding: 4px 10px; cursor: pointer; font: inherit;
+  background: none; color: var(--aifred-text-primary); border: 1px solid var(--aifred-border); border-radius: 6px;
+}
 .bar-button.send { --bar-color: var(--aifred-accent-warning); }
 .bar-button.red { --bar-color: var(--aifred-danger); }
 .bar-button.green { --bar-color: var(--aifred-accent-success); }
