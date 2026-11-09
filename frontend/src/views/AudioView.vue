@@ -226,7 +226,7 @@ input[type="checkbox"] { accent-color: var(--aifred-primary); width: 16px; heigh
 .label { flex: 1; min-width: 160px; }
 .status { font-size: 0.8rem; color: var(--aifred-text-secondary); }
 .badge { font-size: 0.72rem; color: var(--aifred-accent-amber); border: 1px solid var(--aifred-accent-amber); border-radius: 999px; padding: 0 6px; }
-.note { flex-basis: 100%; font-size: 0.78rem; color: var(--aifred-text-muted); padding-left: 56px; }
+.note { flex-basis: 100%; font-size: 0.78rem; color: var(--aifred-text-muted); padding-left: 56px; overflow-wrap: anywhere; }
 /* Too many columns for a phone: the table scrolls sideways in its own box instead of widening the page. */
 .table-scroll { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; }

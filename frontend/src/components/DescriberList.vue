@@ -71,7 +71,7 @@ onBeforeUnmount(() => {
 .order { display: inline-flex; gap: 2px; }
 .order button { padding: 1px 5px; }
 .label { flex: 1; min-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.note { flex-basis: 100%; font-size: 0.78rem; color: var(--aifred-text-muted); padding-left: 56px; }
+.note { flex-basis: 100%; font-size: 0.78rem; color: var(--aifred-text-muted); padding-left: 56px; overflow-wrap: anywhere; }
 .note.warn { color: var(--aifred-accent-warning); }
 button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; cursor: pointer; }
 button:disabled { opacity: 0.5; cursor: default; }
