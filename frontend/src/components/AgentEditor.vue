@@ -143,7 +143,8 @@ onMounted(() =>
 .tabs { display: flex; gap: 6px; flex: 1; flex-wrap: wrap; }
 .tabs button.active { border-color: var(--aifred-primary); color: var(--aifred-primary); }
 .close { background: none; border: none; font-size: 1.2rem; }
-button, input:not([type="checkbox"]), select { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+/* border-box: a field at width 100 % keeps its padding and border inside (the emoji field ran over the edge). */
+button, input:not([type="checkbox"]), select { box-sizing: border-box; background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
 button { cursor: pointer; }
 button:disabled { opacity: 0.5; cursor: default; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); }

@@ -140,6 +140,7 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
 
     <article v-if="rules" class="rules">
       <strong :title="t('alert_rules_help')">{{ t("alert_rules_title") }}</strong>
+      <div class="table-scroll">
       <table>
         <thead>
           <tr>
@@ -158,6 +159,7 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
           </tr>
         </tbody>
       </table>
+      </div>
     </article>
 
     <div class="sources-head">
@@ -213,6 +215,8 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
 </template>
 
 <style scoped>
+/* Too many columns for a phone: the table scrolls sideways in its own box instead of widening the page. */
+.table-scroll { overflow-x: auto; }
 .vision-settings { display: flex; flex-direction: column; gap: 12px; max-width: 960px; }
 article { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 10px; }
 .eye { flex-direction: row; align-items: center; gap: 14px; }
