@@ -132,7 +132,7 @@ async function disconnect(): Promise<void> {
 </template>
 
 <style scoped>
-.head { display: flex; align-items: center; gap: 10px; min-width: min(560px, 88vw); }
+.head { display: flex; align-items: center; gap: 10px; min-width: min(560px, calc(88 * var(--vw))); }
 .head strong { flex: 1; color: var(--aifred-primary); }
 .icon { background: none; border: none; color: inherit; font-size: 1.3rem; cursor: pointer; }
 .row { display: flex; gap: 10px; flex-wrap: wrap; }

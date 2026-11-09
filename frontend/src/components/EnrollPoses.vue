@@ -119,11 +119,11 @@ const canSave = computed(() => Boolean(session.value?.captures.length) && (props
 </template>
 
 <style scoped>
-.enroll { display: flex; flex-direction: column; gap: 10px; width: min(720px, 90vw); }
+.enroll { display: flex; flex-direction: column; gap: 10px; width: min(720px, calc(90 * var(--vw))); }
 header { display: flex; align-items: baseline; gap: 10px; }
 .who { color: var(--aifred-text-secondary); }
 .line { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; }
-.live { width: 100%; max-height: 50dvh; object-fit: contain; border-radius: 8px; border: 1px solid var(--aifred-border); background: #000; }
+.live { width: 100%; max-height: calc(50 * var(--dvh)); object-fit: contain; border-radius: 8px; border: 1px solid var(--aifred-border); background: #000; }
 .pose { margin: 0; font-size: 1rem; }
 .step { font-size: 0.8rem; color: var(--aifred-text-muted); margin-right: 6px; }
 .captures { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }

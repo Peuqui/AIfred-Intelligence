@@ -28,7 +28,7 @@ async function open(): Promise<void> {
 <style scoped>
 .toast {
   position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 50;
-  max-width: min(420px, 92vw); display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  max-width: min(420px, calc(92 * var(--vw))); display: flex; align-items: center; gap: 10px; padding: 8px 12px;
   background: var(--aifred-card-bg); border: 1px solid var(--aifred-border-light); border-radius: 8px;
   cursor: pointer; font-size: 0.9rem; box-shadow: 0 4px 16px color-mix(in srgb, var(--aifred-media-bg) 50%, transparent);
 }

@@ -46,7 +46,7 @@ async function submit(): Promise<void> {
 <style scoped>
 .login {
   max-width: 320px;
-  margin: 15vh auto;
+  margin: calc(15 * var(--vh)) auto;
   padding: 24px;
   display: flex;
   flex-direction: column;

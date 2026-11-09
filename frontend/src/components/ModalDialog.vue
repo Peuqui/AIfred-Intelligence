@@ -35,7 +35,7 @@ const openDialogs: symbol[] = [];
 .backdrop { position: fixed; inset: 0; background: var(--aifred-backdrop); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .dialog {
   display: flex; flex-direction: column; gap: 14px; padding: 20px; box-sizing: border-box;
-  max-width: 95vw; max-height: 90dvh; overflow: auto;
+  max-width: calc(95 * var(--vw)); max-height: calc(90 * var(--dvh)); overflow: auto;
   background: var(--aifred-card-bg); border: 1px solid var(--aifred-border-light); border-radius: 12px;
 }
 </style>

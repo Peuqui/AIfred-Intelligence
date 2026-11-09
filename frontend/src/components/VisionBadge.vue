@@ -64,7 +64,7 @@ onBeforeUnmount(() => {
 .badge { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
 .badge.armed { border-color: var(--aifred-primary); }
 .count { font-size: 0.75rem; min-width: 1.2em; padding: 0 5px; border-radius: 999px; background: var(--aifred-accent-amber); color: var(--aifred-text-on-accent); }
-.popover { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 320px; max-height: 60dvh; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 8px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border-light); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.popover { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 320px; max-height: calc(60 * var(--dvh)); overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 8px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border-light); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
 .event, .all { display: flex; align-items: center; gap: 8px; padding: 4px; border-radius: 6px; color: inherit; text-decoration: none; }
 .event:hover, .all:hover { background: var(--aifred-input-bg); }
 .event img, .event .none { width: 32px; height: 32px; border-radius: 4px; object-fit: cover; border: 1px solid var(--aifred-border); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }

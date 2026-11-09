@@ -34,7 +34,7 @@ const BODIES: Record<HelpTopic, Component> = {
 </template>
 
 <style scoped>
-.help { display: flex; flex-direction: column; gap: 14px; width: min(680px, 90vw); line-height: 1.5; }
+.help { display: flex; flex-direction: column; gap: 14px; width: min(680px, calc(90 * var(--vw))); line-height: 1.5; }
 .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 1.05rem; }
 .head strong { color: var(--aifred-accent-gold); }
 .close { background: none; border: none; color: inherit; font-size: 1.3rem; cursor: pointer; }

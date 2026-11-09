@@ -68,7 +68,7 @@ const vision = computed(() => store.choices?.agents.find((row) => row.id === "vi
 .head { display: flex; align-items: center; gap: 12px; }
 .head strong { margin-right: auto; }
 .close { background: none; border: none; color: inherit; font-size: 1.3rem; cursor: pointer; }
-.rows { width: min(720px, 88vw); }
+.rows { width: min(720px, calc(88 * var(--vw))); }
 .notice { margin: 0; color: var(--aifred-accent-amber); }
 .loading { color: var(--aifred-text-muted); }
 </style>

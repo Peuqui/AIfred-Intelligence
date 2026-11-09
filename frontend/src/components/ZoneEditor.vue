@@ -49,7 +49,7 @@ let measureTimer: number | undefined;
 const streamUrl = computed(() =>
   apiUrl(`vision/stream/${props.camera.id}?fps=${STREAM_FPS}&v=${version.value}${showMotion.value ? "&overlay=motion" : ""}`),
 );
-const stageWidth = computed(() => `min(88vw, ${(60 / aspect.value).toFixed(1)}dvh)`);
+const stageWidth = computed(() => `min(calc(88 * var(--vw)), calc(${(60 / aspect.value).toFixed(1)} * var(--dvh)))`);
 const percent = (value: number): string => `${formatNumber(value, 1)} %`;
 const sliderGrid = computed(() => Math.min(GRID.max, Math.max(GRID.min, Math.round(mask.value.cols / GRID.step) * GRID.step)));
 

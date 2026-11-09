@@ -134,13 +134,13 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.requester { width: min(1100px, 92vw); display: flex; flex-direction: column; gap: 10px; }
+.requester { width: min(1100px, calc(92 * var(--vw))); display: flex; flex-direction: column; gap: 10px; }
 .head { display: flex; align-items: center; gap: 12px; }
 .root { color: var(--aifred-text-secondary); font-size: 0.8rem; margin-right: auto; }
 .close { background: none; border: none; color: inherit; font-size: 1.3rem; cursor: pointer; }
-.finder { height: min(68dvh, 720px); }
+.finder { height: min(calc(68 * var(--dvh)), 720px); }
 .pick { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 0.9rem; }
-.link { display: flex; flex-direction: column; gap: 10px; width: min(520px, 88vw); }
+.link { display: flex; flex-direction: column; gap: 10px; width: min(520px, calc(88 * var(--vw))); }
 .link label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--aifred-text-secondary); }
 button, input { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 10px; font: inherit; }
 button { cursor: pointer; }

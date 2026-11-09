@@ -302,7 +302,7 @@ input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; }
 .preview-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
 .preview-head button { background: none; border: none; font-size: 1.2rem; }
-.preview { margin: 0; width: min(820px, 86vw); max-height: 70dvh; overflow: auto; white-space: pre-wrap; font-size: 0.85rem; background: var(--aifred-page-bg); padding: 12px; border-radius: 8px; }
+.preview { margin: 0; width: min(820px, calc(86 * var(--vw))); max-height: calc(70 * var(--dvh)); overflow: auto; white-space: pre-wrap; font-size: 0.85rem; background: var(--aifred-page-bg); padding: 12px; border-radius: 8px; }
 @media (max-width: 760px) {
   .dates { display: none; }
   .name { width: auto; }

@@ -46,8 +46,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", key));
 <style scoped>
 .lightbox { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0.88); display: flex; align-items: center; justify-content: center; }
 .pictures { display: flex; gap: 10px; align-items: center; justify-content: center; }
-img { display: block; max-width: 92vw; max-height: 88dvh; border-radius: 6px; }
-.pair img { max-width: 44vw; }
+img { display: block; max-width: calc(92 * var(--vw)); max-height: calc(88 * var(--dvh)); border-radius: 6px; }
+.pair img { max-width: calc(44 * var(--vw)); }
 button { position: absolute; background: none; border: none; color: #fff; font-size: 2rem; cursor: pointer; padding: 8px 14px; }
 button:disabled { opacity: 0.3; cursor: default; }
 .close { top: 8px; right: 12px; }

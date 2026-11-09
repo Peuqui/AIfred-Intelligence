@@ -143,7 +143,7 @@ onMounted(() =>
 </template>
 
 <style scoped>
-.editor { width: min(860px, 88vw); display: flex; flex-direction: column; gap: 10px; }
+.editor { width: min(860px, calc(88 * var(--vw))); display: flex; flex-direction: column; gap: 10px; }
 .head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .tabs { display: flex; gap: 6px; flex: 1; flex-wrap: wrap; }
 .tabs button.active { border-color: var(--aifred-primary); color: var(--aifred-primary); }
@@ -160,8 +160,9 @@ input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .persona .wide { grid-column: 1 / -1; }
 .emoji { width: 100%; }
 .actions { display: flex; gap: 8px; justify-content: flex-end; }
-.rights { display: flex; flex-direction: column; gap: 10px; max-height: 60dvh; overflow-y: auto; }
-fieldset { border: 1px solid var(--aifred-border); border-radius: 8px; display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 10px; }
+.rights { display: flex; flex-direction: column; gap: 10px; max-height: calc(60 * var(--dvh)); overflow-y: auto; }
+/* min-width 0: a fieldset does not shrink below its widest content by itself; the pills wrap instead. */
+fieldset { min-width: 0; border: 1px solid var(--aifred-border); border-radius: 8px; display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 10px; }
 fieldset:disabled { opacity: 0.55; }
 legend { display: flex; gap: 6px; align-items: center; font-weight: 500; padding: 0 4px; }
 legend button { font-size: 0.75rem; padding: 1px 6px; }

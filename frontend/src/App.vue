@@ -116,6 +116,9 @@ onMounted(async () => {
 /* One base size for the whole interface (config.py → theme.css); rem follows it. Form fields take the page's font:
    browsers do not pass it on by themselves (selects showed 13 px Arial). */
 html { font-size: var(--text-base); }
+/* A hundredth of the screen with the interface's size taken out: the body is zoomed by --ui-zoom, and inside it
+   vw/vh would grow with it (a dialog of 88vw became wider than the screen). Every size in screen units uses these. */
+:root { --vw: calc(1vw / var(--ui-zoom)); --vh: calc(1vh / var(--ui-zoom)); --dvh: calc(1dvh / var(--ui-zoom)); }
 button, input, select, textarea { font: inherit; }
 html,
 body {
@@ -129,7 +132,7 @@ body {
 
 <style scoped>
 /* One column of at most 1200 px, as under Reflex. */
-.app { display: flex; flex-direction: column; min-height: 100vh; width: 100%; max-width: 1200px; margin: 0 auto; padding: 0 16px; box-sizing: border-box; }
+.app { display: flex; flex-direction: column; min-height: calc(100 * var(--vh)); width: 100%; max-width: 1200px; margin: 0 auto; padding: 0 16px; box-sizing: border-box; }
 .top { position: relative; display: flex; align-items: center; gap: 12px; margin-top: 10px; padding: 10px 14px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 10px; }
 /* The brand as on the Reflex page (the picture, not the emoji: its band is red), on a bar set off from the page. */
 .brand { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }

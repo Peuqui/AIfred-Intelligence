@@ -144,7 +144,7 @@ async function save(): Promise<void> {
 </template>
 
 <style scoped>
-.job { width: min(820px, 88vw); display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.job { width: min(820px, calc(88 * var(--vw))); display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .title, .notice, .wide { grid-column: 1 / -1; }
 label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--aifred-text-secondary); }
 label.check { flex-direction: row; align-items: center; margin-top: 6px; }

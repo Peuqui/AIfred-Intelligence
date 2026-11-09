@@ -74,7 +74,7 @@ function release(): void {
 .editor { display: flex; flex-direction: column; align-items: center; gap: 14px; }
 header { font-weight: 600; }
 .frame { position: relative; touch-action: none; user-select: none; }
-.frame img { display: block; max-width: 90vw; max-height: 60dvh; border-radius: 8px; }
+.frame img { display: block; max-width: calc(90 * var(--vw)); max-height: calc(60 * var(--dvh)); border-radius: 8px; }
 .box { position: absolute; border: 2px dashed var(--aifred-accent-success); cursor: move; box-sizing: border-box; }
 .grip { position: absolute; background: var(--aifred-accent-success); }
 .grip.nw, .grip.ne, .grip.sw, .grip.se { width: 16px; height: 16px; border-radius: 2px; }

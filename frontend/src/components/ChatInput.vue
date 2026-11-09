@@ -154,7 +154,7 @@ textarea {
   width: 100%;
   box-sizing: border-box;
   resize: vertical;
-  max-height: 40vh;
+  max-height: calc(40 * var(--vh));
   overflow-y: auto;
   /* What one writes in the size of what one reads: the chat's (A−/A+), the interface's taken out again. */
   zoom: calc(var(--chat-zoom) / var(--ui-zoom));

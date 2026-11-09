@@ -85,6 +85,6 @@ button:disabled { opacity: 0.5; cursor: default; }
 .pick { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .dirty { color: var(--aifred-accent-amber); font-size: 0.85rem; }
 .hint { margin: 0; font-size: 0.85rem; color: var(--aifred-text-muted); }
-textarea { width: 100%; min-height: 45dvh; resize: vertical; font-family: monospace; font-size: 0.85rem; box-sizing: border-box; }
+textarea { width: 100%; min-height: calc(45 * var(--dvh)); resize: vertical; font-family: monospace; font-size: 0.85rem; box-sizing: border-box; }
 .actions { display: flex; gap: 8px; justify-content: flex-end; }
 </style>

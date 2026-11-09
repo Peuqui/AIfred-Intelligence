@@ -75,7 +75,7 @@ async function clearAll(): Promise<void> {
 </template>
 
 <style scoped>
-.care { width: min(640px, 86vw); display: flex; flex-direction: column; gap: 10px; }
+.care { width: min(640px, calc(86 * var(--vw))); display: flex; flex-direction: column; gap: 10px; }
 header, .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .close { background: none; border: none; font-size: 1.2rem; }
 button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; }
@@ -83,7 +83,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .danger { border-color: var(--aifred-danger); color: var(--aifred-danger); }
 .notice { margin: 0; color: var(--aifred-accent-amber); }
 .counts { margin: 0; color: var(--aifred-text-secondary); }
-section { display: flex; flex-direction: column; gap: 6px; max-height: 45dvh; overflow-y: auto; }
+section { display: flex; flex-direction: column; gap: 6px; max-height: calc(45 * var(--dvh)); overflow-y: auto; }
 .empty { margin: 0; color: var(--aifred-text-muted); }
 .orphan { display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--aifred-border); padding-top: 6px; }
 .orphan .name { flex: 1; overflow-wrap: anywhere; }

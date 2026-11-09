@@ -110,7 +110,7 @@ button { background: var(--aifred-input-bg); color: inherit; border: 1px solid v
 .row-actions button { background: none; border: none; padding: 2px 4px; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
-.runs { width: min(760px, 86vw); max-height: 70dvh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.runs { width: min(760px, calc(86 * var(--vw))); max-height: calc(70 * var(--dvh)); overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
 .runs p { margin: 4px 0 0; white-space: pre-wrap; font-size: 0.85rem; }
 @media (max-width: 760px) {
   .list th:nth-child(3), .list td:nth-child(3), .list th:nth-child(6), .list td:nth-child(6) { display: none; }

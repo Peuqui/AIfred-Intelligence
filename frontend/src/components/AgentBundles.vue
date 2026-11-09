@@ -105,7 +105,7 @@ async function runImport(): Promise<void> {
 </template>
 
 <style scoped>
-.bundles { width: min(560px, 86vw); display: flex; flex-direction: column; gap: 8px; }
+.bundles { width: min(560px, calc(86 * var(--vw))); display: flex; flex-direction: column; gap: 8px; }
 .hint { margin: 0; font-size: 0.85rem; color: var(--aifred-text-secondary); }
 .choice { display: flex; gap: 8px; align-items: center; }
 .exists { font-size: 0.75rem; color: var(--aifred-accent-amber); }

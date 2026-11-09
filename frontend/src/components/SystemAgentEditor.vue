@@ -91,7 +91,7 @@ async function saveCloud(): Promise<void> {
 </template>
 
 <style scoped>
-.editor { width: min(860px, 88vw); display: flex; flex-direction: column; gap: 10px; }
+.editor { width: min(860px, calc(88 * var(--vw))); display: flex; flex-direction: column; gap: 10px; }
 .head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .tabs { display: flex; gap: 6px; flex: 1; flex-wrap: wrap; }
 .tabs button.active { border-color: var(--aifred-primary); color: var(--aifred-primary); }
