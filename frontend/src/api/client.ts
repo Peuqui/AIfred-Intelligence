@@ -10,6 +10,13 @@ const API_ROOT = new URL("../", document.baseURI);
 // different one than this page's means a newer one is there (the shell loads it, App.vue).
 const BUILD_ID_HEADER = "X-Build-Id";
 export const newVersion = ref(false);
+// How often an open page asks whether a newer build is there, besides every answer it gets anyway: an idle page (or
+// the installed app back from the background) asked nothing, and the event streams bypass this wrapper.
+export const UPDATE_CHECK_MS = 60_000;
+
+export async function checkForUpdate(): Promise<void> {
+  await api("app/ui-settings");
+}
 
 // How often a page asks again about a run on the server it follows (indexing, a burn-in).
 export const PROGRESS_POLL_MS = 700;

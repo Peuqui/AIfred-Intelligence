@@ -3,7 +3,7 @@
 // page stays alive while another page shows (its session and event stream go on).
 import { computed, onMounted, ref, watch, watchEffect } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
-import { api, newVersion } from "./api/client";
+import { UPDATE_CHECK_MS, api, checkForUpdate, newVersion } from "./api/client";
 import HubNoticeToast from "./components/HubNoticeToast.vue";
 import LoginForm from "./components/LoginForm.vue";
 import MediaPlayer from "./components/MediaPlayer.vue";
@@ -54,6 +54,11 @@ const updateBlocked = computed(
 );
 watch([newVersion, updateBlocked], ([available, blocked]) => {
   if (available && !blocked) window.location.reload();
+});
+// Asked once a minute and whenever the page comes back to the front (a tab switched to, the app reopened).
+setInterval(() => void checkForUpdate(), UPDATE_CHECK_MS);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") void checkForUpdate();
 });
 
 onMounted(async () => {

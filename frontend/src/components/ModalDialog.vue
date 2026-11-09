@@ -38,4 +38,6 @@ const openDialogs: symbol[] = [];
   max-width: calc(95 * var(--vw)); max-height: calc(90 * var(--dvh)); overflow: auto;
   background: var(--aifred-card-bg); border: 1px solid var(--aifred-border-light); border-radius: 12px;
 }
+/* A content's own width ("90 % of the screen") plus the dialog's padding ran wider than the dialog on a phone. */
+.dialog > * { max-width: 100%; min-width: 0; box-sizing: border-box; }
 </style>
