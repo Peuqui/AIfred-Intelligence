@@ -164,22 +164,30 @@ function audioPicked(event: Event): void {
 
 <style scoped>
 .input { display: flex; flex-direction: column; gap: 6px; }
-.field-row { display: flex; align-items: flex-end; gap: 6px; }
+/* Microphone and field in the size of what one reads (the chat's A−/A+, the interface's taken out again), and the
+   microphone exactly as high as the field's one line: both from the same line height, padding and border. */
+.field-row {
+  --field-line: 1.4;
+  --field-pad: 10px;
+  --field-border: 1px;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  zoom: calc(var(--chat-zoom) / var(--ui-zoom));
+}
 textarea {
   flex: 1;
   min-width: 0;
-  min-height: 40px;
   box-sizing: border-box;
   resize: vertical;
   max-height: calc(40 * var(--vh));
   overflow-y: auto;
-  /* What one writes in the size of what one reads: the chat's (A−/A+), the interface's taken out again. */
-  zoom: calc(var(--chat-zoom) / var(--ui-zoom));
-  padding: 10px;
+  padding: var(--field-pad);
   font: inherit;
+  line-height: var(--field-line);
   background: var(--aifred-input-bg);
   color: var(--aifred-text-primary);
-  border: 1px solid var(--aifred-border);
+  border: var(--field-border) solid var(--aifred-border);
   border-radius: 8px;
 }
 .pending { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -222,7 +230,10 @@ figure img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; b
 :where(button:not(.bar-button)) { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font: inherit; }
 /* An icon in the text's colour: the 🎵 emoji is drawn black on Android and vanished on the dark page. */
 .tool { display: inline-flex; align-items: center; background: none; border: 1px solid var(--aifred-border); padding: 4px 10px; color: var(--aifred-text-primary); }
-.mic { flex: none; background: none; border: none; padding: 0; width: 40px; height: 40px; display: inline-flex; }
+.mic {
+  --mic-size: calc(var(--field-line) * 1em + 2 * var(--field-pad) + 2 * var(--field-border));
+  flex: none; background: none; border: none; padding: 0; width: var(--mic-size); height: var(--mic-size); display: inline-flex;
+}
 .mic svg { width: 100%; height: 100%; }
 .mic:disabled { cursor: default; }
 .transcribing { font-size: var(--text-small); color: var(--aifred-accent-cyan); }
