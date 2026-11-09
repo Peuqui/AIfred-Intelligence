@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { Download, FolderOpen, Pin, Share2, Trash2 } from "lucide-vue-next";
+import { AudioLines, Download, FolderOpen, Pin, Share2, Trash2 } from "lucide-vue-next";
 import { computed, defineAsyncComponent, nextTick, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { AgentSummary, ChatEntry, CropBox, DebateMode } from "../api/types";
 import AgentChoicesModal from "../components/AgentChoicesModal.vue";
 import AgentPills from "../components/AgentPills.vue";
+import ChatMenu from "../components/ChatMenu.vue";
 import DebateControls from "../components/DebateControls.vue";
 import VisionBadge from "../components/VisionBadge.vue";
 import ChatInput from "../components/ChatInput.vue";
@@ -169,12 +170,26 @@ onMounted(() => void start());
   <div class="layout">
     <SessionList class="side" :current="chat.sessionId" @open="chat.open" @create="create" @remove="remove" />
     <main class="chat">
-      <!-- As on the Reflex page: the history's title with the text size above it; the chat's tools in the input's row of
-           the send button, who answers and how below it (Peuqui 09.11.2026). -->
+      <!-- The history's title with the text size and the ⋮ of what concerns the whole chat above it; the input as in
+           Agent-Orc, who answers and how below it (Peuqui 09.11.2026). -->
       <div class="toolbar">
         <h2>{{ chat.title || t("untitled_chat") }}</h2>
         <button class="zoom" :disabled="chatZoom <= ZOOM.min" :title="t('chat_font_smaller')" @click="zoomBy('chat', -1)">A−</button>
         <button class="zoom" :disabled="chatZoom >= ZOOM.max" :title="t('chat_font_larger')" @click="zoomBy('chat', 1)">A+</button>
+        <ChatMenu>
+          <button v-if="settings.current?.enable_tts" :disabled="!hasReplies || chat.regenerating" @click="chat.regenerateAll">
+            <AudioLines :size="16" />{{ t("tts_regenerate_all") }}
+          </button>
+          <button :disabled="!hasReplies || chat.remembering || chat.running" :title="t('save_memory_hint')" @click="chat.remember">
+            <Pin :size="16" />{{ t("save_memory") }}
+          </button>
+          <button :disabled="!chat.history.length || exporting" @click="shareChat"><Share2 :size="16" />{{ t("share_chat") }}</button>
+          <button :disabled="!chat.history.length || exporting" @click="downloadChat"><Download :size="16" />{{ t("download_chat") }}</button>
+          <button :disabled="!chat.sessionId" :title="t('sandbox_outputs_tooltip')" @click="outputsOpen = true">
+            <FolderOpen :size="16" />{{ t("sandbox_outputs") }}
+          </button>
+          <button class="danger" :disabled="!chat.history.length" @click="chat.clearChat"><Trash2 :size="16" />{{ t("clear_chat") }}</button>
+        </ChatMenu>
       </div>
       <div ref="messages" class="messages">
         <div class="bubbles">
@@ -217,44 +232,7 @@ onMounted(() => void start());
         @edit-image="(index) => (editing = index)"
         @dictate="chat.dictate"
         @heard="chat.dictated"
-        @settings="settings.change"
-      >
-        <template #tools>
-          <HelpButton topic="chat" />
-          <button class="agent-choices" :title="t('agent_choices_title')" @click="choicesOpen = true">🎛️</button>
-          <button
-            v-if="settings.current?.enable_tts && hasReplies"
-            class="regenerate"
-            :disabled="chat.regenerating"
-            :title="t('tts_regenerate_all')"
-            @click="chat.regenerateAll"
-          >
-            🔄
-          </button>
-        </template>
-        <template #actions>
-          <button class="bar-button red" :disabled="!chat.history.length" :title="t('clear_chat')" @click="chat.clearChat">
-            <Trash2 :size="16" /><span class="label">{{ t("clear_chat") }}</span>
-          </button>
-          <button
-            class="bar-button green"
-            :disabled="!hasReplies || chat.remembering || chat.running"
-            :title="`${t('save_memory')} — ${t('save_memory_hint')}`"
-            @click="chat.remember"
-          >
-            <Pin :size="16" /><span class="label">{{ t("save_memory") }}</span>
-          </button>
-          <button class="bar-button blue" :disabled="!chat.history.length || exporting" :title="t('share_chat')" @click="shareChat">
-            <Share2 :size="16" /><span class="label">{{ t("share_chat") }}</span>
-          </button>
-          <button class="bar-button blue" :disabled="!chat.history.length || exporting" :title="t('download_chat')" @click="downloadChat">
-            <Download :size="16" /><span class="label">{{ t("download_chat") }}</span>
-          </button>
-          <button class="bar-button blue" :disabled="!chat.sessionId" :title="t('sandbox_outputs_tooltip')" @click="outputsOpen = true">
-            <FolderOpen :size="16" /><span class="label">{{ t("sandbox_outputs") }}</span>
-          </button>
-        </template>
-      </ChatInput>
+      />
       <div class="who">
         <AgentPills :config="chat.config" :agents="agents" @configure="chat.configure" />
         <DebateControls :config="chat.config" :agents="agents" :modes="modes" @configure="chat.configure" />
@@ -266,6 +244,8 @@ onMounted(() => void start());
         >
           {{ chat.config.incognito ? "🔒" : "🔓" }}
         </button>
+        <button class="agent-choices" :title="t('agent_choices_title')" @click="choicesOpen = true">🎛️</button>
+        <HelpButton topic="chat" />
         <VisionBadge class="watch" />
       </div>
       <DebugConsole :lines="chat.debugLines" />
@@ -294,8 +274,7 @@ onMounted(() => void start());
 .who { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; container-type: inline-size; }
 .who .watch { margin-left: auto; }
 h2 { margin: 0; font-size: 1.1rem; }
-.incognito, .regenerate, .agent-choices, .zoom { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
-.regenerate:disabled { opacity: 0.7; cursor: progress; }
+.incognito, .agent-choices, .zoom { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
 .zoom:disabled { opacity: 0.5; cursor: default; }
 .incognito.on { border-color: var(--aifred-accent-amber); }
 /* The box keeps 70 % of the screen whatever the sizes; only its content takes the chat's size (the interface's

@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { Music, Send, Square } from "lucide-vue-next";
-import { computed, nextTick, ref, watch } from "vue";
-import type { Settings, SettingsUpdate, UploadedImage } from "../api/types";
+import { Send, Square, X } from "lucide-vue-next";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import type { Settings, UploadedImage } from "../api/types";
 import { language, t } from "../i18n";
 import { enterSends } from "../lib/devicePrefs";
 import * as recorder from "../lib/recorder";
 import { speaking } from "../lib/speech";
+import AttachMenu from "./AttachMenu.vue";
 import DictationBadge, { type BadgePhase } from "./DictationBadge.vue";
-import InputMenu from "./InputMenu.vue";
 
 const props = defineProps<{
   running: boolean;
@@ -25,7 +25,6 @@ const emit = defineEmits<{
   editImage: [index: number];
   dictate: [file: File, source: "mic" | "file"];
   heard: [text: string];
-  settings: [changes: SettingsUpdate];
 }>();
 // The input field's text lives in the chat store: a dictation in edit mode lands there.
 const text = defineModel<string>({ required: true });
@@ -43,8 +42,6 @@ watch(
   },
   { immediate: true },
 );
-const picker = ref<HTMLInputElement | null>(null);
-const audioPicker = ref<HTMLInputElement | null>(null);
 const recording = recorder.recording;
 const badgePhase = computed<BadgePhase>(() => (recording.value ? "listening" : props.transcribing ? "transcribing" : "ready"));
 const canSend = computed(() => text.value.trim() !== "" || props.images.length > 0);
@@ -63,16 +60,16 @@ function onKey(event: KeyboardEvent): void {
   }
 }
 
-// Images come from the picker (on a phone it offers the camera too), dropped onto the input or pasted.
-function upload(files: FileList | null | undefined): void {
-  const images = [...(files ?? [])].filter((file) => file.type.startsWith("image/"));
+// Whatever comes through the paperclip, is dropped onto the input or pasted, by its kind: pictures are attached to the
+// message, audio files are transcribed (each a dictation of its own). Other kinds the chat does not take yet.
+function attach(files: FileList | File[] | null | undefined): void {
+  const all = [...(files ?? [])];
+  const images = all.filter((file) => file.type.startsWith("image/"));
+  const audio = all.filter((file) => file.type.startsWith("audio/") || file.name.endsWith(".webm"));
+  const other = all.filter((file) => !images.includes(file) && !audio.includes(file));
   if (images.length) emit("upload", images);
-}
-
-function picked(event: Event): void {
-  const input = event.target as HTMLInputElement;
-  upload(input.files);
-  input.value = "";
+  for (const file of audio) emit("dictate", file, "file");
+  if (other.length) window.alert(t("attach_unsupported", { names: other.map((file) => file.name).join(", ") }));
 }
 
 // The dictation goes to the STT-Suite as a recording, or the browser's own recognition listens, as the
@@ -96,16 +93,16 @@ async function toggleRecording(): Promise<void> {
   }
 }
 
-function audioPicked(event: Event): void {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  if (file) emit("dictate", file, "file");
-  input.value = "";
+// While a dictation is taken in, the × in the paperclip's place or Escape throws it away (as in Agent-Orc).
+function discardOnEscape(event: KeyboardEvent): void {
+  if (event.key === "Escape") recorder.cancel();
 }
+watch(recording, (on) => (on ? window.addEventListener("keydown", discardOnEscape) : window.removeEventListener("keydown", discardOnEscape)));
+onBeforeUnmount(() => window.removeEventListener("keydown", discardOnEscape));
 </script>
 
 <template>
-  <div class="input" @dragover.prevent @drop.prevent="upload($event.dataTransfer?.files)">
+  <div class="input" @dragover.prevent @drop.prevent="attach($event.dataTransfer?.files)">
     <div v-if="images.length || uploading" class="pending">
       <figure v-for="(image, index) in images" :key="image.name">
         <img :src="image.url" :alt="image.name" />
@@ -114,59 +111,55 @@ function audioPicked(event: Event): void {
       </figure>
       <span v-if="uploading" class="uploading">{{ t("image_uploading") }}</span>
     </div>
-    <!-- As in Agent-Orc: microphone, field, send; the buttons one line high, the field grows with its text. -->
+    <p v-if="queued" class="queued">{{ t("messages_waiting", { count: queued }) }}</p>
+    <!-- As in Agent-Orc: paperclip (× while a dictation is taken in), microphone, field, send; the buttons one line
+         high, the field grows with its text. Stop shows while a turn runs or a reading plays. -->
     <div class="field-row">
-      <button
-        class="mic"
-        :disabled="transcribing && !recording"
-        :aria-label="recording ? t('dictation_stop') : t('dictation_record')"
-        :title="recording ? t('dictation_stop') : t('dictation_record')"
-        @click="toggleRecording"
-      >
-        <DictationBadge :phase="badgePhase" />
+      <button v-if="recording" class="discard" :title="t('dictation_cancel')" :aria-label="t('dictation_cancel')" @click="recorder.cancel()">
+        <X :size="22" />
       </button>
+      <AttachMenu v-else @files="attach" />
+      <span class="mic-box">
+        <button
+          class="mic"
+          :disabled="transcribing && !recording"
+          :aria-label="transcribing && !recording ? t('dictation_running') : recording ? t('dictation_stop') : t('dictation_record')"
+          :title="transcribing && !recording ? t('dictation_running') : recording ? t('dictation_stop') : t('dictation_record')"
+          @click="toggleRecording"
+        >
+          <DictationBadge :phase="badgePhase" />
+        </button>
+        <!-- While a dictation is transcribed: Agent-Orc's spinner at the microphone's lower right. -->
+        <span v-if="transcribing" class="spinner" role="status" :aria-label="t('dictation_running')" />
+      </span>
       <textarea
         ref="field"
         v-model="text"
         rows="1"
         :placeholder="t('text_input_placeholder')"
         @keydown="onKey"
-        @paste="upload($event.clipboardData?.files)"
+        @paste="attach($event.clipboardData?.files)"
       />
-      <button class="bar-button send" :disabled="!canSend" :title="t('send_text')" :aria-label="t('send_text')" @click="send">
+      <button v-if="running || speaking" class="line-button stop" :title="t('stop_turn')" :aria-label="t('stop_turn')" @click="emit('stop')">
+        <Square :size="18" />
+      </button>
+      <button class="line-button send" :disabled="!canSend" :title="t('send_text')" :aria-label="t('send_text')" @click="send">
         <Send :size="20" />
       </button>
-    </div>
-    <div class="actions">
-      <input ref="picker" type="file" accept="image/*" multiple hidden @change="picked" />
-      <input ref="audioPicker" type="file" accept="audio/*,.webm" hidden @change="audioPicked" />
-      <!-- First, right below the microphone it belongs to. -->
-      <InputMenu :settings="settings" @change="(changes) => emit('settings', changes)" />
-      <button class="tool-button" :title="t('upload_image')" @click="picker?.click()">🖼️</button>
-      <button class="tool-button" :title="t('audio_file_upload')" @click="audioPicker?.click()"><Music :size="20" /></button>
-      <!-- The chat's own tools (ChatView): help, the agents' choices, read aloud anew. -->
-      <slot name="tools" />
-      <span v-if="transcribing" class="transcribing">{{ t("dictation_running") }}</span>
-      <span v-if="queued" class="queued">{{ t("messages_waiting", { count: queued }) }}</span>
-    </div>
-    <!-- Stopping and what one does with the chat (ChatView), in one row as under Reflex. -->
-    <div class="action-row">
-      <button v-if="running || speaking" class="bar-button red" :title="t('stop_turn')" @click="emit('stop')">
-        <Square :size="16" /><span class="label">{{ t("stop_turn") }}</span>
-      </button>
-      <slot name="actions" />
     </div>
   </div>
 </template>
 
 <style scoped>
 .input { display: flex; flex-direction: column; gap: 6px; }
-/* Microphone, field and send in the size of what one reads (the chat's A−/A+, the interface's taken out again), and
-   the buttons exactly as high as the field's one line: from the same line height, padding and border. */
+/* Paperclip, microphone, field and the buttons in the size of what one reads (the chat's A−/A+, the interface's taken
+   out again), the buttons exactly as high as the field's one line: from the same line height, padding and border
+   (--line-size, also the paperclip's in AttachMenu; its em is the field's). */
 .field-row {
   --field-line: 1.4;
   --field-pad: 10px;
   --field-border: 1px;
+  --line-size: calc(var(--field-line) * 1em + 2 * var(--field-pad) + 2 * var(--field-border));
   display: flex;
   align-items: flex-end;
   gap: 6px;
@@ -190,6 +183,7 @@ textarea {
 .pending { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 figure { position: relative; margin: 0; }
 figure img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; border: 1px solid var(--aifred-border); display: block; }
+figure button { cursor: pointer; font: inherit; border: none; }
 .remove {
   position: absolute;
   top: -6px;
@@ -216,21 +210,28 @@ figure img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; b
   border: 1px solid var(--aifred-border-light);
 }
 .uploading { font-size: var(--text-small); color: var(--aifred-text-muted); }
-.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-/* The query container of .bar-button (App.vue): its words show only where the row has room. */
-.action-row { display: flex; gap: 8px; container: action-row / inline-size; }
-.queued { font-size: var(--text-small); color: var(--aifred-accent-amber); }
-/* Not the action row's buttons: they take their look from .bar-button (App.vue). :where keeps this as weak as a plain
-   button selector, so .tool and .mic below still win. */
-:where(button:not(.bar-button)) { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font: inherit; }
-.mic, .field-row .send {
-  --line-size: calc(var(--field-line) * 1em + 2 * var(--field-pad) + 2 * var(--field-border));
-  flex: none; width: var(--line-size); height: var(--line-size);
-}
-.mic { background: none; border: none; padding: 0; display: inline-flex; }
-/* Its em is the field's (the action row's buttons take a smaller font). */
-.field-row .send { padding: 0; font-size: inherit; }
+.queued { margin: 0; font-size: var(--text-small); color: var(--aifred-accent-amber); }
+.mic-box { position: relative; display: inline-flex; flex: none; }
+.mic, .discard, .line-button { flex: none; width: var(--line-size); height: var(--line-size); padding: 0; font-size: inherit; cursor: pointer; }
+.mic { display: inline-flex; background: none; border: none; }
 .mic svg { width: 100%; height: 100%; }
 .mic:disabled { cursor: default; }
-.transcribing { font-size: var(--text-small); color: var(--aifred-accent-cyan); }
+/* In the working colour, which tells it from the red rim of the recording microphone beside it (as in Agent-Orc). */
+.discard { display: inline-flex; align-items: center; justify-content: center; background: none; border: none; color: var(--aifred-primary); }
+/* Agent-Orc's spinner: an arc that turns in four steps a turn rather than smoothly. */
+.spinner {
+  position: absolute; right: -2px; bottom: -2px; width: 14px; height: 14px; box-sizing: border-box; pointer-events: none;
+  border-radius: 50%; border: 2px solid var(--aifred-primary); border-top-color: transparent;
+  background: var(--aifred-page-bg); animation: spin 2s steps(4) infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+/* Send and stop: an icon in its colour, framed (the look of the Reflex page's action buttons). */
+.line-button {
+  display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;
+  border: 1px solid var(--line-color); color: var(--line-color); background: color-mix(in srgb, var(--line-color) 22%, transparent);
+}
+.line-button:hover:not(:disabled) { background: color-mix(in srgb, var(--line-color) 38%, transparent); }
+.line-button:disabled { opacity: 0.45; cursor: default; }
+.send { --line-color: var(--aifred-accent-warning); }
+.stop { --line-color: var(--aifred-danger); }
 </style>

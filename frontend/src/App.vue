@@ -133,42 +133,6 @@ button, input, select, textarea { font: inherit; }
 .pill { border-radius: 999px; padding: 2px 10px; font-size: var(--text-small); color: var(--aifred-text-muted); background: var(--aifred-input-bg); border: 1px solid var(--aifred-border); cursor: pointer; }
 .pill.on { color: var(--aifred-primary); background: color-mix(in srgb, var(--aifred-primary) 18%, transparent); border-color: var(--aifred-primary); }
 .pill:disabled { cursor: default; }
-/* The chat's action row, as on the Reflex page: one line over the whole width, each an icon in its colour; the words
-   only where the row has room for them. The send button beside the field has the look too. */
-.bar-button {
-  flex: 1 1 0;
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 34px;
-  padding: 0 8px;
-  border: 1px solid var(--bar-color, var(--aifred-border));
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--bar-color, var(--aifred-border)) 22%, transparent);
-  color: var(--bar-color, var(--aifred-text-primary));
-  font: inherit;
-  font-size: var(--text-small);
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.bar-button:hover:not(:disabled) { background: color-mix(in srgb, var(--bar-color, var(--aifred-border)) 38%, transparent); }
-.bar-button:active:not(:disabled) { transform: scale(0.98); }
-.bar-button:disabled { opacity: 0.45; cursor: default; }
-.bar-button svg { flex: none; }
-.bar-button .label { overflow: hidden; text-overflow: ellipsis; }
-/* A tool beside the input (picture, music, the dictation's settings): an icon in the text's colour in a frame. */
-.tool-button {
-  display: inline-flex; align-items: center; gap: 1px; padding: 4px 10px; cursor: pointer; font: inherit;
-  background: none; color: var(--aifred-text-primary); border: 1px solid var(--aifred-border); border-radius: 6px;
-}
-.bar-button.send { --bar-color: var(--aifred-accent-warning); }
-.bar-button.red { --bar-color: var(--aifred-danger); }
-.bar-button.green { --bar-color: var(--aifred-accent-success); }
-.bar-button.blue { --bar-color: var(--aifred-accent-blue); }
-@container action-row (max-width: 900px) { .bar-button .label { display: none; } }
 /* The interface's size on the body only: on html and body together it acted twice (130 % became 169 %). */
 body { zoom: var(--ui-zoom); }
 html,

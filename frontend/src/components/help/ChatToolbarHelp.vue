@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // What every button of the chat does: on a phone or tablet nothing shows the tooltips. The one 💡 of the chat; the
 // discussion modes' own help is a link from here.
-import { Download, FolderOpen, Pin, Send, Share2, Trash2 } from "lucide-vue-next";
+import { EllipsisVertical, Paperclip, Send, Square, X } from "lucide-vue-next";
 import { inject } from "vue";
 import { t } from "../../i18n";
 import { OPEN_HELP } from "./topics";
@@ -11,16 +11,13 @@ const openHelp = inject(OPEN_HELP);
 
 <template>
   <dl>
+    <dt><Paperclip :size="16" /></dt><dd>{{ t("chat_toolbar_help_attach") }}</dd>
+    <dt>🎙️ <X :size="14" /></dt><dd>{{ t("chat_toolbar_help_mic") }}</dd>
+    <dt><Send :size="16" /> <Square :size="14" /></dt><dd>{{ t("chat_toolbar_help_send") }}</dd>
     <dt>A− / A+</dt><dd>{{ t("chat_toolbar_help_zoom") }}</dd>
-    <dt>🎛️</dt><dd>{{ t("chat_toolbar_help_choices") }}</dd>
-    <dt>🔄</dt><dd>{{ t("chat_toolbar_help_regenerate") }}</dd>
+    <dt><EllipsisVertical :size="16" /></dt><dd>{{ t("chat_toolbar_help_menu") }}</dd>
     <dt>🔓 / 🔒</dt><dd>{{ t("chat_toolbar_help_memory") }}</dd>
-    <dt><Send :size="16" /></dt><dd>{{ t("chat_toolbar_help_send") }}</dd>
-    <dt><Trash2 :size="16" /></dt><dd>{{ t("chat_toolbar_help_clear") }}</dd>
-    <dt><Pin :size="16" /></dt><dd>{{ t("chat_toolbar_help_remember") }}</dd>
-    <dt><Share2 :size="16" /></dt><dd>{{ t("chat_toolbar_help_share") }}</dd>
-    <dt><Download :size="16" /></dt><dd>{{ t("chat_toolbar_help_download") }}</dd>
-    <dt><FolderOpen :size="16" /></dt><dd>{{ t("chat_toolbar_help_outputs") }}</dd>
+    <dt>🎛️</dt><dd>{{ t("chat_toolbar_help_choices") }}</dd>
     <dt>🎩 🏛️ 👑</dt><dd>{{ t("chat_toolbar_help_agent") }}</dd>
     <dt>{{ t("multi_agent_standard") }} ▾</dt>
     <dd>

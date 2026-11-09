@@ -6,6 +6,7 @@
 //   send the speech to Google or Microsoft, Firefox has none. The browser stops by itself after a
 //   silence and is started again, so a pause to think does not end the dictation; only the button
 //   does. What was heard comes as one text at the end.
+// ``cancel`` throws a dictation away: nothing is transcribed or handed on (the × beside the microphone, Escape).
 // Browsers give the microphone only to HTTPS pages and localhost.
 import { ref } from "vue";
 
@@ -35,6 +36,7 @@ const BrowserRecognition = speechWindow.SpeechRecognition ?? speechWindow.webkit
 
 let recognition: Recognition | null = null;
 let ending = false;
+let discarded = false;
 
 function beep({ frequency, ms }: { frequency: number; ms: number }): void {
   const context = new AudioContext();
@@ -104,9 +106,10 @@ export function startBrowser(language: string, done: (text: string) => void, fai
     recognition = null;
     recording.value = false;
     const text = heard.filter(Boolean).join(" ");
-    if (text) done(text);
+    if (text && !discarded) done(text);
   };
   ending = false;
+  discarded = false;
   recognition = listener;
   listener.start();
   recording.value = true;
@@ -122,6 +125,21 @@ export function stop(): void {
   }
   if (!recorder) return;
   beep(STOP_BEEP);
+  recorder.stop();
+  recording.value = false;
+}
+
+export function cancel(): void {
+  if (recognition) {
+    beep(STOP_BEEP);
+    discarded = true;
+    ending = true;
+    recognition.stop();
+    return;
+  }
+  if (!recorder) return;
+  beep(STOP_BEEP);
+  finished = null;
   recorder.stop();
   recording.value = false;
 }
