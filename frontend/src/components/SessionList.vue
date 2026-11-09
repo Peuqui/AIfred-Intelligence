@@ -33,13 +33,17 @@ function removeAll(): void {
       <button class="toggle" @click="open = !open">
         {{ open ? "▾" : "▸" }} {{ t("saved_chats") }} <span class="count">{{ sessions.list.length }}</span>
       </button>
-      <button class="select" :title="selecting ? t('sessions_select_done') : t('sessions_select')" @click="toggleSelecting">☑</button>
       <button class="new" @click="emit('create')">＋ {{ t("new_chat") }}</button>
     </header>
-    <div v-if="open && selecting && sessions.list.length" class="bulk">
-      <button @click="chosen = sessions.list.map((session) => session.session_id)">{{ t("select_all") }}</button>
-      <button :disabled="!chosen.length" @click="removeChosen">{{ t("delete_selected") }} ({{ chosen.length }})</button>
-      <button class="danger" @click="removeAll">{{ t("delete_all") }}</button>
+    <!-- The choosing of chats in a row of its own, as soon as the list is open; its buttons (and the boxes at the chats)
+         only while choosing: without boxes they would have nothing to act on (Peuqui 09.11.2026). -->
+    <div v-if="open && sessions.list.length" class="bulk">
+      <button class="select" :class="{ on: selecting }" :title="selecting ? t('sessions_select_done') : t('sessions_select')" @click="toggleSelecting">☑</button>
+      <template v-if="selecting">
+        <button @click="chosen = sessions.list.map((session) => session.session_id)">{{ t("select_all") }}</button>
+        <button :disabled="!chosen.length" @click="removeChosen">{{ t("delete_selected") }} ({{ chosen.length }})</button>
+        <button class="danger" @click="removeAll">{{ t("delete_all") }}</button>
+      </template>
     </div>
     <p v-if="open && !sessions.list.length" class="empty">{{ t("no_saved_chats") }}</p>
     <ul v-if="open">
@@ -57,16 +61,18 @@ function removeAll(): void {
 
 <style scoped>
 .sessions { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 8px 12px; border: 1px solid var(--aifred-border); border-radius: 8px; background: var(--aifred-card-bg); }
-.toggle { background: none; border: none; color: inherit; cursor: pointer; font: inherit; font-weight: 600; padding: 0; text-align: left; }
+/* The whole bar up to „New chat“ opens and closes the list, not only its words. */
+.toggle { flex: 1; align-self: stretch; background: none; border: none; color: inherit; cursor: pointer; font: inherit; font-weight: 600; padding: 4px 0; text-align: left; }
 .count { margin-left: 6px; font-weight: 400; color: var(--aifred-text-muted); }
 header { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 600; }
 .new, .remove, .entry { background: none; border: none; color: inherit; cursor: pointer; font: inherit; }
 .new { color: var(--aifred-primary); }
-.select { background: none; border: none; color: var(--aifred-text-secondary); cursor: pointer; font: inherit; margin-left: auto; }
 .bulk { display: flex; flex-wrap: wrap; gap: 6px; }
 .bulk button { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; font-size: var(--text-small); padding: 2px 8px; }
 .bulk button:disabled { opacity: 0.5; cursor: default; }
 .bulk .danger { border-color: var(--aifred-danger); }
+.bulk .select { color: var(--aifred-text-secondary); }
+.bulk .select.on { border-color: var(--aifred-primary); color: var(--aifred-primary); }
 .pick { accent-color: var(--aifred-primary); margin-left: 6px; }
 ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
 li { display: flex; align-items: center; border-radius: 6px; }
