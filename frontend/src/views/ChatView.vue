@@ -237,8 +237,12 @@ onMounted(() => void start());
         @dictate="chat.dictate"
         @heard="chat.dictated"
       />
+      <!-- Who answers: the agents in a row of their own (room for more), below it the mode with its seats, memory, the
+           quick choices and the help on the left, Vigilantia on the right (Peuqui 09.11.2026). -->
       <div class="who">
         <AgentPills :config="chat.config" :agents="agents" @configure="chat.configure" />
+      </div>
+      <div class="how">
         <DebateControls :config="chat.config" :agents="agents" :modes="modes" @configure="chat.configure" />
         <button
           class="incognito"
@@ -276,8 +280,9 @@ onMounted(() => void start());
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .toolbar h2 { margin-right: auto; }
 /* The container of the agent pills' query: on a narrow row they show their emoji only. */
-.who { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; container-type: inline-size; }
-.who .watch { margin-left: auto; }
+.who { min-width: 0; container-type: inline-size; }
+.how { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.how .watch { margin-left: auto; }
 h2 { margin: 0; font-size: 1.1rem; }
 .incognito, .agent-choices, .zoom { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
 .zoom:disabled { opacity: 0.5; cursor: default; }
