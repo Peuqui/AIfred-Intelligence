@@ -1764,6 +1764,13 @@ UI_SANDBOX_MAX_HEIGHT = "60vh"             # details[data-sandbox]
 # without the browser's bars).
 UI_CHAT_HEIGHT_DESKTOP = "70vh"
 UI_CHAT_HEIGHT_MOBILE = "50dvh"            # narrow screens (max-width 760px)
+# The page's width, and the saved chats as a column at the left of the chat from this window width on (a switch of
+# the device turns it into the accordion above the chat again); with the column the page may be wider, so the chat
+# keeps its width.
+UI_PAGE_MAX_WIDTH = "1200px"
+UI_PAGE_MAX_WIDTH_WITH_SESSIONS = "1500px"
+UI_SESSIONS_COLUMN_WIDTH = "280px"
+UI_SESSIONS_COLUMN_MIN_WINDOW_PX = 1200
 # The interface's text in two steps (theme.css: --text-base, --text-small): what one reads or writes in the base size,
 # what accompanies it (time, metrics, status, hints) in the small one; headings larger, thinking 0.9 of the base.
 UI_FONT_SIZE = "15px"

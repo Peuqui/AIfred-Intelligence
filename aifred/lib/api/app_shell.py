@@ -44,7 +44,10 @@ async def app_theme() -> Response:
         UI_CHAT_HEIGHT_MOBILE,
         UI_FONT_SIZE,
         UI_FONT_SIZE_SMALL,
+        UI_PAGE_MAX_WIDTH,
+        UI_PAGE_MAX_WIDTH_WITH_SESSIONS,
         UI_SANDBOX_MAX_HEIGHT,
+        UI_SESSIONS_COLUMN_WIDTH,
         UI_THINKING_MAX_HEIGHT_DESKTOP,
         UI_THINKING_MAX_HEIGHT_MOBILE,
     )
@@ -54,6 +57,8 @@ async def app_theme() -> Response:
         f"    --thinking-max-height-mobile: {UI_THINKING_MAX_HEIGHT_MOBILE};\n"
         f"    --sandbox-max-height: {UI_SANDBOX_MAX_HEIGHT};\n"
         f"    --chat-height-desktop: {UI_CHAT_HEIGHT_DESKTOP};\n    --chat-height-mobile: {UI_CHAT_HEIGHT_MOBILE};\n"
+        f"    --page-max-width: {UI_PAGE_MAX_WIDTH};\n    --page-max-width-with-sessions: {UI_PAGE_MAX_WIDTH_WITH_SESSIONS};\n"
+        f"    --sessions-column-width: {UI_SESSIONS_COLUMN_WIDTH};\n"
         f"    --text-base: {UI_FONT_SIZE};\n    --text-small: {UI_FONT_SIZE_SMALL};\n}}"
     )
     return Response(f"{css_variables()}\n{heights}", media_type="text/css")

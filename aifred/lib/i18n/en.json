@@ -52,6 +52,8 @@
   "chat_history": "💬 Chat History",
   "chat_messages": "messages",
   "saved_chats": "📁 Saved Chats",
+  "sessions_place_above": "Put the list above the chat",
+  "sessions_place_column": "Put the list as a column at the left of the chat",
   "no_saved_chats": "No saved chats",
   "new_chat": "New Chat",
   "untitled_chat": "Untitled Chat",

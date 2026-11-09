@@ -17,6 +17,7 @@ import TurnProgress from "../components/TurnProgress.vue";
 import { t } from "../i18n";
 import { ZOOM, chatZoom, zoomBy } from "../lib/devicePrefs";
 import { answerStartTop, isAtEnd } from "../lib/followScroll";
+import { useSessionsColumn } from "../lib/sessionsColumn";
 import HelpButton from "../components/help/HelpButton.vue";
 import { saveAs } from "../lib/download";
 import { renderMarkdown } from "../lib/markdown";
@@ -29,6 +30,7 @@ import { useSettings } from "../stores/settings";
 const sessions = useSessions();
 const chat = useChat();
 const settings = useSettings();
+const sessionsColumn = useSessionsColumn().shown;
 const agents = ref<AgentSummary[]>([]);
 // Every agent's colour, switched off ones too: the history shows their answers (the stripe of a bubble).
 const colors = ref<Record<string, string>>({});
@@ -170,7 +172,7 @@ onMounted(() => void start());
 </script>
 
 <template>
-  <div class="layout">
+  <div class="layout" :class="{ column: sessionsColumn }">
     <SessionList class="side" :current="chat.sessionId" @open="chat.open" @create="create" @remove="remove" />
     <main class="chat">
       <!-- The history's title with the text size and the ⋮ of what concerns the whole chat above it; the input as in
@@ -276,6 +278,12 @@ onMounted(() => void start());
 /* One column, as under Reflex: saved chats (an accordion), the chat history as a box of its own (it follows the
    answer), input and console below it; the page scrolls. */
 .layout { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; }
+/* The saved chats as a column at the left (lib/sessionsColumn.ts): it stays in view and scrolls by itself. */
+.layout.column { flex-direction: row; align-items: flex-start; gap: 14px; }
+.layout.column .side {
+  flex: none; width: var(--sessions-column-width); position: sticky; top: 12px; max-height: calc(100 * var(--dvh) - 24px);
+}
+.layout.column .chat { flex: 1; }
 .chat { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding-bottom: 12px; }
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .toolbar h2 { margin-right: auto; }

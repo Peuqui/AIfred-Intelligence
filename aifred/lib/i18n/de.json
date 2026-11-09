@@ -52,6 +52,8 @@
   "chat_history": "💬 Chat Verlauf",
   "chat_messages": "Nachrichten",
   "saved_chats": "📁 Gespeicherte Chats",
+  "sessions_place_above": "Liste über den Chat setzen",
+  "sessions_place_column": "Liste als Spalte links neben den Chat setzen",
   "no_saved_chats": "Keine gespeicherten Chats",
   "new_chat": "Neuer Chat",
   "untitled_chat": "Unbenannter Chat",

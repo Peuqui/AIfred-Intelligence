@@ -9,6 +9,7 @@ from ..config import (
     DEBATE_ROUNDS_MAX,
     DEBATE_ROUNDS_MIN,
     DICTATION_ENGINES,
+    UI_SESSIONS_COLUMN_MIN_WINDOW_PX,
     USER_EMOJI_CHOICES,
 )
 from ..logging_utils import log_message
@@ -53,6 +54,9 @@ class SettingsResponse(BaseModel):
     debate_rounds_max: int = DEBATE_ROUNDS_MAX
     user_emoji_choices: list[str] = Field(default_factory=lambda: list(USER_EMOJI_CHOICES))
     agent_default_color: str = Field(AGENT_DEFAULT_COLOR, description="A new agent's colour, until its editor changes it")
+    sessions_column_min_window_px: int = Field(
+        UI_SESSIONS_COLUMN_MIN_WINDOW_PX, description="From this window width on the saved chats may be a column at the left",
+    )
 
 
 class SettingsUpdate(BaseModel):

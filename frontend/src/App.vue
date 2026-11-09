@@ -14,12 +14,16 @@ import { useAuth } from "./stores/auth";
 import { useChat } from "./stores/chat";
 import { useSettings } from "./stores/settings";
 import { ZOOM, type ZoomName, chatZoom, consoleZoom, resetZooms, uiZoom, zoomBy } from "./lib/devicePrefs";
+import { useSessionsColumn } from "./lib/sessionsColumn";
 import hatIcon from "../../assets/AIfred-Zylinder.png";
 
 const auth = useAuth();
 const chat = useChat();
 const settings = useSettings();
 const route = useRoute();
+// With the saved chats as a column (on the chat page) the page may be wider, so the chat keeps its width.
+const sessionsColumn = useSessionsColumn().shown;
+const wide = computed(() => sessionsColumn.value && route.path === "/");
 const menuOpen = ref(false);
 
 // The two sizes the menu offers (the chat's own is above the chat).
@@ -71,7 +75,7 @@ onMounted(async () => {
 
 <template>
   <LoginForm v-if="auth.checked && !auth.user" />
-  <div v-else-if="auth.user && settings.current" class="app">
+  <div v-else-if="auth.user && settings.current" class="app" :class="{ wide }">
     <header class="top">
       <div class="brand">
         <img :src="hatIcon" alt="" class="hat" />
@@ -160,7 +164,8 @@ h1, h2, h3, input, textarea, select { color: var(--aifred-text-primary); }
 
 <style scoped>
 /* One column of at most 1200 px, as under Reflex. */
-.app { display: flex; flex-direction: column; min-height: calc(100 * var(--vh)); width: 100%; max-width: 1200px; margin: 0 auto; padding: 0 16px; box-sizing: border-box; }
+.app { display: flex; flex-direction: column; min-height: calc(100 * var(--vh)); width: 100%; max-width: var(--page-max-width); margin: 0 auto; padding: 0 16px; box-sizing: border-box; }
+.app.wide { max-width: var(--page-max-width-with-sessions); }
 .top { position: relative; display: flex; align-items: center; gap: 12px; margin-top: 10px; padding: 10px 14px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 10px; }
 /* The brand as on the Reflex page (the picture, not the emoji: its band is red), on a bar set off from the page. */
 .brand { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
