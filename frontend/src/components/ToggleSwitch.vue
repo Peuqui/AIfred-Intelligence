@@ -13,11 +13,11 @@ const emit = defineEmits<{ toggle: [on: boolean] }>();
 </template>
 
 <style scoped>
-.switch { position: relative; display: inline-block; width: 40px; height: 22px; flex: none; cursor: pointer; vertical-align: middle; }
+.switch { position: relative; display: inline-block; width: 30px; height: 16px; flex: none; cursor: pointer; vertical-align: middle; }
 .switch input { opacity: 0; width: 0; height: 0; }
-.track { position: absolute; inset: 0; background: var(--aifred-border); border-radius: 11px; transition: background 0.2s; }
-.track::before { content: ""; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; background: var(--aifred-text-primary); border-radius: 50%; transition: transform 0.2s; }
+.track { position: absolute; inset: 0; background: var(--aifred-border); border-radius: 8px; transition: background 0.2s; }
+.track::before { content: ""; position: absolute; width: 12px; height: 12px; left: 2px; top: 2px; background: var(--aifred-text-primary); border-radius: 50%; transition: transform 0.2s; }
 .switch input:checked + .track { background: var(--aifred-primary); }
-.switch input:checked + .track::before { transform: translateX(18px); }
+.switch input:checked + .track::before { transform: translateX(14px); }
 .switch input:disabled + .track { opacity: 0.5; cursor: default; }
 </style>
