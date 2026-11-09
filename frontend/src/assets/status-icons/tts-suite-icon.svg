@@ -1,8 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="ttsWave" gradientUnits="userSpaceOnUse" x1="176" y1="116" x2="416" y2="396">
-      <stop offset="0" stop-color="#38bdf8"/>
-      <stop offset="1" stop-color="#0369a1"/>
+      <stop offset="0" stop-color="#e0f2fe"/>
+      <stop offset="0.5" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#0284c7"/>
     </linearGradient>
   </defs>
   <rect width="512" height="512" rx="112" fill="#0f172a"/>
@@ -13,6 +14,6 @@
     <line x1="356" y1="166" x2="356" y2="346"/>
     <line x1="416" y1="206" x2="416" y2="306"/>
   </g>
-  <path d="M124 196 q-48 60 0 120" fill="none" stroke="#e2e8f0" stroke-width="22" stroke-linecap="round"/>
-  <path d="M88 156 q-84 100 0 200" fill="none" stroke="#64748b" stroke-width="22" stroke-linecap="round"/>
+  <path d="M124 196 q-48 60 0 120" fill="none" stroke="#e0f2fe" stroke-width="22" stroke-linecap="round"/>
+  <path d="M88 156 q-84 100 0 200" fill="none" stroke="#7dd3fc" stroke-width="22" stroke-linecap="round"/>
 </svg>

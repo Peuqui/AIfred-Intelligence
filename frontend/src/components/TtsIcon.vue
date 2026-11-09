@@ -8,5 +8,5 @@ import ttsIcon from "../assets/status-icons/tts-suite-icon.svg";
 </template>
 
 <style scoped>
-.tts-icon { height: 1.4em; width: 1.4em; vertical-align: text-bottom; filter: brightness(1.5); }
+.tts-icon { height: 1.4em; width: 1.4em; vertical-align: text-bottom; }
 </style>
