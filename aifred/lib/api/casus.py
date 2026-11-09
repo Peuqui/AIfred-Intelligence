@@ -90,6 +90,7 @@ async def casus_events(
 class CasusRecent(BaseModel):
     plugin_enabled: bool = Field(description="The vision plugin is on (without it the badge stays away)")
     armed: bool = Field(description="The eye watches in the background")
+    has_watched_camera: bool = Field(description="A camera is set to be watched in the background (auto_start)")
     window_minutes: int
     recent: int = Field(description="Events stored in the last window_minutes")
     events: list[CasusEvent] = Field(description="The newest events")
@@ -98,7 +99,8 @@ class CasusRecent(BaseModel):
 
 @api_app.get("/vision/casus/recent", response_model=CasusRecent, tags=["Vision"])
 async def casus_recent() -> CasusRecent:
-    """The vision's badge in the chat: the eye, how many events the last minutes brought, the newest ones."""
+    """The vision's row in the chat: the eye, whether a camera is watched, how many events the last minutes brought,
+    the newest ones."""
     from ..casus import recent
     from ..config import (
         VISION_BADGE_EVENTS,
@@ -107,10 +109,13 @@ async def casus_recent() -> CasusRecent:
     )
     from ..plugin_registry import is_plugin_enabled
     from ..vigilantia import vigilantia
+    from ..vision_store import VisionStore
 
     events, count = await asyncio.to_thread(recent, VISION_BADGE_WINDOW_MIN, VISION_BADGE_EVENTS)
+    sources = await asyncio.to_thread(VisionStore().list_sources)
     return CasusRecent(
         plugin_enabled=is_plugin_enabled("vision"), armed=(await asyncio.to_thread(vigilantia)).armed,
+        has_watched_camera=any(source.get("auto_start") for source in sources),
         window_minutes=VISION_BADGE_WINDOW_MIN, recent=count,
         events=[CasusEvent(**event, has_frame=bool(event["frame_path"])) for event in events],
         refresh_seconds=VISION_BADGE_REFRESH_SEC,
