@@ -114,18 +114,8 @@ function audioPicked(event: Event): void {
       </figure>
       <span v-if="uploading" class="uploading">{{ t("image_uploading") }}</span>
     </div>
-    <textarea
-      ref="field"
-      v-model="text"
-      rows="3"
-      :placeholder="t('text_input_placeholder')"
-      @keydown="onKey"
-      @paste="upload($event.clipboardData?.files)"
-    />
-    <div class="actions">
-      <input ref="picker" type="file" accept="image/*" multiple hidden @change="picked" />
-      <input ref="audioPicker" type="file" accept="audio/*,.webm" hidden @change="audioPicked" />
-      <button class="tool" :title="t('upload_image')" @click="picker?.click()">🖼️</button>
+    <!-- The microphone left of the field, as in Agent-Orc: both one line high, the field grows with its text. -->
+    <div class="field-row">
       <button
         class="mic"
         :disabled="transcribing && !recording"
@@ -135,6 +125,19 @@ function audioPicked(event: Event): void {
       >
         <DictationBadge :phase="badgePhase" />
       </button>
+      <textarea
+        ref="field"
+        v-model="text"
+        rows="1"
+        :placeholder="t('text_input_placeholder')"
+        @keydown="onKey"
+        @paste="upload($event.clipboardData?.files)"
+      />
+    </div>
+    <div class="actions">
+      <input ref="picker" type="file" accept="image/*" multiple hidden @change="picked" />
+      <input ref="audioPicker" type="file" accept="audio/*,.webm" hidden @change="audioPicked" />
+      <button class="tool" :title="t('upload_image')" @click="picker?.click()">🖼️</button>
       <DictationMenu :settings="settings" @change="(changes) => emit('settings', changes)" />
       <button class="tool" :title="t('audio_file_upload')" @click="audioPicker?.click()"><Music :size="20" /></button>
       <!-- The chat's own tools (ChatView): help, the agents' choices, read aloud anew. -->
@@ -161,8 +164,11 @@ function audioPicked(event: Event): void {
 
 <style scoped>
 .input { display: flex; flex-direction: column; gap: 6px; }
+.field-row { display: flex; align-items: flex-end; gap: 6px; }
 textarea {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
   box-sizing: border-box;
   resize: vertical;
   max-height: calc(40 * var(--vh));
@@ -216,7 +222,7 @@ figure img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; b
 :where(button:not(.bar-button)) { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font: inherit; }
 /* An icon in the text's colour: the 🎵 emoji is drawn black on Android and vanished on the dark page. */
 .tool { display: inline-flex; align-items: center; background: none; border: 1px solid var(--aifred-border); padding: 4px 10px; color: var(--aifred-text-primary); }
-.mic { background: none; border: none; padding: 0; width: 40px; height: 40px; display: inline-flex; }
+.mic { flex: none; background: none; border: none; padding: 0; width: 40px; height: 40px; display: inline-flex; }
 .mic svg { width: 100%; height: 100%; }
 .mic:disabled { cursor: default; }
 .transcribing { font-size: var(--text-small); color: var(--aifred-accent-cyan); }
