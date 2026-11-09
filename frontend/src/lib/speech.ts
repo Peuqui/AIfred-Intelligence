@@ -113,6 +113,14 @@ export function seek(seconds: number): void {
   if (current && Number.isFinite(current.duration)) current.currentTime = Math.max(0, Math.min(current.duration, seconds));
 }
 
+// The speaker of a bubble: starts its reading; while that very reading plays it holds it where it is, and goes on
+// from there when pressed again (a reading of another bubble, or none, starts anew).
+export function toggleReading(audioUrls: string[], browserSpeech: Utterance[]): void {
+  const sameReading = kept !== null && kept.audioUrls.join("\n") === audioUrls.join("\n") && kept.browserSpeech.length === browserSpeech.length;
+  if (speaking.value && sameReading) togglePause();
+  else replay(audioUrls, browserSpeech);
+}
+
 // What a finished bubble kept of its reading, played again on request: its audio, or the parts
 // the browser's own voice spoke.
 export function replay(audioUrls: string[], browserSpeech: Utterance[]): void {

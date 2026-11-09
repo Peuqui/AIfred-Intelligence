@@ -3,7 +3,7 @@ import { computed, ref } from "vue";
 import type { ChatEntry } from "../api/types";
 import { t } from "../i18n";
 import { renderMarkdown } from "../lib/markdown";
-import { replay } from "../lib/speech";
+import { toggleReading } from "../lib/speech";
 import TtsIcon from "./TtsIcon.vue";
 import { useSettings } from "../stores/settings";
 import ImageLightbox from "./ImageLightbox.vue";
@@ -18,7 +18,7 @@ const metadata = computed(() => props.entry.metadata ?? { audio_urls: [], browse
 const canReplay = computed(() => (metadata.value.audio_urls?.length ?? 0) + (metadata.value.browser_speech?.length ?? 0) > 0);
 
 function play(): void {
-  replay(metadata.value.audio_urls ?? [], metadata.value.browser_speech ?? []);
+  toggleReading(metadata.value.audio_urls ?? [], metadata.value.browser_speech ?? []);
 }
 
 // A click on one of the bubble's own pictures (an upload, a camera picture, a plot) shows it large, the others of
