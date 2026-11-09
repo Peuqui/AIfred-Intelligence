@@ -114,7 +114,7 @@ function audioPicked(event: Event): void {
       </figure>
       <span v-if="uploading" class="uploading">{{ t("image_uploading") }}</span>
     </div>
-    <!-- The microphone left of the field, as in Agent-Orc: both one line high, the field grows with its text. -->
+    <!-- As in Agent-Orc: microphone, field, send; the buttons one line high, the field grows with its text. -->
     <div class="field-row">
       <button
         class="mic"
@@ -133,6 +133,9 @@ function audioPicked(event: Event): void {
         @keydown="onKey"
         @paste="upload($event.clipboardData?.files)"
       />
+      <button class="bar-button send" :disabled="!canSend" :title="t('send_text')" :aria-label="t('send_text')" @click="send">
+        <Send :size="20" />
+      </button>
     </div>
     <div class="actions">
       <input ref="picker" type="file" accept="image/*" multiple hidden @change="picked" />
@@ -150,13 +153,10 @@ function audioPicked(event: Event): void {
         {{ t("enter_sends") }}
       </label>
     </div>
-    <!-- Sending and what one does with the chat (ChatView), in one row as under Reflex. -->
+    <!-- Stopping and what one does with the chat (ChatView), in one row as under Reflex. -->
     <div class="action-row">
       <button v-if="running || speaking" class="bar-button red" :title="t('stop_turn')" @click="emit('stop')">
         <Square :size="16" /><span class="label">{{ t("stop_turn") }}</span>
-      </button>
-      <button class="bar-button send wide" :disabled="!canSend" :title="t('send_text')" @click="send">
-        <Send :size="18" /><span class="label">{{ t("send_text") }}</span>
       </button>
       <slot name="actions" />
     </div>
@@ -165,8 +165,8 @@ function audioPicked(event: Event): void {
 
 <style scoped>
 .input { display: flex; flex-direction: column; gap: 6px; }
-/* Microphone and field in the size of what one reads (the chat's A−/A+, the interface's taken out again), and the
-   microphone exactly as high as the field's one line: both from the same line height, padding and border. */
+/* Microphone, field and send in the size of what one reads (the chat's A−/A+, the interface's taken out again), and
+   the buttons exactly as high as the field's one line: from the same line height, padding and border. */
 .field-row {
   --field-line: 1.4;
   --field-pad: 10px;
@@ -229,10 +229,13 @@ figure img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; b
 /* Not the action row's buttons: they take their look from .bar-button (App.vue). :where keeps this as weak as a plain
    button selector, so .tool and .mic below still win. */
 :where(button:not(.bar-button)) { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font: inherit; }
-.mic {
-  --mic-size: calc(var(--field-line) * 1em + 2 * var(--field-pad) + 2 * var(--field-border));
-  flex: none; background: none; border: none; padding: 0; width: var(--mic-size); height: var(--mic-size); display: inline-flex;
+.mic, .field-row .send {
+  --line-size: calc(var(--field-line) * 1em + 2 * var(--field-pad) + 2 * var(--field-border));
+  flex: none; width: var(--line-size); height: var(--line-size);
 }
+.mic { background: none; border: none; padding: 0; display: inline-flex; }
+/* Its em is the field's (the action row's buttons take a smaller font). */
+.field-row .send { padding: 0; font-size: inherit; }
 .mic svg { width: 100%; height: 100%; }
 .mic:disabled { cursor: default; }
 .transcribing { font-size: var(--text-small); color: var(--aifred-accent-cyan); }
