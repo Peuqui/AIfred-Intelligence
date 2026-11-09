@@ -27,6 +27,7 @@ COLORS = {
 
     # === TEXT (4 Stufen, alle ≥ 4,1:1 auf input_bg) ===
     "text_primary": "#e6edf3",   # Haupttext (almost white), Tipp-Text
+    "answer_text": "#d9dee4",   # Antworten der Agenten: eine Spur dunkler als text_primary (Peuqui 09.11.2026)
     "text_soft": "#cccccc",      # Fließtext in Listen und Editoren
     "text_secondary": "#aaaaaa",  # Beschriftungen, Hinweise (7:1 auf card_bg)
     "text_muted": "#7d8590",     # Gedämpft: inaktiv, Nebensächliches (4,6:1 auf card_bg)
