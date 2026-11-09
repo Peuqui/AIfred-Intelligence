@@ -490,7 +490,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
       Lebenszyklus), in den Ereignissen (Casus), in der aufgeklappten Statuszeile und bei der Kalibrierung (Lebenszyklus).
       Die Reflex-Texte waren zu großen Teilen veraltet und sind neu geschrieben, jede Aussage gegen den Code geprüft:
       Rollen statt fester Namen, im Auto-Konsens entscheidet die Abstimmung; Bildbeschreiber über llama-swap-Profile und
-      die Beschreiber-Liste statt Ollama, ⏻ in den Einstellungen und in der Statuszeile, ein Modellwechsel lädt nichts,
+      die Beschreiber-Liste statt Ollama, Ein-/Aus-Knopf in den Einstellungen und in der Statuszeile, ein Modellwechsel lädt nichts,
       dazu Personenerkennung und Spracherkennung; Reiter statt Popups, das Auge im Chat zeigt nur an, Edge-AI über
       ONVIF, ein Vorkommnis endet nach 10 s Lücke (höchstens 5 Minuten). Escape schließt nur den obersten Dialog.
       Im Browser geprüft.)

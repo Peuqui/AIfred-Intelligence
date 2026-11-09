@@ -4,6 +4,7 @@
 // detection, how long events are kept, the alert rules, and per camera everything that belongs to it: name,
 // background, alerts with their types, quiet hours, active window, event interval, zones, its connection. A change
 // of the background or the window takes effect at once.
+import { Power } from "lucide-vue-next";
 import { onMounted, ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { AlertRules, CameraRow, LiveView, RtspCameras, VigilantiaRow } from "../api/types";
@@ -112,7 +113,7 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
           <option v-if="!settings.model" value="">–</option>
           <option v-for="model in settings.models" :key="model" :value="model">{{ model }}</option>
         </select>
-        <button v-if="loaded !== null" :disabled="busy || !settings.model" :class="{ on: loaded }" :title="t(loaded ? 'vision_model_unload' : 'vision_model_load')" @click="power">⏻</button>
+        <button v-if="loaded !== null" :disabled="busy || !settings.model" :class="{ on: loaded }" :title="t(loaded ? 'vision_model_unload' : 'vision_model_load')" @click="power"><Power :size="14" /></button>
       </div>
     </article>
 
