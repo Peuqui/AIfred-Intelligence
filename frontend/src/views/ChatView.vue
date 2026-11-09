@@ -248,7 +248,6 @@ onMounted(() => void start());
         <HelpButton topic="chat" />
         <VisionBadge class="watch" />
       </div>
-      <!-- Agent-Orc's divider of the agents' cards: an orange line that fades out to both sides, with a glow. -->
       <div class="divider" role="separator" />
       <DebugConsole :lines="chat.debugLines" />
       <AgentChoicesModal v-if="choicesOpen" @close="choicesOpen = false" />
@@ -275,12 +274,6 @@ onMounted(() => void start());
 /* The container of the agent pills' query: on a narrow row they show their emoji only. */
 .who { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; container-type: inline-size; }
 .who .watch { margin-left: auto; }
-.divider {
-  height: 1.5px;
-  margin: 10px 0;
-  background: linear-gradient(90deg, transparent, var(--aifred-primary) 50%, transparent);
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--aifred-primary-hover) 70%, transparent));
-}
 h2 { margin: 0; font-size: 1.1rem; }
 .incognito, .agent-choices, .zoom { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
 .zoom:disabled { opacity: 0.5; cursor: default; }

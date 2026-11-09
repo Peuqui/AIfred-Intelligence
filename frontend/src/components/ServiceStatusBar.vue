@@ -107,7 +107,7 @@ onBeforeUnmount(() => window.clearInterval(timer));
 </template>
 
 <style scoped>
-.status { border-bottom: 1px solid var(--aifred-border); padding: 4px 0; font-size: 0.85rem; }
+.status { padding: 4px 0 0; font-size: 0.85rem; }
 summary { display: flex; align-items: center; gap: 10px; cursor: pointer; list-style: none; }
 summary::-webkit-details-marker { display: none; }
 .lifecycle { display: flex; align-items: center; gap: 8px; margin: 4px 0 0; color: var(--aifred-text-secondary); }

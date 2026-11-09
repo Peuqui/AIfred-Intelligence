@@ -110,6 +110,7 @@ onMounted(async () => {
     </header>
     <button v-if="newVersion" class="update" @click="reloadPage">{{ t("new_version_waiting") }}</button>
     <ServiceStatusBar />
+    <div class="divider" role="separator" />
     <MediaPlayer />
     <HubNoticeToast />
     <RouterView v-slot="{ Component }">
@@ -133,6 +134,14 @@ button, input, select, textarea { font: inherit; }
 .pill { border-radius: 999px; padding: 2px 10px; font-size: var(--text-small); color: var(--aifred-text-muted); background: var(--aifred-input-bg); border: 1px solid var(--aifred-border); cursor: pointer; }
 .pill.on { color: var(--aifred-primary); background: color-mix(in srgb, var(--aifred-primary) 18%, transparent); border-color: var(--aifred-primary); }
 .pill:disabled { cursor: default; }
+/* Agent-Orc's divider of the agents' cards: an orange line that fades out to both sides, with a glow (below the head,
+   above the debug console). */
+.divider {
+  height: 1.5px;
+  margin: 10px 0;
+  background: linear-gradient(90deg, transparent, var(--aifred-primary) 50%, transparent);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--aifred-primary-hover) 70%, transparent));
+}
 /* The interface's size on the body only: on html and body together it acted twice (130 % became 169 %). */
 body { zoom: var(--ui-zoom); }
 /* As on the Reflex page, the near-white is for what one reads and writes (chat bubbles, fields, headings); labels,
