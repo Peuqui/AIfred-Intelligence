@@ -91,6 +91,9 @@ header { font-size: var(--text-small); font-weight: 600; color: var(--aifred-pri
 .time { color: var(--aifred-text-muted); font-weight: 400; }
 .replay { background: none; border: none; padding: 0 4px; cursor: pointer; opacity: 0.7; font: inherit; }
 .replay:hover { opacity: 1; }
+/* The speaker in the header is the one to hit with a thumb: larger than the text line, at full strength. */
+.replay:has(.tts-icon) { opacity: 1; }
+.replay :deep(.tts-icon) { height: 2.2em; width: 2.2em; vertical-align: middle; }
 .note { color: var(--aifred-text-secondary); font-weight: 400; font-size: var(--text-small); align-self: center; }
 .content :deep(p) { margin: 0.5em 0; }
 .content :deep(em.metrics) { font-size: var(--text-small); color: var(--aifred-text-secondary); }
