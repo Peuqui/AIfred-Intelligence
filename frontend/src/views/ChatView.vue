@@ -150,49 +150,12 @@ onMounted(() => void start());
   <div class="layout">
     <SessionList class="side" :current="chat.sessionId" @open="chat.open" @create="create" @remove="remove" />
     <main class="chat">
+      <!-- As on the Reflex page: the history's title with the text size above it; who answers, how and the tools below the
+           input (Peuqui 09.11.2026). -->
       <div class="toolbar">
         <h2>{{ chat.title || t("untitled_chat") }}</h2>
-        <!-- Who answers and how (Peuqui 09.11.2026: above), the camera watch's state at the right. -->
-        <div class="who">
-          <AgentSelect :agents="agents" :active="chat.config.active_agent" @choose="(agent) => chat.configure({ active_agent: agent })" />
-          <DebateControls :config="chat.config" :agents="agents" :modes="modes" @configure="chat.configure" />
-          <VisionBadge class="watch" />
-        </div>
-        <!-- The chat's tools beneath. -->
-        <div class="choices">
-          <HelpButton topic="chat" />
-          <button class="zoom" :disabled="chatZoom <= ZOOM.min" :title="t('chat_font_smaller')" @click="zoomBy('chat', -1)">A−</button>
-          <button class="zoom" :disabled="chatZoom >= ZOOM.max" :title="t('chat_font_larger')" @click="zoomBy('chat', 1)">A+</button>
-          <button class="agent-choices" :title="t('agent_choices_title')" @click="choicesOpen = true">🎛️</button>
-          <button
-            v-if="settings.current?.enable_tts && hasReplies"
-            class="regenerate"
-            :disabled="chat.regenerating"
-            @click="chat.regenerateAll"
-          >
-            {{ t("tts_regenerate_all") }}
-          </button>
-          <button
-            class="incognito"
-            :class="{ on: chat.config.incognito }"
-            :title="chat.config.incognito ? t('incognito_mode') : t('memory_active')"
-            @click="chat.configure({ incognito: !chat.config.incognito })"
-          >
-            {{ chat.config.incognito ? "🔒" : "🔓" }}
-          </button>
-          <button class="clear" :disabled="!chat.history.length" :title="t('clear_chat')" @click="chat.clearChat">🗑️</button>
-          <button
-            class="remember"
-            :disabled="!hasReplies || chat.remembering || chat.running"
-            :title="`${t('save_memory')} — ${t('save_memory_hint')}`"
-            @click="chat.remember"
-          >
-            📌
-          </button>
-          <button class="export" :disabled="!chat.history.length || exporting" :title="t('share_chat')" @click="shareChat">🔗</button>
-          <button class="export" :disabled="!chat.history.length || exporting" :title="t('download_chat')" @click="downloadChat">💾</button>
-          <button class="export" :disabled="!chat.sessionId" :title="t('sandbox_outputs_tooltip')" @click="outputsOpen = true">📂</button>
-        </div>
+        <button class="zoom" :disabled="chatZoom <= ZOOM.min" :title="t('chat_font_smaller')" @click="zoomBy('chat', -1)">A−</button>
+        <button class="zoom" :disabled="chatZoom >= ZOOM.max" :title="t('chat_font_larger')" @click="zoomBy('chat', 1)">A+</button>
       </div>
       <div ref="messages" class="messages">
         <div class="bubbles">
@@ -237,6 +200,43 @@ onMounted(() => void start());
         @heard="chat.dictated"
         @settings="settings.change"
       />
+      <div class="who">
+        <AgentSelect :agents="agents" :active="chat.config.active_agent" @choose="(agent) => chat.configure({ active_agent: agent })" />
+        <DebateControls :config="chat.config" :agents="agents" :modes="modes" @configure="chat.configure" />
+        <button
+          class="incognito"
+          :class="{ on: chat.config.incognito }"
+          :title="chat.config.incognito ? t('incognito_mode') : t('memory_active')"
+          @click="chat.configure({ incognito: !chat.config.incognito })"
+        >
+          {{ chat.config.incognito ? "🔒" : "🔓" }}
+        </button>
+        <VisionBadge class="watch" />
+      </div>
+      <div class="choices">
+        <HelpButton topic="chat" />
+        <button class="agent-choices" :title="t('agent_choices_title')" @click="choicesOpen = true">🎛️</button>
+        <button
+          v-if="settings.current?.enable_tts && hasReplies"
+          class="regenerate"
+          :disabled="chat.regenerating"
+          @click="chat.regenerateAll"
+        >
+          {{ t("tts_regenerate_all") }}
+        </button>
+        <button class="clear" :disabled="!chat.history.length" :title="t('clear_chat')" @click="chat.clearChat">🗑️</button>
+        <button
+          class="remember"
+          :disabled="!hasReplies || chat.remembering || chat.running"
+          :title="`${t('save_memory')} — ${t('save_memory_hint')}`"
+          @click="chat.remember"
+        >
+          📌
+        </button>
+        <button class="export" :disabled="!chat.history.length || exporting" :title="t('share_chat')" @click="shareChat">🔗</button>
+        <button class="export" :disabled="!chat.history.length || exporting" :title="t('download_chat')" @click="downloadChat">💾</button>
+        <button class="export" :disabled="!chat.sessionId" :title="t('sandbox_outputs_tooltip')" @click="outputsOpen = true">📂</button>
+      </div>
       <DebugConsole :lines="chat.debugLines" />
       <AgentChoicesModal v-if="choicesOpen" @close="choicesOpen = false" />
       <FileRequester v-if="outputsOpen && chat.sessionId" :area="`sandbox-${chat.sessionId}`" :title="t('sandbox_outputs')" @close="outputsOpen = false" />
@@ -257,7 +257,8 @@ onMounted(() => void start());
    answer), input and console below it; the page scrolls. */
 .layout { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; }
 .chat { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding-bottom: 12px; }
-.toolbar { display: flex; flex-direction: column; gap: 8px; }
+.toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.toolbar h2 { margin-right: auto; }
 .who { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .who .watch { margin-left: auto; }
 h2 { margin: 0; font-size: 1.1rem; }
