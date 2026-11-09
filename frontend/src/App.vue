@@ -8,6 +8,7 @@ import { UPDATE_CHECK_MS, api, checkForUpdate, newVersion } from "./api/client";
 import HubNoticeToast from "./components/HubNoticeToast.vue";
 import LoginForm from "./components/LoginForm.vue";
 import ServiceStatusBar from "./components/ServiceStatusBar.vue";
+import TtsIcon from "./components/TtsIcon.vue";
 import { loadLanguage, t } from "./i18n";
 import { useAuth } from "./stores/auth";
 import { useChat } from "./stores/chat";
@@ -108,7 +109,7 @@ onMounted(async () => {
         <RouterLink to="/vision">{{ t("nav_vision") }}</RouterLink>
         <RouterLink to="/memory">{{ t("nav_memory") }}</RouterLink>
         <RouterLink to="/jobs">{{ t("nav_jobs") }}</RouterLink>
-        <RouterLink to="/audio">{{ t("nav_audio") }}</RouterLink>
+        <RouterLink to="/audio"><TtsIcon /> {{ t("nav_audio") }}</RouterLink>
         <RouterLink to="/settings">{{ t("settings") }}</RouterLink>
       </nav>
       <button class="logout" :title="t('logout')" :aria-label="t('logout')" @click="logout"><LogOut :size="18" /></button>

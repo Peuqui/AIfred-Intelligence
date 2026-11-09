@@ -8,6 +8,7 @@ import { ApiError, api } from "../api/client";
 import type { AgentSpeech, NarratorVoice, SpeechChoices, SpeechList, SpeechRecognition } from "../api/types";
 import { t } from "../i18n";
 import AudioSources from "../components/AudioSources.vue";
+import TtsIcon from "../components/TtsIcon.vue";
 import { useSettings } from "../stores/settings";
 
 // The voices folder of the TTS-Suite in the file requester (loaded when it opens: it brings VueFinder).
@@ -99,7 +100,7 @@ const picked = (event: Event): string => (event.target as HTMLSelectElement).val
 
     <section v-if="settings.current">
       <label class="line">
-        <span class="name">{{ t("tts_heading") }}</span>
+        <span class="name"><TtsIcon /> {{ t("tts_heading") }}</span>
         <input type="checkbox" :checked="settings.current.enable_tts" @change="settings.change({ enable_tts: !settings.current.enable_tts })" />
       </label>
       <label class="line">

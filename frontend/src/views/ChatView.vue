@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AudioLines, Download, FolderOpen, Pin, Share2, Trash2 } from "lucide-vue-next";
+import { Download, FolderOpen, Pin, Share2, Trash2 } from "lucide-vue-next";
 import { computed, defineAsyncComponent, nextTick, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { AgentSummary, ChatEntry, CropBox, DebateMode } from "../api/types";
@@ -12,6 +12,7 @@ import ChatInput from "../components/ChatInput.vue";
 import DebugConsole from "../components/DebugConsole.vue";
 import ImageEditor from "../components/ImageEditor.vue";
 import MediaPlayer from "../components/MediaPlayer.vue";
+import TtsIcon from "../components/TtsIcon.vue";
 import MessageBubble from "../components/MessageBubble.vue";
 import SessionList from "../components/SessionList.vue";
 import TurnProgress from "../components/TurnProgress.vue";
@@ -186,7 +187,7 @@ onMounted(() => void start());
         <button class="zoom" :disabled="chatZoom >= ZOOM.max" :title="t('chat_font_larger')" @click="zoomBy('chat', 1)">A+</button>
         <ChatMenu>
           <button v-if="settings.current?.enable_tts" :disabled="!hasReplies || chat.regenerating" @click="chat.regenerateAll">
-            <AudioLines :size="16" />{{ t("tts_regenerate_all") }}
+            <TtsIcon />{{ t("tts_regenerate_all") }}
           </button>
           <button :disabled="!hasReplies || chat.remembering || chat.running" :title="t('save_memory_hint')" @click="chat.remember">
             <Pin :size="16" />{{ t("save_memory") }}
