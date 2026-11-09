@@ -3,7 +3,7 @@ import { computed, ref } from "vue";
 import type { ChatEntry } from "../api/types";
 import { t } from "../i18n";
 import { renderMarkdown } from "../lib/markdown";
-import { toggleReading } from "../lib/speech";
+import { isSpeaking, toggleReading } from "../lib/speech";
 import TtsIcon from "./TtsIcon.vue";
 import { useSettings } from "../stores/settings";
 import ImageLightbox from "./ImageLightbox.vue";
@@ -48,7 +48,7 @@ function enlarge(event: MouseEvent): void {
     <header v-if="!isUser && entry.agent_display_name">
       {{ entry.agent_emoji }} {{ entry.agent_display_name }}
       <span class="time">{{ entry.time_display }}</span>
-      <button v-if="canReplay" class="replay" :title="t('audio_play_tooltip')" @click="play"><TtsIcon /></button>
+      <button v-if="canReplay" class="replay" :title="t('audio_play_tooltip')" @click="play"><TtsIcon :playing="isSpeaking(metadata.audio_urls ?? [], metadata.browser_speech ?? [])" /></button>
       <button
         v-if="speechOn && entry.timestamp"
         class="replay"

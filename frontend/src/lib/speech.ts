@@ -3,7 +3,7 @@
 // between paragraphs ("tts_pause", ms), or a part the browser's own voice speaks ("tts_speak",
 // utterance). The speed is in the audio already (the agent's voice settings). They play in the order they arrive, without gaps; "stop"
 // ends the reading.
-import { ref, watch } from "vue";
+import { ref, shallowRef, watch } from "vue";
 import type { Utterance } from "../api/types";
 
 type Entry = { kind: "audio"; url: string } | { kind: "pause"; ms: number } | { kind: "speak"; utterance: Utterance };
@@ -22,7 +22,7 @@ export const paused = ref(false);
 export const volume = ref(1);
 // The last reading, kept for the player: what a finished bubble kept of it (one audio file, so it can be seeked
 // in), or the parts the device's own voice spoke. A reading still arriving is not seekable: its files come piece by piece.
-let kept: { audioUrls: string[]; browserSpeech: Utterance[] } | null = null;
+const kept = shallowRef<{ audioUrls: string[]; browserSpeech: Utterance[] } | null>(null);
 export const hasReading = ref(false);
 export const live = ref(false);
 export const position = ref(0);          // seconds, in the audio that plays
@@ -85,7 +85,7 @@ export function togglePause(): void {
 
 // A finished bubble's reading becomes the one the player offers; nothing plays. Without audio the player has none.
 export function keep(audioUrls: string[], browserSpeech: Utterance[]): void {
-  kept = { audioUrls, browserSpeech };
+  kept.value = { audioUrls, browserSpeech };
   hasReading.value = audioUrls.length + browserSpeech.length > 0;
   position.value = 0;
   duration.value = 0;
@@ -95,7 +95,7 @@ export function keep(audioUrls: string[], browserSpeech: Utterance[]): void {
     const probe = new Audio();
     probe.preload = "metadata";
     probe.onloadedmetadata = () => {
-      if (kept?.audioUrls[0] === only && !speaking.value) duration.value = probe.duration;
+      if (kept.value?.audioUrls[0] === only && !speaking.value) duration.value = probe.duration;
     };
     probe.src = only;
   }
@@ -103,8 +103,8 @@ export function keep(audioUrls: string[], browserSpeech: Utterance[]): void {
 
 // Plays the kept reading again, from the start or from a place in it (the file is one piece).
 export function replayKept(fromSeconds = 0): void {
-  if (!kept) return;
-  replay(kept.audioUrls, kept.browserSpeech);
+  if (!kept.value) return;
+  replay(kept.value.audioUrls, kept.value.browserSpeech);
   if (current && fromSeconds > 0) current.currentTime = fromSeconds;
 }
 
@@ -113,11 +113,21 @@ export function seek(seconds: number): void {
   if (current && Number.isFinite(current.duration)) current.currentTime = Math.max(0, Math.min(current.duration, seconds));
 }
 
+// Whether this reading is the one the player holds (a bubble's speaker shows it).
+function isReading(audioUrls: string[], browserSpeech: Utterance[]): boolean {
+  const held = kept.value;
+  return held !== null && held.audioUrls.join("\n") === audioUrls.join("\n") && held.browserSpeech.length === browserSpeech.length;
+}
+
+// Whether it is being spoken right now (not held): the bubble's speaker moves.
+export function isSpeaking(audioUrls: string[], browserSpeech: Utterance[]): boolean {
+  return speaking.value && !paused.value && isReading(audioUrls, browserSpeech);
+}
+
 // The speaker of a bubble: starts its reading; while that very reading plays it holds it where it is, and goes on
 // from there when pressed again (a reading of another bubble, or none, starts anew).
 export function toggleReading(audioUrls: string[], browserSpeech: Utterance[]): void {
-  const sameReading = kept !== null && kept.audioUrls.join("\n") === audioUrls.join("\n") && kept.browserSpeech.length === browserSpeech.length;
-  if (speaking.value && sameReading) togglePause();
+  if (speaking.value && isReading(audioUrls, browserSpeech)) togglePause();
   else replay(audioUrls, browserSpeech);
 }
 
