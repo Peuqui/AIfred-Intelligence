@@ -144,6 +144,10 @@ export const useChat = defineStore("chat", () => {
         // The bubble with what was spoken of it, once its reading is over.
         const entry = data.entry as ChatEntry;
         history.value = history.value.map((old) => (old.role === entry.role && old.timestamp === entry.timestamp ? entry : old));
+        // The player offers the reading that was spoken last (again, rewound), also when it has ended.
+        if (entry.metadata?.audio_urls?.length || entry.metadata?.browser_speech?.length) {
+          speech.keep(entry.metadata.audio_urls ?? [], entry.metadata.browser_speech ?? []);
+        }
         break;
       }
       case "resync":

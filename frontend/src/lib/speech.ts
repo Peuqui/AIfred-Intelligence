@@ -20,6 +20,13 @@ export const speaking = ref(false);
 // The reading is held (not stopped): the playlist stays where it is. Volume is this device's own.
 export const paused = ref(false);
 export const volume = ref(1);
+// The last reading, kept for the player: what a finished bubble kept of it (one audio file, so it can be seeked
+// in), or the parts the device's own voice spoke. A reading still arriving is not seekable: its files come piece by piece.
+let kept: { audioUrls: string[]; browserSpeech: Utterance[] } | null = null;
+export const hasReading = ref(false);
+export const live = ref(false);
+export const position = ref(0);          // seconds, in the audio that plays
+export const duration = ref(0);
 watch(volume, (level) => {
   if (current) current.volume = level;
 });
@@ -36,6 +43,7 @@ window.addEventListener("pointerdown", unlock);
 window.addEventListener("keydown", unlock);
 
 export function enqueue(kind: string, data: Record<string, unknown>): void {
+  live.value = true;
   if (kind === "tts") queue.push({ kind: "audio", url: String(data.url) });
   else if (kind === "tts_pause") queue.push({ kind: "pause", ms: Number(data.ms) });
   else if (kind === "tts_speak") queue.push({ kind: "speak", utterance: data.utterance as Utterance });
@@ -75,10 +83,28 @@ export function togglePause(): void {
   }
 }
 
+// A finished bubble's reading becomes the one the player offers; nothing plays.
+export function keep(audioUrls: string[], browserSpeech: Utterance[]): void {
+  kept = { audioUrls, browserSpeech };
+  hasReading.value = true;
+}
+
+// Plays the kept reading again from the start.
+export function replayKept(): void {
+  if (kept) replay(kept.audioUrls, kept.browserSpeech);
+}
+
+// Seconds from the start of the audio that plays (not for a reading that is still arriving).
+export function seek(seconds: number): void {
+  if (current && Number.isFinite(current.duration)) current.currentTime = Math.max(0, Math.min(current.duration, seconds));
+}
+
 // What a finished bubble kept of its reading, played again on request: its audio, or the parts
 // the browser's own voice spoke.
 export function replay(audioUrls: string[], browserSpeech: Utterance[]): void {
   stop();
+  keep(audioUrls, browserSpeech);
+  live.value = false;
   for (const url of audioUrls) queue.push({ kind: "audio", url });
   for (const utterance of browserSpeech) queue.push({ kind: "speak", utterance });
   void next();
@@ -117,6 +143,10 @@ function playAudio(url: string): Promise<void> {
   return new Promise((done) => {
     const audio = new Audio(url);
     audio.volume = volume.value;
+    position.value = 0;
+    duration.value = 0;
+    audio.ontimeupdate = () => (position.value = audio.currentTime);
+    audio.ondurationchange = () => (duration.value = audio.duration);
     current = audio;
     finishAudio = () => {
       finishAudio = null;
