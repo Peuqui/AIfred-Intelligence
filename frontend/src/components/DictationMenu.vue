@@ -6,14 +6,17 @@ import { ChevronDown } from "lucide-vue-next";
 import { ref } from "vue";
 import type { Settings, SettingsUpdate } from "../api/types";
 import { t } from "../i18n";
+import { closeWhenBeside } from "../lib/dismiss";
 
 defineProps<{ settings: Settings }>();
 const emit = defineEmits<{ change: [changes: SettingsUpdate] }>();
 const open = ref(false);
+const box = ref<HTMLElement | null>(null);
+closeWhenBeside(open, box);
 </script>
 
 <template>
-  <span class="menu">
+  <span ref="box" class="menu">
     <button class="toggle" :title="t('dictation_settings')" :aria-expanded="open" @click="open = !open"><ChevronDown :size="22" /></button>
     <div v-if="open" class="panel" role="dialog" :aria-label="t('dictation_settings')">
       <p class="heading">{{ t("dictation_engine") }}</p>

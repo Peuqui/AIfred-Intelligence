@@ -7,9 +7,12 @@ import { RouterLink } from "vue-router";
 import { api, apiUrl } from "../api/client";
 import type { CasusRecent } from "../api/types";
 import { formatNumber, t, tCount } from "../i18n";
+import { closeWhenBeside } from "../lib/dismiss";
 
 const state = ref<CasusRecent | null>(null);
 const open = ref(false);
+const box = ref<HTMLElement | null>(null);
+closeWhenBeside(open, box);
 let stream: EventSource | null = null;
 let refreshing: number | null = null;
 
@@ -30,7 +33,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <span v-if="state?.plugin_enabled" class="badge-box">
+  <span v-if="state?.plugin_enabled" ref="box" class="badge-box">
     <button
       class="badge"
       :class="{ armed: state.armed, fresh: state.recent > 0 }"
