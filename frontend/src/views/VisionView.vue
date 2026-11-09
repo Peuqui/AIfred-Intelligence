@@ -35,7 +35,7 @@ const tabs = [
 
 <style scoped>
 .vision { display: flex; flex-direction: column; gap: 10px; padding: 12px 0; min-height: 0; overflow-y: auto; }
-.tabs { display: flex; align-items: center; gap: 6px; }
+.tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .tabs a { color: var(--aifred-text-secondary); text-decoration: none; padding: 3px 10px; border-radius: 6px; border: 1px solid transparent; }
 .tabs a.on { color: var(--aifred-text-primary); border-color: var(--aifred-border); background: var(--aifred-input-bg); }
 </style>
