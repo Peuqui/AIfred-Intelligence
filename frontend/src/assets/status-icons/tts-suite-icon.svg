@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="ttsWave" gradientUnits="userSpaceOnUse" x1="176" y1="116" x2="416" y2="396">
-      <stop offset="0" stop-color="#f59e0b"/>
-      <stop offset="1" stop-color="#b45309"/>
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#0369a1"/>
     </linearGradient>
   </defs>
   <rect width="512" height="512" rx="112" fill="#0f172a"/>
