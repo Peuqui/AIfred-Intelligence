@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import type { Settings, SettingsUpdate, UploadedImage } from "../api/types";
 import { language, t } from "../i18n";
 import { enterSends } from "../lib/devicePrefs";
@@ -28,6 +28,20 @@ const emit = defineEmits<{
 }>();
 // The input field's text lives in the chat store: a dictation in edit mode lands there.
 const text = defineModel<string>({ required: true });
+
+// The field grows with its text (typed, dictated, pasted) from its three rows up to its max-height, then it scrolls.
+const field = ref<HTMLTextAreaElement | null>(null);
+watch(
+  text,
+  async () => {
+    await nextTick();
+    const box = field.value;
+    if (!box) return;
+    box.style.height = "auto";
+    box.style.height = `${box.scrollHeight + box.offsetHeight - box.clientHeight}px`;
+  },
+  { immediate: true },
+);
 const picker = ref<HTMLInputElement | null>(null);
 const audioPicker = ref<HTMLInputElement | null>(null);
 const recording = recorder.recording;
@@ -100,6 +114,7 @@ function audioPicked(event: Event): void {
       <span v-if="uploading" class="uploading">{{ t("image_uploading") }}</span>
     </div>
     <textarea
+      ref="field"
       v-model="text"
       rows="3"
       :placeholder="t('text_input_placeholder')"
@@ -139,6 +154,8 @@ textarea {
   width: 100%;
   box-sizing: border-box;
   resize: vertical;
+  max-height: 40vh;
+  overflow-y: auto;
   padding: 10px;
   font: inherit;
   background: var(--aifred-input-bg);
