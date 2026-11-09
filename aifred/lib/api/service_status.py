@@ -11,7 +11,6 @@ describer does not fit) comes back as 409 with the message for the page.
 """
 
 import asyncio
-import json
 from typing import Literal
 
 from fastapi import Query
@@ -39,9 +38,8 @@ SERVICE_STATUS_KIND = "service_status"
 
 
 def _push_to_connected_pages(snapshot: ServiceSnapshot) -> None:
-    payload = json.dumps(snapshot.as_json())
     for session_id in session_events.sessions_with_subscribers():
-        browser_push(session_id, SERVICE_STATUS_KIND, payload)
+        browser_push(session_id, SERVICE_STATUS_KIND, **snapshot.as_json())
 
 
 get_monitor().add_listener(_push_to_connected_pages)

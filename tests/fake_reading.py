@@ -53,14 +53,14 @@ class FakeReading(_ReadingBase):
         self.finished = True
         if self.browser_voice:
             self.browser_speech.append({"text": "Hallo.", "language": self.language, "voice": "Auto", "rate": None, "pitch": None})
-            self._push(self.session_id, "tts_speak", "{}")
+            self._push(self.session_id, "tts_speak", utterance=self.browser_speech[-1])
             if self.ends_on_finish:
                 self.over.set()
             return
         url = f"/_upload/tts_audio/{self.agent}-{len(FakeReading.made)}.wav"
         self.audio_urls.append(url)
         self.note = "Edge · Cloud"
-        self._push(self.session_id, "tts", url)
+        self._push(self.session_id, "tts", url=url)
         if self.ends_on_finish:
             self.over.set()
 

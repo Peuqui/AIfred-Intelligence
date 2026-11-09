@@ -54,6 +54,22 @@ def audio_url(state_key: str) -> str:
     return f"/api/audio/file?key={quote(state_key)}"
 
 
+def _push_media(
+    session_id: str, url: str, state_key: str, start_pos_sec: float, is_stream: bool, audio_type: str,
+    following: list[dict[str, str]],
+) -> None:
+    """A track to the session's tabs (lib/media.ts), with the tracks of its folder after it and how the page keeps
+    its position."""
+    from ..browser_push import browser_push
+    from ..config import AUDIO_POSITION_SAVE_SEC, AUDIO_RESUME_PRE_ROLL_SEC
+
+    browser_push(
+        session_id, "media",
+        url=url, state_key=state_key, start_pos_sec=start_pos_sec, is_stream=is_stream, audio_type=audio_type,
+        queue=following, pre_roll_sec=AUDIO_RESUME_PRE_ROLL_SEC, position_save_sec=AUDIO_POSITION_SAVE_SEC,
+    )
+
+
 def ended(session_id: str) -> None:
     """The page played the last track to its end: nothing plays in the session any more."""
     _playing.pop(session_id, None)
@@ -85,21 +101,13 @@ class BrowserChannel(AudioOutputChannel):
         start_pos_sec: float | None,
         ctx: PluginContext,
     ) -> dict[str, Any]:
-        from ..browser_push import browser_push
-
         url = audio_url(src.state_key)
         # Streams have no meaningful position
         seek_to = float(start_pos_sec) if not src.is_stream and start_pos_sec else 0.0
         session_id = _session_of(target_id, ctx)
         if session_id:
             _playing[session_id] = _Playing(src.label, src.state_key, bool(src.is_stream), 1)
-            browser_push(
-                session_id, "media", url,
-                state_key=src.state_key,
-                start_pos_sec=seek_to,
-                is_stream=bool(src.is_stream),
-                audio_type=getattr(src, "audio_type", "music"),
-            )
+            _push_media(session_id, url, src.state_key, seek_to, bool(src.is_stream), getattr(src, "audio_type", "music"), [])
         return {
             "success": bool(session_id),
             "label": src.label,
@@ -123,7 +131,7 @@ class BrowserChannel(AudioOutputChannel):
         session_id = _session_of(target_id, ctx)
         if _playing.pop(session_id, None) is None:
             return False
-        browser_push(session_id, "stop", "")
+        browser_push(session_id, "stop")
         return True
 
     async def seek(
@@ -155,7 +163,7 @@ class BrowserChannel(AudioOutputChannel):
             return False
         if paused is not None:
             playing.paused = paused
-        browser_push(session_id, kind, "", **details)
+        browser_push(session_id, kind, **details)
         return True
 
     async def play_queue(
@@ -171,8 +179,6 @@ class BrowserChannel(AudioOutputChannel):
         endpoint, not from their path)."""
         import random
 
-        from ..browser_push import browser_push
-
         if not items:
             return {"success": False, "error": "empty queue"}
         ordered = list(items)
@@ -182,14 +188,8 @@ class BrowserChannel(AudioOutputChannel):
         session_id = _session_of(target_id, ctx)
         if session_id:
             _playing[session_id] = _Playing(ordered[0].get("label", first_key), first_key, False, len(ordered))
-            browser_push(
-                session_id, "media", audio_url(first_key),
-                state_key=first_key,
-                start_pos_sec=0.0,
-                is_stream=False,
-                audio_type=audio_type,
-                queue=[{"audio_url": audio_url(it["state_key"]), "state_key": it["state_key"]} for it in ordered[1:]],
-            )
+            following = [{"audio_url": audio_url(it["state_key"]), "state_key": it["state_key"]} for it in ordered[1:]]
+            _push_media(session_id, audio_url(first_key), first_key, 0.0, False, audio_type, following)
         return {
             "success": bool(session_id),
             "target": target_id,

@@ -1,7 +1,7 @@
 // The spoken reply in the browser. The server (lib/reply_speech.py, lib/browser_reading.py) puts the
-// reading on the session's playlist through the event stream: an audio file ("tts"), silence
-// between paragraphs ("tts_pause", milliseconds), or a part the browser's own voice speaks
-// ("tts_speak", JSON of the utterance). They play in the order they arrive, without gaps; "stop"
+// reading on the session's playlist through the event stream: an audio file ("tts", url), silence
+// between paragraphs ("tts_pause", ms), or a part the browser's own voice speaks ("tts_speak",
+// utterance). The speed is in the audio already (the agent's voice settings). They play in the order they arrive, without gaps; "stop"
 // ends the reading.
 import { ref } from "vue";
 import type { Utterance } from "../api/types";
@@ -10,7 +10,6 @@ type Entry = { kind: "audio"; url: string } | { kind: "pause"; ms: number } | { 
 
 const queue: Entry[] = [];
 let playing = false;
-let rate = 1;
 let current: HTMLAudioElement | null = null;
 let pauseTimer: ReturnType<typeof setTimeout> | null = null;
 let finishPause: (() => void) | null = null;
@@ -29,17 +28,10 @@ function unlock(): void {
 window.addEventListener("pointerdown", unlock);
 window.addEventListener("keydown", unlock);
 
-export function setRate(value: number): void {
-  if (value > 0) rate = value;
-  if (current) current.playbackRate = rate;
-}
-
 export function enqueue(kind: string, data: Record<string, unknown>): void {
-  const url = String(data.url ?? "");
-  if (data.playback_rate) setRate(parseFloat(String(data.playback_rate).replace("x", "")));
-  if (kind === "tts") queue.push({ kind: "audio", url });
-  else if (kind === "tts_pause") queue.push({ kind: "pause", ms: Number(url) });
-  else if (kind === "tts_speak") queue.push({ kind: "speak", utterance: JSON.parse(url) as Utterance });
+  if (kind === "tts") queue.push({ kind: "audio", url: String(data.url) });
+  else if (kind === "tts_pause") queue.push({ kind: "pause", ms: Number(data.ms) });
+  else if (kind === "tts_speak") queue.push({ kind: "speak", utterance: data.utterance as Utterance });
   void next();
 }
 
@@ -101,7 +93,6 @@ function pause(ms: number): Promise<void> {
 function playAudio(url: string): Promise<void> {
   return new Promise((done) => {
     const audio = new Audio(url);
-    audio.playbackRate = rate;
     current = audio;
     audio.onended = () => done();
     audio.onpause = () => done();

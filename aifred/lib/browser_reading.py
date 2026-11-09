@@ -25,7 +25,6 @@ not know which pieces were spoken. That is logged loudly and shown as a toast (`
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import Callable
 from typing import Any
 
@@ -243,12 +242,12 @@ class BrowserReading:
             if segment.keepalive:
                 continue
             if segment.pause_ms:
-                self._playlist("tts_pause", str(segment.pause_ms))
+                self._playlist("tts_pause", ms=segment.pause_ms)
                 continue
             url = await asyncio.to_thread(store_tts_audio, segment.audio, segment.media_type, self.agent, segment.engine)
             self._first_tone = True
             self.audio_urls.append(url)
-            self._playlist("tts", url, playback_rate="1.0x")
+            self._playlist("tts", url=url)
         self.note = await asyncio.to_thread(spoken_note, stream.summary.trace, self._ui_language)
         for line in await asyncio.to_thread(escalation_report, stream.summary, f"Browser {self.agent_label}"):
             self._report(line)
@@ -264,7 +263,7 @@ class BrowserReading:
             if text and text.strip():
                 utterance = {"text": text, "language": self.language, "voice": voice, "rate": speed, "pitch": pitch}
                 self.browser_speech.append(utterance)
-                self._playlist("tts_speak", json.dumps(utterance, ensure_ascii=False))
+                self._playlist("tts_speak", utterance=utterance)
 
         sentences = BrowserSentences(unit, speak)
         sentences.feed("".join(self._sent))  # nothing if the service was never asked
@@ -279,8 +278,8 @@ class BrowserReading:
 
     # ---- the playlist ----
 
-    def _playlist(self, kind: str, url: str, **options: Any) -> None:
+    def _playlist(self, kind: str, **fields: Any) -> None:
         if not self._first_output_done:
             self._first_output_done = True
             self._on_first_output()
-        self._push(self.session_id, kind, url, **options)
+        self._push(self.session_id, kind, **fields)

@@ -11,6 +11,7 @@ import type {
   DictatedTextResult,
   DictationAccepted,
   MessageAccepted,
+  ServiceSnapshot,
   SessionConfig,
   SessionConfigUpdate,
   SessionDetail,
@@ -227,8 +228,7 @@ export const useChat = defineStore("chat", () => {
         void useSessions().refresh();
         break;
       case "service_status":
-        // The snapshot travels as JSON in the push's text slot (lib/browser_push.py).
-        useServiceStatus().receive(JSON.parse(String(data.url)));
+        useServiceStatus().receive(data as unknown as ServiceSnapshot);
         break;
     }
   }

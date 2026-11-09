@@ -35,14 +35,14 @@ class Page:
     """What the browser would get: the playlist pushes, the toasts, the debug lines."""
 
     def __init__(self) -> None:
-        self.playlist: list[tuple[str, str]] = []
+        self.playlist: list[tuple[str, dict[str, Any]]] = []
         self.toasts: list[tuple[str, str]] = []
         self.report: list[str] = []
         self.first_outputs = 0
 
-    def push(self, session_id: str, kind: str, url: str, **options: Any) -> None:
+    def push(self, session_id: str, kind: str, **fields: Any) -> None:
         assert session_id == "s1"
-        self.playlist.append((kind, url))
+        self.playlist.append((kind, fields))
 
     def first_output(self) -> None:
         self.first_outputs += 1
@@ -96,11 +96,11 @@ class TestThroughTheService:
 
         page, reading = asyncio.run(scenario())
         assert kinds(page) == ["tts", "tts_pause", "tts", "tts"]
-        assert page.playlist[1][1] == "500"
-        assert [(tmp_path / url.rsplit("/", 1)[-1]).read_bytes() for kind, url in page.playlist if kind == "tts"] == [
+        assert page.playlist[1][1] == {"ms": 500}
+        assert [(tmp_path / fields["url"].rsplit("/", 1)[-1]).read_bytes() for kind, fields in page.playlist if kind == "tts"] == [
             b"one", b"two", b"three",
         ]
-        assert reading.audio_urls == [url for kind, url in page.playlist if kind == "tts"]
+        assert reading.audio_urls == [fields["url"] for kind, fields in page.playlist if kind == "tts"]
         assert page.first_outputs == 1
         assert page.toasts == []
         assert reading.note == "XTTS · lokal"
@@ -173,8 +173,7 @@ class TestBrowserEntry:
         page = asyncio.run(scenario())
         assert stream.started == {}  # no connection to the service
         assert kinds(page) == ["tts_speak"] * 3
-        import json
-        spoken = [json.loads(url) for _, url in page.playlist]
+        spoken = [fields["utterance"] for _, fields in page.playlist]
         assert [u["text"] for u in spoken] == ["Das ist der erste Satz.", "Das ist der zweite fette Satz.", "Rest"]
         assert spoken[0]["language"] == "de" and spoken[0]["rate"] == 1.0
         assert page.toasts == []
@@ -204,9 +203,8 @@ class TestBrowserEntry:
                 return page, reading
 
         page, reading = asyncio.run(scenario())
-        import json
         assert kinds(page) == ["tts_speak"] * 3
-        assert [json.loads(url)["text"] for _, url in page.playlist] == [
+        assert [fields["utterance"]["text"] for _, fields in page.playlist] == [
             "Der erste Satz ist lang genug.", "Der zweite Satz auch.", "Und noch ein dritter.",
         ]
         assert reading.audio_urls == []

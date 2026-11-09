@@ -11,6 +11,7 @@ from collections.abc import Iterator
 import pytest
 
 from aifred.lib import browser_push, session_events
+from aifred.lib.audio_channels.browser import _push_media
 from aifred.lib.config import AUDIO_POSITION_SAVE_SEC, AUDIO_RESUME_PRE_ROLL_SEC
 
 SESSION = "test-session-events"
@@ -100,20 +101,27 @@ def test_sessions_with_subscribers_lists_only_listened_sessions() -> None:
 
 def test_a_media_event_carries_what_the_page_plays_it_with() -> None:
     # lib/media.ts reads these fields from the session stream.
-    browser_push.browser_push(SESSION, "media", "http://x/a.mp3", state_key="k", start_pos_sec=3, is_stream=True)
+    _push_media(SESSION, "http://x/a.mp3", "k", 3.0, True, "music", [])
     (event,) = session_events.replay_after(SESSION, 0)
     assert event.kind == "media" and event.data == {
-        "url": "http://x/a.mp3", "playback_rate": "1.0x", "state_key": "k", "start_pos_sec": 3.0, "is_stream": True,
+        "url": "http://x/a.mp3", "state_key": "k", "start_pos_sec": 3.0, "is_stream": True,
         "audio_type": "music", "queue": [], "pre_roll_sec": AUDIO_RESUME_PRE_ROLL_SEC,
         "position_save_sec": AUDIO_POSITION_SAVE_SEC,
     }
 
 
-def test_the_combined_reply_audio_drops_the_buffered_chunks() -> None:
-    browser_push.browser_push(SESSION, "tts", "http://x/1.wav")
-    browser_push.browser_push(SESSION, "tts_pause", "500")
-    browser_push.browser_push(SESSION, "bubble_audio", "http://x/all.wav")
-    assert [event.kind for event in session_events.replay_after(SESSION, 0)] == ["bubble_audio"]
+def test_each_kind_carries_its_own_fields() -> None:
+    # lib/speech.ts reads them as they are, nothing is packed into a text field.
+    browser_push.browser_push(SESSION, "tts", url="http://x/1.wav")
+    browser_push.browser_push(SESSION, "tts_pause", ms=500)
+    browser_push.browser_push(SESSION, "tts_speak", utterance={"text": "Hallo.", "language": "de"})
+    browser_push.browser_push(SESSION, "stop")
+    assert [(event.kind, event.data) for event in session_events.replay_after(SESSION, 0)] == [
+        ("tts", {"url": "http://x/1.wav"}),
+        ("tts_pause", {"ms": 500}),
+        ("tts_speak", {"utterance": {"text": "Hallo.", "language": "de"}}),
+        ("stop", {}),
+    ]
 
 
 def test_a_publish_from_another_thread_is_handed_to_the_home_loop() -> None:

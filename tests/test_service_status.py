@@ -440,10 +440,10 @@ def test_the_status_line_keeps_only_the_newest_state_in_the_bus_queue() -> None:
     session = "test-session-service-status"
     session_events._channels.pop(session, None)
     try:
-        browser_push(session, "service_status", "{\"n\": 1}")
-        browser_push(session, "tts", "http://x/a.wav")
-        browser_push(session, "service_status", "{\"n\": 2}")
+        browser_push(session, "service_status", n=1)
+        browser_push(session, "tts", url="http://x/a.wav")
+        browser_push(session, "service_status", n=2)
         replay = session_events.replay_after(session, 0)
-        assert [(event.kind, event.data["url"]) for event in replay] == [("tts", "http://x/a.wav"), ("service_status", "{\"n\": 2}")]
+        assert [(event.kind, event.data) for event in replay] == [("tts", {"url": "http://x/a.wav"}), ("service_status", {"n": 2})]
     finally:
         session_events._channels.pop(session, None)

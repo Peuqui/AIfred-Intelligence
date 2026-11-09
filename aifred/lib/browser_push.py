@@ -14,68 +14,23 @@ TTS_CHUNK_KINDS = frozenset({"tts", "tts_speak", "tts_pause"})
 LATEST_WINS_KINDS = frozenset({"service_status"})
 
 
-def browser_push(
-    session_id: str,
-    kind: str,
-    url: str,
-    *,
-    playback_rate: str = "1.0x",
-    state_key: str = "",
-    start_pos_sec: float = 0.0,
-    is_stream: bool = False,
-    audio_type: str = "music",
-    position_sec: float = 0.0,
-    relative: bool = False,
-    factor: float = 1.0,
-    queue: list[dict[str, str]] | None = None,
-) -> None:
-    """Push an event to the open tabs of the session.
+def browser_push(session_id: str, kind: str, **fields: Any) -> None:
+    """Push ``kind`` with its own ``fields`` to the open tabs of the session (the page reads them in
+    stores/chat.ts, lib/speech.ts, lib/media.ts).
 
-    The ``url`` field is the generic payload slot: for audio kinds it is an
-    audio URL, for ``service_status`` it carries the snapshot.
-
-    Kinds and their metadata:
-      - ``"tts"``    : chunk-stream, gapless. {url, playback_rate}
-      - ``"tts_speak"`` : a part the browser's own voice (Web Speech API) speaks, same
-                       queue; ``url`` holds the JSON of the utterance.
-      - ``"tts_pause"`` : silence between two parts of the TTS queue; ``url`` holds the
-                       pause in milliseconds.
-      - ``"media"``  : single-track, position-saved. {url, state_key,
-                       start_pos_sec, is_stream, audio_type, playback_rate, queue (the
-                       folder's tracks {audio_url, state_key} after this one, [] for one
-                       track), pre_roll_sec, position_save_sec}
-      - ``"stop"``   : halt + clear src + final-position-save. (no metadata)
-      - ``"pause"``  : halt, keep src + position. (no metadata)
-      - ``"resume"`` : continue from current position. (no metadata)
-      - ``"seek"``   : jump to ``position_sec`` (or ±N sec when ``relative=True``).
-      - ``"speed"``  : set ``audio.playbackRate`` to ``factor`` (0.25–4.0).
-      - ``"bubble_audio"`` : streaming-TTS finalize announces the combined
-                       replay URL for the speaker button of the latest bubble. {url}
-      - ``"bubble_tts_note"`` : follows ``bubble_audio`` — ``url`` holds who
-                       spoke (escalation list). {url}
-      - ``"service_status"`` : model / STT / TTS state for the status line; ``url``
-                       holds the snapshot as JSON, the newest replaces the older ones.
+    Kinds and their fields:
+      - ``"tts"``         : an audio file of the reading. {url}
+      - ``"tts_speak"``   : a part the browser's own voice speaks. {utterance: {text, language, voice, rate, pitch}}
+      - ``"tts_pause"``   : silence between two parts of the reading. {ms}
+      - ``"media"``       : one track, its position saved. {url, state_key, start_pos_sec, is_stream, audio_type,
+                            queue (the folder's tracks {audio_url, state_key} after this one), pre_roll_sec,
+                            position_save_sec}
+      - ``"stop"``        : halt, clear the source, save the final position. {}
+      - ``"pause"`` / ``"resume"`` : halt keeping source and position / play on. {}
+      - ``"seek"``        : jump to ``position_sec`` (``relative``: by it). {position_sec, relative}
+      - ``"speed"``       : the player's playbackRate (0.25–4.0). {factor}
+      - ``"service_status"`` : model, STT and TTS state for the status line (``ServiceSnapshot.as_json``); the newest
+                            replaces the older ones.
     """
-    data: dict[str, Any] = {"url": url, "playback_rate": playback_rate}
-    if kind == "media":
-        from .config import AUDIO_POSITION_SAVE_SEC, AUDIO_RESUME_PRE_ROLL_SEC
-
-        data.update(
-            state_key=state_key,
-            start_pos_sec=float(start_pos_sec),
-            is_stream=bool(is_stream),
-            audio_type=audio_type,
-            queue=list(queue or []),
-            pre_roll_sec=AUDIO_RESUME_PRE_ROLL_SEC,
-            position_save_sec=AUDIO_POSITION_SAVE_SEC,
-        )
-    elif kind == "seek":
-        data.update(position_sec=float(position_sec), relative=bool(relative))
-    elif kind == "speed":
-        data["factor"] = float(factor)
-    # The combined replay file replaces the reply's chunks (their files are deleted at
-    # finalize): a page opened later must not get them replayed into its queue.
-    replaces = TTS_CHUNK_KINDS if kind == "bubble_audio" else frozenset()
-    if kind in LATEST_WINS_KINDS:
-        replaces = frozenset({kind})
-    session_events.publish(session_id, kind, data, replaces=replaces)
+    replaces = frozenset({kind}) if kind in LATEST_WINS_KINDS else frozenset()
+    session_events.publish(session_id, kind, fields, replaces=replaces)
