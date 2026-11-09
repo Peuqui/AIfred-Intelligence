@@ -113,6 +113,10 @@ onMounted(async () => {
 </template>
 
 <style>
+/* One base size for the whole interface (config.py → theme.css); rem follows it. Form fields take the page's font:
+   browsers do not pass it on by themselves (selects showed 13 px Arial). */
+html { font-size: var(--text-base); }
+button, input, select, textarea { font: inherit; }
 html,
 body {
   zoom: var(--ui-zoom);

@@ -53,7 +53,7 @@ watch(
   border-radius: 8px;
   color: var(--aifred-debug-text);
   font-family: monospace;
-  font-size: 11px;
+  font-size: var(--text-small); /* monospace looks larger than its number: the small step, not 11 px as on the Reflex page */
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

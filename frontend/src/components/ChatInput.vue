@@ -156,6 +156,8 @@ textarea {
   resize: vertical;
   max-height: 40vh;
   overflow-y: auto;
+  /* What one writes in the size of what one reads: the chat's (A−/A+), the interface's taken out again. */
+  zoom: calc(var(--chat-zoom) / var(--ui-zoom));
   padding: 10px;
   font: inherit;
   background: var(--aifred-input-bg);
@@ -186,15 +188,15 @@ figure img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; b
   height: 22px;
   padding: 0;
   border-radius: 50%;
-  font-size: 0.7rem;
+  font-size: var(--text-small);
   line-height: 20px;
   background: var(--aifred-card-bg);
   border: 1px solid var(--aifred-border-light);
 }
-.uploading { font-size: 0.75rem; color: var(--aifred-text-muted); }
+.uploading { font-size: var(--text-small); color: var(--aifred-text-muted); }
 .actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
-.hint, .queued { font-size: 0.75rem; color: var(--aifred-text-muted); margin-right: auto; }
-.enter { display: flex; align-items: center; gap: 4px; font-size: 0.75rem; color: var(--aifred-text-muted); margin-right: auto; cursor: pointer; }
+.hint, .queued { font-size: var(--text-small); color: var(--aifred-text-muted); margin-right: auto; }
+.enter { display: flex; align-items: center; gap: 4px; font-size: var(--text-small); color: var(--aifred-text-muted); margin-right: auto; cursor: pointer; }
 .enter input { accent-color: var(--aifred-primary); }
 .queued { color: var(--aifred-accent-amber); margin-right: 0; }
 button { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font: inherit; }
@@ -202,7 +204,7 @@ button { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; f
 .mic { background: none; border: none; padding: 0; width: 40px; height: 40px; display: inline-flex; }
 .mic svg { width: 100%; height: 100%; }
 .mic:disabled { cursor: default; }
-.transcribing { font-size: 0.75rem; color: var(--aifred-accent-cyan); }
+.transcribing { font-size: var(--text-small); color: var(--aifred-accent-cyan); }
 .send { background: var(--aifred-primary); color: var(--aifred-text-on-accent); }
 .send:disabled { opacity: 0.5; cursor: default; }
 .stop { background: var(--aifred-danger); color: var(--aifred-text-on-accent); }

@@ -64,7 +64,7 @@ header { display: flex; justify-content: space-between; align-items: center; gap
 .new { color: var(--aifred-primary); }
 .select { background: none; border: none; color: var(--aifred-text-secondary); cursor: pointer; font: inherit; margin-left: auto; }
 .bulk { display: flex; flex-wrap: wrap; gap: 6px; }
-.bulk button { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; font-size: 0.8rem; padding: 2px 8px; }
+.bulk button { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; font-size: var(--text-small); padding: 2px 8px; }
 .bulk button:disabled { opacity: 0.5; cursor: default; }
 .bulk .danger { border-color: var(--aifred-danger); }
 .pick { accent-color: var(--aifred-primary); margin-left: 6px; }
@@ -73,8 +73,8 @@ li { display: flex; align-items: center; border-radius: 6px; }
 li.active, li:hover { background: var(--aifred-input-bg); }
 .entry { flex: 1; min-width: 0; text-align: left; padding: 6px 8px; display: flex; flex-direction: column; }
 .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.meta { font-size: 0.75rem; color: var(--aifred-text-muted); }
+.meta { font-size: var(--text-small); color: var(--aifred-text-muted); }
 .remove { opacity: 0.5; padding: 4px 8px; }
 .remove:hover { opacity: 1; }
-.empty { color: var(--aifred-text-muted); font-size: 0.85rem; }
+.empty { color: var(--aifred-text-muted); font-size: var(--text-small); }
 </style>

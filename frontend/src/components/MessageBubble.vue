@@ -86,12 +86,13 @@ function enlarge(event: MouseEvent): void {
 .agent-salomo header { color: var(--aifred-accent-warning); }
 .user-head { justify-content: flex-end; color: var(--aifred-user-name); }
 .sign { font-weight: 400; }
-header { font-size: 0.8rem; font-weight: 600; color: var(--aifred-primary); margin-bottom: 4px; display: flex; gap: 8px; }
+header { font-size: var(--text-small); font-weight: 600; color: var(--aifred-primary); margin-bottom: 4px; display: flex; gap: 8px; }
 .time { color: var(--aifred-text-muted); font-weight: 400; }
 .replay { background: none; border: none; padding: 0 4px; cursor: pointer; opacity: 0.7; font: inherit; }
 .replay:hover { opacity: 1; }
-.note { color: var(--aifred-text-secondary); font-weight: 400; font-size: 0.7rem; align-self: center; }
+.note { color: var(--aifred-text-secondary); font-weight: 400; font-size: var(--text-small); align-self: center; }
 .content :deep(p) { margin: 0.5em 0; }
+.content :deep(em.metrics) { font-size: var(--text-small); color: var(--aifred-text-secondary); }
 .content :deep(pre) { overflow-x: auto; background: var(--aifred-page-bg); padding: 8px; border-radius: 6px; }
 /* Every collapsible (thinking, sources, …) a box of its own inside the answer, as on the Reflex page: lighter than the
    bubble, at most so high (config.py, theme.css) with a scrollbar of its own; its title line sticks at its top. A

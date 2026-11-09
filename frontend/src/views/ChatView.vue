@@ -252,7 +252,7 @@ onMounted(() => void start());
 .layout { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; }
 .chat { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding-bottom: 12px; }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-h2 { margin: 0; font-size: 1rem; }
+h2 { margin: 0; font-size: 1.1rem; }
 .choices { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .incognito, .regenerate, .agent-choices, .export, .clear, .remember, .zoom { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
 .regenerate:disabled, .export:disabled, .remember:disabled { opacity: 0.7; cursor: progress; }
@@ -275,8 +275,8 @@ h2 { margin: 0; font-size: 1rem; }
 /* Above the collapsibles' headers, which stick too (formatting.py writes them with z-index 2 into the answer). */
 .turn > .pinned { position: sticky; top: 0; z-index: 3; box-shadow: 0 4px 10px var(--aifred-page-bg); }
 .streaming { align-self: flex-start; max-width: min(860px, 92%); padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light); }
-.streaming header { font-size: 0.8rem; font-weight: 600; color: var(--aifred-primary); }
-.tool { margin: 4px 0 0; font-size: 0.8rem; color: var(--aifred-accent-cyan); }
+.streaming header { font-size: var(--text-small); font-weight: 600; color: var(--aifred-primary); }
+.tool { margin: 4px 0 0; font-size: var(--text-small); color: var(--aifred-accent-cyan); }
 .waiting { align-self: flex-start; padding: 0 14px; }
 .notice { color: var(--aifred-accent-amber); }
 .info { color: var(--aifred-accent-success); }

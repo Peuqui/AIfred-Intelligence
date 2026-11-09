@@ -51,9 +51,14 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   if (node.tagName === "IFRAME") node.setAttribute("sandbox", "allow-scripts");
 });
 
+// The metrics line under an answer (formatting.py writes it as *( TTFT: … )* or *( Inference: … )*), marked so the bubble
+// sets it in the small size; chat_export.py does the same for the export.
+const METRICS_LINE = /<em>(\(\s*(?:TTFT|Inference):)/g;
+
 export function renderMarkdown(text: string): string {
-  return DOMPurify.sanitize(markdown.render(text), {
+  const html = DOMPurify.sanitize(markdown.render(text), {
     ADD_TAGS: ["iframe"],
     ADD_ATTR: ["target", "sandbox", "scrolling", "loading"],
   });
+  return html.replace(METRICS_LINE, '<em class="metrics">$1');
 }
