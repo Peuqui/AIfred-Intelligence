@@ -67,11 +67,11 @@ function stop(): void {
       <button :title="playing ? t('audio_pause') : t('audio_resume')" @click="playPause">{{ playing ? "⏸" : "▶" }}</button>
       <button :title="t('audio_forward')" :disabled="!seekable" @click="seekTo(position + SKIP_SEC)">⏩</button>
       <button :title="t('audio_stop')" :disabled="mode === 'kept'" @click="stop">⏹</button>
-      <input v-model.number="volume" class="volume" type="range" min="0" max="1" step="0.05" :title="t('audio_volume')" />
+      <input v-model.number="volume" class="slider volume" type="range" min="0" max="1" step="0.05" :title="t('audio_volume')" />
     </div>
     <div class="progress">
       <span class="time">{{ clock(position) }}</span>
-      <input class="seek" type="range" min="0" :max="length || 1" step="1" :value="position" :disabled="!seekable" @change="seekTo(Number(($event.target as HTMLInputElement).value))" />
+      <input class="slider seek" type="range" min="0" :max="length || 1" step="1" :value="position" :disabled="!seekable" @change="seekTo(Number(($event.target as HTMLInputElement).value))" />
       <span class="time">{{ length ? clock(length) : "–:––" }}</span>
     </div>
   </div>
@@ -84,11 +84,13 @@ function stop(): void {
 button { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; padding: 0 8px; font: inherit; }
 button:disabled { opacity: 0.4; cursor: default; }
 .time { color: var(--aifred-text-muted); font-variant-numeric: tabular-nums; }
-.seek { flex: 1; min-width: 60px; accent-color: var(--aifred-primary); }
-/* A thin groove and a small knob; the slider sits right of the buttons. */
-.volume { -webkit-appearance: none; appearance: none; width: 80px; height: 10px; background: transparent; accent-color: var(--aifred-primary); }
-.volume::-webkit-slider-runnable-track { height: 2px; border-radius: 1px; background: var(--aifred-primary); }
-.volume::-moz-range-track { height: 2px; border-radius: 1px; background: var(--aifred-primary); }
-.volume::-webkit-slider-thumb { -webkit-appearance: none; width: 8px; height: 8px; margin-top: -3px; border-radius: 50%; border: none; background: var(--aifred-primary); }
-.volume::-moz-range-thumb { width: 8px; height: 8px; border-radius: 50%; border: none; background: var(--aifred-primary); }
+.seek { flex: 1; min-width: 60px; }
+/* Both sliders: a thin groove and the same small knob. */
+.slider { -webkit-appearance: none; appearance: none; height: 12px; background: transparent; accent-color: var(--aifred-primary); }
+.volume { width: 80px; }
+.slider::-webkit-slider-runnable-track { height: 2px; border-radius: 1px; background: var(--aifred-primary); }
+.slider::-moz-range-track { height: 2px; border-radius: 1px; background: var(--aifred-primary); }
+.slider::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; margin-top: -4px; border-radius: 50%; border: none; background: var(--aifred-primary); }
+.slider::-moz-range-thumb { width: 10px; height: 10px; border-radius: 50%; border: none; background: var(--aifred-primary); }
+.slider:disabled { opacity: 0.4; }
 </style>
