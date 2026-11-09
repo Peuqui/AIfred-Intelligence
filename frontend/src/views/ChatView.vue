@@ -16,6 +16,7 @@ import SessionList from "../components/SessionList.vue";
 import TurnProgress from "../components/TurnProgress.vue";
 import { t } from "../i18n";
 import { ZOOM, chatZoom, zoomBy } from "../lib/devicePrefs";
+import { pinQuestion } from "../lib/devicePrefs";
 import { answerStartTop, isAtEnd } from "../lib/followScroll";
 import { useSessionsColumn } from "../lib/sessionsColumn";
 import HelpButton from "../components/help/HelpButton.vue";
@@ -155,7 +156,8 @@ watch(
 function finishedAnswer(view: HTMLElement): [HTMLElement, HTMLElement | null] | null {
   const turn = view.querySelector<HTMLElement>(".turn:last-of-type");
   const last = turn?.lastElementChild;
-  if (!(last instanceof HTMLElement) || last.classList.contains("pinned")) return null;
+  if (!(last instanceof HTMLElement) || last.classList.contains("question")) return null;
+  // A question that sticks covers the answer's start: the answer stops below it (none sticks: right at the top).
   return [last, turn?.querySelector<HTMLElement>(".pinned") ?? null];
 }
 // A session opened shows its end.
@@ -202,7 +204,7 @@ onMounted(() => void start());
           <MessageBubble
             v-for="entry in turn.entries"
             :key="entry.timestamp + entry.role"
-            :class="{ pinned: entry.role === 'user' }"
+            :class="{ question: entry.role === 'user', pinned: entry.role === 'user' && pinQuestion }"
             :entry="entry"
             :speech-on="!!settings.current?.enable_tts && entry.role === 'assistant'"
             :color="entry.agent ? colors[entry.agent] : undefined"

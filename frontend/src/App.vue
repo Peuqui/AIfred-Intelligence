@@ -13,7 +13,7 @@ import { loadLanguage, t } from "./i18n";
 import { useAuth } from "./stores/auth";
 import { useChat } from "./stores/chat";
 import { useSettings } from "./stores/settings";
-import { ZOOM, type ZoomName, chatZoom, consoleZoom, resetZooms, uiZoom, zoomBy } from "./lib/devicePrefs";
+import { ZOOM, type ZoomName, chatZoom, consoleZoom, pinQuestion, resetZooms, uiZoom, zoomBy } from "./lib/devicePrefs";
 import { useSessionsColumn } from "./lib/sessionsColumn";
 import hatIcon from "../../assets/AIfred-Zylinder.png";
 
@@ -100,6 +100,8 @@ onMounted(async () => {
             <button :disabled="size.value >= ZOOM.max" :title="t('chat_font_larger')" @click="zoomBy(size.name, 1)">+</button>
           </div>
           <button class="reset" @click="resetZooms">{{ t("display_sizes_reset") }}</button>
+          <!-- Also of this device: a phone starts with it off. -->
+          <label class="pin" :title="t('pin_question_hint')"><input v-model="pinQuestion" type="checkbox" /> {{ t("pin_question") }}</label>
         </div>
         <RouterLink to="/">💬 {{ t("nav_chat") }}</RouterLink>
         <RouterLink to="/agents">{{ t("nav_agents") }}</RouterLink>
@@ -180,6 +182,8 @@ h1, h2, h3, input, textarea, select { color: var(--aifred-text-primary); }
 .backdrop { position: fixed; inset: 0; z-index: 40; }
 .menu { position: absolute; top: 100%; right: 0; z-index: 41; display: flex; flex-direction: column; min-width: 220px; padding: 6px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 8px; }
 .menu a { color: var(--aifred-text-secondary); text-decoration: none; padding: 8px 10px; border-radius: 6px; }
+.pin { display: flex; align-items: center; gap: 6px; margin-top: 4px; cursor: pointer; }
+.pin input { accent-color: var(--aifred-primary); }
 .sizes { display: flex; flex-direction: column; gap: 4px; padding: 4px 10px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--aifred-border); color: var(--aifred-text-secondary); font-size: 0.85rem; }
 .size { display: flex; align-items: center; gap: 6px; }
 .size span { flex: 1; }

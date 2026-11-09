@@ -1,5 +1,5 @@
-// Preferences of this device, kept in its browser (another screen may want them otherwise): whether Enter sends, where
-// the saved chats stand, and three sizes — the chat's text, the interface (controls and labels) and the console. A browser that keeps nothing
+// Preferences of this device, kept in its browser (another screen may want them otherwise): whether Enter sends,
+// whether a question sticks at the top, where the saved chats stand, and three sizes — the chat's text, the interface (controls and labels) and the console. A browser that keeps nothing
 // (private window, blocked storage) gets the default.
 import { type Ref, ref, watch } from "vue";
 
@@ -29,6 +29,11 @@ export const ZOOM = { min: 80, max: 200, step: 10, default: 100 } as const;
 const isZoom = (value: unknown): value is number => typeof value === "number" && value >= ZOOM.min && value <= ZOOM.max;
 
 export const enterSends = stored("aifred-enter-sends", true, isBoolean);
+// A narrow screen as the interface's CSS counts it (@media (max-width: 760px)): some defaults differ on a phone.
+const NARROW_SCREEN = window.matchMedia("(max-width: 760px)").matches;
+// The question of a turn sticks at the top of the chat while its answer scrolls; on a phone it took too much of the
+// screen, so there it starts off (Peuqui 09.11.2026).
+export const pinQuestion = stored("aifred-pin-question", !NARROW_SCREEN, isBoolean);
 // The saved chats as a column at the left of the chat on a wide window (lib/sessionsColumn.ts), or above it.
 export const sessionsColumn = stored("aifred-sessions-column", true, isBoolean);
 export const chatZoom = stored("aifred-chat-zoom", ZOOM.default, isZoom);

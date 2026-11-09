@@ -1196,6 +1196,8 @@
   "chat_toolbar_help_mode_link": "The discussion modes in detail",
   "chat_toolbar_help_vision": "Camera watch (Vigilantia): 🙈 off, 👁️ armed; the number counts the last minutes' events, a click shows the newest.",
   "display_sizes_reset": "Reset all sizes",
+  "pin_question": "Keep the question at the top",
+  "pin_question_hint": "A turn's question stays at the top of the chat while its answer scrolls; on this device only",
   "new_version_waiting": "New version – loads once you have finished typing (or click here now)",
   "size_interface": "Interface",
   "size_console": "Console",

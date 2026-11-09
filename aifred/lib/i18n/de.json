@@ -1196,6 +1196,8 @@
   "chat_toolbar_help_mode_link": "Die Diskussionsmodi im Einzelnen",
   "chat_toolbar_help_vision": "Kamerawache (Vigilantia): 🙈 aus, 👁️ scharf; die Zahl sind die Ereignisse der letzten Minuten, ein Klick zeigt die neuesten.",
   "display_sizes_reset": "Alle Größen zurücksetzen",
+  "pin_question": "Frage oben festhalten",
+  "pin_question_hint": "Die Frage eines Zuges bleibt oben im Chat stehen, während die Antwort scrollt; gilt nur auf diesem Gerät",
   "new_version_waiting": "Neue Version – lädt, sobald du fertig getippt hast (oder jetzt hier klicken)",
   "size_interface": "Oberfläche",
   "size_console": "Konsole",
