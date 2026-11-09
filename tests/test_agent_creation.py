@@ -38,7 +38,7 @@ def prompts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def test_a_new_agent_gets_the_base_prompts_with_its_name(prompts: Path) -> None:
-    config = create_agent("pater", "Pater Tuck", "⛪", "Ein Mönch")
+    config = create_agent("pater", "Pater Tuck", "⛪", "Ein Mönch", "#7d8590")
     assert set(config.prompts) == {"identity", "personality", "task", "direct", "memory_context"}
     assert (prompts / "de" / "pater" / "identity.txt").read_text(encoding="utf-8").strip() == "Du bist Pater Tuck."
     assert (prompts / "en" / "pater" / "identity.txt").read_text(encoding="utf-8").strip() == "You are Pater Tuck."
@@ -47,7 +47,7 @@ def test_a_new_agent_gets_the_base_prompts_with_its_name(prompts: Path) -> None:
 
 
 def test_a_new_agent_takes_any_seat_with_the_seats_task(prompts: Path) -> None:
-    config = create_agent("neu", "Neu", "🆕", "")
+    config = create_agent("neu", "Neu", "🆕", "", "#7d8590")
     for seat in (SEAT_CRITIC, SEAT_JUDGE):
         check_seat_agent(seat, "neu")
     assert config.role == "agent"
@@ -62,5 +62,5 @@ def test_a_new_agent_takes_any_seat_with_the_seats_task(prompts: Path) -> None:
 def test_an_id_that_is_no_prompt_folder_name_is_refused(prompts: Path, agent_id: str) -> None:
     before = sorted(path.relative_to(prompts.parent) for path in prompts.parent.rglob("*"))
     with pytest.raises(ValueError):
-        create_agent(agent_id, "X", "❓", "")
+        create_agent(agent_id, "X", "❓", "", "#7d8590")
     assert sorted(path.relative_to(prompts.parent) for path in prompts.parent.rglob("*")) == before

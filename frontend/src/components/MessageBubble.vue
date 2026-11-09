@@ -4,11 +4,11 @@ import type { ChatEntry } from "../api/types";
 import { t } from "../i18n";
 import { renderMarkdown } from "../lib/markdown";
 import { replay } from "../lib/speech";
-import { agentHue } from "../lib/agentTint";
 import { useSettings } from "../stores/settings";
 import ImageLightbox from "./ImageLightbox.vue";
 
-const props = defineProps<{ entry: ChatEntry; speechOn: boolean }>();
+// color: the agent's (agents.json); none for an agent deleted since, whose bubble then has no stripe of colour.
+const props = defineProps<{ entry: ChatEntry; speechOn: boolean; color?: string }>();
 const settings = useSettings();
 const emit = defineEmits<{ readAgain: [timestamp: string] }>();
 const html = computed(() => renderMarkdown(props.entry.content));
@@ -37,8 +37,8 @@ function enlarge(event: MouseEvent): void {
 <template>
   <article
     class="bubble"
-    :class="isUser ? 'user' : ['assistant', `agent-${entry.agent}`]"
-    :style="isUser ? undefined : { '--agent-hue': agentHue(entry.agent || '') }"
+    :class="isUser ? 'user' : 'assistant'"
+    :style="!isUser && color ? { '--agent-color': color } : undefined"
   >
     <!-- The user's name over their bubble and their sign beside it, as on the Reflex page. -->
     <header v-if="isUser" class="user-head">
@@ -74,18 +74,15 @@ function enlarge(event: MouseEvent): void {
 /* As on the Reflex page: an answer as wide as the chat (tables, code), the user's question at most 70 % on the right. */
 .bubble { box-sizing: border-box; padding: 10px 14px; border-radius: 10px; line-height: 1.45; overflow-wrap: anywhere; }
 .user { align-self: flex-end; max-width: 70%; background: var(--aifred-input-bg); }
-/* Each agent a quiet tint of its own over card_bg (strength in theme.py). */
+/* Every agent's bubble neutral as on the Reflex page; its colour a stripe at the left and its name (--agent-color, from
+   agents.json). An agent deleted since has none: the stripe is the rim's colour. */
 .assistant {
-  --tint: hsl(var(--agent-hue) 55% 55%);
   width: 100%;
-  background: color-mix(in srgb, var(--tint) var(--aifred-agent-tint-mix), var(--aifred-card-bg));
-  border: 1px solid color-mix(in srgb, var(--tint) var(--aifred-agent-tint-border-mix), var(--aifred-border));
+  background: var(--aifred-card-bg);
+  border: 1px solid var(--aifred-agent-bubble-border);
+  border-left: 3px solid var(--agent-color, var(--aifred-agent-bubble-border));
 }
-/* AIfred neutral, Sokrates bronze, Salomo gold, as on the Reflex page (theme.py). */
-.agent-aifred { background: var(--aifred-card-bg); border-color: var(--aifred-aifred-bubble-border); }
-.agent-sokrates { background: var(--aifred-sokrates-bubble-bg); border-color: var(--aifred-sokrates-bubble-border); }
-.agent-salomo { background: var(--aifred-salomo-bubble-bg); border-color: var(--aifred-salomo-bubble-border); }
-.agent-salomo header { color: var(--aifred-accent-warning); }
+.assistant header { color: var(--agent-color, var(--aifred-primary)); }
 .user-head { justify-content: flex-end; color: var(--aifred-user-name); }
 .sign { font-weight: 400; }
 header { font-size: var(--text-small); font-weight: 600; color: var(--aifred-primary); margin-bottom: 4px; display: flex; gap: 8px; }

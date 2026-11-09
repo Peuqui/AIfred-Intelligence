@@ -9,6 +9,8 @@ from fastapi import BackgroundTasks, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..agent_config import AGENT_COLOR_PATTERN
+from ..config import AGENT_DEFAULT_COLOR
 from ..logging_utils import log_exception, log_message
 from ..user_error import BadRequest, Invalid, Missing, NotDone, UserError
 from .app import api_app
@@ -205,6 +207,14 @@ class AgentSummary(BaseModel):
     role: str
 
 
+@api_app.get("/agents/colors", response_model=dict[str, str], tags=["Agents"])
+async def agents_colors() -> dict[str, str]:
+    """Every agent's colour (#rrggbb), switched off and system agents too: a chat's history shows them all."""
+    from ..agent_config import load_agents
+
+    return {agent_id: config.color for agent_id, config in load_agents().items()}
+
+
 @api_app.get("/agents/summary", response_model=list[AgentSummary], tags=["Agents"])
 async def agents_summary() -> list[AgentSummary]:
     """The agents a chat can address: no system agent, none switched off (agent_config.selectable_agents)."""
@@ -223,6 +233,7 @@ class AgentCard(BaseModel):
     display_name: str
     emoji: str
     description: str
+    color: str
     enabled: bool
     base: bool = Field(description="The base agent: never switched off, never deleted")
     delete_refusal: str | None = Field(description="Why it cannot be deleted; null when it can")
@@ -243,7 +254,7 @@ def _card(agent_id: str) -> AgentCard:
     refusal = deletion_refusal(agent_id)
     return AgentCard(
         id=agent_id, display_name=config.display_name, emoji=config.emoji, description=config.description,
-        enabled=config.enabled, base=agent_id == BASE_AGENT,
+        color=config.color, enabled=config.enabled, base=agent_id == BASE_AGENT,
         delete_refusal=refusal.message(get_language()) if refusal else None,
     )
 
@@ -287,6 +298,7 @@ class AgentPersona(BaseModel):
     display_name: str
     emoji: str
     description: str
+    color: str
     aliases: list[str] = Field(description="Names it is also addressed by (STT spellings), lowercase")
     prompt_keys: list[str] = Field(description="Its prompt layers (identity, personality, task, direct …)")
     languages: list[str] = Field(description="The languages there are prompts in")
@@ -297,6 +309,7 @@ class PersonaChange(BaseModel):
     display_name: str | None = Field(None, min_length=1)
     emoji: str | None = Field(None, min_length=1)
     description: str | None = None
+    color: str | None = Field(None, pattern=AGENT_COLOR_PATTERN, description="#rrggbb: the stripe at the left of its chat bubbles")
     aliases: list[str] | None = None
 
 
@@ -337,6 +350,7 @@ class NewAgent(BaseModel):
     display_name: str = Field(min_length=1)
     emoji: str = Field(min_length=1)
     description: str = ""
+    color: str = Field(AGENT_DEFAULT_COLOR, pattern=AGENT_COLOR_PATTERN, description="#rrggbb: the stripe at the left of its chat bubbles")
 
 
 def _chat_agent(agent_id: str) -> "AgentConfig":
@@ -355,7 +369,7 @@ def _persona(agent_id: str) -> AgentPersona:
     config = _chat_agent(agent_id)
     return AgentPersona(
         id=agent_id, display_name=config.display_name, emoji=config.emoji, description=config.description,
-        aliases=config.aliases, prompt_keys=list(config.prompts), languages=prompt_languages(),
+        color=config.color, aliases=config.aliases, prompt_keys=list(config.prompts), languages=prompt_languages(),
     )
 
 
@@ -592,7 +606,7 @@ async def agents_create(new: NewAgent) -> AgentCard:
     422 for an id taken or no valid folder name."""
     from ..agent_config import create_agent
 
-    create_agent(agent_id=new.id, display_name=new.display_name, emoji=new.emoji, description=new.description)
+    create_agent(agent_id=new.id, display_name=new.display_name, emoji=new.emoji, description=new.description, color=new.color)
     log_message(f"✨ Agent '{new.id}' created")
     return _card(new.id)
 

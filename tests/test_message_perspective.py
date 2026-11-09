@@ -28,7 +28,7 @@ HISTORY = [
 @pytest.fixture(autouse=True)
 def agents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     raw = agent_config._default_agents()
-    raw["pater"] = {**raw["sokrates"], "display_name": "Pater Tuck", "aliases": [], "role": "agent"}
+    raw["pater"] = {**raw["sokrates"], "display_name": "Pater Tuck", "aliases": [], "role": "agent", "color": "#7d8590"}
     agents_file = tmp_path / "agents.json"
     agents_file.write_text(json.dumps({"agents": raw}), encoding="utf-8")
     monkeypatch.setattr(agent_config, "AGENTS_FILE", agents_file)

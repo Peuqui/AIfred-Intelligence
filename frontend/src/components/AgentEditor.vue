@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// An agent's editor on the agents page: 🎭 persona (name, emoji, description, further names for the speech
+// An agent's editor on the agents page: 🎭 persona (name, emoji, colour, description, further names for the speech
 // recognition), the prompt layers per language, and 🔐 rights (the tools it may use, grouped by plugin as
 // they are on offer now; "every tool" includes plugins switched on later). Each tab saves on its own.
 import { onMounted, ref } from "vue";
@@ -33,16 +33,17 @@ async function attempt(work: () => Promise<void>, done = t("agents_saved")): Pro
 
 // ── persona ──
 const persona = ref<AgentPersona | null>(null);
-const form = ref({ display_name: "", emoji: "", description: "", aliases: "" });
+const form = ref({ display_name: "", emoji: "", color: "", description: "", aliases: "" });
 function fill(from: AgentPersona): void {
   persona.value = from;
-  form.value = { display_name: from.display_name, emoji: from.emoji, description: from.description, aliases: from.aliases.join(", ") };
+  form.value = { display_name: from.display_name, emoji: from.emoji, color: from.color, description: from.description, aliases: from.aliases.join(", ") };
 }
 const savePersona = (): Promise<void> =>
   attempt(async () => {
     fill(await agents.changePersona(props.agentId, {
       display_name: form.value.display_name.trim(),
       emoji: form.value.emoji.trim(),
+      color: form.value.color,
       description: form.value.description.trim(),
       aliases: form.value.aliases.split(","),
     }));
@@ -101,6 +102,8 @@ onMounted(() =>
       <form v-if="tab === 'persona' && persona" class="persona" @submit.prevent="savePersona">
         <label>{{ t("agent_editor_name") }}<input v-model="form.display_name" required /></label>
         <label>{{ t("agent_editor_emoji") }}<input v-model="form.emoji" class="emoji" required /></label>
+        <!-- The stripe at the left of its chat bubbles and its name there. -->
+        <label :title="t('agent_editor_color_hint')">{{ t("agent_editor_color") }}<input v-model="form.color" type="color" class="color" /></label>
         <label class="wide">{{ t("agent_editor_description") }}<input v-model="form.description" /></label>
         <label class="wide">{{ t("agents_aliases") }}<input v-model="form.aliases" /></label>
         <div class="actions wide"><button type="submit">{{ t("agent_editor_save") }}</button></div>
@@ -155,10 +158,11 @@ button:disabled { opacity: 0.5; cursor: default; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .notice { margin: 0; color: var(--aifred-accent-amber); }
 .saved { margin: 0; color: var(--aifred-accent-cyan); }
-.persona { display: grid; grid-template-columns: 1fr 120px; gap: 10px; }
+.persona { display: grid; grid-template-columns: 1fr 120px 80px; gap: 10px; }
 .persona label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--aifred-text-secondary); }
 .persona .wide { grid-column: 1 / -1; }
 .emoji { width: 100%; }
+.color { width: 100%; height: 34px; padding: 2px; cursor: pointer; }
 .actions { display: flex; gap: 8px; justify-content: flex-end; }
 .rights { display: flex; flex-direction: column; gap: 10px; max-height: calc(60 * var(--dvh)); overflow-y: auto; }
 /* min-width 0: a fieldset does not shrink below its widest content by itself; the pills wrap instead. */

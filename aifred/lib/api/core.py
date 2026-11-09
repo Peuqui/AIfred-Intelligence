@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import (
+    AGENT_DEFAULT_COLOR,
     DEBATE_ROUNDS_MAX,
     DEBATE_ROUNDS_MIN,
     DICTATION_ENGINES,
@@ -51,6 +52,7 @@ class SettingsResponse(BaseModel):
     debate_rounds_min: int = DEBATE_ROUNDS_MIN
     debate_rounds_max: int = DEBATE_ROUNDS_MAX
     user_emoji_choices: list[str] = Field(default_factory=lambda: list(USER_EMOJI_CHOICES))
+    agent_default_color: str = Field(AGENT_DEFAULT_COLOR, description="A new agent's colour, until its editor changes it")
 
 
 class SettingsUpdate(BaseModel):

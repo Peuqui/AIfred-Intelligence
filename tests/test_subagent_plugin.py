@@ -150,7 +150,7 @@ class TestDelegationLegend:
         # "twin" shares the caller's model and whitelist: its persona alone
         # makes it a candidate; "schlaefer" is switched off.
         def agent(role: str, enabled: bool = True) -> dict[str, Any]:
-            return {"display_name": "x", "emoji": "x", "description": "", "role": role, "enabled": enabled}
+            return {"display_name": "x", "emoji": "x", "description": "", "role": role, "color": "#7d8590", "enabled": enabled}
 
         agents = {"aifred": agent("agent"), "codine": agent("agent"), "twin": agent("agent"),
                   "schlaefer": agent("agent", enabled=False), "calibration": agent(agent_config.ROLE_SYSTEM)}

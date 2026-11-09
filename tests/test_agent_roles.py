@@ -25,7 +25,7 @@ def _script():
 
 
 def _entry(role: str) -> dict:
-    return {"display_name": role.title(), "emoji": "🙂", "description": "", "role": role}
+    return {"display_name": role.title(), "emoji": "🙂", "description": "", "role": role, "color": "#7d8590"}
 
 
 def test_an_old_role_is_refused_with_the_way_out() -> None:

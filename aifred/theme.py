@@ -48,16 +48,9 @@ COLORS = {
     "user_name": "#ea5f50",      # Name des Users im Chat (Rotorange, bewusst nicht danger; 4,5:1 auf input_bg)
     # The chat history's own panel (between page_bg and card_bg, as the Reflex page's "Chat History" box)
     "chat_panel_bg": "#11161d",
-    # Every agent's bubble: card_bg with a few percent of a hue of its own (agentTint.ts); the strength here
-    "agent_tint_mix": "6%",
-    "agent_tint_border_mix": "25%",
-    # Bubbles of Sokrates (bronze) and Salomo (gold), as the Reflex page had them; they replace the tint
-    "sokrates_bubble_bg": "rgba(205, 127, 50, 0.08)",
-    "sokrates_bubble_border": "rgba(205, 127, 50, 0.3)",
-    "salomo_bubble_bg": "rgba(218, 165, 32, 0.08)",
-    "salomo_bubble_border": "rgba(218, 165, 32, 0.3)",
-    # AIfred's bubble neutral, as on the Reflex page (card_bg, a faint light rim): no tint of its own.
-    "aifred_bubble_border": "rgba(255, 255, 255, 0.1)",
+    # Every agent's bubble neutral as on the Reflex page (card_bg, a faint light rim); its own colour (agents.json
+    # "color") only as a stripe at the left and in its name.
+    "agent_bubble_border": "rgba(255, 255, 255, 0.1)",
 
     # === WARNUNGS-FLÄCHEN (braun, 3 Stufen: Grund, Schalter, Hover) ===
     "warning_bg": "#2d1f00",

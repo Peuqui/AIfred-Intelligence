@@ -38,6 +38,8 @@ BASE_AGENT = "aifred"
 
 # An agent's id names its prompt folder (prompts/<lang>/<id>/); the template folder has a hyphen, so no id is it.
 AGENT_ID_PATTERN = r"[a-z0-9_]+"
+# An agent's colour: the stripe at the left of its chat bubbles and its name there.
+AGENT_COLOR_PATTERN = r"#[0-9a-fA-F]{6}"
 AGENT_TEMPLATE_DIR = "agent-template"
 
 
@@ -49,6 +51,7 @@ class AgentConfig:
     emoji: str
     description: str
     role: str  # "agent" | "system" (VALID_ROLES)
+    color: str  # "#rrggbb": the stripe at the left of its chat bubbles and its name there (AGENT_COLOR_PATTERN)
 
     # Prompt file paths relative to prompts/{lang}/
     # Keys: "identity", "personality", "task", "reminder", + role-specific
@@ -93,6 +96,7 @@ def _default_agents() -> dict[str, dict]:
             "emoji": "\U0001f3a9",
             "description": "Gentleman-Berater und KI-Butler",
             "role": "agent",
+            "color": "#e67700",
             "prompts": {
                 "identity": "aifred/identity.txt",
                 "personality": "aifred/personality.txt",
@@ -113,6 +117,7 @@ def _default_agents() -> dict[str, dict]:
             "emoji": "\U0001f3db\ufe0f",
             "description": "Scharfsinniger Philosoph und Kritiker",
             "role": "agent",
+            "color": "#cd7f32",
             "prompts": {
                 "identity": "sokrates/identity.txt",
                 "personality": "sokrates/personality.txt",
@@ -132,6 +137,7 @@ def _default_agents() -> dict[str, dict]:
             "emoji": "\U0001f451",
             "description": "Weiser Richter und Synthesist",
             "role": "agent",
+            "color": "#daa520",
             "prompts": {
                 "identity": "salomo/identity.txt",
                 "personality": "salomo/personality.txt",
@@ -149,6 +155,7 @@ def _default_agents() -> dict[str, dict]:
             "display_name": "Vision",
             "emoji": "\U0001f4f7",
             "description": "Vision Language Model fuer Bildanalyse",
+            "color": "#56d4dd",
             "role": ROLE_SYSTEM,   # backs the image workflow, no chat partner (as every agents.json has it)
             "prompts": {
                 "identity": "vision/identity.txt",
@@ -167,17 +174,20 @@ def _default_agents() -> dict[str, dict]:
 
 def config_from_raw(data: dict) -> AgentConfig:
     """The AgentConfig of an entry of agents.json; KeyError names a required field it lacks (display_name, emoji,
-    description, role), Invalid a role other than VALID_ROLES."""
+    description, role, color), Invalid a role other than VALID_ROLES or a colour that is no #rrggbb."""
     raw_aliases = data.get("aliases") or []
     aliases = [str(a).strip().lower() for a in raw_aliases if isinstance(a, str) and a.strip()]
     if data["role"] not in VALID_ROLES:
         # The roles of the Reflex time (main, critic, judge, custom): scripts/migrate_agent_roles.py turns them into "agent".
         raise Invalid("agent_role_unknown", agent=data["display_name"], role=data["role"])
+    if not re.fullmatch(AGENT_COLOR_PATTERN, data["color"]):
+        raise Invalid("agent_color_format", agent=data["display_name"], color=data["color"])
     return AgentConfig(
         display_name=data["display_name"],
         emoji=data["emoji"],
         description=data["description"],
         role=data["role"],
+        color=data["color"],
         prompts=data.get("prompts", {}),
         toggles=data.get("toggles", {}),
         tools=data.get("tools"),
@@ -331,6 +341,7 @@ def create_agent(
     display_name: str,
     emoji: str,
     description: str,
+    color: str,
 ) -> AgentConfig:
     """Create a new agent and save to config.
 
@@ -341,6 +352,7 @@ def create_agent(
         display_name: Human-readable name
         emoji: Agent emoji character
         description: Short description
+        color: "#rrggbb", the stripe of its chat bubbles
 
     Returns:
         The newly created AgentConfig
@@ -372,6 +384,7 @@ def create_agent(
         emoji=emoji,
         description=description,
         role=ROLE_AGENT,
+        color=color,
         prompts=prompts,
     )
 

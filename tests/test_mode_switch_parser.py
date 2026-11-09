@@ -6,12 +6,12 @@ from aifred.lib.intent_detector import _parse_mode_switch
 
 # Fixed agent registry so tests are independent of data/agents.json
 _AGENTS = {
-    "aifred": {"display_name": "AIfred", "emoji": "🤖", "description": "", "role": "agent", "aliases": ["alfred"]},
-    "sokrates": {"display_name": "Sokrates", "emoji": "🤖", "description": "", "role": "agent", "aliases": []},
-    "salomo": {"display_name": "Salomo", "emoji": "🤖", "description": "", "role": "agent", "aliases": []},
-    "hal": {"display_name": "HAL 9000", "emoji": "🤖", "description": "", "role": "agent", "aliases": ["hal 9000"]},
-    "codi": {"display_name": "Codine", "emoji": "🤖", "description": "", "role": "agent", "aliases": ["kodi", "cody"]},
-    "rabbi": {"display_name": "Rabbi Shmuel", "emoji": "🤖", "description": "", "role": "agent", "aliases": []},
+    "aifred": {"display_name": "AIfred", "emoji": "🤖", "description": "", "role": "agent", "color": "#7d8590", "aliases": ["alfred"]},
+    "sokrates": {"display_name": "Sokrates", "emoji": "🤖", "description": "", "role": "agent", "color": "#7d8590", "aliases": []},
+    "salomo": {"display_name": "Salomo", "emoji": "🤖", "description": "", "role": "agent", "color": "#7d8590", "aliases": []},
+    "hal": {"display_name": "HAL 9000", "emoji": "🤖", "description": "", "role": "agent", "color": "#7d8590", "aliases": ["hal 9000"]},
+    "codi": {"display_name": "Codine", "emoji": "🤖", "description": "", "role": "agent", "color": "#7d8590", "aliases": ["kodi", "cody"]},
+    "rabbi": {"display_name": "Rabbi Shmuel", "emoji": "🤖", "description": "", "role": "agent", "color": "#7d8590", "aliases": []},
 }
 
 

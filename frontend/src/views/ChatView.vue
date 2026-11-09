@@ -30,6 +30,8 @@ const sessions = useSessions();
 const chat = useChat();
 const settings = useSettings();
 const agents = ref<AgentSummary[]>([]);
+// Every agent's colour, switched off ones too: the history shows their answers (the stripe of a bubble).
+const colors = ref<Record<string, string>>({});
 const modes = ref<DebateMode[]>([]);
 const messages = ref<HTMLElement | null>(null);
 const streamingHtml = computed(() => (chat.streaming ? renderMarkdown(chat.streaming.text) : ""));
@@ -105,6 +107,7 @@ async function downloadChat(): Promise<void> {
 
 async function start(): Promise<void> {
   agents.value = await api<AgentSummary[]>("agents/summary");
+  colors.value = await api<Record<string, string>>("agents/colors");
   modes.value = await api<DebateMode[]>("debate/modes");
   await sessions.refresh();
   const latest = sessions.list[0];
@@ -200,10 +203,11 @@ onMounted(() => void start());
             :class="{ pinned: entry.role === 'user' }"
             :entry="entry"
             :speech-on="!!settings.current?.enable_tts && entry.role === 'assistant'"
+            :color="entry.agent ? colors[entry.agent] : undefined"
             @read-again="chat.readAgain"
           />
         </section>
-        <article v-if="chat.streaming" class="streaming">
+        <article v-if="chat.streaming" class="streaming" :style="colors[chat.streaming.agent] ? { '--agent-color': colors[chat.streaming.agent] } : undefined">
           <header>{{ chat.streaming.emoji }} {{ chat.streaming.displayName }}</header>
           <!-- eslint-disable-next-line vue/no-v-html -- sanitized by renderMarkdown (DOMPurify) -->
           <div v-html="streamingHtml" />
@@ -297,8 +301,12 @@ h2 { margin: 0; font-size: 1.1rem; }
 .turn { display: flex; flex-direction: column; gap: 10px; }
 /* Above the collapsibles' headers, which stick too (formatting.py writes them with z-index 2 into the answer). */
 .turn > .pinned { position: sticky; top: 0; z-index: 3; box-shadow: 0 4px 10px var(--aifred-page-bg); }
-.streaming { box-sizing: border-box; width: 100%; padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light); }
-.streaming header { font-size: var(--text-small); font-weight: 600; color: var(--aifred-primary); }
+/* As the finished bubble (MessageBubble), its rim dashed while it streams. */
+.streaming {
+  box-sizing: border-box; width: 100%; padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light);
+  border-left: 3px solid var(--agent-color, var(--aifred-border-light));
+}
+.streaming header { font-size: var(--text-small); font-weight: 600; color: var(--agent-color, var(--aifred-primary)); }
 .tool { margin: 4px 0 0; font-size: var(--text-small); color: var(--aifred-accent-cyan); }
 .waiting { align-self: flex-start; padding: 0 14px; }
 .notice { color: var(--aifred-accent-amber); }

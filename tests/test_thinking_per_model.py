@@ -67,7 +67,7 @@ def _choose_label(view: RuntimeSettings, agent: str, label: str) -> None:
 
 
 def _config(thinking: bool) -> AgentConfig:
-    return AgentConfig(display_name="X", emoji="", description="", role="main",
+    return AgentConfig(display_name="X", emoji="", description="", role="main", color="#7d8590",
                        toggles={"personality": True, "reasoning": False, "thinking": thinking})
 
 

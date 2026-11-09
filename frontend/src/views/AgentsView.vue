@@ -17,8 +17,10 @@ import HelpButton from "../components/help/HelpButton.vue";
 import { t } from "../i18n";
 import { useAgentChoices } from "../stores/agentChoices";
 import { useAgents } from "../stores/agents";
+import { useSettings } from "../stores/settings";
 
 const agents = useAgents();
+const settings = useSettings();
 const choices = useAgentChoices();
 onMounted(() => void agents.load());
 
@@ -29,7 +31,7 @@ const editing = ref<string | null>(null);
 const editingSystem = ref<SystemAgentCard | null>(null);
 const bundles = ref<"export" | "import" | null>(null);
 
-const creating = ref<{ id: string; display_name: string; emoji: string; description: string } | null>(null);
+const creating = ref<{ id: string; display_name: string; emoji: string; description: string; color: string } | null>(null);
 async function create(): Promise<void> {
   if (!creating.value) return;
   const agent = { ...creating.value, id: creating.value.id.trim(), display_name: creating.value.display_name.trim() };
@@ -55,12 +57,13 @@ async function confirmDelete(): Promise<void> {
       <HelpButton topic="thinking" />
       <button :title="t('agent_editor_export_tooltip')" @click="bundles = 'export'">📦</button>
       <button :title="t('agent_editor_import_tooltip')" @click="bundles = 'import'">📥</button>
-      <button @click="creating = { id: '', display_name: '', emoji: '🤖', description: '' }">＋ {{ t("agent_editor_new") }}</button>
+      <button v-if="settings.current" @click="creating = { id: '', display_name: '', emoji: '🤖', description: '', color: settings.current.agent_default_color }">＋ {{ t("agent_editor_new") }}</button>
     </header>
     <form v-if="creating" class="creating" @submit.prevent="create">
       <input v-model="creating.id" :placeholder="t('agent_editor_agent_id_placeholder')" :title="t('agent_editor_id_hint')" pattern="[a-z0-9_]+" required />
       <input v-model="creating.display_name" :placeholder="t('agent_editor_name')" required />
       <input v-model="creating.emoji" class="emoji" :placeholder="t('agent_editor_emoji')" required />
+      <input v-model="creating.color" type="color" class="color" :title="t('agent_editor_color_hint')" />
       <input v-model="creating.description" class="description-input" :placeholder="t('agent_editor_description')" />
       <button type="submit">{{ t("doc_create") }}</button>
       <button type="button" @click="creating = null">{{ t("agent_editor_cancel") }}</button>
@@ -143,6 +146,7 @@ h3 { margin: 8px 0 0; font-size: 0.95rem; }
 .creating { display: flex; gap: 8px; flex-wrap: wrap; }
 .creating input { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
 .creating .emoji { width: 4em; }
+.creating .color { width: 3em; height: 32px; padding: 2px; cursor: pointer; }
 .creating .description-input { flex: 1; min-width: 12em; }
 .notice { margin: 0; color: var(--aifred-accent-amber); }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 12px; }

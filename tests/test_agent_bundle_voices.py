@@ -25,7 +25,7 @@ def bundle_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for lang in ("de", "en"):
         (tmp_path / "prompts" / lang).mkdir(parents=True)   # an install has its prompt tree
     monkeypatch.setattr(prompt_loader, "PROMPTS_DIR", tmp_path / "prompts")
-    monkeypatch.setattr(agent_bundle, "load_agents_raw", lambda: {"codine": {"display_name": "Codine", "emoji": "🧑‍💻", "description": "", "role": "agent"}})
+    monkeypatch.setattr(agent_bundle, "load_agents_raw", lambda: {"codine": {"display_name": "Codine", "emoji": "🧑‍💻", "description": "", "role": "agent", "color": "#7d8590"}})
     monkeypatch.setattr(agent_bundle, "_load_settings", lambda: {
         "tts_agent_voices_per_engine": {
             "qwen3local": {"codine": {"voice": "Codine"}},

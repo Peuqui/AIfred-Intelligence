@@ -108,7 +108,8 @@
         "email_manage",
         "freeecho2_announce",
         "telegram_send"
-      ]
+      ],
+      "color": "#e67700"
     },
     "sokrates": {
       "display_name": "Sokrates",
@@ -177,7 +178,8 @@
         "ai_connect_peer_history",
         "ai_connect_peer_send",
         "freeecho2_announce"
-      ]
+      ],
+      "color": "#cd7f32"
     },
     "salomo": {
       "display_name": "Salomo",
@@ -249,7 +251,8 @@
         "ai_connect_peer_history",
         "ai_connect_peer_send",
         "freeecho2_announce"
-      ]
+      ],
+      "color": "#daa520"
     },
     "vision": {
       "display_name": "Vision",
@@ -267,7 +270,8 @@
         "reasoning": false,
         "thinking": false
       },
-      "tools": null
+      "tools": null,
+      "color": "#56d4dd"
     },
     "pater": {
       "display_name": "Pater Tuck",
@@ -308,7 +312,8 @@
         "email",
         "freeecho2_announce",
         "telegram_send"
-      ]
+      ],
+      "color": "#3fb950"
     },
     "codine": {
       "display_name": "Codine",
@@ -364,7 +369,8 @@
         "ai_connect_peer_list",
         "ai_connect_peer_history",
         "ai_connect_peer_send"
-      ]
+      ],
+      "color": "#39c5bb"
     },
     "hal": {
       "display_name": "HAL 9000",
@@ -450,7 +456,8 @@
         "ai_connect_peer_list",
         "ai_connect_peer_history",
         "ai_connect_peer_send"
-      ]
+      ],
+      "color": "#ef1c3f"
     },
     "rabbi": {
       "display_name": "Rabbi Shmuel",
@@ -491,7 +498,8 @@
         "email",
         "freeecho2_announce",
         "telegram_send"
-      ]
+      ],
+      "color": "#a371f7"
     },
     "calibration": {
       "display_name": "Calibration",
@@ -509,7 +517,8 @@
         "thinking": false
       },
       "tools": null,
-      "cloud_provider": "qwen"
+      "cloud_provider": "qwen",
+      "color": "#7d8590"
     }
   }
 }

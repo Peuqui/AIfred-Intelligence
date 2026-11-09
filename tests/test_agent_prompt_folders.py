@@ -41,13 +41,13 @@ def prompts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def test_a_new_id_that_names_a_folder_of_no_agent_is_refused(prompts: Path) -> None:
     with pytest.raises(Invalid) as refused:
-        agent_config.create_agent("shared", "Geteilt", "🤝", "")
+        agent_config.create_agent("shared", "Geteilt", "🤝", "", "#7d8590")
     assert refused.value.key == "agent_id_taken"
     assert not (prompts / "de" / "shared" / "identity.txt").exists()
 
 
 def test_deleting_an_agent_removes_its_own_folder_and_no_other(prompts: Path) -> None:
-    agent_config.create_agent("gast", "Gast", "🙂", "")
+    agent_config.create_agent("gast", "Gast", "🙂", "", "#7d8590")
     # A layer that points elsewhere, as Vision's personality is AIfred's file.
     agent_config.update_agent("gast", {"prompts": {**agent_config.load_agents_raw()["gast"]["prompts"],
                                                    "personality": "aifred/personality.txt"}})
@@ -59,7 +59,7 @@ def test_deleting_an_agent_removes_its_own_folder_and_no_other(prompts: Path) ->
 
 def _bundle(agent_id: str, files: dict[str, str]) -> bytes:
     """A bundle of one agent whose layers point into its folder, with these files in both languages."""
-    config = {"display_name": agent_id.title(), "emoji": "🙂", "description": "", "role": "agent",
+    config = {"display_name": agent_id.title(), "emoji": "🙂", "description": "", "role": "agent", "color": "#7d8590",
               "prompts": {name.removesuffix(".txt"): f"{agent_id}/{name}" for name in files}}
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -75,7 +75,7 @@ def _bundle(agent_id: str, files: dict[str, str]) -> bytes:
 
 
 def test_an_agent_renamed_on_import_reads_and_owns_its_own_folder(prompts: Path) -> None:
-    agent_config.create_agent("gast", "Gast", "🙂", "")
+    agent_config.create_agent("gast", "Gast", "🙂", "", "#7d8590")
     original = (prompts / "de" / "gast" / "identity.txt").read_text(encoding="utf-8")
     ids, _warnings = agent_bundle.import_bundle(_bundle("gast", {"identity.txt": "Importiert"}), conflict="rename", lang="de")
     assert ids == ["gast_imported"]

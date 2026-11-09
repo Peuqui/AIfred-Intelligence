@@ -1528,6 +1528,8 @@ MEDIA_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 # ============================================================
 # Every entry goes into the context as an index line (recall_context): 200 lines are
 # roughly 8k tokens. There is no upper limit, what is irrelevant gets cleaned up.
+# The colour of a new agent's stripe at the left of its chat bubbles (#rrggbb, its editor changes it).
+AGENT_DEFAULT_COLOR = "#7d8590"
 AGENT_MEMORY_DISTANCE_THRESHOLD = 1.0  # Max distance for relevant memories (bge-m3 embeddings)
 AGENT_MEMORY_RESULTS = 5             # Semantic hits shown with their content
 AGENT_MEMORY_RECENT_COUNT = 3        # Newest entries shown with their content

@@ -16,8 +16,8 @@ PROMPT = Path(__file__).parent.parent / "prompts" / "en" / "automatik" / "intent
 
 # Fixed agent registry so the tests are independent of data/agents.json
 _AGENTS = {
-    "aifred": {"display_name": "AIfred", "emoji": "🤖", "description": "", "role": "agent", "aliases": ["alfred"]},
-    "sokrates": {"display_name": "Sokrates", "emoji": "🤖", "description": "", "role": "agent", "aliases": []},
+    "aifred": {"display_name": "AIfred", "emoji": "🤖", "description": "", "role": "agent", "color": "#7d8590", "aliases": ["alfred"]},
+    "sokrates": {"display_name": "Sokrates", "emoji": "🤖", "description": "", "role": "agent", "color": "#7d8590", "aliases": []},
 }
 
 
