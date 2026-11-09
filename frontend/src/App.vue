@@ -8,6 +8,7 @@ import { UPDATE_CHECK_MS, api, checkForUpdate, newVersion } from "./api/client";
 import HubNoticeToast from "./components/HubNoticeToast.vue";
 import LoginForm from "./components/LoginForm.vue";
 import MediaPlayer from "./components/MediaPlayer.vue";
+import SpeechPlayer from "./components/SpeechPlayer.vue";
 import ServiceStatusBar from "./components/ServiceStatusBar.vue";
 import { loadLanguage, t } from "./i18n";
 import { useAuth } from "./stores/auth";
@@ -118,6 +119,7 @@ onMounted(async () => {
     <ServiceStatusBar />
     <div class="divider" role="separator" />
     <MediaPlayer />
+    <SpeechPlayer />
     <HubNoticeToast />
     <RouterView v-slot="{ Component }">
       <KeepAlive><component :is="Component" class="page" /></KeepAlive>

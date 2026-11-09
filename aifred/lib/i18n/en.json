@@ -328,6 +328,7 @@
   "audio_resume": "Play on",
   "audio_stop": "Stop",
   "audio_volume": "Volume (this device only)",
+  "speech_player_title": "Reading aloud",
   "audio_regenerate_tooltip": "Regenerate audio",
   "audio_generate_tooltip": "Generate audio",
   "thinking_mode_label": "🔗 Reasoning Mode:",

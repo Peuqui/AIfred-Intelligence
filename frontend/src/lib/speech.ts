@@ -3,7 +3,7 @@
 // between paragraphs ("tts_pause", ms), or a part the browser's own voice speaks ("tts_speak",
 // utterance). The speed is in the audio already (the agent's voice settings). They play in the order they arrive, without gaps; "stop"
 // ends the reading.
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import type { Utterance } from "../api/types";
 
 type Entry = { kind: "audio"; url: string } | { kind: "pause"; ms: number } | { kind: "speak"; utterance: Utterance };
@@ -13,9 +13,16 @@ let playing = false;
 let current: HTMLAudioElement | null = null;
 let pauseTimer: ReturnType<typeof setTimeout> | null = null;
 let finishPause: (() => void) | null = null;
+let finishAudio: (() => void) | null = null;
 
 // True while something plays or waits on the playlist: the stop button shows as long as it is.
 export const speaking = ref(false);
+// The reading is held (not stopped): the playlist stays where it is. Volume is this device's own.
+export const paused = ref(false);
+export const volume = ref(1);
+watch(volume, (level) => {
+  if (current) current.volume = level;
+});
 
 // Browsers allow audio.play() only after a gesture of the user on the page. The first click or key
 // press plays a silent sound once; from then on the readings that arrive later may sound.
@@ -44,12 +51,28 @@ export function stop(): void {
   queue.length = 0;
   current?.pause();
   current = null;
+  finishAudio?.();
+  window.speechSynthesis?.resume();
+  paused.value = false;
   if (pauseTimer) clearTimeout(pauseTimer);
   pauseTimer = null;
   finishPause?.();
   window.speechSynthesis?.cancel();
   playing = false;
   speaking.value = false;
+}
+
+// Holds the reading and goes on where it was (the audio and the device's own voice; a silence between
+// paragraphs runs out meanwhile).
+export function togglePause(): void {
+  paused.value = !paused.value;
+  if (paused.value) {
+    current?.pause();
+    window.speechSynthesis?.pause();
+  } else {
+    void current?.play();
+    window.speechSynthesis?.resume();
+  }
 }
 
 // What a finished bubble kept of its reading, played again on request: its audio, or the parts
@@ -93,14 +116,19 @@ function pause(ms: number): Promise<void> {
 function playAudio(url: string): Promise<void> {
   return new Promise((done) => {
     const audio = new Audio(url);
+    audio.volume = volume.value;
     current = audio;
-    audio.onended = () => done();
-    audio.onpause = () => done();
+    finishAudio = () => {
+      finishAudio = null;
+      done();
+    };
+    audio.onended = finishAudio;
     // A missing file must not stop the rest of the reading; it is skipped, visibly.
     audio.onerror = () => {
       console.warn(`speech: audio ${url} failed to load, skipped`);
       done();
     };
+    if (paused.value) return; // held: togglePause() starts it
     audio.play().catch((error: unknown) => {
       console.warn(`speech: audio ${url} could not play (${String(error)}), skipped`);
       done();
