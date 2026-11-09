@@ -135,13 +135,16 @@ button, input, select, textarea { font: inherit; }
 .pill:disabled { cursor: default; }
 /* The interface's size on the body only: on html and body together it acted twice (130 % became 169 %). */
 body { zoom: var(--ui-zoom); }
+/* As on the Reflex page, the near-white is for what one reads and writes (chat bubbles, fields, headings); labels,
+   descriptions and the rest of the page in the softer grey (Peuqui 09.11.2026: too much white). */
 html,
 body {
   margin: 0;
   background: var(--aifred-page-bg);
-  color: var(--aifred-text-primary);
+  color: var(--aifred-text-soft);
   font-family: system-ui, sans-serif;
 }
+h1, h2, h3, input, textarea, select { color: var(--aifred-text-primary); }
 </style>
 
 <style scoped>

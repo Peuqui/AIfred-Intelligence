@@ -292,7 +292,7 @@ h2 { margin: 0; font-size: 1.1rem; }
 @media (max-width: 760px) {
   .messages { height: calc(var(--chat-height-mobile) / var(--ui-zoom)); }
 }
-.bubbles { display: flex; flex-direction: column; gap: 10px; zoom: calc(var(--chat-zoom) / var(--ui-zoom)); }
+.bubbles { color: var(--aifred-text-primary); display: flex; flex-direction: column; gap: 10px; zoom: calc(var(--chat-zoom) / var(--ui-zoom)); }
 .turn { display: flex; flex-direction: column; gap: 10px; }
 /* Above the collapsibles' headers, which stick too (formatting.py writes them with z-index 2 into the answer). */
 .turn > .pinned { position: sticky; top: 0; z-index: 3; box-shadow: 0 4px 10px var(--aifred-page-bg); }
