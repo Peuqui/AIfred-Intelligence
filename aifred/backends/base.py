@@ -11,7 +11,7 @@ from typing import Any
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
-from aifred.lib.config import DEFAULT_OLLAMA_URL, MAX_OUTPUT_TOKENS, STREAM_RETRY_DELAY_S, STREAM_RETRY_WINDOW_S
+from aifred.lib.config import DEFAULT_OLLAMA_URL, STREAM_RETRY_DELAY_S, STREAM_RETRY_WINDOW_S
 from aifred.lib.perf_metrics import InferenceWork, ThinkingClock
 
 # llama-swap's answer when the upstream process died before serving.
@@ -686,7 +686,8 @@ class OpenAICompatibleBackend(LLMBackend):
             "top_p": options.top_p,
             "stream": False,
         }
-        kwargs["max_tokens"] = options.num_predict or MAX_OUTPUT_TOKENS
+        if options.num_predict:
+            kwargs["max_tokens"] = options.num_predict
 
         extra_body = self._build_extra_body(options, model)
         if extra_body:
@@ -830,7 +831,8 @@ class OpenAICompatibleBackend(LLMBackend):
             "stream": True,
             "stream_options": {"include_usage": True},
         }
-        kwargs["max_tokens"] = options.num_predict or MAX_OUTPUT_TOKENS
+        if options.num_predict:
+            kwargs["max_tokens"] = options.num_predict
         if toolkit and toolkit.definitions:
             kwargs["tools"] = toolkit.definitions
 

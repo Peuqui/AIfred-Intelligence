@@ -446,14 +446,6 @@ DEBATE_ROUNDS_MAX = 10
 # (lib/turn_service.py): fewer events, still live.
 TURN_TOKEN_EVENT_INTERVAL_S = 0.05
 
-# Obergrenze für die Antwortlänge jedes Aufrufs über die OpenAI-kompatiblen
-# Backends (vLLM, llama.cpp), wenn der Aufruf selbst keine setzt. Ohne sie lief
-# am 16.10.2026 ein Sub-Agent über drei Stunden: DeepSeek schrieb nach einem
-# base64-Bild im Kontext 198.101 Token ohne Ende. 64.000 Token reichen für jede
-# Code-Datei und lange Denkphasen (Peuqui 16.10.2026); vLLM kürzt den Wert
-# selbst, wenn der Kontext weniger Platz lässt.
-MAX_OUTPUT_TOKENS = 64000
-
 # A streamed request to the OpenAI-compatible backends that fails before its first piece reached
 # the caller is sent again after STREAM_RETRY_DELAY_S, within STREAM_RETRY_WINDOW_S from the first
 # try — but only for errors a new try can get past (connection, timeout, server 5xx; see
