@@ -627,7 +627,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Export der gewählten Agenten als ZIP, Import mit Vorschau des Bündels, Auswahl und Konfliktregel
   (umbenennen, überschreiben, abbrechen), danach die Warnungen. Die Antworten von Vorschau und Import sind
   jetzt typisiert; `exported_at` ist eine Unix-Zeit (als Text typisiert gab die Vorschau 500).
-- **Aufträge-Seite (erledigt 07.11.2026):** `JobsView.vue` (⏰ in der Kopfleiste) mit `JobForm.vue`: Liste mit
+- **Scheduler-Seite (erledigt 07.11.2026, früher „Aufträge“):** `JobsView.vue` (⏰ in der Kopfleiste) mit `JobForm.vue`: Liste mit
   Schalter, Agent, Zeitplan, nächstem und letztem Lauf; anlegen, ändern, letzte Läufe, löschen. Der Zeitplan
   entsteht aus Feldern (Cron-Vorlage oder fünf Felder, Intervall mit Einheit, Datum und Uhrzeit;
   `lib/schedule.ts` mit Tests), der Server nennt vor dem Speichern den nächsten Lauf. Die Regeln (Typen,

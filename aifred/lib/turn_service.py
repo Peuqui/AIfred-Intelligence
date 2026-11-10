@@ -37,6 +37,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from . import session_events
+from .browser_push import LATEST_WINS_KINDS
 from .config import LLAMASWAP_BACKENDS, TURN_TOKEN_EVENT_INTERVAL_S
 from .debate_seats import session_seats
 from .debug_bus import debug, report_phase, session_scope
@@ -245,7 +246,7 @@ async def _run(request: TurnRequest, turn_id: str, routing: _Routing) -> None:
     if not view.agent_tuning["aifred"].model_id:
         raise TurnRejected("no_model", Conflict("no_model"))
 
-    session_events.clear_replay(session_id, keep=frozenset({"service_status"}))
+    session_events.clear_replay(session_id, keep=LATEST_WINS_KINDS)
     origin = request.origin
     if origin is None:
         entry = build_user_chat_entry(bubble_text(user_text, images, view.ui_language), bubble_images(images))

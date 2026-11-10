@@ -19,6 +19,7 @@ import re
 from collections.abc import Collection
 from dataclasses import asdict, dataclass, field
 
+from .browser_push import notify_changed
 from .config import DATA_DIR
 from .user_error import Invalid, Missing, UserError
 
@@ -220,6 +221,7 @@ def save_agents_raw(agents: dict[str, dict]) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with open(AGENTS_FILE, "w", encoding="utf-8") as f:
         json.dump({"agents": agents}, f, indent=2, ensure_ascii=False)
+    notify_changed("agents")
 
 
 def get_agent_label(agent_id: str) -> str:

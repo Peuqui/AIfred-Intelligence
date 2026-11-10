@@ -4,6 +4,12 @@ import { apiUrl } from "./client";
 
 export type SessionEventHandler = (kind: string, data: Record<string, unknown>) => void;
 
+// The lists of the server's data a page shows and that tell it when they change (lib/browser_push.py: RESOURCES): the
+// event is "<name>_changed", the page loads the list anew (lib/resourceChanges.ts).
+export const RESOURCES = ["jobs", "sessions", "agents"] as const;
+export type Resource = (typeof RESOURCES)[number];
+export const changedKind = (resource: Resource): string => `${resource}_changed`;
+
 // Every kind the server sends (lib/turn_service.py, lib/reply_speech.py, lib/dictation.py,
 // lib/api/sessions.py, lib/debug_bus.py (debug, turn_phase), lib/api/service_status.py, lib/message_processor.py). The browser only hears the kinds listed here.
 export const SESSION_EVENT_KINDS = [
@@ -39,7 +45,8 @@ export const SESSION_EVENT_KINDS = [
   "service_status",
   "hub_notification",
   "resync",
-] as const;
+  ...RESOURCES.map(changedKind),
+] as const satisfies readonly string[];
 
 export function followSession(sessionId: string, afterId: number, handle: SessionEventHandler): EventSource {
   const source = new EventSource(apiUrl(`sessions/${sessionId}/events?after=${afterId}`));

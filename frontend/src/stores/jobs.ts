@@ -1,8 +1,9 @@
-// The jobs page: every scheduled job and what a job can be set to. Every change answers with the jobs again.
+// The scheduler page: every scheduled job and what a job can be set to. Every change answers with the jobs again.
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { JobOptions, JobRow, JobRun, JobWrite } from "../api/types";
+import { onResourceChanged } from "../lib/resourceChanges";
 
 export const useJobs = defineStore("jobs", () => {
   const jobs = ref<JobRow[]>([]);
@@ -31,6 +32,15 @@ export const useJobs = defineStore("jobs", () => {
     call(() => api(`jobs/${id}`, { method: "PATCH", body: JSON.stringify({ enabled }) }));
   const remove = (id: number): Promise<boolean> => call(() => api(`jobs/${id}`, { method: "DELETE" }));
   const runs = (id: number): Promise<JobRun[]> => api<JobRun[]>(`jobs/${id}/runs`);
+
+  // A job changed or ran (an agent's tool, another tab, the scheduler): the list is read anew, where it stands.
+  onResourceChanged("jobs", async () => {
+    try {
+      jobs.value = await api<JobRow[]>("jobs");
+    } catch (error) {
+      notice.value = error instanceof ApiError ? error.detail : String(error);
+    }
+  });
 
   // When an expression fires next; its reason when it never does.
   async function preview(scheduleType: string, scheduleExpr: string): Promise<{ next?: string; problem?: string }> {

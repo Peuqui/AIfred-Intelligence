@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .browser_push import notify_changed
 from .logging_utils import log_message
 from .user_error import Invalid
 
@@ -128,6 +129,11 @@ class JobStore:
         conn.row_factory = sqlite3.Row
         return conn
 
+    @staticmethod
+    def _changed() -> None:
+        """Every open page shows the jobs anew (the jobs page lists them, with their runs)."""
+        notify_changed("jobs")
+
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
             conn.execute("""
@@ -177,6 +183,7 @@ class JobStore:
                 (job_id, job_id, SCHEDULER_HISTORY_RUNS),
             )
             conn.commit()
+            self._changed()
 
     def recent_runs(self, job_id: int, limit: int) -> list[tuple[str, str]]:
         """(ran_at, delivered_text) of the newest runs, newest first."""
@@ -235,6 +242,7 @@ class JobStore:
                 (name, schedule_type, schedule_expr, json.dumps(payload), max_tier, next_run, ends_at or None),
             )
             conn.commit()
+            self._changed()
             job_id = cursor.lastrowid or 0
         log_message(f"Scheduler: added job '{name}' (type={schedule_type}, next={next_run})")
         return self.get(job_id)  # type: ignore[return-value]
@@ -272,6 +280,7 @@ class JobStore:
             conn.commit()
             if cursor.rowcount == 0:
                 return None
+        self._changed()
         log_message(f"Scheduler: updated job '{name}' (id={job_id}, next={next_run})")
         return self.get(job_id)
 
@@ -318,6 +327,7 @@ class JobStore:
                     (now, job_id),
                 )
                 conn.commit()
+                self._changed()
             return
 
         next_run = _calculate_next_run(job.schedule_type, job.schedule_expr, now)
@@ -329,6 +339,7 @@ class JobStore:
                     (now, job_id),
                 )
                 conn.commit()
+                self._changed()
             log_message(f"Scheduler: job '{job.name}' (id={job_id}) ended after its last run ({job.ends_at})")
             return
         with self._connect() as conn:
@@ -337,6 +348,7 @@ class JobStore:
                 (now, next_run, job_id),
             )
             conn.commit()
+            self._changed()
 
     def mark_failed(self, job_id: int) -> None:
         """Increment retry count and advance next_run to prevent infinite retries."""
@@ -353,6 +365,7 @@ class JobStore:
                     (job_id,),
                 )
                 conn.commit()
+                self._changed()
             return
 
         # Recurring job: advance next_run so it doesn't retry every minute
@@ -364,6 +377,7 @@ class JobStore:
                     (job_id,),
                 )
                 conn.commit()
+                self._changed()
             log_message(f"Scheduler: job '{job.name}' (id={job_id}) ended with a failed last run ({job.ends_at})")
             return
         with self._connect() as conn:
@@ -372,6 +386,7 @@ class JobStore:
                 (next_run, job_id),
             )
             conn.commit()
+            self._changed()
 
     def delete(self, job_id: int) -> bool:
         """Delete a job and its run history. Returns True if deleted."""
@@ -379,6 +394,7 @@ class JobStore:
             cursor = conn.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
             conn.execute("DELETE FROM job_runs WHERE job_id = ?", (job_id,))
             conn.commit()
+            self._changed()
         return cursor.rowcount > 0
 
     def enable(self, job_id: int, enabled: bool = True) -> None:
@@ -404,6 +420,7 @@ class JobStore:
                 (1 if enabled else 0, next_run, job_id),
             )
             conn.commit()
+            self._changed()
 
 
 # ============================================================

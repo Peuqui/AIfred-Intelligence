@@ -20,6 +20,7 @@ import type {
 } from "../api/types";
 import { t } from "../i18n";
 import * as media from "../lib/media";
+import { resourceChanged, resourceOfKind } from "../lib/resourceChanges";
 import { withConfigChanges } from "../lib/sessionConfig";
 import * as speech from "../lib/speech";
 import type { TurnPhase } from "../lib/turnProgress";
@@ -108,6 +109,8 @@ export const useChat = defineStore("chat", () => {
   }
 
   function handle(kind: string, data: Record<string, unknown>): void {
+    const resource = resourceOfKind(kind);
+    if (resource) return resourceChanged(resource);   // a list the server changed: its store loads it anew
     switch (kind) {
       case "turn_started":
         running.value = true;

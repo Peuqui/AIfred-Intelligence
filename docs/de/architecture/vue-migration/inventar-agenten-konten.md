@@ -317,7 +317,7 @@ per `dotenv.set_key` und Plugin-Settings, startet Kanal-Worker per `asyncio.crea
 
 ### Neue Endpunkte (Vorschlag)
 
-Gebaut wurde teils anders (z. B. Aufträge unter `/jobs`, Index-Pflege unter `/documents/index/…`); was
+Gebaut wurde teils anders (z. B. der Scheduler unter `/jobs`, Index-Pflege unter `/documents/index/…`); was
 gilt, steht in `docs/de/guides/rest-api.md`.
 
 | Bereich | Endpunkte |

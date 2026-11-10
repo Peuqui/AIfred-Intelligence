@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import { api } from "../api/client";
 import type { SessionSummary } from "../api/types";
+import { onResourceChanged } from "../lib/resourceChanges";
 
 export const useSessions = defineStore("sessions", () => {
   const list = ref<SessionSummary[]>([]);
@@ -26,6 +27,9 @@ export const useSessions = defineStore("sessions", () => {
     const entry = list.value.find((session) => session.session_id === sessionId);
     if (entry) entry.title = title;
   }
+
+  // A chat was saved, made or deleted (another tab, a job, a channel): the list is read anew.
+  onResourceChanged("sessions", () => void refresh());
 
   return { list, refresh, create, remove, retitle };
 });

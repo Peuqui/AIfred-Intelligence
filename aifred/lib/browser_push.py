@@ -9,9 +9,19 @@ from typing import Any
 from . import session_events
 
 TTS_CHUNK_KINDS = frozenset({"tts", "tts_speak", "tts_pause"})
+# What the open pages show of the server's data, each as a list a page loads on its own: when it changes (an agent's tool,
+# a scheduled job, another tab), every connected page is told which and asks for it anew (stores/*.ts via
+# lib/resourceChanges.ts). One name per kind of data; the browser's list is api/events.ts: RESOURCES.
+RESOURCES = ("jobs", "sessions", "agents")
+
+
+def changed_kind(resource: str) -> str:
+    return f"{resource}_changed"
+
+
 # Kinds that carry a state, not an event: the newest replaces its predecessors in the
 # replay buffer (a page that reconnects needs the latest, not the history).
-LATEST_WINS_KINDS = frozenset({"service_status"})
+LATEST_WINS_KINDS = frozenset({"service_status"} | {changed_kind(resource) for resource in RESOURCES})
 
 
 def browser_push(session_id: str, kind: str, **fields: Any) -> None:
@@ -34,3 +44,16 @@ def browser_push(session_id: str, kind: str, **fields: Any) -> None:
     """
     replaces = frozenset({kind}) if kind in LATEST_WINS_KINDS else frozenset()
     session_events.publish(session_id, kind, fields, replaces=replaces)
+
+
+def notify_changed(resource: str) -> None:
+    """The data of ``resource`` (one of RESOURCES) changed: tell every connected page, which loads it anew. Callable from
+    any thread: the list of the connected sessions is read on the server's loop."""
+    if resource not in RESOURCES:
+        raise ValueError(f"unknown resource {resource!r}")
+    session_events.on_home_loop(_notify_here, resource)
+
+
+def _notify_here(resource: str) -> None:
+    for session_id in session_events.sessions_with_subscribers():
+        browser_push(session_id, changed_kind(resource))

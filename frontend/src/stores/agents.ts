@@ -9,6 +9,7 @@ import { ApiError, api } from "../api/client";
 import type {
   AgentCard, AgentPersona, AgentRights, CloudChange, CloudModels, NewAgent, PersonaChange, PromptText, SystemAgentCard,
 } from "../api/types";
+import { onResourceChanged } from "../lib/resourceChanges";
 import { useAgentChoices } from "./agentChoices";
 
 export const useAgents = defineStore("agents", () => {
@@ -81,6 +82,9 @@ export const useAgents = defineStore("agents", () => {
     system.value = system.value.map((card) => (card.id === id ? changed : card));
     return changed;
   }
+
+  // An agent was changed, switched, made or deleted (another tab, a tool): the cards and the choices are read anew.
+  onResourceChanged("agents", () => void load());
 
   return {
     cards, system, cloudModels, changeCloud, notice, busy, load, switchAgent, remove, create, persona, prompt, rights, changePersona, writePrompt, changeRights,

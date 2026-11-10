@@ -27,6 +27,7 @@ from typing import Any
 
 import bcrypt
 
+from .browser_push import notify_changed
 from .config import DATA_DIR
 from .formatting import format_stamp
 
@@ -370,6 +371,7 @@ def _write_session_file(path: Path, session: dict[str, Any]) -> bool:
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(session, f, ensure_ascii=False, indent=2)
         os.replace(tmp_path, path)
+        notify_changed("sessions")      # the list of the saved chats: title, last message, count
         return True
     except OSError:
         try:
@@ -706,6 +708,7 @@ def delete_session(session_id: str, expected_owner: str | None = None) -> bool:
         from .routing_table import routing_table
         routing_table.delete_routes_for_session(session_id)
 
+        notify_changed("sessions")
         return True
     except (OSError, ValueError):
         return False
