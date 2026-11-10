@@ -115,9 +115,6 @@ async function start(): Promise<void> {
   agents.value = await api<AgentSummary[]>("agents/summary");
   colors.value = await api<Record<string, string>>("agents/colors");
   modes.value = await api<DebateMode[]>("debate/modes");
-  await sessions.refresh();
-  const latest = sessions.list[0];
-  await chat.open(latest ? latest.session_id : await sessions.create());
 }
 
 async function create(): Promise<void> {
@@ -177,7 +174,7 @@ async function openSession(sessionId: string): Promise<void> {
   chatMain.value?.scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
-// The shell shows this page only once logged in; kept alive, it opens a session once per login.
+// The shell shows this page only once logged in and has opened the session (App.vue).
 onMounted(() => void start());
 
 

@@ -50,7 +50,12 @@ async function logout(): Promise<void> {
   await auth.logout();
 }
 
-watch(() => auth.user, (user) => user && void settings.load());
+// Logged in: the settings, and the session with its event stream, whatever page the user lands on.
+watch(() => auth.user, (user) => {
+  if (!user) return;
+  void settings.load();
+  void chat.openLatest();
+});
 
 // A newer build is installed: load it as soon as nothing would be lost (a draft, images, a dictation, a running
 // answer); until then the bar says so, and a click loads it at once.

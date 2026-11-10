@@ -101,6 +101,15 @@ export const useChat = defineStore("chat", () => {
     source = followSession(id, detail.last_event_id, handle);
   }
 
+  // The session the user works in: the newest, or a new one when there is none. Opened once per login, on whatever page the
+  // user lands: its event stream also carries the changes of the lists the other pages show (lib/resourceChanges.ts).
+  async function openLatest(): Promise<void> {
+    const sessions = useSessions();
+    await sessions.refresh();
+    const latest = sessions.list[0];
+    await open(latest ? latest.session_id : await sessions.create());
+  }
+
   function close(): void {
     source?.close();
     speech.stop();
@@ -438,7 +447,7 @@ export const useChat = defineStore("chat", () => {
 
   return {
     sessionId, title, history, debugLines, config, running, streaming, toolStatus, phase, notice, info, queued,
-    pendingImages, uploading, draft, dictations, open, close, send, stop, configure,
+    pendingImages, uploading, draft, dictations, open, openLatest, close, send, stop, configure,
     uploadImages, removeImage, dictate, dictated,
     readAgain, regenerating, regenerateAll, rotateImage, cropImage, exportChat, clearChat,
     remembering, remember, mediaControl,
