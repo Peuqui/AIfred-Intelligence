@@ -33,6 +33,8 @@ expiry is due but has not happened (the containers check their idle time only ev
 and on a click of the button. The time left can therefore be too short, never too long. When GPU-Orc
 releases a card for another caller (Agent-Orc, vllm-research), AIfred sees it only at its next
 scheduled look or on a click of the button.
+The open page also asks again by itself every 30 s with `?refresh=true` (only while the tab is visible, and
+when it comes back to the tab; `REFRESH_EVERY_MS` in `ServiceStatusBar.vue`), so it sees these changes without the button.
 
 ## Loading and unloading by button
 

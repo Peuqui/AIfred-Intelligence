@@ -22,6 +22,9 @@ const NAMES: Record<Service, string> = {
 // Until the first snapshot arrives the bar asks this often (the push brings only changes); then it ticks each second.
 const ASK_AGAIN_MS = 5000;
 const TICK_MS = 1000;
+// STT and TTS push nothing, and a card another client frees (GPU-Orc for Agent-Orc, vllm-research) is not seen by
+// AIfred itself: the visible bar reads them anew this often, and when the tab becomes visible again.
+const REFRESH_EVERY_MS = 30000;
 
 const labels = computed(() => ({
   lang: language.value,
@@ -52,7 +55,12 @@ const ACTION_TITLES: Record<Action["verb"], string> = {
 };
 
 let timer = 0;
+let refreshTimer = 0;
 let askedAt = -Infinity;
+
+function refreshIfVisible(): void {
+  if (document.visibilityState === "visible") void status.fetch(true);
+}
 onMounted(() => {
   void status.fetch(false);
   askedAt = performance.now();
@@ -63,8 +71,14 @@ onMounted(() => {
       void status.fetch(false);
     }
   }, TICK_MS);
+  refreshTimer = window.setInterval(refreshIfVisible, REFRESH_EVERY_MS);
+  document.addEventListener("visibilitychange", refreshIfVisible);
 });
-onBeforeUnmount(() => window.clearInterval(timer));
+onBeforeUnmount(() => {
+  window.clearInterval(timer);
+  window.clearInterval(refreshTimer);
+  document.removeEventListener("visibilitychange", refreshIfVisible);
+});
 </script>
 
 <template>

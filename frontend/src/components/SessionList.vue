@@ -17,6 +17,12 @@ const open = computed(() => column.shown.value || opened.value);
 const selecting = ref(false);
 const chosen = ref<string[]>([]);
 
+// A chosen chat closes the accordion (in the column there is nothing to close): the chat shows.
+function openSession(sessionId: string): void {
+  emit("open", sessionId);
+  opened.value = false;
+}
+
 function toggleSelecting(): void {
   selecting.value = !selecting.value;
   chosen.value = [];
@@ -65,7 +71,7 @@ function removeAll(): void {
     <ul v-if="open">
       <li v-for="session in sessions.list" :key="session.session_id" :class="{ active: session.session_id === current }">
         <input v-if="selecting" v-model="chosen" type="checkbox" :value="session.session_id" class="pick" />
-        <button class="entry" @click="emit('open', session.session_id)">
+        <button class="entry" @click="openSession(session.session_id)">
           <span class="title">{{ session.title || t("untitled_chat") }}</span>
           <span class="meta">{{ session.last_message_display }} · {{ session.message_count }}</span>
         </button>

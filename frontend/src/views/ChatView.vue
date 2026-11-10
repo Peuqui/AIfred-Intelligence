@@ -39,6 +39,7 @@ const agents = ref<AgentSummary[]>([]);
 const colors = ref<Record<string, string>>({});
 const modes = ref<DebateMode[]>([]);
 const messages = ref<HTMLElement | null>(null);
+const chatMain = ref<HTMLElement | null>(null);
 const streamingHtml = computed(() => (chat.streaming ? renderMarkdown(chat.streaming.text) : ""));
 const hasReplies = computed(() => chat.history.some((entry) => entry.role === "assistant"));
 // The history in turns: a question with the answers after it. The question stays at the top edge of the box while its
@@ -169,6 +170,13 @@ watch(() => chat.sessionId, async () => {
   if (messages.value) messages.value.scrollTop = messages.value.scrollHeight;
 });
 
+// A chat chosen in the list: it opens, the list has closed, and the page goes to the chat so that it shows.
+async function openSession(sessionId: string): Promise<void> {
+  await chat.open(sessionId);
+  await nextTick();
+  chatMain.value?.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
 // The shell shows this page only once logged in; kept alive, it opens a session once per login.
 onMounted(() => void start());
 
@@ -177,8 +185,8 @@ onMounted(() => void start());
 
 <template>
   <div class="layout" :class="{ column: sessionsColumn }">
-    <SessionList class="side" :current="chat.sessionId" @open="chat.open" @create="create" @remove="remove" />
-    <main class="chat">
+    <SessionList class="side" :current="chat.sessionId" @open="openSession" @create="create" @remove="remove" />
+    <main ref="chatMain" class="chat">
       <!-- The history's title with the text size and the ⋮ of what concerns the whole chat above it; the input as in
            Agent-Orc, who answers and how below it (Peuqui 09.11.2026). -->
       <div class="toolbar">

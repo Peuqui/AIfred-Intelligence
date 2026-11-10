@@ -33,6 +33,8 @@ ein anderer Client kann die Uhr inzwischen zurückgesetzt haben), bei überfäll
 Knopfdruck. Die Restzeit liegt dadurch höchstens zu kurz, nie zu lang. Gibt GPU-Orc eine Karte
 für einen anderen Aufrufer frei (Agent-Orc, vllm-research), sieht AIfred das erst beim nächsten
 geplanten Nachschauen oder auf Knopfdruck.
+Die geöffnete Seite fragt außerdem selbst alle 30 s mit `?refresh=true` nach (nur bei sichtbarem Tab, und
+beim Zurückkehren in den Tab; `REFRESH_EVERY_MS` in `ServiceStatusBar.vue`), sieht diese Änderungen also auch ohne Knopf.
 
 ## Laden und Entladen per Knopf
 
