@@ -301,3 +301,61 @@ class TestPromptInstructions:
         assert "Creating" in plugin.get_ui_status("scheduler_create", {"name": "test"}, "en")
         assert "Deleting" in plugin.get_ui_status("scheduler_delete", {"job_id": 1}, "en")
         assert "Loading" in plugin.get_ui_status("scheduler_list", {}, "en")
+
+
+class TestScheduleEndInTheTool:
+    """end_date: optional, a day or a moment, for cron and interval jobs; the model reads English errors."""
+
+    @staticmethod
+    def _tool(plugin, ctx, name):
+        return next(tool.executor for tool in plugin.get_tools(ctx) if tool.name == name)
+
+    def test_a_job_several_times_a_day_with_an_end(self, plugin, ctx):
+        create = self._tool(plugin, ctx, "scheduler_create")
+        result = json.loads(_run(create(
+            name="deals", schedule_type="cron", schedule_expr="0 8,14,20 * * *", message="Prüfe die Angebote",
+            end_date="2099-11-30",
+        )))
+        assert result["success"] is True and result["end_date"] == "2099-11-30"
+        stored = get_job_store().get(result["job_id"])
+        assert stored is not None and stored.ends_at == "2099-11-30"
+
+    def test_without_an_end_the_job_has_none(self, plugin, ctx):
+        create = self._tool(plugin, ctx, "scheduler_create")
+        result = json.loads(_run(create(name="x", schedule_type="cron", schedule_expr="0 8 * * *", message="m")))
+        assert result["end_date"] == ""
+
+    @pytest.mark.parametrize("bad", ["30.11.2026", "morgen", "2026-11-30 18:00"])
+    def test_a_bad_end_is_refused_in_english(self, plugin, ctx, bad):
+        create = self._tool(plugin, ctx, "scheduler_create")
+        result = json.loads(_run(create(name="x", schedule_type="cron", schedule_expr="0 8 * * *", message="m", end_date=bad)))
+        assert result["error"] == t("error_invalid_ends_at", lang="en", value=bad)
+        assert get_job_store().list_all() == []
+
+    def test_a_one_shot_job_takes_no_end(self, plugin, ctx):
+        create = self._tool(plugin, ctx, "scheduler_create")
+        result = json.loads(_run(create(
+            name="x", schedule_type="once", schedule_expr="2099-01-01T10:00:00", message="m", end_date="2099-02-01",
+        )))
+        assert result["error"] == t("error_ends_at_not_for_once", lang="en")
+
+    def test_an_end_before_the_first_run_is_refused(self, plugin, ctx):
+        create = self._tool(plugin, ctx, "scheduler_create")
+        result = json.loads(_run(create(name="x", schedule_type="cron", schedule_expr="0 8 * * *", message="m", end_date="2020-01-01")))
+        assert "never run" in result["error"] and "job not created" in result["error"]
+
+    def test_update_sets_keeps_and_removes_the_end(self, plugin, ctx):
+        create, update, listing = (self._tool(plugin, ctx, name) for name in ("scheduler_create", "scheduler_update", "scheduler_list"))
+        job_id = json.loads(_run(create(name="x", schedule_type="cron", schedule_expr="0 8 * * *", message="m")))["job_id"]
+        assert json.loads(_run(update(job_id=job_id, end_date="2099-12-31")))["end_date"] == "2099-12-31"
+        assert json.loads(_run(update(job_id=job_id, message="neu")))["end_date"] == "2099-12-31"      # left out: stays
+        assert json.loads(_run(listing()))["jobs"][0]["end_date"] == "2099-12-31"
+        assert json.loads(_run(update(job_id=job_id, end_date="")))["end_date"] == ""                   # empty: no end
+
+    def test_the_tools_offer_end_date_and_the_hints_name_the_list_of_hours(self, plugin, ctx):
+        tools = {tool.name: tool for tool in plugin.get_tools(ctx)}
+        for name in ("scheduler_create", "scheduler_update"):
+            assert "end_date" in tools[name].parameters["properties"] and "end_date" not in tools[name].parameters.get("required", [])
+        assert "0 8,14,20 * * *" in tools["scheduler_create"].description
+        for lang in ("de", "en"):
+            assert "0 8,14,20 * * *" in plugin.get_prompt_instructions(lang) and "end_date" in plugin.get_prompt_instructions(lang)

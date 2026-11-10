@@ -30,6 +30,7 @@ das Ergebnis an den konfigurierten Delivery-Modus übergeben.
 | `channel` | nein | Zielkanal für `announce` (z.B. `telegram`, `discord`, `email`) |
 | `recipient` | nein | Empfänger für `announce` (E-Mail-Adresse usw.) |
 | `webhook_url` | nein | URL für `webhook`-Delivery |
+| `end_date` | nein | Ende eines `cron`-/`interval`-Jobs: `JJJJ-MM-TT` (der Tag läuft noch mit) oder `JJJJ-MM-TTTHH:MM`; ohne Angabe läuft der Job unbegrenzt. `scheduler_update` setzt oder entfernt es (leerer Wert) |
 
 ## Features
 
@@ -48,6 +49,8 @@ Gesprochene bzw. Chat-Anfragen, die AIfred auf die Tools abbildet:
   → `scheduler_create(name="Morgen-Mail-Digest", schedule_type="cron", schedule_expr="0 7 * * *", message="Fasse meine neuen E-Mails zusammen", delivery="announce", channel="telegram")`
 - „Erinnere mich morgen um 10 an den Arzttermin"
   → `scheduler_create(name="Arzt-Reminder", schedule_type="once", schedule_expr="2026-03-31T10:00:00", message="Erinnere mich an den Arzttermin", delivery="review")`
+- „Prüfe die Black-Week-Angebote 3x täglich bis Ende November"
+  → `scheduler_create(name="Black Week", schedule_type="cron", schedule_expr="0 8,14,20 * * *", end_date="2026-11-30", message="…")` (EIN Job mit einer Liste von Uhrzeiten)
 - „Zeig mir meine geplanten Jobs" → `scheduler_list()`
 - „Verschieb Job 3 auf 7:05" → `scheduler_update(job_id=3, schedule_expr="5 7 * * *")`
 - „Lösche Job 3" → `scheduler_delete(job_id=3)`

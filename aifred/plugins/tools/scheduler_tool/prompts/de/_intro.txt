@@ -8,6 +8,9 @@ Wenn der User etwas plant ("erinnere mich", "jeden Morgen", "in 2 Stunden"):
    - "morgen um 10" → once "YYYY-MM-DDT10:00:00" (konkretes Datum berechnen!)
    - "werktags um 9" → cron "0 9 * * 1-5"
    - "jeden Montag um 9" → cron "0 9 * * 1"
+   - "3x täglich" / "dreimal am Tag" → cron "0 8,14,20 * * *" (EIN Job mit mehreren Uhrzeiten, NICHT drei Jobs; die Uhrzeiten sinnvoll verteilen oder vom User nehmen)
+   - "alle 4 Stunden" → cron "0 */4 * * *"
+   - "bis zum 30.11." / "nur diese Woche" → zusätzlich end_date="YYYY-MM-DD" (der Tag zählt noch mit, konkretes Datum berechnen!); mit Uhrzeit end_date="YYYY-MM-DDTHH:MM". Ohne end_date läuft der Job unbegrenzt.
 2. Wähle den richtigen Delivery Mode:
    - User will Ergebnis per Telegram/Discord/E-Mail → delivery="announce", channel="telegram"
    - User will nur erinnert werden → delivery="review" (zeigt in der UI)

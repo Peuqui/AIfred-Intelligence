@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from aifred.lib.scheduler import JobStore, _calculate_next_run, _now_iso
+from aifred.lib.scheduler import JobStore, _calculate_next_run, _now_iso, job_problem, parse_ends_at
+from aifred.lib.user_error import Invalid
 
 # ── Helpers ───────────────────────────────────────────────────
 
@@ -192,3 +193,106 @@ class TestEnableRecalculatesNextRun:
         store.enable(job.job_id, enabled=False)
         disabled = store.get(job.job_id)
         assert disabled is not None and disabled.next_run == job.next_run
+
+
+# ── End of a schedule ─────────────────────────────────────────
+
+def _days(offset: int) -> str:
+    return (datetime.now() + timedelta(days=offset)).strftime("%Y-%m-%d")
+
+
+class TestParseEndsAt:
+    def test_a_day_counts_to_its_end(self):
+        assert parse_ends_at("2026-11-30") == datetime(2026, 11, 30, 23, 59, 59)
+
+    def test_a_moment_is_taken_as_it_is(self):
+        assert parse_ends_at("2026-11-30T18:00") == datetime(2026, 11, 30, 18, 0)
+        assert parse_ends_at("2026-11-30T18:00:30") == datetime(2026, 11, 30, 18, 0, 30)
+
+    @pytest.mark.parametrize("text", ["30.11.2026", "2026-11-30 18:00", "2026-11", "bald", "20261130"])
+    def test_anything_else_is_refused(self, text):
+        with pytest.raises(ValueError):
+            parse_ends_at(text)
+
+    def test_job_problem_names_a_bad_end_and_a_one_shot_with_an_end(self):
+        bad = job_problem("cron", {}, "30.11.2026")
+        assert isinstance(bad, Invalid) and bad.key == "invalid_ends_at"
+        once = job_problem("once", {}, "2026-11-30")
+        assert isinstance(once, Invalid) and once.key == "ends_at_not_for_once"
+        assert job_problem("cron", {}, "2026-11-30") is None and job_problem("cron", {}) is None
+
+
+class TestScheduleEnd:
+    def test_the_end_is_stored_and_read_back(self, store):
+        job = store.add("t", "cron", "0 8,14,20 * * *", {}, ends_at=_days(30))
+        assert store.get(job.job_id).ends_at == _days(30)
+        assert store.add("open", "cron", "0 8 * * *", {}).ends_at == ""
+
+    def test_a_first_run_after_the_end_is_refused(self, store):
+        with pytest.raises(Invalid) as refused:
+            store.add("t", "cron", "0 8 * * *", {}, ends_at=_days(-1))
+        assert refused.value.key == "ends_before_first_run"
+        assert store.list_all() == []
+
+    def test_update_sets_moves_and_removes_the_end(self, store):
+        job = store.add("t", "cron", "0 8 * * *", {})
+        assert store.update(job.job_id, "t", "cron", "0 8 * * *", {}, ends_at=_days(10)).ends_at == _days(10)
+        assert store.update(job.job_id, "t", "cron", "0 8 * * *", {}, ends_at="").ends_at == ""
+        with pytest.raises(Invalid):
+            store.update(job.job_id, "t", "cron", "0 8 * * *", {}, ends_at=_days(-1))
+        assert store.get(job.job_id).ends_at == ""      # the refused change left it as it was
+
+    @staticmethod
+    def _time_passes_to(store, job_id, ends_at):
+        """The end is now only 30 minutes away: as if the days since the job was set up had gone by."""
+        with store._connect() as conn:
+            conn.execute("UPDATE jobs SET ends_at = ? WHERE job_id = ?", (ends_at, job_id))
+            conn.commit()
+
+    @staticmethod
+    def _in_half_an_hour() -> str:
+        return (datetime.now() + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M")
+
+    def test_the_last_run_before_the_end_switches_the_job_off(self, store):
+        job = store.add("t", "interval", "3600", {}, ends_at=_days(5))
+        self._time_passes_to(store, job.job_id, self._in_half_an_hour())
+        store.mark_executed(job.job_id)
+        ended = store.get(job.job_id)
+        assert (ended.enabled, ended.next_run, bool(ended.last_run)) == (False, "", True)
+
+    def test_a_run_inside_the_schedule_goes_on(self, store):
+        job = store.add("t", "interval", "3600", {}, ends_at=_days(5))
+        store.mark_executed(job.job_id)
+        assert store.get(job.job_id).enabled is True and store.get(job.job_id).next_run
+
+    def test_a_failed_last_run_ends_the_job_too(self, store):
+        job = store.add("t", "interval", "3600", {}, ends_at=_days(5))
+        self._time_passes_to(store, job.job_id, self._in_half_an_hour())
+        store.mark_failed(job.job_id)
+        ended = store.get(job.job_id)
+        assert (ended.enabled, ended.next_run, ended.retry_count) == (False, "", 1)
+
+    def test_an_ended_job_is_not_switched_on_before_a_later_end(self, store):
+        job = store.add("t", "interval", "3600", {}, ends_at=_days(5))
+        self._time_passes_to(store, job.job_id, self._in_half_an_hour())
+        store.mark_executed(job.job_id)
+        with pytest.raises(Invalid) as refused:
+            store.enable(job.job_id, True)
+        assert refused.value.key == "job_ended"
+        store.update(job.job_id, "t", "interval", "3600", {}, ends_at=_days(5))
+        store.enable(job.job_id, True)
+        assert store.get(job.job_id).enabled is True
+
+    def test_a_database_from_before_the_end_gets_the_column_and_keeps_its_jobs(self, tmp_path):
+        import sqlite3
+
+        path = tmp_path / "old.db"
+        with sqlite3.connect(path) as conn:
+            conn.execute("""CREATE TABLE jobs (job_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+                schedule_type TEXT NOT NULL CHECK(schedule_type IN ('cron', 'interval', 'once')), schedule_expr TEXT NOT NULL,
+                payload TEXT NOT NULL DEFAULT '{}', max_tier INTEGER NOT NULL DEFAULT 1, enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT, last_run TEXT, next_run TEXT, retry_count INTEGER NOT NULL DEFAULT 0)""")
+            conn.execute("INSERT INTO jobs (name, schedule_type, schedule_expr, next_run) VALUES ('alt', 'cron', '0 8 * * *', '2030-01-01T08:00:00')")
+        reopened = JobStore(path)
+        assert [(job.name, job.ends_at) for job in reopened.list_all()] == [("alt", "")]
+        JobStore(path)      # a second start does not add the column again

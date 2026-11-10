@@ -95,6 +95,33 @@ def test_a_job_is_changed_switched_and_deleted(client: TestClient, store: schedu
     assert client.delete(f"/jobs/{job_id}").status_code == 404
 
 
+def test_the_end_of_a_schedule_is_stored_listed_changed_and_refused_when_wrong(client: TestClient, store: scheduler.JobStore) -> None:
+    created = client.post("/jobs", json={**CRON, "schedule_expr": "0 8,14,20 * * *", "ends_at": "2099-11-30T18:00"}).json()
+    assert created["ends_at"] == "2099-11-30T18:00" and client.get("/jobs").json()[0]["ends_at"] == "2099-11-30T18:00"
+    assert client.post("/jobs", json=CRON).json()["ends_at"] == ""                              # optional
+    changed = client.put(f"/jobs/{created['job_id']}", json={**CRON, "ends_at": ""}).json()
+    assert changed["ends_at"] == ""
+    for bad, key, values in (
+        ("30.11.2026", "invalid_ends_at", {"value": "30.11.2026"}),
+        ("2020-01-01", "ends_before_first_run", None),
+    ):
+        refused = client.post("/jobs", json={**CRON, "ends_at": bad})
+        assert refused.status_code == 422
+        if values is not None:
+            assert refused.json()["detail"] == t(f"error_{key}").format(**values)
+    once = client.post("/jobs", json={**CRON, "schedule_type": "once", "schedule_expr": "2099-01-01T10:00:00", "ends_at": "2099-02-01"})
+    assert once.status_code == 422 and once.json()["detail"] == t("error_ends_at_not_for_once")
+
+
+def test_an_ended_job_is_not_switched_on_over_the_api(client: TestClient, store: scheduler.JobStore) -> None:
+    job_id = client.post("/jobs", json={**CRON, "schedule_type": "interval", "schedule_expr": "3600", "ends_at": "2099-01-01"}).json()["job_id"]
+    with store._connect() as conn:       # as a run to its end left it: the end behind us, the job off
+        conn.execute("UPDATE jobs SET ends_at = '2020-01-01', enabled = 0 WHERE job_id = ?", (job_id,))
+        conn.commit()
+    refused = client.patch(f"/jobs/{job_id}", json={"enabled": True})
+    assert refused.status_code == 422 and refused.json()["detail"] == t("error_job_ended").format(ends_at="2020-01-01")
+
+
 def test_the_preview_says_when_an_expression_fires(client: TestClient) -> None:
     assert client.post("/jobs/preview", json={"schedule_type": "cron", "schedule_expr": "30 7 * * 1-5"}).json()["next_run"]
     assert client.post("/jobs/preview", json={"schedule_type": "cron", "schedule_expr": "kein cron"}).status_code == 422

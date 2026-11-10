@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -45,11 +46,38 @@ CRON_PRESETS: tuple[tuple[str, str, str, str, str, str], ...] = (
 )
 
 
-def job_problem(schedule_type: str, payload: dict[str, Any]) -> Invalid | None:
+# When a recurring job ends: a day ("2026-11-30": that day still runs, to its end) or a moment ("2026-11-30T18:00":
+# no run after it). One truth for the tool, the API and the job store.
+_ENDS_AT_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+_ENDS_AT_MOMENT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?")
+
+
+def parse_ends_at(ends_at: str) -> datetime:
+    """The last moment a job may run. ValueError for anything but the two forms above."""
+    if _ENDS_AT_DAY.fullmatch(ends_at):
+        return datetime.fromisoformat(ends_at).replace(hour=23, minute=59, second=59)
+    if _ENDS_AT_MOMENT.fullmatch(ends_at):
+        return datetime.fromisoformat(ends_at)
+    raise ValueError(ends_at)
+
+
+def _runs_after_end(next_run: str, ends_at: str) -> bool:
+    """Whether a run at `next_run` falls after the end of the schedule (no end: never)."""
+    return bool(ends_at) and datetime.fromisoformat(next_run) > parse_ends_at(ends_at)
+
+
+def job_problem(schedule_type: str, payload: dict[str, Any], ends_at: str = "") -> Invalid | None:
     """What is wrong with a job before it is stored, None when nothing. The expression itself is checked
     when the next run is computed (JobStore.add / update raise for one that never fires)."""
     if schedule_type not in SCHEDULE_TYPES:
         return Invalid("unknown_schedule_type", value=schedule_type, allowed=", ".join(SCHEDULE_TYPES))
+    if ends_at:
+        if schedule_type == "once":
+            return Invalid("ends_at_not_for_once")
+        try:
+            parse_ends_at(ends_at)
+        except ValueError:
+            return Invalid("invalid_ends_at", value=ends_at)
     delivery = payload.get("delivery", "review")
     if delivery not in DELIVERY_MODES:
         return Invalid("unknown_delivery", value=delivery, allowed=", ".join(DELIVERY_MODES))
@@ -80,6 +108,7 @@ class Job:
     last_run: str = ""
     next_run: str = ""
     retry_count: int = 0
+    ends_at: str = ""           # "" = no end; see parse_ends_at
 
 
 # ============================================================
@@ -113,9 +142,13 @@ class JobStore:
                     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime')),
                     last_run TEXT,
                     next_run TEXT,
-                    retry_count INTEGER NOT NULL DEFAULT 0
+                    retry_count INTEGER NOT NULL DEFAULT 0,
+                    ends_at TEXT
                 )
             """)
+            # A database from before the end of a schedule: the column is added once, the jobs stay as they are.
+            if "ends_at" not in {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}:
+                conn.execute("ALTER TABLE jobs ADD COLUMN ends_at TEXT")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS job_runs (
                     run_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -167,7 +200,18 @@ class JobStore:
             last_run=row["last_run"] or "",
             next_run=row["next_run"] or "",
             retry_count=row["retry_count"],
+            ends_at=row["ends_at"] or "",
         )
+
+    def _first_run(self, schedule_type: str, schedule_expr: str, after: str, ends_at: str) -> str:
+        """The next run of a new or changed schedule. Raises Invalid for one that never fires (get_due_jobs filters
+        next_run IS NOT NULL) and for one whose first run already falls after its end."""
+        next_run = _calculate_next_run(schedule_type, schedule_expr, after)
+        if next_run is None:
+            raise Invalid("schedule_never_fires", kind=schedule_type, expression=schedule_expr)
+        if _runs_after_end(next_run, ends_at):
+            raise Invalid("ends_before_first_run", first=next_run, ends_at=ends_at)
+        return next_run
 
     def add(
         self,
@@ -176,21 +220,19 @@ class JobStore:
         schedule_expr: str,
         payload: dict[str, Any],
         max_tier: int = 1,
+        ends_at: str = "",
     ) -> Job:
         """Add a new job. Returns the created Job with its ID.
 
-        Raises Invalid for an expression without a next run: the job would never fire
-        (get_due_jobs filters next_run IS NOT NULL).
+        Raises Invalid for an expression without a next run (the job would never fire) and for a first run after
+        the end of the schedule.
         """
-        now = _now_iso()
-        next_run = _calculate_next_run(schedule_type, schedule_expr, now)
-        if next_run is None:
-            raise Invalid("schedule_never_fires", kind=schedule_type, expression=schedule_expr)
+        next_run = self._first_run(schedule_type, schedule_expr, _now_iso(), ends_at)
         with self._connect() as conn:
             cursor = conn.execute(
-                """INSERT INTO jobs (name, schedule_type, schedule_expr, payload, max_tier, next_run)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (name, schedule_type, schedule_expr, json.dumps(payload), max_tier, next_run),
+                """INSERT INTO jobs (name, schedule_type, schedule_expr, payload, max_tier, next_run, ends_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (name, schedule_type, schedule_expr, json.dumps(payload), max_tier, next_run, ends_at or None),
             )
             conn.commit()
             job_id = cursor.lastrowid or 0
@@ -205,26 +247,27 @@ class JobStore:
         schedule_expr: str,
         payload: dict[str, Any],
         max_tier: int = 1,
+        ends_at: str = "",
     ) -> Job | None:
         """Update a job in place.
 
         Keeps job_id, enabled, last_run and created_at (a delete+add would
         lose them and — worse — lose the job entirely if the add fails
-        after the delete). retry_count resets like a fresh add.
+        after the delete). retry_count resets like a fresh add. A job that
+        ran to its end stays off after a later end is set: it is switched on
+        like any other (enable).
 
-        Raises Invalid for an expression without a next run: the job
-        would never fire (get_due_jobs filters next_run IS NOT NULL).
+        Raises Invalid like add: for an expression without a next run, and
+        for a next run after the end of the schedule.
         """
-        next_run = _calculate_next_run(schedule_type, schedule_expr, _now_iso())
-        if next_run is None:
-            raise Invalid("schedule_never_fires", kind=schedule_type, expression=schedule_expr)
+        next_run = self._first_run(schedule_type, schedule_expr, _now_iso(), ends_at)
         with self._connect() as conn:
             cursor = conn.execute(
                 """UPDATE jobs SET name = ?, schedule_type = ?, schedule_expr = ?,
-                       payload = ?, max_tier = ?, next_run = ?, retry_count = 0
+                       payload = ?, max_tier = ?, next_run = ?, retry_count = 0, ends_at = ?
                    WHERE job_id = ?""",
                 (name, schedule_type, schedule_expr, json.dumps(payload),
-                 max_tier, next_run, job_id),
+                 max_tier, next_run, ends_at or None, job_id),
             )
             conn.commit()
             if cursor.rowcount == 0:
@@ -278,6 +321,16 @@ class JobStore:
             return
 
         next_run = _calculate_next_run(job.schedule_type, job.schedule_expr, now)
+        if next_run is not None and _runs_after_end(next_run, job.ends_at):
+            # The schedule has run to its end: off, like a one-shot job after its run.
+            with self._connect() as conn:
+                conn.execute(
+                    "UPDATE jobs SET last_run = ?, next_run = NULL, enabled = 0, retry_count = 0 WHERE job_id = ?",
+                    (now, job_id),
+                )
+                conn.commit()
+            log_message(f"Scheduler: job '{job.name}' (id={job_id}) ended after its last run ({job.ends_at})")
+            return
         with self._connect() as conn:
             conn.execute(
                 "UPDATE jobs SET last_run = ?, next_run = ?, retry_count = 0 WHERE job_id = ?",
@@ -304,6 +357,15 @@ class JobStore:
 
         # Recurring job: advance next_run so it doesn't retry every minute
         next_run = _calculate_next_run(job.schedule_type, job.schedule_expr, now)
+        if next_run is not None and _runs_after_end(next_run, job.ends_at):
+            with self._connect() as conn:
+                conn.execute(
+                    "UPDATE jobs SET retry_count = retry_count + 1, next_run = NULL, enabled = 0 WHERE job_id = ?",
+                    (job_id,),
+                )
+                conn.commit()
+            log_message(f"Scheduler: job '{job.name}' (id={job_id}) ended with a failed last run ({job.ends_at})")
+            return
         with self._connect() as conn:
             conn.execute(
                 "UPDATE jobs SET retry_count = retry_count + 1, next_run = ? WHERE job_id = ?",
@@ -324,7 +386,8 @@ class JobStore:
 
         Enabling recalculates next_run from now: a job that was off keeps the
         next_run of its last run, so switching it on would fire at once for
-        a slot that fell due while it was disabled.
+        a slot that fell due while it was disabled. A job whose next run lies
+        after the end of its schedule is not switched on (Invalid).
         """
         job = self.get(job_id)
         if not job:
@@ -333,6 +396,8 @@ class JobStore:
             _calculate_next_run(job.schedule_type, job.schedule_expr, _now_iso())
             if enabled else job.next_run
         )
+        if enabled and next_run is not None and _runs_after_end(next_run, job.ends_at):
+            raise Invalid("job_ended", ends_at=job.ends_at)
         with self._connect() as conn:
             conn.execute(
                 "UPDATE jobs SET enabled = ?, next_run = ? WHERE job_id = ?",

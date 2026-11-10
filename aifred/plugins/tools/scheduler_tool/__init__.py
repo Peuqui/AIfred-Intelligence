@@ -33,11 +33,11 @@ class SchedulerPlugin:
     )
 
     @staticmethod
-    def _problem(schedule_type: str, payload: dict[str, Any]) -> str | None:
+    def _problem(schedule_type: str, payload: dict[str, Any], ends_at: str = "") -> str | None:
         """Error JSON for a job lib/scheduler.py refuses, else None."""
         from ....lib.scheduler import job_problem
 
-        problem = job_problem(schedule_type, payload)
+        problem = job_problem(schedule_type, payload, ends_at)
         return json.dumps({"error": str(problem)}) if problem else None
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
@@ -56,6 +56,7 @@ class SchedulerPlugin:
             webhook_url: str = "",
             fixed_text: bool = False,
             audio_type: str = "",
+            end_date: str = "",
         ) -> str:
             """Create a new scheduled job."""
             from ....lib.scheduler import get_job_store
@@ -79,7 +80,7 @@ class SchedulerPlugin:
                     payload["fixed_text"] = True
             except InvalidValue as exc:
                 return json.dumps({"error": str(exc)})
-            error = self._problem(schedule_type, payload)
+            error = self._problem(schedule_type, payload, end_date)
             if error:
                 return error
 
@@ -98,6 +99,7 @@ class SchedulerPlugin:
                     schedule_expr=schedule_expr,
                     payload=payload,
                     max_tier=job_tier,
+                    ends_at=end_date,
                 )
             except ValueError as exc:
                 # Fail-loud: without next_run the job would NEVER fire — an invalid
@@ -112,6 +114,7 @@ class SchedulerPlugin:
                 "schedule_type": job.schedule_type,
                 "schedule_expr": job.schedule_expr,
                 "next_run": job.next_run,
+                "end_date": job.ends_at,
                 "delivery": delivery,
             })
 
@@ -133,6 +136,7 @@ class SchedulerPlugin:
                         "enabled": j.enabled,
                         "next_run": j.next_run,
                         "last_run": j.last_run,
+                        "end_date": j.ends_at,
                         "delivery": j.payload.get("delivery", "review"),
                         **{k: j.payload[k] for k in self._PAYLOAD_FIELDS
                            if k != "delivery" and j.payload.get(k)},
@@ -155,8 +159,9 @@ class SchedulerPlugin:
             enabled: bool | None = None,
             fixed_text: bool | None = None,
             audio_type: str = "",
+            end_date: str | None = None,
         ) -> str:
-            """Change a scheduled job in place; empty arguments stay unchanged."""
+            """Change a scheduled job in place; empty arguments stay unchanged (end_date: "" removes the end)."""
             from ....lib.scheduler import get_job_store
 
             store = get_job_store()
@@ -176,13 +181,14 @@ class SchedulerPlugin:
                     payload["fixed_text"] = parse_bool(fixed_text, "fixed_text")
             except InvalidValue as exc:
                 return json.dumps({"error": str(exc)})
-            error = self._problem(new_type, payload)
+            new_end = job.ends_at if end_date is None else end_date
+            error = self._problem(new_type, payload, new_end)
             if error:
                 return error
             try:
                 updated = store.update(
                     job_id, name or job.name, new_type,
-                    schedule_expr or job.schedule_expr, payload, job.max_tier,
+                    schedule_expr or job.schedule_expr, payload, job.max_tier, new_end,
                 )
             except ValueError as exc:
                 return json.dumps({"error": f"{exc} — job {job_id} unchanged"})
@@ -191,7 +197,10 @@ class SchedulerPlugin:
             # Enable after update: update() recalculates next_run from now, so a
             # re-enabled job does not fire for a run that fell due while it was off.
             if enabled is not None:
-                store.enable(job_id, enabled)
+                try:
+                    store.enable(job_id, enabled)
+                except ValueError as exc:   # the schedule has run to its end
+                    return json.dumps({"error": f"{exc} — job {job_id} changed but not switched on"})
                 updated.enabled = enabled
             log_message(f"Scheduler: job '{updated.name}' (id={job_id}) updated")
             return json.dumps({
@@ -202,6 +211,7 @@ class SchedulerPlugin:
                 "schedule_expr": updated.schedule_expr,
                 "enabled": updated.enabled,
                 "next_run": updated.next_run,
+                "end_date": updated.ends_at,
                 "delivery": updated.payload.get("delivery", "review"),
             })
 

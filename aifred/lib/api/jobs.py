@@ -54,6 +54,7 @@ class JobRow(BaseModel):
     last_run: str
     next_run: str | None
     retry_count: int
+    ends_at: str = Field(description="End of a cron or interval job: YYYY-MM-DD (that day still runs) or YYYY-MM-DDTHH:MM; empty = no end")
 
 
 class JobWrite(BaseModel):
@@ -70,6 +71,7 @@ class JobWrite(BaseModel):
     fixed_text: bool = False
     audio_type: str = "notification"
     max_tier: int = Field(TIER_READONLY + 1, ge=TIER_READONLY, le=TIER_ADMIN)
+    ends_at: str = Field("", description="YYYY-MM-DD (that day still runs) or YYYY-MM-DDTHH:MM; empty = no end")
 
 
 class JobSwitch(BaseModel):
@@ -100,7 +102,7 @@ def _row(job: Job) -> JobRow:
         channel=payload.get("channel", ""), recipient=payload.get("recipient", ""), webhook_url=payload.get("webhook_url", ""),
         fixed_text=bool(payload.get("fixed_text")), audio_type=payload.get("audio_type", "notification"),
         max_tier=job.max_tier, enabled=job.enabled, last_run=job.last_run or "", next_run=job.next_run or None,
-        retry_count=job.retry_count,
+        retry_count=job.retry_count, ends_at=job.ends_at,
     )
 
 
@@ -121,7 +123,7 @@ def _payload(job: JobWrite) -> dict[str, object]:
             payload["audio_type"] = job.audio_type
     elif job.delivery == "webhook" and job.webhook_url:
         payload["webhook_url"] = job.webhook_url
-    problem = job_problem(job.schedule_type, payload)
+    problem = job_problem(job.schedule_type, payload, job.ends_at)
     if problem:
         raise problem
     return payload
@@ -173,7 +175,7 @@ async def jobs_create(job: JobWrite) -> JobRow:
     from ..scheduler import get_job_store
 
     payload = _payload(job)
-    created = get_job_store().add(job.name, job.schedule_type, job.schedule_expr, payload, job.max_tier)
+    created = get_job_store().add(job.name, job.schedule_type, job.schedule_expr, payload, job.max_tier, job.ends_at)
     return _row(created)
 
 
@@ -184,7 +186,7 @@ async def jobs_change(job_id: int, job: JobWrite) -> JobRow:
 
     _job(job_id)
     payload = _payload(job)
-    changed = get_job_store().update(job_id, job.name, job.schedule_type, job.schedule_expr, payload, job.max_tier)
+    changed = get_job_store().update(job_id, job.name, job.schedule_type, job.schedule_expr, payload, job.max_tier, job.ends_at)
     if changed is None:   # deleted meanwhile
         raise Missing("no_job", job=job_id)
     return _row(changed)

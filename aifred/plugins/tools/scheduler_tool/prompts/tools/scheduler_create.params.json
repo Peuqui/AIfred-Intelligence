@@ -53,6 +53,10 @@
         "alarm"
       ],
       "description": "For freeecho2: the sound before the announcement. 'notification' = gentle chime (default), 'alarm' = alarm sound, for waking up or urgent matters."
+    },
+    "end_date": {
+      "type": "string",
+      "description": "Optional end of a cron or interval job: YYYY-MM-DD (that day still runs) or YYYY-MM-DDTHH:MM (no run after it). Leave it out for a job without an end"
     }
   },
   "required": [

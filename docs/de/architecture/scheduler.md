@@ -60,6 +60,16 @@ Jobs laufen in isolierten Sessions mit Security-Tier-Enforcement.
 | `*/30 * * * *` | Alle 30 Minuten |
 | `0 9 * * 1-5` | Werktags um 9:00 |
 | `0 0 1 * *` | Monatlich am 1. um Mitternacht |
+| `0 8,14,20 * * *` | Dreimal täglich (8, 14, 20 Uhr): EIN Job mit einer Liste von Stunden |
+| `0 */4 * * *` | Alle 4 Stunden |
+
+### Ende eines Zeitplans
+
+`cron`- und `interval`-Jobs können ein Ende haben (`ends_at`, optional): ein Tag `JJJJ-MM-TT` (der Tag läuft noch bis zum
+Abend mit) oder ein Zeitpunkt `JJJJ-MM-TTTHH:MM` (danach kein Lauf mehr). Liegt der nächste Lauf nach dem Ende, wird der Job
+nach seinem letzten Lauf ausgeschaltet (`enabled = 0`, wie ein einmaliger Job; Historie und Einstellungen bleiben). Ein
+Ende vor dem ersten Lauf lehnt der Scheduler beim Anlegen und Ändern ab, ein abgelaufener Job lässt sich erst nach einem
+späteren Ende wieder einschalten. Für `once` gibt es kein Ende. Das Format prüft `parse_ends_at` in `lib/scheduler.py`.
 
 ---
 
@@ -79,7 +89,8 @@ CREATE TABLE jobs (
     created_at TEXT,
     last_run TEXT,
     next_run TEXT,
-    retry_count INTEGER
+    retry_count INTEGER,
+    ends_at TEXT                     -- NULL = kein Ende; JJJJ-MM-TT oder JJJJ-MM-TTTHH:MM
 );
 ```
 

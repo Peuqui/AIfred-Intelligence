@@ -60,6 +60,16 @@ Jobs run in isolated sessions with security tier enforcement.
 | `*/30 * * * *` | Every 30 minutes |
 | `0 9 * * 1-5` | Weekdays at 9:00 |
 | `0 0 1 * *` | Monthly on the 1st at midnight |
+| `0 8,14,20 * * *` | Three times a day (8, 14, 20): ONE job with a list of hours |
+| `0 */4 * * *` | Every 4 hours |
+
+### End of a schedule
+
+`cron` and `interval` jobs can have an end (`ends_at`, optional): a day `YYYY-MM-DD` (that day still runs until the
+evening) or a moment `YYYY-MM-DDTHH:MM` (no run after it). If the next run lies after the end, the job is switched off
+after its last run (`enabled = 0`, like a one-shot job; history and settings stay). An end before the first run is refused
+on add and change, and an ended job can only be switched on again after a later end is set. `once` has no end. The
+format is checked by `parse_ends_at` in `lib/scheduler.py`.
 
 ---
 
@@ -79,7 +89,8 @@ CREATE TABLE jobs (
     created_at TEXT,
     last_run TEXT,
     next_run TEXT,
-    retry_count INTEGER
+    retry_count INTEGER,
+    ends_at TEXT                     -- NULL = no end; YYYY-MM-DD or YYYY-MM-DDTHH:MM
 );
 ```
 

@@ -33,6 +33,11 @@ const form = ref({
   audio_type: props.job?.audio_type ?? "notification",
   max_tier: props.job?.max_tier ?? 1,
 });
+// The end of a cron or interval schedule, optional: a day, and a time if the last day is to end earlier than its evening.
+const [startEndDate = "", startEndTime = ""] = (props.job?.ends_at ?? "").split("T");
+const endDate = ref(startEndDate);
+const endTime = ref(startEndTime.slice(0, 5));
+const endsAt = computed(() => (schedule.value.type === "once" || !endDate.value ? "" : endTime.value ? `${endDate.value}T${endTime.value}` : endDate.value));
 const inRooms = computed(() => props.options.rooms_channels.includes(form.value.channel));
 
 function preset(key: string): void {
@@ -51,7 +56,7 @@ async function ask(): Promise<void> {
 watch(schedule, ask, { deep: true, immediate: true });
 
 async function save(): Promise<void> {
-  const job: JobWrite = { ...form.value, schedule_type: schedule.value.type, schedule_expr: composeSchedule(schedule.value) };
+  const job: JobWrite = { ...form.value, schedule_type: schedule.value.type, schedule_expr: composeSchedule(schedule.value), ends_at: endsAt.value };
   if (await jobs.save(props.job?.job_id ?? null, job)) emit("close");
 }
 </script>
@@ -96,6 +101,11 @@ async function save(): Promise<void> {
             <label class="cron">{{ t("sched_once_date") }}<input v-model="schedule.date" type="date" /></label>
             <label class="cron">{{ t("sched_once_time") }}<input v-model="schedule.time" type="time" /></label>
           </template>
+        </div>
+        <div v-if="schedule.type !== 'once'" class="row" :title="t('sched_end_hint')">
+          <span>{{ t("sched_label_end") }}</span>
+          <label class="cron">{{ t("sched_end_date") }}<input v-model="endDate" type="date" /></label>
+          <label class="cron">{{ t("sched_end_time") }}<input v-model="endTime" type="time" :disabled="!endDate" /></label>
         </div>
         <p v-if="problem" class="notice">⚠️ {{ problem }}</p>
         <p v-else-if="next" class="next">{{ t("sched_next") }}: {{ next.replace("T", " ") }}</p>

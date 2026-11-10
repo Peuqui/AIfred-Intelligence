@@ -30,6 +30,7 @@ result is handed to the configured delivery mode.
 | `channel` | no | Target channel for `announce` (e.g. `telegram`, `discord`, `email`) |
 | `recipient` | no | Recipient for `announce` (email address, etc.) |
 | `webhook_url` | no | URL for `webhook` delivery |
+| `end_date` | no | End of a `cron`/`interval` job: `YYYY-MM-DD` (that day still runs) or `YYYY-MM-DDTHH:MM`; left out, the job runs without limit. `scheduler_update` sets or removes it (empty value) |
 
 ## Features
 
@@ -48,6 +49,8 @@ Spoken/chat requests AIfred maps onto the tools:
   → `scheduler_create(name="Morning mail digest", schedule_type="cron", schedule_expr="0 7 * * *", message="Summarise my new e-mails", delivery="announce", channel="telegram")`
 - "Remind me tomorrow at 10 about the doctor's appointment"
   → `scheduler_create(name="Doctor reminder", schedule_type="once", schedule_expr="2026-03-31T10:00:00", message="Remind me about the doctor's appointment", delivery="review")`
+- "Check the Black Week deals three times a day until the end of November"
+  → `scheduler_create(name="Black Week", schedule_type="cron", schedule_expr="0 8,14,20 * * *", end_date="2026-11-30", message="…")` (ONE job with a list of hours)
 - "Show me my scheduled jobs" → `scheduler_list()`
 - "Move job 3 to 7:05" → `scheduler_update(job_id=3, schedule_expr="5 7 * * *")`
 - "Delete job 3" → `scheduler_delete(job_id=3)`

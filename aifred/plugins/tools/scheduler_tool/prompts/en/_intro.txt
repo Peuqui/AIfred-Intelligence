@@ -8,6 +8,9 @@ When the user plans something ("remind me", "every morning", "in 2 hours"):
    - "tomorrow at 10" → once "YYYY-MM-DDT10:00:00" (calculate the actual date!)
    - "weekdays at 9" → cron "0 9 * * 1-5"
    - "every Monday at 9" → cron "0 9 * * 1"
+   - "3 times a day" → cron "0 8,14,20 * * *" (ONE job with several hours, NOT three jobs; spread the hours sensibly or take them from the user)
+   - "every 4 hours" → cron "0 */4 * * *"
+   - "until Nov 30" / "only this week" → additionally end_date="YYYY-MM-DD" (that day still runs; calculate the actual date!); with a time end_date="YYYY-MM-DDTHH:MM". Without end_date the job runs without limit.
 2. Choose the right delivery mode:
    - User wants result via Telegram/Discord/Email → delivery="announce", channel="telegram"
    - User just wants a reminder → delivery="review" (shows in UI)
