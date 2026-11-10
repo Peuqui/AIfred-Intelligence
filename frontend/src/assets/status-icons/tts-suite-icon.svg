@@ -14,6 +14,6 @@
     <line x1="356" y1="166" x2="356" y2="346"/>
     <line x1="416" y1="206" x2="416" y2="306"/>
   </g>
-  <path d="M124 196 q-48 60 0 120" fill="none" stroke="#e0f2fe" stroke-width="24" stroke-linecap="round"/>
-  <path d="M88 156 q-84 100 0 200" fill="none" stroke="#7dd3fc" stroke-width="24" stroke-linecap="round"/>
+  <path d="M124 196 q-48 60 0 120" fill="none" stroke="#94a3b8" stroke-width="24" stroke-linecap="round"/>
+  <path d="M88 156 q-84 100 0 200" fill="none" stroke="#64748b" stroke-width="24" stroke-linecap="round"/>
 </svg>
