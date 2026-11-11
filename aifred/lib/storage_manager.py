@@ -87,12 +87,17 @@ def _resolve_managed(file_id: str) -> Path | None:
 
 
 def delete_managed_file(file_id: str) -> bool:
-    """Löscht eine verwaltete Datei. True bei Erfolg."""
+    """Löscht eine verwaltete Datei samt dem Unterordner (z. B. der Sitzung), wenn der danach leer ist. True bei Erfolg."""
     p = _resolve_managed(file_id)
     if p is None:
         return False
+    base = _managed_roots()[file_id.partition("/")[0]][0].resolve()
     try:
         p.unlink()
+        for folder in p.parents:
+            if folder == base or any(folder.iterdir()):
+                break
+            folder.rmdir()
         return True
     except OSError:
         return False

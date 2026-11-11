@@ -42,6 +42,17 @@ def test_files_are_listed_copied_into_the_showcase_and_deleted(client: TestClien
     assert [entry["kind"] for entry in left] == ["export"] and not (tmp_path / "sandbox_output" / "plot.png").exists()
 
 
+def test_deleting_the_last_file_of_a_session_folder_removes_the_folder(client: TestClient, tmp_path: Path) -> None:
+    sandbox = tmp_path / "sandbox_output"
+    (sandbox / "session1").mkdir()
+    (sandbox / "session1" / "a.png").write_bytes(b"png")
+    (sandbox / "session1" / "b.png").write_bytes(b"png")
+    client.post("/storage/files/delete", json={"ids": ["sandbox/session1/a.png"]})
+    assert (sandbox / "session1" / "b.png").exists()                  # not empty yet: the folder stays
+    client.post("/storage/files/delete", json={"ids": ["sandbox/session1/b.png"]})
+    assert not (sandbox / "session1").exists() and sandbox.is_dir()   # empty: gone, the root stays
+
+
 def test_the_audit_log_shows_the_newest_runs_first(client: TestClient) -> None:
     security.audit_log(session_id="a" * 32, agent_id="aifred", source="browser", tool_name="calculator", tool_tier=0,
                        tool_args_preview="1+1", duration_ms=12.0)
