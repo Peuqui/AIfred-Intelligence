@@ -47,7 +47,9 @@ from ....lib.vision_utils import (
     TOOLCALL_IMAGES_DIR,
     annotate_frame,
     filename_timestamp,
+    cluster_film_files,
     get_image_url,
+    is_video_file,
     resolve_source_alias,
     resolve_source_label,
     save_image_to_file,
@@ -118,6 +120,13 @@ def _ok(**payload: Any) -> str:
     return json.dumps({"success": True, **payload})
 
 
+def _film_urls(source_id: str, cluster_id: str) -> dict[str, str]:
+    """URLs of a happening's burst films by lens ("wide", "zoom"); {} when it has none."""
+    if not cluster_id:
+        return {}
+    return {film.stem.rsplit("_", 1)[1]: get_image_url(film) for film in cluster_film_files(source_id, cluster_id)}
+
+
 @dataclass
 class VisionPlugin:
     name: str = "vision"
@@ -176,6 +185,7 @@ class VisionPlugin:
         if ctx.source in self._CAPTURE_SOURCES:
             tools += [
                 self._tool_snapshot(ctx),
+                self._tool_record(ctx),
                 self._tool_analyze(ctx),
                 self._tool_query_events(ctx),
             ]
@@ -246,6 +256,7 @@ class VisionPlugin:
         async def _exec(source_id: str, n_frames: int = 1, save: bool = True) -> str:
             import asyncio
             from dataclasses import replace
+            from ....lib.frame_sources import Frame
             # LLMs übergeben gern den Anzeigenamen ("Büro") — auflösen wie
             # in vision_analyze.
             from ....lib.vision_utils import resolve_source_id
@@ -270,21 +281,23 @@ class VisionPlugin:
             # Bevorzugt die Kamera-Snap-API (volle Linsen-Auflösung statt
             # RTSP-Substream) — None heißt: nicht konfiguriert/fehlgeschlagen.
             from ....lib.vision_snap import snap_frames as _snap_frames
-            frames = await _snap_frames(source_id, n, interval)
-            if frames is None:
+            snapped = await _snap_frames(source_id, n, interval)
+            if snapped is None:
                 try:
                     # Über den FrameHub aufnehmen, nicht source.snapshot() direkt:
                     # ein laufender Watcher hält source._lock für die gesamte
                     # Stream-Dauer — ein direkter snapshot() liefe in den Deadlock.
                     # Der Hub teilt sich den Stream (Timeout 5 s).
                     hub = get_default_hub()
-                    frames = []
+                    frames: list[Frame] = []
                     for i in range(n):
                         if i > 0 and interval > 0:
                             await asyncio.sleep(interval)
                         frames.append(await hub.snapshot(source, width=w, height=h))
                 except (RuntimeError, TimeoutError) as e:  # no frame from the camera
                     return _err(f"snapshot failed: {e}")
+            else:
+                frames = snapped
             # Burn the documentation overlay (name + location + capture time)
             # into every frame. The same stamped image is what the user sees
             # AND what vision_analyze later sends to the VLM (one artifact
@@ -356,6 +369,44 @@ class VisionPlugin:
             tier=TIER_READONLY,
         )
 
+    # ── record ───────────────────────────────────────────────────
+
+    def _tool_record(self, ctx: PluginContext) -> Tool:
+        async def _exec(source_id: str, duration_s: float, interval_s: float = 0.5) -> str:
+            from ....lib.user_error import Invalid
+            from ....lib.vision_film import FilmEncodeError
+            from ....lib.vision_recording import record_film
+            from ....lib.vision_utils import resolve_source_id
+            source_id = resolve_source_id(source_id)
+            source = get_source(source_id)
+            if source is None:
+                return _err(f"unknown source: {source_id}")
+            if not source.is_available():
+                return _err(f"source not available: {source_id}")
+            try:
+                recording = await record_film(source, float(duration_s), float(interval_s))
+            except Invalid as e:  # outside the limits of config.py: the model learns them from the message
+                return _err(str(e))
+            except (RuntimeError, TimeoutError, FilmEncodeError) as e:  # no frame from the camera, or ffmpeg failed
+                return _err(f"recording failed: {e}")
+            return _ok(
+                source_id=source_id,
+                source_name=resolve_source_label(source_id),
+                film_url=get_image_url(recording.path),
+                n_frames=recording.n_frames,
+                duration_s=round(recording.duration_s, 1),
+                fps=round(recording.fps, 2),
+            )
+
+        return Tool(
+            name="vision_record",
+            description=load_tool_description(__file__, "vision_record"),
+            parameters=load_tool_parameters(__file__, "vision_record"),
+            executor=_exec,
+            # Camera imagery, like snapshot: gated by SOURCE in get_tools.
+            tier=TIER_READONLY,
+        )
+
     # ── analyze ──────────────────────────────────────────────────
 
     def _tool_analyze(self, ctx: PluginContext) -> Tool:
@@ -389,10 +440,27 @@ class VisionPlugin:
                     "vision_snapshot (snapshot first, then analyze)."
                 )
 
+            from ....lib.config import VISION_DESCRIBE_MAX_FRAMES
             frames: list[Frame] = []
             resolved_paths: list[Path] = []
-            for u in urls[:10]:
+            film_path: Path | None = None
+            for u in urls[:VISION_DESCRIBE_MAX_FRAMES]:
                 p = url_to_file_path(u, ctx.session_id or "")
+                if p is not None and p.exists() and is_video_file(p):
+                    # A film (burst film, recording): the model reads pictures, so it gets them evenly spread
+                    # over the film's length, as many as a description takes (VISION_DESCRIBE_MAX_FRAMES).
+                    if len(urls) != 1:
+                        return _err("pass a film (.mp4) alone, not together with other image_urls")
+                    from ....lib.vision_film import FilmEncodeError, film_frames
+                    try:
+                        jpegs = await film_frames(p, VISION_DESCRIBE_MAX_FRAMES)
+                    except (FilmEncodeError, ValueError, OSError) as e:  # ffprobe/ffmpeg failed, or unreadable
+                        return _err(f"cannot read film {u}: {e}")
+                    frames = [
+                        Frame(source_id=source_id or "", timestamp=datetime.now(), image_bytes=jpeg) for jpeg in jpegs
+                    ]
+                    film_path = p
+                    break
                 if p is None or not p.exists():
                     # A missing leading slash ("_upload/…") is normalised in
                     # url_to_file_path, so reaching here means the file really
@@ -521,8 +589,11 @@ class VisionPlugin:
                 # a relative URL → broken image in the bubble. Deriving
                 # the url from the resolved path guarantees a loadable /_upload/…
                 # link (true SSOT: one url source = the resolved file).
-                "image_url": get_image_url(resolved_paths[-1]),
+                "image_url": get_image_url(resolved_paths[-1]) if film_path is None else "",
             }
+            if film_path is not None:
+                # The film plays in the bubble instead of a picture (llm_pipeline: film_url).
+                payload["film_url"] = get_image_url(film_path)
             # Persist event for query_events
             try:
                 _store().add_event(
@@ -883,6 +954,9 @@ class VisionPlugin:
                     "zoom_image_url": get_image_url(Path(zfp)) if zfp else "",
                     # How many frames this one happening spans.
                     "frames_in_cluster": member_count.get(cid, 1) if cid else 1,
+                    # The burst films of the happening by lens (wide, zoom); {} when none was made. Show them
+                    # with the film's URL, or hand one to vision_analyze to look at it.
+                    "film_urls": _film_urls(sid, cid),
                 }
 
             return _ok(

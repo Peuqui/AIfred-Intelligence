@@ -29,6 +29,10 @@ from .user_error import Invalid
 # data/vigilantia/motion/<cam>/<date>/ (written by the watcher, age-pruned).
 VIGILANTIA_DIR: Path = DATA_DIR / "vigilantia"
 TOOLCALL_IMAGES_DIR: Path = VIGILANTIA_DIR / "toolcall"
+# Burst films (one per lens, made at the end of a burst) and films a tool recorded on request.
+# Both: <dir>/<source with "/" as "_">/<date>/<name>.mp4 (age-pruned like the motion frames).
+FILMS_DIR: Path = VIGILANTIA_DIR / "films"
+RECORDINGS_DIR: Path = VIGILANTIA_DIR / "recordings"
 UPLOAD_IMAGES_DIR: Path = DATA_DIR / "upload" / "images"
 
 logger = logging.getLogger(__name__)
@@ -904,6 +908,16 @@ def save_session_upload(image_bytes: bytes, session_id: str, stem: str, ext: str
     return save_image_to_file(
         resize_image_if_needed(image_bytes), session_id, name, base_dir=UPLOAD_IMAGES_DIR,
     )
+
+
+def film_source_dir(root: Path, source_id: str) -> Path:
+    """The folder of a source's films below ``root`` (``FILMS_DIR`` or ``RECORDINGS_DIR``)."""
+    return root / source_id.replace("/", "_")
+
+
+def cluster_film_files(source_id: str, cluster_id: str) -> list[Path]:
+    """The burst films of one happening (one per lens, ``<cluster>_<lens>.mp4``), whatever day folder they are in."""
+    return sorted(film_source_dir(FILMS_DIR, source_id).glob(f"*/{cluster_id}_*.mp4"))
 
 
 def get_image_url(image_path: Path) -> str:

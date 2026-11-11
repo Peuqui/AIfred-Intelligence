@@ -24,6 +24,7 @@ from .bubble import (
     KIND_SANDBOX_HTML,
     KIND_SANDBOX_IMAGE,
     KIND_SOURCES,
+    KIND_VISION_FILM,
     KIND_VISION_IMAGES,
     KIND_VLM_OUTPUT,
     BubbleArtifact,
@@ -371,6 +372,18 @@ async def run_llm_stream(
                         add_artifact(BubbleArtifact(
                             KIND_VISION_IMAGES,
                             {"urls": frames, "alt": source_alias(parsed.get("source_id"))},
+                        ))
+                except (ValueError, json.JSONDecodeError):
+                    pass
+
+            # vision_record: the recorded film plays in the bubble.
+            if result_text and '"film_url"' in result_text:
+                try:
+                    parsed = json.loads(result_text)
+                    if isinstance(parsed, dict) and parsed.get("film_url"):
+                        add_artifact(BubbleArtifact(
+                            KIND_VISION_FILM,
+                            {"url": str(parsed["film_url"]), "label": source_alias(parsed.get("source_id"))},
                         ))
                 except (ValueError, json.JSONDecodeError):
                     pass

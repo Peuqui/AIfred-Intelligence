@@ -50,6 +50,7 @@ Liste und der Assistent sieht das Plugin gar nicht.
 | `vision_list_sources` | Alle registrierten Bildquellen (Webcams, IP-Kameras) mit Verfügbarkeit, Auflösung und konfiguriertem Kontext auflisten. | READONLY |
 | `vision_rescan_sources` | System nach neu angeschlossenen/entfernten Bildquellen neu durchsuchen (z.B. eine gerade eingesteckte Webcam). | READONLY |
 | `vision_snapshot` | Einzelbild von einer Quelle aufnehmen. Mit `save=true` (Standard) wird das Bild in die aktuelle Session gespeichert und eine `image_url` + `markdown`-Verknüpfung für die Inline-Darstellung zurückgegeben. | READONLY |
+| `vision_record` | Aufnahme auf Zuruf: alle `interval_s` Sekunden ein Bild, `duration_s` Sekunden lang, in Echtzeit zu einem MP4 zusammengesetzt (`data/vigilantia/recordings/<Quelle>/<Datum>/`, gleiche Aufbewahrungsfrist wie die Burst-Filme). Der Film spielt im Chat. Grenzen in `config.py`: `VISION_RECORD_MAX_DURATION_S` (120 s), `VISION_RECORD_MIN_INTERVAL_S` (0,2 s). | READONLY |
 | `vision_analyze` | N Frames (1–10) aufnehmen und vom VLM beschreiben lassen. `n_frames > 1` sendet eine zeitliche Sequenz (Bewegungsbeschreibung). Loggt ein `vlm_analysis`-Event. | READONLY |
 | `vision_enroll_face` | Snapshot der Quelle, prominentestes Gesicht erkennen und sein Embedding unter `name` speichern. Erneuter Aufruf mit bestehendem Namen hängt ein weiteres Embedding an (Multi-Winkel-Enrollment). | WRITE_DATA |
 | `vision_start_watch` | Kontinuierliche Hintergrund-Überwachung auf einer Quelle starten: nimmt Frames mit `fps` auf, erkennt Bewegung und (wenn aktiviert) führt Gesichtserkennung durch. Events landen in der Vision-DB. | WRITE_DATA |
@@ -60,6 +61,11 @@ Liste und der Assistent sieht das Plugin gar nicht.
 ### Tool-Parameter
 
 - **`vision_snapshot`** — `source_id` (Pflicht), `save` (bool, Standard `true`).
+- **`vision_record`** — `source_id` (Pflicht), `duration_s` (Pflicht), `interval_s` (Standard `0.5`).
+  Gibt `film_url`, `n_frames`, `duration_s` und `fps` zurück. Eine Folge von `vision_analyze` mit der `film_url`
+  beurteilt den Film: das Modell bekommt gleichmäßig verteilte Einzelbilder (`VISION_DESCRIBE_MAX_FRAMES`, 10),
+  ein Film geht allein in den Aufruf. Die Burst-Filme eines Vorkommnisses nennt `vision_query_events` als `film_urls`
+  (`wide`, `zoom`); sie verschwinden mit dem letzten gelöschten Ereignis ihres Vorkommnisses.
 - **`vision_analyze`** — `source_id` (Pflicht), `prompt` (optional; fällt auf den
   konfigurierten Default-Prompt zurück), `n_frames` (int, 1–10, Standard `1`).
 - **`vision_enroll_face`** — `name` (Pflicht), `source_id` (Pflicht), `notes`

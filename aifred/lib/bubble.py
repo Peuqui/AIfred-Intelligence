@@ -24,6 +24,7 @@ KIND_SOURCES = "sources"              # {"urls": [{"url": str, "success": bool |
 KIND_SANDBOX_HTML = "sandbox_html"    # {"url": str}
 KIND_SANDBOX_IMAGE = "sandbox_image"  # {"url": str}
 KIND_VISION_IMAGES = "vision_images"  # {"urls": [str], "alt": str}
+KIND_VISION_FILM = "vision_film"      # {"url": str, "label": str} — a recorded film
 KIND_VLM_OUTPUT = "vlm_output"        # {"body": str}
 KIND_DOCUMENT_PAGES = "document_pages"  # {"urls": [str]} — images read_file prepared for viewing
 
@@ -94,6 +95,7 @@ def _source_block(url: str) -> str:
 def render_artifact(artifact: BubbleArtifact, model_name: str | None) -> str:
     """Bubble markup of one artifact."""
     from .formatting import (
+        build_film_player,
         build_sandbox_iframe,
         build_sandbox_image,
         build_sources_collapsible,
@@ -122,6 +124,8 @@ def render_artifact(artifact: BubbleArtifact, model_name: str | None) -> str:
         return build_sandbox_image(data["url"])
     if kind == KIND_VISION_IMAGES:
         return " ".join(image_markdown(data["alt"], url) for url in data["urls"])
+    if kind == KIND_VISION_FILM:
+        return build_film_player(data["url"], data["label"])
     if kind == KIND_DOCUMENT_PAGES:
         return build_thumbnail_row(data["urls"])
     if kind == KIND_VLM_OUTPUT:

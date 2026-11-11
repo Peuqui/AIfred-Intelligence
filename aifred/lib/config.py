@@ -956,6 +956,15 @@ VISION_FILM_CRF = 28
 # * FILM_MIN_FRAMES — weniger Bilder je Linse ergeben keinen Film (5 Bilder = 2,5 s).
 VISION_FILM_MIN_FRAMES = 5
 
+# Aufnahme auf Zuruf (Werkzeug ``vision_record``): ein Agent nimmt eine Bilderfolge auf, die in Echtzeit
+# (Bildabstand = Abstand der Aufnahme) zu einem Film wird, ohne Beschleunigung (Peuqui 12.11.2026).
+# * RECORD_MAX_DURATION_S — Obergrenze der Aufnahmedauer; damit höchstens MAX_DURATION / MIN_INTERVAL Bilder
+#   (120 s / 0,2 s = 600), die zwischengespeichert auf der Platte liegen, nicht im Arbeitsspeicher.
+# * RECORD_MIN_INTERVAL_S — kleinster Bildabstand; schneller schafft die Kamera-Snap-API ohnehin nicht, und
+#   ein kleinerer Abstand erzeugt nur Dubletten.
+VISION_RECORD_MAX_DURATION_S = 120.0
+VISION_RECORD_MIN_INTERVAL_S = 0.2
+
 # Schwellen der Gesichtserkennung (Cosine-Similarity): ab ``known`` ein
 # sicheres Match, zwischen ``unsure`` und ``known`` das unsichere Band.
 # In ``plugins/tools/vision/settings.json`` (``face_recognition``) überschreibbar.

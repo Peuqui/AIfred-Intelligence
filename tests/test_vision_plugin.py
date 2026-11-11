@@ -295,6 +295,41 @@ class TestAnalyze:
         assert len(events) == 1
         assert events[0]["event_type"] == "vlm_analysis"
 
+    def test_record_a_film_then_analyze_it(
+        self, patched_plugin, ctx, store, monkeypatch, tmp_path: Path
+    ):
+        """vision_record → film in the vigilantia tree → vision_analyze on its film_url: the model gets pictures out of it."""
+        import aifred.lib.vision_recording as vr
+        from aifred.lib.config import VISION_DESCRIBE_MAX_FRAMES
+
+        self._patch_dirs(monkeypatch, tmp_path)
+        monkeypatch.setattr(vr, "RECORDINGS_DIR", tmp_path / "vigilantia" / "recordings")
+        seen: dict = {}
+
+        async def fake_generate(self, **kwargs):
+            seen["images"] = len(kwargs["images"])
+            return {"response": "Eine Person geht durchs Bild."}
+
+        import ollama
+
+        monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
+        register(FakeSource("cam/test-record"))
+        tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
+        recorded = _exec_tool(tools["vision_record"], source_id="cam/test-record", duration_s=1.5, interval_s=0.2)
+        assert recorded["success"] is True and recorded["film_url"].endswith(".mp4")
+        assert recorded["film_url"].startswith("/_upload/vigilantia/recordings/")
+        assert recorded["n_frames"] >= 7
+        result = _exec_tool(tools["vision_analyze"], image_urls=[recorded["film_url"]], source_id="cam/test-record")
+        assert result["success"] is True and result["description"] == "Eine Person geht durchs Bild."
+        assert result["film_url"] == recorded["film_url"] and result["image_url"] == ""
+        assert 1 < seen["images"] <= VISION_DESCRIBE_MAX_FRAMES
+        # a film goes in alone
+        mixed = _exec_tool(tools["vision_analyze"], image_urls=[recorded["film_url"], recorded["film_url"]])
+        assert mixed["success"] is False
+        # limits of config.py are answered with the limit
+        too_long = _exec_tool(tools["vision_record"], source_id="cam/test-record", duration_s=100000)
+        assert too_long["success"] is False and "at most" in too_long["error"]
+
     def test_analyze_empty_vlm_response_returns_error(
         self, patched_plugin, ctx, monkeypatch, tmp_path: Path
     ):
@@ -567,6 +602,7 @@ class TestPluginMeta:
             "vision_list_sources",
             "vision_rescan_sources",
             "vision_snapshot",
+            "vision_record",
             "vision_analyze",
             "vision_enroll_face",
             "vision_start_watch",
@@ -581,12 +617,12 @@ class TestVisionMode:
         monkeypatch.setattr(vp, "vision_mode", lambda: "on-demand")
         names = {t.name for t in vp.plugin.get_tools(ctx)}
         assert "vision_snapshot" in names
-        assert len(names) == 9
+        assert len(names) == 10
 
     def test_mode_live_returns_all_tools(self, patched_plugin, ctx, monkeypatch):
         monkeypatch.setattr(vp, "vision_mode", lambda: "live")
         names = {t.name for t in vp.plugin.get_tools(ctx)}
-        assert len(names) == 9
+        assert len(names) == 10
 
     @staticmethod
     def _patch_dirs(monkeypatch, tmp_path):

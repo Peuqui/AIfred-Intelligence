@@ -12,7 +12,8 @@ Was wird aufgeräumt:
   Identitäts-Crops, gelöscht nur mit ihrem Embedding) bleibt unberührt.
 * **Motion-Frames** unter ``DATA_DIR/vigilantia/motion/<source>/<datum>/`` —
   selbes Schema, gleiches TTL.
-* **Burst-Filme** unter ``DATA_DIR/vigilantia/films/<source>/<datum>/`` —
+* **Burst-Filme** unter ``DATA_DIR/vigilantia/films/<source>/<datum>/`` und
+  **aufgenommene Filme** (``vision_record``) unter ``…/recordings/<source>/<datum>/`` —
   selbes Schema, gleiches TTL.
 * **Vision-DB-Events** in ``vision_store.events`` mit ``timestamp``
   vor dem TTL-Cutoff (motion + face_known/unsure/unknown).
@@ -34,6 +35,7 @@ from pathlib import Path
 
 from .logging_utils import log_exception, log_message
 from .vision_settings import load_vision_settings
+from .vision_utils import FILMS_DIR, RECORDINGS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -165,8 +167,8 @@ async def cleanup_vision_task() -> None:
             frames_removed = _cleanup_dated_subdirs(
                 DATA_DIR / "vigilantia" / "motion", cutoff
             )
-            films_removed = _cleanup_dated_subdirs(
-                DATA_DIR / "vigilantia" / "films", cutoff
+            films_removed = _cleanup_dated_subdirs(FILMS_DIR, cutoff) + _cleanup_dated_subdirs(
+                RECORDINGS_DIR, cutoff
             )
             db_removed = _cleanup_vision_db_events(cutoff)
             if crops_removed or frames_removed or films_removed or db_removed:

@@ -26,6 +26,7 @@ import numpy as np
 
 from .config import DATA_DIR
 from .user_error import Conflict
+from .vision_utils import cluster_film_files
 
 # Default-Speicherort. Tests übergeben einen tmp-Path im Konstruktor.
 DEFAULT_DB_PATH = DATA_DIR / "vision" / "vision.db"
@@ -1097,6 +1098,21 @@ class VisionStore:
                 updated += 1
             return updated
 
+    def _remove_orphan_films(self, rows: list[sqlite3.Row]) -> int:
+        """Löscht die Burst-Filme der Vorkommnisse (``cluster_id``), von denen kein Ereignis mehr übrig ist:
+        der Film zeigt sonst, was gelöscht wurde. Solange noch ein Ereignis des Vorkommnisses besteht,
+        bleibt er. Returnt die Anzahl gelöschter Filme."""
+        clusters = {(str(r["source_id"]), str(r["cluster_id"])) for r in rows if r["cluster_id"]}
+        deleted = 0
+        with self._conn() as conn:
+            for source_id, cluster_id in clusters:
+                if conn.execute("SELECT 1 FROM events WHERE cluster_id = ? LIMIT 1", (cluster_id,)).fetchone():
+                    continue
+                for film in cluster_film_files(source_id, cluster_id):
+                    film.unlink(missing_ok=True)
+                    deleted += 1
+        return deleted
+
     @staticmethod
     def _unlink_frame_files(rows: list[sqlite3.Row]) -> int:
         """Löscht die zu Events gehörenden Bilddateien von der Platte:
@@ -1157,10 +1173,13 @@ class VisionStore:
         )
         with self._conn() as conn:
             # Pfade VOR dem DELETE einsammeln, danach die Dateien löschen.
-            rows = conn.execute(f"SELECT e.frame_path, e.classification FROM events e{where}", tuple(params)).fetchall()
+            rows = conn.execute(
+                f"SELECT e.frame_path, e.classification, e.source_id, e.cluster_id FROM events e{where}", tuple(params),
+            ).fetchall()
             cur = conn.execute(f"DELETE FROM events WHERE id IN (SELECT e.id FROM events e{where})", tuple(params))
             count = int(cur.rowcount)
         self._unlink_frame_files(rows)
+        self._remove_orphan_films(rows)
         return count
 
     def delete_event(self, event_id: int) -> bool:
@@ -1170,13 +1189,14 @@ class VisionStore:
         NULL aus dem Schema)."""
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT frame_path, classification FROM events WHERE id = ?",
+                "SELECT frame_path, classification, source_id, cluster_id FROM events WHERE id = ?",
                 (event_id,),
             ).fetchall()
             cur = conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
             ok = cur.rowcount > 0
         if ok:
             self._unlink_frame_files(rows)
+            self._remove_orphan_films(rows)
         return ok
 
     def set_event_face_id(self, event_id: int, face_id: int | None) -> bool:

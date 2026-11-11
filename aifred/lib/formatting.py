@@ -1213,6 +1213,15 @@ def build_thumbnail_row(urls: list[str]) -> str:
     )
 
 
+def build_film_player(url: str, label: str) -> str:
+    """A film (MP4 under /_upload/…) as an embedded player: the bubble renders raw HTML, the film plays in it."""
+    return (
+        f"\n\n🎬 {label}\n\n"
+        f'<video controls preload="metadata" playsinline '
+        f'style="max-width:100%;border-radius:8px" src="{url}"></video>'
+    )
+
+
 def build_sandbox_image(url: str) -> str:
     """Build a collapsible with embedded image for sandbox plot output."""
     from .i18n import t

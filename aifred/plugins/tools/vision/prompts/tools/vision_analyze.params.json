@@ -6,7 +6,7 @@
       "items": {
         "type": "string"
       },
-      "description": "image_url(s) EXACTLY as returned by vision_snapshot or an upload — must start with '/_upload/'. Multiple = temporal sequence. A single string is also accepted."
+      "description": "image_url(s) EXACTLY as returned by vision_snapshot or an upload \u2014 must start with '/_upload/'. Multiple = temporal sequence. A single string is also accepted. A film (.mp4: `film_url` of vision_record, `film_urls` of vision_query_events) goes in ALONE."
     },
     "prompt": {
       "type": "string",
@@ -14,7 +14,7 @@
     },
     "source_id": {
       "type": "string",
-      "description": "Source of the image (from the snapshot result) — applies the per-camera briefing. Optional."
+      "description": "Source of the image (from the snapshot result) \u2014 applies the per-camera briefing. Optional."
     }
   },
   "required": [

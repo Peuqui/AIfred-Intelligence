@@ -349,17 +349,12 @@ def _film_players(album_paths: list[str]) -> str:
     spielt direkt darin ab. Leer, wenn das Album keinen Film enthält."""
     from pathlib import Path
 
+    from .formatting import build_film_player
     from .vision_film import film_label
     from .vision_utils import get_image_url
 
     films = [path for path in album_paths if path.lower().endswith(".mp4")]
-    return "".join(
-        f"\n\n🎬 {film_label(path)}\n\n"
-        f'<video controls preload="metadata" playsinline '
-        f'style="max-width:100%;border-radius:8px" '
-        f'src="{get_image_url(Path(path))}"></video>'
-        for path in films
-    )
+    return "".join(build_film_player(get_image_url(Path(path)), film_label(path)) for path in films)
 
 
 async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:

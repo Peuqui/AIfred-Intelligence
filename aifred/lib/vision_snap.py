@@ -25,9 +25,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .reolink_ai import ReolinkAIError
+
+if TYPE_CHECKING:
+    from .frame_sources.base import Frame
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +58,7 @@ def _client_key(cam: dict[str, Any]) -> str:
 
 def frame_from_snap(
     source_id: str, jpeg: bytes, timestamp: datetime | None = None,
-) -> Any:
+) -> Frame:
     """``Frame`` aus Snap-JPEG bauen — eine Wahrheit für alle Snap-Pfade
     (auch der Watcher nutzt dies). ``width/height=0``: der Caller dekodiert
     bei Bedarf; ``via=snap`` markiert die Herkunft."""
@@ -138,7 +141,7 @@ def _get_client_with_key(source_id: str) -> tuple[str, Any] | None:
 async def snap_frames(
     source_id: str, n: int = 1, interval: float = 0.0, *,
     prefer_face: bool = False,
-) -> list[Any] | None:
+) -> list[Frame] | None:
     """``n`` frische Snap-Frames der Quelle (volle Linsen-Auflösung).
 
     ``None`` = nicht snap-fähig ODER Fehler — der Caller fällt dann auf den
@@ -154,7 +157,7 @@ async def snap_frames(
     key, client = entry
     try:
         async with _in_use_guard(key):
-            frames: list[Any] = []
+            frames: list[Frame] = []
             for i in range(max(1, n)):
                 if i > 0 and interval > 0:
                     await asyncio.sleep(interval)

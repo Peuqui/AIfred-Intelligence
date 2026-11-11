@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "source_id": {
+      "type": "string",
+      "description": "Source identifier (see vision_list_sources)."
+    },
+    "duration_s": {
+      "type": "number",
+      "description": "How long to record, in seconds."
+    },
+    "interval_s": {
+      "type": "number",
+      "description": "Seconds between two pictures; 0.5 = two pictures per second.",
+      "default": 0.5
+    }
+  },
+  "required": [
+    "source_id",
+    "duration_s"
+  ]
+}

@@ -25,11 +25,10 @@ from .config import (
     VISION_FILM_WIDTH,
 )
 from .vision_store import VisionStore
-from .vision_utils import VIGILANTIA_DIR
+from .vision_utils import FILMS_DIR, film_source_dir
 
 logger = logging.getLogger(__name__)
 
-FILMS_DIR = VIGILANTIA_DIR / "films"
 # Linsen in Anzeigereihenfolge; Dateiname und Beschriftung (Anzeige für den User).
 LENS_LABELS = {"wide": "Weitwinkel", "zoom": "Zoom"}
 
@@ -71,9 +70,9 @@ def _lens_frames(store: VisionStore, cluster_id: str) -> tuple[str, str, dict[st
     return str(events[0]["source_id"]), first.strftime("%Y-%m-%d"), frames
 
 
-async def _encode(paths: list[str], out: Path) -> None:
-    """Bilder zu einem MP4 (H.264, feste Leinwand, Ränder bei anderer Proportion).
-    Die Bilder werden als nummerierte Symlinks bereitgestellt (image2-Folge): genau
+async def encode_film(paths: list[str], out: Path, fps: float = VISION_FILM_FPS) -> None:
+    """Bilder zu einem MP4 (H.264, feste Leinwand, Ränder bei anderer Proportion), ``fps`` Bilder je
+    Sekunde. Die Bilder werden als nummerierte Symlinks bereitgestellt (image2-Folge): genau
     ein Filmbild je Quelle."""
     out.parent.mkdir(parents=True, exist_ok=True)
     width, height = VISION_FILM_WIDTH, VISION_FILM_HEIGHT
@@ -86,7 +85,7 @@ async def _encode(paths: list[str], out: Path) -> None:
             Path(tmp, f"{index:06d}.jpg").symlink_to(path)
         process = await asyncio.create_subprocess_exec(
             "ffmpeg", "-y", "-loglevel", "error",
-            "-framerate", str(VISION_FILM_FPS), "-i", str(Path(tmp, "%06d.jpg")),
+            "-framerate", str(fps), "-i", str(Path(tmp, "%06d.jpg")),
             "-vf", canvas,
             "-c:v", "libx264", "-crf", str(VISION_FILM_CRF), "-movflags", "+faststart",
             str(out),
@@ -106,8 +105,32 @@ async def make_cluster_films(store: VisionStore, cluster_id: str) -> list[Path]:
     for lens, paths in frames.items():
         if len(paths) < VISION_FILM_MIN_FRAMES:
             continue
-        out = FILMS_DIR / source_id.replace("/", "_") / day / f"{cluster_id}_{lens}.mp4"
-        await _encode(paths, out)
+        out = film_source_dir(FILMS_DIR, source_id) / day / f"{cluster_id}_{lens}.mp4"
+        await encode_film(paths, out)
         logger.info("burst film %s: %d frames → %s", lens, len(paths), out)
         films.append(out)
     return films
+
+
+async def film_frames(film: Path, count: int) -> list[bytes]:
+    """Bis zu ``count`` JPEG-Bilder, gleichmäßig über die Länge des Films verteilt (für das Vision-Modell,
+    das Einzelbilder liest). Wirft :class:`FilmEncodeError`, wenn ffprobe oder ffmpeg scheitern."""
+    probe = await asyncio.create_subprocess_exec(
+        "ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(film),
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await probe.communicate()
+    if probe.returncode != 0:
+        raise FilmEncodeError(f"ffprobe ({probe.returncode}): {stderr.decode(errors='replace')[-300:]}")
+    duration = float(stdout.decode().strip())
+    with tempfile.TemporaryDirectory() as tmp:
+        process = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-y", "-loglevel", "error", "-i", str(film),
+            "-vf", f"fps={count / duration:.6f}", "-frames:v", str(count), "-q:v", "2",
+            str(Path(tmp, "%04d.jpg")),
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _stdout, stderr = await process.communicate()
+        if process.returncode != 0:
+            raise FilmEncodeError(f"ffmpeg ({process.returncode}): {stderr.decode(errors='replace')[-300:]}")
+        return [path.read_bytes() for path in sorted(Path(tmp).glob("*.jpg"))]
