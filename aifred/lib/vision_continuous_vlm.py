@@ -28,7 +28,7 @@ from .vision_analyzer import (
 )
 from .vision_event_bus import publish_vlm_event
 from .vision_output import OutputChain
-from .vision_routing import Describer, camera_describer, describe_with_second_attempt
+from .vision_routing import camera_describer, describe_via
 from .vision_settings import load_vision_settings
 from .vision_store import VisionStore
 from .vision_utils import get_source_briefing, is_grayscale_image
@@ -88,11 +88,8 @@ class ContinuousVlm:
         # Ort und Aufnahmezeit direkt aus dem Bild (frame.timestamp bleibt
         # erhalten, die Zeitstempel unten stimmen also).
         vlm_frame = (await self._output.finalize(frame, save=False)).output
-        def choose() -> Describer:
-            return camera_describer(str(vlm_cfg.get("model", DEFAULT_MODEL)), explicit=False)
-
-        result = await describe_with_second_attempt(
-            choose(), choose,
+        result = await describe_via(
+            lambda: camera_describer(str(vlm_cfg.get("model", DEFAULT_MODEL)), explicit=False),
             lambda describer: analyze_sequence(
                 [vlm_frame],
                 prompt,

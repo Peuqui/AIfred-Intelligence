@@ -17,7 +17,7 @@ from aifred.lib.describer_list import LOCAL, MAIN
 from aifred.lib.frame_sources import Frame
 from aifred.lib.gpu_orc_client import GpuOrcClient, GpuOrcError
 from aifred.lib.remote_describers import RemoteHost, RemoteModel
-from aifred.lib.vision_routing import Describer, describe_with_second_attempt
+from aifred.lib.vision_routing import Describer, describe_via, describe_with_second_attempt
 from aifred.lib.vision_vram_check import VRAMCheckResult
 
 HOST = {"name": "Box", "llamaswap_url": "http://box.test:11435", "gpu_orc_url": "http://box.test:5070",
@@ -316,6 +316,32 @@ def test_a_failure_on_this_machine_gets_no_second_attempt(box):
             Describer("Local-VL-visiond", False), lambda: Describer("Local-VL-visiond", False), run,
         ))
     assert seen == ["Local-VL-visiond"]
+
+
+def test_describe_via_announces_a_describer_that_evicts_the_chat_model(box, monkeypatch):
+    logged: list[str] = []
+    monkeypatch.setattr("aifred.lib.logging_utils.log_message", lambda msg, *a, **k: logged.append(msg))
+    seen, run = _attempts(set())
+    result = asyncio.run(describe_via(lambda: Describer("Vision-LLM", True), run))
+    assert result == "described by Vision-LLM" and seen == ["Vision-LLM"]
+    assert any("evicts the chat model" in line and "Vision-LLM" in line for line in logged)
+    logged.clear()
+    asyncio.run(describe_via(lambda: Describer("Local-VL-visiond", False), run))
+    assert logged == []                                  # nothing is evicted: nothing to announce
+
+
+def test_describe_via_picks_again_for_the_second_attempt(box):
+    picked: list[str] = []
+    models = iter([f"Box/{BIG}", "Local-VL-visiond"])
+
+    def pick() -> Describer:
+        picked.append(next(models))
+        return Describer(picked[-1], False)
+
+    seen, run = _attempts({f"Box/{BIG}"})
+    box["reachable"] = False  # answers no more after the failure
+    assert asyncio.run(describe_via(pick, run)) == "described by Local-VL-visiond"
+    assert picked == [f"Box/{BIG}", "Local-VL-visiond"] and seen == picked
 
 
 # ── the image request ────────────────────────────────────────────────

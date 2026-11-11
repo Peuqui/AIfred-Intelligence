@@ -386,6 +386,21 @@ async def describe_with_second_attempt[T](
     return await run(choose_again())
 
 
+async def describe_via[T](pick: Callable[[], Describer], run: Callable[[Describer], Awaitable[T]]) -> T:
+    """Wie ``describe_with_second_attempt``, für Aufrufer, die den Beschreiber nur wählen lassen und nichts davor
+    mit ihm tun: ``pick`` wählt ihn (beim zweiten Anlauf neu), verdrängt er das Chat-LLM, sagt die Debug-Konsole
+    das an (``eviction_notice``), und ``run`` beschreibt mit ihm."""
+    from .logging_utils import log_message
+
+    def chosen() -> Describer:
+        describer = pick()
+        if describer.evicts_chat_model:
+            log_message(eviction_notice(describer.model))
+        return describer
+
+    return await describe_with_second_attempt(chosen(), chosen, run)
+
+
 def same_model(a: str, b: str) -> bool:
     """Bezeichnen beide Namen dasselbe Modell? Namens-normalisiert und ohne
     llama-swap-Varianten-Suffixe, also backend-übergreifend (``Qwen3VL-4B-

@@ -437,12 +437,11 @@ class VisionPlugin:
             from ....lib.config import get_effective_model_from_settings
             from ....lib.logging_utils import log_message
             from ....lib.vision_routing import (
-                Describer, NoVisionModelError, camera_describer, chat_describer,
-                describe_with_second_attempt, eviction_notice,
+                Describer, NoVisionModelError, camera_describer, chat_describer, describe_via,
             )
 
-            def choose() -> Describer:
-                describer = (
+            def pick() -> Describer:
+                return (
                     camera_describer(
                         str(vlm_cfg.get("model", DEFAULT_MODEL)), explicit=True,
                     )
@@ -450,14 +449,10 @@ class VisionPlugin:
                         get_effective_model_from_settings(ctx.agent_id)
                     )
                 )
-                if describer.evicts_chat_model:
-                    log_message(eviction_notice(describer.model))
-                return describer
 
             try:
-                result = await describe_with_second_attempt(
-                    choose(),
-                    choose,
+                result = await describe_via(
+                    pick,
                     lambda describer: analyze_sequence(
                         frames,
                         actual_prompt,

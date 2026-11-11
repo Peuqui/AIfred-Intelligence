@@ -96,15 +96,9 @@ async def analyze_frames_with_vlm(
     ``NoVisionModelError``, wenn automatisch niemand beschreiben kann.
     Persistiert NICHT — das machen die Caller, die wissen, an welchem Event
     die Beschreibung hängt."""
-    from .logging_utils import log_message
     from .vision_analyzer import analyze_sequence
     from .vision_prewarm import get_active_vlm_model
-    from .vision_routing import (
-        Describer,
-        camera_describer,
-        describe_with_second_attempt,
-        eviction_notice,
-    )
+    from .vision_routing import camera_describer, describe_via
 
     if not frames:
         raise ValueError("analyze_frames_with_vlm requires at least one frame")
@@ -118,14 +112,9 @@ async def analyze_frames_with_vlm(
         identity_names=identity_names,
         headcount=headcount,
     )
-    def choose() -> Describer:
-        describer = camera_describer(str(target_model), explicit=explicit)
-        if describer.evicts_chat_model:
-            log_message(eviction_notice(describer.model))
-        return describer
-
-    result = await describe_with_second_attempt(
-        choose(), choose, lambda describer: analyze_sequence(frames, prompt, model=describer.model),
+    result = await describe_via(
+        lambda: camera_describer(str(target_model), explicit=explicit),
+        lambda describer: analyze_sequence(frames, prompt, model=describer.model),
     )
     description = (result.text or "").strip()
     if not description:
