@@ -9,9 +9,9 @@ import { useSettings } from "../stores/settings";
 import ImageLightbox from "./ImageLightbox.vue";
 
 // color: the agent's (agents.json); none for an agent deleted since, whose bubble then has no stripe of colour.
-// pinned: the user's question sticks at the top of the chat; it shows a few lines only (--pinned-question-lines), a link
-// below unfolds the rest.
-const props = defineProps<{ entry: ChatEntry; speechOn: boolean; color?: string; pinned?: boolean }>();
+// pinned: the user's question sticks at the top of the chat; stuck: it does so right now. Then it shows a few lines only
+// (--pinned-question-lines) and a link below unfolds the rest; as long as it stands in the history, it shows in full.
+const props = defineProps<{ entry: ChatEntry; speechOn: boolean; color?: string; pinned?: boolean; stuck?: boolean }>();
 const settings = useSettings();
 const emit = defineEmits<{ readAgain: [timestamp: string] }>();
 const html = computed(() => renderMarkdown(props.entry.content));
@@ -23,21 +23,37 @@ const canReplay = computed(() => (metadata.value.audio_urls?.length ?? 0) + (met
 const content = ref<HTMLElement>();
 const unfolded = ref(false);
 const overflowing = ref(false);
-const folded = computed(() => !!props.pinned && !unfolded.value);
+const folded = computed(() => !!props.pinned && !!props.stuck && !unfolded.value);
+// Back in the history it shows in full again; the next time it sticks it starts folded.
+watch(() => props.stuck, (stuck) => {
+  if (!stuck) unfolded.value = false;
+});
+
+// Folding must not move anything below the question (the box keeps its scroll position by itself and would carry the
+// question back over the line where it sticks, and it would unfold again): the height the fold takes away stays as
+// space under the folded question (margin), and scrolls away beneath it. The full height is that of the question where
+// it stands in the history.
+const root = ref<HTMLElement>();
+const fullHeight = ref(0);
+const spaceBelow = ref(0);
 
 function measure(): void {
   const element = content.value;
+  const bubbleElement = root.value;
+  if (!element || !bubbleElement || !props.pinned) return;
+  if (!props.stuck) fullHeight.value = bubbleElement.offsetHeight;
+  spaceBelow.value = folded.value ? Math.max(0, fullHeight.value - bubbleElement.offsetHeight) : 0;
   // Unfolded nothing is cut off; the link stays, to fold again.
-  if (!element || !props.pinned || unfolded.value) return;
-  overflowing.value = element.scrollHeight > element.clientHeight + 1;
+  if (folded.value) overflowing.value = element.scrollHeight > element.clientHeight + 1;
 }
 const resizes = new ResizeObserver(measure);
 onMounted(() => {
   measure();
   if (content.value) resizes.observe(content.value);
+  if (root.value) resizes.observe(root.value);
 });
 onBeforeUnmount(() => resizes.disconnect());
-watch(() => [props.entry.content, props.pinned], () => void nextTick(measure));
+watch(() => [props.entry.content, props.pinned, props.stuck, folded.value], () => void nextTick(measure));
 
 function play(): void {
   toggleReading(metadata.value.audio_urls ?? [], metadata.value.browser_speech ?? []);
@@ -59,9 +75,10 @@ function enlarge(event: MouseEvent): void {
 
 <template>
   <article
+    ref="root"
     class="bubble"
     :class="isUser ? 'user' : 'assistant'"
-    :style="!isUser && color ? { '--agent-color': color } : undefined"
+    :style="[!isUser && color ? { '--agent-color': color } : {}, spaceBelow ? { marginBottom: `${spaceBelow}px` } : {}]"
   >
     <!-- The user's name over their bubble and their sign beside it, as on the Reflex page. -->
     <header v-if="isUser" class="user-head">
@@ -83,7 +100,7 @@ function enlarge(event: MouseEvent): void {
     </header>
     <!-- eslint-disable-next-line vue/no-v-html -- sanitized by renderMarkdown (DOMPurify) -->
     <div ref="content" class="content" :class="{ folded }" @click="enlarge" v-html="html" />
-    <button v-if="pinned && (overflowing || unfolded)" type="button" class="more" @click="unfolded = !unfolded">
+    <button v-if="pinned && stuck && (overflowing || unfolded)" type="button" class="more" @click="unfolded = !unfolded">
       {{ unfolded ? t("question_less") : t("question_more") }}
     </button>
     <ImageLightbox

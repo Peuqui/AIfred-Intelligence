@@ -56,6 +56,21 @@ const turns = computed(() => {
   }
   return grouped;
 });
+// The turn whose question sticks at the top edge of the box now: its turn begins above the box's top edge and still
+// reaches into it. Only that question is folded to a few lines; where it stands in the history it shows in full.
+const stuckTurn = ref<string | null>(null);
+function updateStuck(): void {
+  const view = messages.value;
+  if (!view) return;
+  const top = view.getBoundingClientRect().top;
+  let key: string | null = null;
+  for (const turn of view.querySelectorAll<HTMLElement>(".turn")) {
+    const bounds = turn.getBoundingClientRect();
+    if (bounds.top < top - 1 && bounds.bottom > top) key = turn.dataset.key ?? null;
+  }
+  stuckTurn.value = key;
+}
+watch([turns, pinQuestion], () => void nextTick(updateStuck), { flush: "post" });
 // Shown in the streaming bubble, or on its own while the turn has none yet.
 const progress = computed(() =>
   progressLine(chat.running, chat.phase, !chat.streaming || (!chat.streaming.text && !chat.toolStatus)),
@@ -205,15 +220,16 @@ onMounted(() => void start());
           <button class="danger" :disabled="!chat.history.length" @click="chat.clearChat"><Trash2 :size="16" />{{ t("clear_chat") }}</button>
         </ChatMenu>
       </div>
-      <div ref="messages" class="messages">
+      <div ref="messages" class="messages" @scroll.passive="updateStuck">
         <div class="bubbles">
-        <section v-for="turn in turns" :key="turn.key" class="turn">
+        <section v-for="turn in turns" :key="turn.key" :data-key="turn.key" class="turn">
           <MessageBubble
             v-for="entry in turn.entries"
             :key="entry.timestamp + entry.role"
             :class="{ question: entry.role === 'user', pinned: entry.role === 'user' && pinQuestion }"
             :entry="entry"
             :pinned="entry.role === 'user' && pinQuestion"
+            :stuck="turn.key === stuckTurn"
             :speech-on="!!settings.current?.enable_tts && entry.role === 'assistant'"
             :color="entry.agent ? colors[entry.agent] : undefined"
             @read-again="chat.readAgain"
