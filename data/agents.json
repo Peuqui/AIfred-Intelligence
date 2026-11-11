@@ -89,6 +89,7 @@
         "vision_list_sources",
         "vision_rescan_sources",
         "vision_snapshot",
+        "vision_record",
         "vision_analyze",
         "vision_query_events",
         "vision_enroll_face",
