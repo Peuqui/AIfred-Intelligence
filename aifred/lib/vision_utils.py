@@ -22,7 +22,7 @@ from .user_error import Invalid
 
 # Vision images live in two session-scoped trees:
 #   data/vigilantia/toolcall/<session>/ — on-demand camera captures
-#       (vision_snapshot / vision_analyze), served via /_upload/vigilantia/...
+#       (vision_capture / vision_analyze), served via /_upload/vigilantia/...
 #   data/upload/images/<session>/       — user-provided images (mobile camera +
 #       file picker), served via /_upload/images/...
 # Background motion frames are session-free and live under
@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # Single point of truth for "what does this camera want?". Reads from
 # vision_store.sources.settings_json, so the Live-Preview popup (UI-side)
-# and the vision_snapshot / vision_analyze tools (LLM-side) share one
+# and the vision_capture / vision_analyze tools (LLM-side) share one
 # persistent per-camera configuration — change it in the popup, the
 # tools pick it up immediately.
 
@@ -765,6 +765,16 @@ def annotate_frame(
     except (OSError, ValueError) as e:  # PIL could not draw: the frame goes out unannotated
         logger.warning("annotate_frame failed: %s", e)
         return image_bytes
+
+
+def jpeg_size(image_bytes: bytes) -> tuple[int, int]:
+    """``(width, height)`` of a JPEG, from its header (nothing is decoded)."""
+    import io
+
+    from PIL import Image
+
+    with Image.open(io.BytesIO(image_bytes)) as image:
+        return image.size
 
 
 def crop_and_resize_image(

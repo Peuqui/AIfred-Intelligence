@@ -13,7 +13,7 @@ Was wird aufgeräumt:
 * **Motion-Frames** unter ``DATA_DIR/vigilantia/motion/<source>/<datum>/`` —
   selbes Schema, gleiches TTL.
 * **Burst-Filme** unter ``DATA_DIR/vigilantia/films/<source>/<datum>/`` und
-  **aufgenommene Filme** (``vision_record``) unter ``…/recordings/<source>/<datum>/`` —
+  **aufgenommene Filme** (``vision_capture`` mit Dauer) unter ``…/recordings/<source>/<datum>/`` —
   selbes Schema, gleiches TTL.
 * **Vision-DB-Events** in ``vision_store.events`` mit ``timestamp``
   vor dem TTL-Cutoff (motion + face_known/unsure/unknown).

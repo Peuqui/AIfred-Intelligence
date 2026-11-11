@@ -36,8 +36,8 @@ def load_plugin_instructions(
     Struktur ``<plugin_dir>/prompts/<de|en>/<requirement>.txt`` (durchgängig
     ``.txt`` wie im globalen ``prompts/``-Baum — Markdown im INHALT ist ok):
       * Der Dateiname kodiert die benötigten Tools, mit ``+`` verknüpft (UND):
-          ``vision_snapshot.txt``                 → nur wenn vision_snapshot erlaubt
-          ``vision_snapshot+vision_analyze.txt``  → nur wenn BEIDE erlaubt (Workflow-Layer)
+          ``vision_capture.txt``                  → nur wenn vision_capture erlaubt
+          ``vision_capture+vision_analyze.txt``   → nur wenn BEIDE erlaubt (Workflow-Layer)
       * ``_intro.txt`` → Plugin-Übergreifendes, wird vorangestellt, sobald
         mindestens ein Tool-Fragment greift.
       * ``granted_tools=None`` → keine Whitelist → alle Fragmente.

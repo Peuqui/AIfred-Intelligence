@@ -354,7 +354,7 @@ async def run_llm_stream(
                 except (ValueError, json.JSONDecodeError):
                     pass
 
-            # vision_snapshot (no VLM) returns image_url without vlm_raw, and
+            # vision_capture (a photo, no VLM) returns image_url without vlm_raw, and
             # for a burst all frames in image_urls — all of them are shown.
             if (
                 result_text
@@ -376,7 +376,7 @@ async def run_llm_stream(
                 except (ValueError, json.JSONDecodeError):
                     pass
 
-            # vision_record: the recorded film plays in the bubble.
+            # vision_capture with duration_s: the recorded film plays in the bubble.
             if result_text and '"film_url"' in result_text:
                 try:
                     parsed = json.loads(result_text)

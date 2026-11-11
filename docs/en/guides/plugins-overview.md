@@ -300,7 +300,7 @@ Tools for the vision subsystem — image snapshots, VLM analysis, face recogniti
 |------|------------|------|
 | `vision_list_sources` | List available camera sources with status | READONLY |
 | `vision_rescan_sources` | Re-run source discovery (e.g. after hardware change) | READONLY |
-| `vision_snapshot` | Grab a single frame from a source | READONLY |
+| `vision_capture` | Take a photo or record a film of a source | READONLY |
 | `vision_analyze` | Run a VLM analysis on a snapshot or watcher event | READONLY |
 | `vision_enroll_face` | Add a face to the Personarium database (identity enrollment) | WRITE_DATA |
 | `vision_start_watch` | Start a background watcher (motion + face + optional VLM) on a source | WRITE_DATA |

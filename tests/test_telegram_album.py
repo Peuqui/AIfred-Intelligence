@@ -149,7 +149,7 @@ class TestFilmAlbum:
 
 class TestSingleFilm:
     def test_a_film_as_the_attachment_plays_in_the_chat(self, tmp_path):
-        """telegram_send with a recorded film (vision_record): a playable video, not a file to download."""
+        """telegram_send with a recorded film (vision_capture): a playable video, not a file to download."""
         bot = _FakeBot()
         film = tmp_path / "Hauseingang_2026-11-12_00-12-36_6s.mp4"
         film.write_bytes(b"film")

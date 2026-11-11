@@ -15,6 +15,7 @@ the plugin manager without restarting.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sqlite3
@@ -50,6 +51,7 @@ from ....lib.vision_utils import (
     cluster_film_files,
     get_image_url,
     is_video_file,
+    jpeg_size,
     resolve_source_alias,
     resolve_source_label,
     save_image_to_file,
@@ -153,7 +155,7 @@ class VisionPlugin:
                                     "Listing image sources …"),
             "vision_rescan_sources": ("Bildquellen werden neu gescannt …",
                                       "Re-scanning image sources …"),
-            "vision_snapshot": ("Foto wird aufgenommen …", "Capturing snapshot …"),
+            "vision_capture": ("Aufnahme läuft …", "Capturing …"),
             "vision_analyze": ("Bild wird analysiert …", "Analysing image …"),
             "vision_enroll_face": ("Gesicht wird gespeichert …", "Storing face …"),
             "vision_start_watch": ("Live-Überwachung wird gestartet …",
@@ -168,7 +170,7 @@ class VisionPlugin:
         de_msg, en_msg = mapping.get(tool_name, ("", ""))
         return de_msg if is_de else en_msg
 
-    # Quellen, die Kamera-Bilder sehen dürfen (Snapshot/Record/Analyze/Event-
+    # Quellen, die Kamera-Bilder sehen dürfen (Capture/Analyze/Event-
     # Chronik): User am Bildschirm + Voice-Puck ("was siehst du auf der
     # Kamera?") + Telegram und Discord. Beide nehmen nur Nachrichten der
     # numerischen Sender-Allowlist an (security.is_sender_allowed: fail-closed,
@@ -188,8 +190,7 @@ class VisionPlugin:
         ]
         if ctx.source in self._CAPTURE_SOURCES:
             tools += [
-                self._tool_snapshot(ctx),
-                self._tool_record(ctx),
+                self._tool_capture(ctx),
                 self._tool_analyze(ctx),
                 self._tool_query_events(ctx),
             ]
@@ -254,160 +255,77 @@ class VisionPlugin:
             tier=TIER_READONLY,
         )
 
-    # ── snapshot ─────────────────────────────────────────────────
+    # ── capture ──────────────────────────────────────────────────
 
-    def _tool_snapshot(self, ctx: PluginContext) -> Tool:
-        async def _exec(source_id: str, n_frames: int = 1, save: bool = True) -> str:
-            import asyncio
-            from dataclasses import replace
-            from ....lib.frame_sources import Frame
-            # LLMs übergeben gern den Anzeigenamen ("Büro") — auflösen wie
-            # in vision_analyze.
-            from ....lib.vision_utils import resolve_source_id
-            source_id = resolve_source_id(source_id)
-            source = get_source(source_id)
-            if source is None:
-                return _err(f"unknown source: {source_id}")
-            if not source.is_available():
-                return _err(f"source not available: {source_id}")
-            # Per-camera resolution from vision_store (set in the live-
-            # preview popup). Tools share the same persistent config as
-            # the UI so a 4K outdoor cam stays at 4K for snapshots and
-            # a low-res door cam stays low. (0, 0) → driver default.
-            from ....lib.vision_utils import resolve_source_resolution
-            from ....lib.frame_hub import get_default_hub
-            w, h = resolve_source_resolution(source_id)
-            n = max(1, min(int(n_frames), 10))
-            # Burst spread: a tight loop would grab N near-identical frames.
-            # Spacing them by burst_interval_s turns the burst into a real
-            # short sequence ("film") that vision_analyze can judge over time.
-            interval = float(load_vision_settings().get("snapshot", {}).get("burst_interval_s", 0.5))
-            # Bevorzugt die Kamera-Snap-API (volle Linsen-Auflösung statt
-            # RTSP-Substream) — None heißt: nicht konfiguriert/fehlgeschlagen.
-            from ....lib.vision_snap import snap_frames as _snap_frames
-            snapped = await _snap_frames(source_id, n, interval)
-            if snapped is None:
-                try:
-                    # Über den FrameHub aufnehmen, nicht source.snapshot() direkt:
-                    # ein laufender Watcher hält source._lock für die gesamte
-                    # Stream-Dauer — ein direkter snapshot() liefe in den Deadlock.
-                    # Der Hub teilt sich den Stream (Timeout 5 s).
-                    hub = get_default_hub()
-                    frames: list[Frame] = []
-                    for i in range(n):
-                        if i > 0 and interval > 0:
-                            await asyncio.sleep(interval)
-                        frames.append(await hub.snapshot(source, width=w, height=h))
-                except (RuntimeError, TimeoutError) as e:  # no frame from the camera
-                    return _err(f"snapshot failed: {e}")
-            else:
-                frames = snapped
-            # Burn the documentation overlay (name + location + capture time)
-            # into every frame. The same stamped image is what the user sees
-            # AND what vision_analyze later sends to the VLM (one artifact
-            # everywhere — SSOT).
-            label = source_overlay_label(source_id)
-            # PIL decode → composite → JPEG re-encode is CPU-heavy (up to N
-            # full-res / 4K frames); run it off the event loop so it doesn't
-            # freeze the single granian worker (all sessions) for seconds.
-            def _annotate_all(fs: list) -> list:
-                return [
-                    replace(f, image_bytes=annotate_frame(
-                        f.image_bytes, label, timestamp=f.timestamp))
-                    for f in fs
-                ]
-            frames = await asyncio.to_thread(_annotate_all, frames)
-            # Snap-API-Frames kennen ihre Maße nicht (width=0) — fürs
-            # Tool-Ergebnis einmal aus dem JPEG dekodieren (ebenfalls off-loop).
-            rw, rh = frames[-1].width, frames[-1].height
-            if not rw:
-                def _decode_dims(buf: bytes) -> tuple[int, int]:
-                    import cv2
-                    import numpy as np
-                    img = cv2.imdecode(np.frombuffer(buf, np.uint8), cv2.IMREAD_COLOR)
-                    return (img.shape[1], img.shape[0]) if img is not None else (rw, rh)
-                rw, rh = await asyncio.to_thread(_decode_dims, frames[-1].image_bytes)
-            result: dict[str, Any] = {
-                "source_id": source_id,
-                "source_name": resolve_source_label(source_id),
-                "n_frames": len(frames),
-                "timestamp": frames[-1].timestamp.isoformat(timespec="seconds"),
-                "width": rw,
-                "height": rh,
-            }
-            if save and ctx.session_id:
-                # Filename: <kamera-alias>_<YYYY-MM-DD_HH-MM-SS_mmm>.jpg —
-                # readable date/time + ms (unique within the per-session folder,
-                # no uuid). The subfolder (toolcall/) already encodes the type.
-                _alias = slugify_for_filename(
-                    resolve_source_alias(source_id, fallback="cam")
-                )
-                urls: list[str] = []
-                for f in frames:
-                    try:
-                        fname = f"{_alias}_{filename_timestamp(f.timestamp)}.jpg"
-                        path = save_image_to_file(
-                            f.image_bytes, ctx.session_id, fname,
-                            base_dir=TOOLCALL_IMAGES_DIR,
-                        )
-                        urls.append(get_image_url(path))
-                    except OSError as e:  # this frame stays out of the reply
-                        logger.warning("snapshot save failed: %s", e)
-                if urls:
-                    # image_urls = the full burst (pass to vision_analyze for a
-                    # sequence), all shown in the bubble by the pipeline.
-                    # image_url = representative (last) frame, the one kept as
-                    # reference in the conversation history. No markdown echo.
-                    result["image_urls"] = urls
-                    result["image_url"] = urls[-1]
-            return _ok(**result)
-
-        return Tool(
-            name="vision_snapshot",
-            description=load_tool_description(__file__, "vision_snapshot"),
-            parameters=load_tool_parameters(__file__, "vision_snapshot"),
-            executor=_exec,
-            # Live camera capture → surveillance/exfil vector from external
-            # channels. Gated by SOURCE in get_tools (browser + Puck only) —
-            # WRITE_DATA would also lock out the Puck (TIER_COMMUNICATE).
-            tier=TIER_READONLY,
-        )
-
-    # ── record ───────────────────────────────────────────────────
-
-    def _tool_record(self, ctx: PluginContext) -> Tool:
-        async def _exec(source_id: str, duration_s: float, interval_s: float = 0.5) -> str:
-            from ....lib.user_error import Invalid
+    def _tool_capture(self, ctx: PluginContext) -> Tool:
+        async def _exec(source_id: str, duration_s: float = 0.0, interval_s: float = 0.5) -> str:
+            from ....lib.user_error import Invalid, Missing
+            from ....lib.vision_capture import grab_frame, output_chain
             from ....lib.vision_film import FilmEncodeError
             from ....lib.vision_recording import record_film
             from ....lib.vision_utils import resolve_source_id
+            # LLMs übergeben gern den Anzeigenamen ("Büro") — auflösen wie in vision_analyze.
             source_id = resolve_source_id(source_id)
             source = get_source(source_id)
             if source is None:
                 return _err(f"unknown source: {source_id}")
             if not source.is_available():
                 return _err(f"source not available: {source_id}")
+            if float(duration_s) > 0:
+                try:
+                    recording = await record_film(source_id, float(duration_s), float(interval_s))
+                except Invalid as e:  # outside the limits of config.py: the model learns them from the message
+                    return _err(str(e))
+                except (RuntimeError, TimeoutError, FilmEncodeError, Missing) as e:  # no frame from the camera, or ffmpeg failed
+                    return _err(f"recording failed: {e}")
+                return _ok(
+                    source_id=source_id,
+                    source_name=resolve_source_label(source_id),
+                    film_url=get_image_url(recording.path),
+                    n_frames=recording.n_frames,
+                    duration_s=round(recording.duration_s, 1),
+                    fps=round(recording.fps, 2),
+                )
             try:
-                recording = await record_film(source, float(duration_s), float(interval_s))
-            except Invalid as e:  # outside the limits of config.py: the model learns them from the message
-                return _err(str(e))
-            except (RuntimeError, TimeoutError, FilmEncodeError) as e:  # no frame from the camera, or ffmpeg failed
-                return _err(f"recording failed: {e}")
-            return _ok(
-                source_id=source_id,
-                source_name=resolve_source_label(source_id),
-                film_url=get_image_url(recording.path),
-                n_frames=recording.n_frames,
-                duration_s=round(recording.duration_s, 1),
-                fps=round(recording.fps, 2),
-            )
+                frame = await grab_frame(source_id)
+            except (RuntimeError, TimeoutError, Missing) as e:  # no frame from the camera
+                return _err(f"snapshot failed: {e}")
+            # The picture goes out through the output chain (zone blackout, then the documentation overlay with name,
+            # location and capture time): the same picture is what the user sees AND what vision_analyze later sends
+            # to the VLM (one artifact everywhere — SSOT).
+            finalized = await output_chain(source_id).finalize(frame, save=False)
+            image = finalized.output
+            width, height = await asyncio.to_thread(jpeg_size, image.image_bytes)
+            result: dict[str, Any] = {
+                "source_id": source_id,
+                "source_name": resolve_source_label(source_id),
+                "n_frames": 1,
+                "timestamp": image.timestamp.isoformat(timespec="seconds"),
+                "width": width,
+                "height": height,
+            }
+            if ctx.session_id:
+                # Filename: <kamera-alias>_<YYYY-MM-DD_HH-MM-SS_mmm>.jpg — readable date/time + ms (unique within the
+                # per-session folder, no uuid). The subfolder (toolcall/) already encodes the type.
+                alias = slugify_for_filename(resolve_source_alias(source_id, fallback="cam"))
+                try:
+                    path = save_image_to_file(
+                        image.image_bytes, ctx.session_id, f"{alias}_{filename_timestamp(image.timestamp)}.jpg",
+                        base_dir=TOOLCALL_IMAGES_DIR,
+                    )
+                    # image_urls: shown in the bubble by the pipeline; image_url: what stays in the history. No markdown echo.
+                    result["image_urls"] = [get_image_url(path)]
+                    result["image_url"] = get_image_url(path)
+                except OSError as e:  # the picture stays out of the reply
+                    logger.warning("capture save failed: %s", e)
+            return _ok(**result)
 
         return Tool(
-            name="vision_record",
-            description=load_tool_description(__file__, "vision_record"),
-            parameters=load_tool_parameters(__file__, "vision_record"),
+            name="vision_capture",
+            description=load_tool_description(__file__, "vision_capture"),
+            parameters=load_tool_parameters(__file__, "vision_capture"),
             executor=_exec,
-            # Camera imagery, like snapshot: gated by SOURCE in get_tools.
+            # Camera imagery → exfil vector from external channels. Gated by SOURCE in get_tools.
             tier=TIER_READONLY,
         )
 
@@ -426,7 +344,7 @@ class VisionPlugin:
                 from ....lib.vision_utils import resolve_source_id
                 source_id = resolve_source_id(source_id)
             # Separated capture/analyze: this tool does NOT take a photo. It
-            # runs the VLM on ALREADY-captured images (from vision_snapshot, an
+            # runs the VLM on ALREADY-captured images (from vision_capture, an
             # upload, or any saved image_url). A single url or a list is
             # accepted; a list is sent as a temporal sequence ("film").
             from ....lib.vision_utils import url_to_file_path
@@ -441,7 +359,7 @@ class VisionPlugin:
             if not urls:
                 return _err(
                     "image_urls required — pass the image_url(s) returned by "
-                    "vision_snapshot (snapshot first, then analyze)."
+                    "vision_capture (capture first, then analyze)."
                 )
 
             from ....lib.config import VISION_DESCRIBE_MAX_FRAMES
@@ -473,7 +391,7 @@ class VisionPlugin:
                     return _err(
                         f"image not found: {u} — the file does not exist. "
                         f"Pass an image_url under /_upload/ as returned by "
-                        f"vision_snapshot, check the path and retry."
+                        f"vision_capture, check the path and retry."
                     )
                 try:
                     # Off the event loop — images live on disk/NAS and can be
@@ -638,7 +556,7 @@ class VisionPlugin:
             from ....lib.frame_hub import get_default_hub
             try:
                 # FrameHub statt direktem source.snapshot() (Deadlock bei
-                # laufendem Watcher, siehe vision_snapshot).
+                # laufendem Watcher, siehe vision_capture).
                 frame = await get_default_hub().snapshot(source)
             except (RuntimeError, TimeoutError) as e:  # no frame from the camera
                 return _err(f"snapshot failed: {e}")

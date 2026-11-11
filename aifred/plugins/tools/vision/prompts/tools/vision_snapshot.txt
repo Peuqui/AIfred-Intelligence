@@ -1,1 +1,0 @@
-Capture from a source into the current session — does NOT analyse. n_frames=1 (default) takes one photo, n_frames>1 a short burst (a few hundred ms apart) for motion / 'a short film'. Returns `image_url` (last frame), `image_urls` (the whole burst) and `source_id`; all frames are shown in the chat automatically — do NOT echo them.

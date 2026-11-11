@@ -49,6 +49,12 @@ def _blank() -> bytes:
     return _encode_jpeg(np.zeros((240, 320, 3), dtype=np.uint8))
 
 
+def _gray(path: Path) -> np.ndarray:
+    picture = cv2.imdecode(np.frombuffer(path.read_bytes(), np.uint8), cv2.IMREAD_GRAYSCALE)
+    assert picture is not None
+    return picture
+
+
 def _rect() -> bytes:
     img = np.zeros((240, 320, 3), dtype=np.uint8)
     cv2.rectangle(img, (40, 40), (260, 200), (255, 255, 255), thickness=-1)
@@ -199,24 +205,24 @@ class TestListSources:
         assert isinstance(result["ids"], list)
 
 
-# ── snapshot ───────────────────────────────────────────────────────
+# ── capture ────────────────────────────────────────────────────────
 
 
-class TestSnapshot:
+class TestCapture:
     def test_unknown_source(self, patched_plugin, ctx):
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
-        result = _exec_tool(tools["vision_snapshot"], source_id="cam/no")
+        result = _exec_tool(tools["vision_capture"], source_id="cam/no")
         assert result["success"] is False
         assert "unknown source" in result["error"]
 
     def test_unavailable_source(self, patched_plugin, ctx):
         register(FakeUnavailableSource("cam/test-down"))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
-        result = _exec_tool(tools["vision_snapshot"], source_id="cam/test-down")
+        result = _exec_tool(tools["vision_capture"], source_id="cam/test-down")
         assert result["success"] is False
         assert "not available" in result["error"]
 
-    def test_snapshot_save_returns_url(self, patched_plugin, ctx, monkeypatch, tmp_path: Path):
+    def test_photo_is_saved_and_returns_url(self, patched_plugin, ctx, monkeypatch, tmp_path: Path):
         # Redirect the vigilantia tree to a tmp path so the save doesn't
         # pollute data/. Patch the vision_utils globals (used by get_image_url
         # for the path→URL mapping) AND the plugin's imported
@@ -230,7 +236,7 @@ class TestSnapshot:
 
         register(FakeSource("cam/test-snap"))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
-        result = _exec_tool(tools["vision_snapshot"], source_id="cam/test-snap")
+        result = _exec_tool(tools["vision_capture"], source_id="cam/test-snap")
         assert result["success"] is True
         assert result["source_id"] == "cam/test-snap"
         assert "image_url" in result
@@ -241,14 +247,32 @@ class TestSnapshot:
         rel = result["image_url"].removeprefix("/_upload/vigilantia/")
         assert (vig / rel).exists()
 
-    def test_snapshot_no_save(self, patched_plugin, ctx):
-        register(FakeSource("cam/test-snap2"))
+    def test_the_zone_blackout_reaches_the_photo(self, patched_plugin, ctx, monkeypatch, tmp_path: Path):
+        """A photo an agent asks for goes through the output chain: a blacked-out zone is black in it (DSGVO)."""
+        import aifred.lib.vision_capture as vc
+        import aifred.lib.vision_utils as vu
+        from aifred.lib.vision_filters.zone_mask import ZoneMask
+
+        vig = tmp_path / "vigilantia"
+        monkeypatch.setattr(vu, "VIGILANTIA_DIR", vig)
+        monkeypatch.setattr(vu, "TOOLCALL_IMAGES_DIR", vig / "toolcall")
+        monkeypatch.setattr(vp, "TOOLCALL_IMAGES_DIR", vig / "toolcall")
+        everything_black = ZoneMask("cam/test-mask", 2, 2, np.full((2, 2), 2, dtype=np.uint8))   # 2 = blackout
+        monkeypatch.setattr(vc, "load_zone_mask", lambda source_id: everything_black)
+        register(FakeSource("cam/test-mask", frames=[_rect()]))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
-        result = _exec_tool(
-            tools["vision_snapshot"], source_id="cam/test-snap2", save=False
-        )
+        result = _exec_tool(tools["vision_capture"], source_id="cam/test-mask")
         assert result["success"] is True
-        assert "image_url" not in result
+        stored = vig / result["image_url"].removeprefix("/_upload/vigilantia/")
+        picture = _gray(stored)
+        # The white rectangle of the stub picture is gone (the overlay's text sits below it, at the lower left).
+        assert picture[50:190, 50:250].max() < 40, "the zone is not blacked out"
+        # ... and without the mask it is there: the same photo of another camera
+        monkeypatch.setattr(vc, "load_zone_mask", lambda source_id: None)
+        register(FakeSource("cam/test-unmasked", frames=[_rect()]))
+        unmasked = _exec_tool(tools["vision_capture"], source_id="cam/test-unmasked")
+        picture = _gray(vig / unmasked["image_url"].removeprefix("/_upload/vigilantia/"))
+        assert picture[50:190, 50:250].min() > 200
 
 
 # ── analyze ────────────────────────────────────────────────────────
@@ -279,7 +303,7 @@ class TestAnalyze:
         register(FakeSource("cam/test-analyze"))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
         # New flow: snapshot captures, analyze runs the VLM on its image_url.
-        snap = _exec_tool(tools["vision_snapshot"], source_id="cam/test-analyze")
+        snap = _exec_tool(tools["vision_capture"], source_id="cam/test-analyze")
         assert snap["success"] is True
         result = _exec_tool(
             tools["vision_analyze"],
@@ -298,7 +322,7 @@ class TestAnalyze:
     def test_record_a_film_then_analyze_it(
         self, patched_plugin, ctx, store, monkeypatch, tmp_path: Path
     ):
-        """vision_record → film in the vigilantia tree → vision_analyze on its film_url: the model gets pictures out of it."""
+        """vision_capture with duration_s → film in the vigilantia tree → vision_analyze on its film_url: the model gets pictures out of it."""
         import aifred.lib.vision_recording as vr
         from aifred.lib.config import VISION_DESCRIBE_MAX_FRAMES
 
@@ -315,7 +339,7 @@ class TestAnalyze:
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
         register(FakeSource("cam/test-record"))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
-        recorded = _exec_tool(tools["vision_record"], source_id="cam/test-record", duration_s=1.5, interval_s=0.2)
+        recorded = _exec_tool(tools["vision_capture"], source_id="cam/test-record", duration_s=1.5, interval_s=0.2)
         assert recorded["success"] is True and recorded["film_url"].endswith(".mp4")
         assert recorded["film_url"].startswith("/_upload/vigilantia/recordings/")
         assert recorded["n_frames"] >= 7
@@ -327,7 +351,7 @@ class TestAnalyze:
         mixed = _exec_tool(tools["vision_analyze"], image_urls=[recorded["film_url"], recorded["film_url"]])
         assert mixed["success"] is False
         # limits of config.py are answered with the limit
-        too_long = _exec_tool(tools["vision_record"], source_id="cam/test-record", duration_s=100000)
+        too_long = _exec_tool(tools["vision_capture"], source_id="cam/test-record", duration_s=100000)
         assert too_long["success"] is False and "at most" in too_long["error"]
 
     def test_analyze_empty_vlm_response_returns_error(
@@ -347,7 +371,7 @@ class TestAnalyze:
 
         register(FakeSource("cam/test-empty"))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
-        snap = _exec_tool(tools["vision_snapshot"], source_id="cam/test-empty")
+        snap = _exec_tool(tools["vision_capture"], source_id="cam/test-empty")
         result = _exec_tool(
             tools["vision_analyze"],
             image_urls=[snap["image_url"]],
@@ -379,16 +403,12 @@ class TestAnalyze:
 
         register(FakeSource("cam/test-multi", frames=[_blank(), _rect(), _blank()]))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
-        # Burst capture (3 frames) → analyze the whole sequence.
-        snap = _exec_tool(
-            tools["vision_snapshot"], source_id="cam/test-multi", n_frames=3
-        )
-        assert snap["success"] is True
-        assert snap["n_frames"] == 3
-        assert len(snap["image_urls"]) == 3
+        # Three captures → analyze them as one sequence.
+        urls = [_exec_tool(tools["vision_capture"], source_id="cam/test-multi")["image_url"] for _ in range(3)]
+        assert len(set(urls)) == 3
         result = _exec_tool(
             tools["vision_analyze"],
-            image_urls=snap["image_urls"],
+            image_urls=urls,
             source_id="cam/test-multi",
         )
         assert result["success"] is True
@@ -601,8 +621,7 @@ class TestPluginMeta:
         assert names == {
             "vision_list_sources",
             "vision_rescan_sources",
-            "vision_snapshot",
-            "vision_record",
+            "vision_capture",
             "vision_analyze",
             "vision_enroll_face",
             "vision_start_watch",
@@ -617,7 +636,7 @@ class TestCaptureSources:
     sender allowlist), not e-mail (its allowlist knows "*" and domains, the sender is forgeable: a mail's text must not
     give an injected prompt an eye on the cameras)."""
 
-    CAMERA_TOOLS = {"vision_snapshot", "vision_record", "vision_analyze", "vision_query_events"}
+    CAMERA_TOOLS = {"vision_capture", "vision_analyze", "vision_query_events"}
 
     @pytest.mark.parametrize("source", ["browser", "freeecho2", "telegram", "discord"])
     def test_own_channels_get_the_camera_tools(self, patched_plugin, source):
@@ -634,13 +653,13 @@ class TestVisionMode:
     def test_mode_on_demand_returns_all_tools(self, patched_plugin, ctx, monkeypatch):
         monkeypatch.setattr(vp, "vision_mode", lambda: "on-demand")
         names = {t.name for t in vp.plugin.get_tools(ctx)}
-        assert "vision_snapshot" in names
-        assert len(names) == 10
+        assert "vision_capture" in names
+        assert len(names) == 9
 
     def test_mode_live_returns_all_tools(self, patched_plugin, ctx, monkeypatch):
         monkeypatch.setattr(vp, "vision_mode", lambda: "live")
         names = {t.name for t in vp.plugin.get_tools(ctx)}
-        assert len(names) == 10
+        assert len(names) == 9
 
     @staticmethod
     def _patch_dirs(monkeypatch, tmp_path):
@@ -667,7 +686,7 @@ class TestVisionMode:
 
         register(FakeSource("cam/test-live"))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
-        snap = _exec_tool(tools["vision_snapshot"], source_id="cam/test-live")
+        snap = _exec_tool(tools["vision_capture"], source_id="cam/test-live")
         _exec_tool(
             tools["vision_analyze"],
             image_urls=[snap["image_url"]], source_id="cam/test-live",
@@ -693,7 +712,7 @@ class TestVisionMode:
 
         register(FakeSource("cam/test-od"))
         tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
-        snap = _exec_tool(tools["vision_snapshot"], source_id="cam/test-od")
+        snap = _exec_tool(tools["vision_capture"], source_id="cam/test-od")
         _exec_tool(
             tools["vision_analyze"],
             image_urls=[snap["image_url"]], source_id="cam/test-od",

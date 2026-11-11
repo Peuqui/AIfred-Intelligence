@@ -11,12 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .frame_hub import get_default_hub
-from .frame_sources import get as get_source
-from .user_error import Missing, UpstreamFailed
-from .vision_filters.zone_mask import load_zone_mask
-from .vision_output import OutputChain
-from .vision_snap import resolve_snap_channel, snap_frames
+from .user_error import UpstreamFailed
+from .vision_capture import grab_frame, output_chain
 from .vision_utils import VIGILANTIA_DIR
 
 PHOTOS_DIR = VIGILANTIA_DIR / "photos"
@@ -29,22 +25,11 @@ class PhotoError(UpstreamFailed):
 async def take_photo(source_id: str) -> str:
     """Nimmt ein Foto der Quelle auf und liefert seine URL
     (``/_upload/vigilantia/photos/…``)."""
-    if resolve_snap_channel(source_id) is not None:
-        frames = await snap_frames(source_id, 1)
-        if not frames:
-            raise PhotoError("photo_failed", camera=source_id)
-        frame = frames[0]
-    else:
-        source = get_source(source_id)
-        if source is None:
-            raise Missing("unknown_camera", camera=source_id)
-        try:
-            frame = await get_default_hub().snapshot(source)
-        except (TimeoutError, RuntimeError) as error:  # no frame in time, or the stream ended without one
-            raise PhotoError("photo_failed", camera=source_id) from error
-    chain = OutputChain(PHOTOS_DIR)
-    chain.set_zone_mask(source_id, load_zone_mask(source_id))
-    finalized = await chain.finalize(frame, save=True)
+    try:
+        frame = await grab_frame(source_id, snap_required=True)
+    except (TimeoutError, RuntimeError) as error:  # no frame in time, or the stream ended without one
+        raise PhotoError("photo_failed", camera=source_id) from error
+    finalized = await output_chain(source_id, PHOTOS_DIR).finalize(frame, save=True)
     if not finalized.path:
         raise PhotoError("photo_not_saved", camera=source_id)
     relative = Path(finalized.path).relative_to(VIGILANTIA_DIR)

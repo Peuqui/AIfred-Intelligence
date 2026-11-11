@@ -300,7 +300,7 @@ Tools für das Vision-Subsystem — Bild-Snapshots, VLM-Analyse, Gesichtserkennu
 |------|-------------|------|
 | `vision_list_sources` | Verfügbare Kameraquellen mit Status auflisten | READONLY |
 | `vision_rescan_sources` | Source-Discovery neu starten (z.B. nach Hardware-Wechsel) | READONLY |
-| `vision_snapshot` | Einzelbild von einer Quelle holen | READONLY |
+| `vision_capture` | Foto oder Film einer Quelle aufnehmen | READONLY |
 | `vision_analyze` | VLM-Analyse eines Snapshots oder Watcher-Events | READONLY |
 | `vision_enroll_face` | Gesicht zur Personarium-Datenbank hinzufügen (Identitäts-Enrollment) | WRITE_DATA |
 | `vision_start_watch` | Background-Watcher (Motion + Face + optional VLM) auf einer Quelle starten | WRITE_DATA |

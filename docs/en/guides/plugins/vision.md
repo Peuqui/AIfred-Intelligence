@@ -47,9 +47,8 @@ the assistant does not see the plugin at all.
 |------|-------------|------|
 | `vision_list_sources` | List all registered image sources (webcams, IP cameras) with availability, resolution and configured context. | READONLY |
 | `vision_rescan_sources` | Re-scan the system for newly attached/detached image sources (e.g. a webcam that was just plugged in). | READONLY |
-| `vision_snapshot` | Capture a single frame from a source. With `save=true` (default) the image is persisted to the current session and an `image_url` + `markdown` shortcut is returned for inline rendering. | READONLY |
-| `vision_record` | Recording on request: one picture every `interval_s` seconds for `duration_s` seconds, assembled in real time into an MP4 (`data/vigilantia/recordings/<source>/<date>/`, same retention as the burst films). The film plays in the chat. Limits in `config.py`: `VISION_RECORD_MAX_DURATION_S` (120 s), `VISION_RECORD_MIN_INTERVAL_S` (0.2 s). | READONLY |
-| `vision_analyze` | Capture N frames (1–10) and have the VLM describe them. `n_frames > 1` sends a temporal sequence (motion description). Logs a `vlm_analysis` event. | READONLY |
+| `vision_capture` | Take a photo or record a film of a source, saved into the current session, through the output chain (zone blackout, timestamp). Without `duration_s`: one photo (`image_url`). With `duration_s`: one picture every `interval_s` seconds, assembled in real time into an MP4 (`film_url`, `data/vigilantia/recordings/<source>/<date>/`, same retention as the burst films); the film plays in the chat. Limits in `config.py`: `VISION_RECORD_MAX_DURATION_S` (120 s), `VISION_RECORD_MIN_INTERVAL_S` (0.2 s). | READONLY |
+| `vision_analyze` | Have the VLM describe ALREADY-captured images or a film (takes nothing). Several images go as a temporal sequence. Logs a `vlm_analysis` event. | READONLY |
 | `vision_enroll_face` | Snapshot the source, detect the most prominent face, and store its embedding under `name`. Repeating with an existing name appends another embedding (multi-angle enrollment). | WRITE_DATA |
 | `vision_start_watch` | Start a continuous background watch on a source: captures frames at `fps`, detects motion, and (if enabled) runs face recognition. Events are logged to the vision DB. | WRITE_DATA |
 | `vision_stop_watch` | Stop a running watch on a source. No-op if nothing was running. | WRITE_DATA |
@@ -58,14 +57,13 @@ the assistant does not see the plugin at all.
 
 ### Tool parameters
 
-- **`vision_snapshot`** — `source_id` (required), `save` (bool, default `true`).
-- **`vision_record`** — `source_id` (required), `duration_s` (required), `interval_s` (default `0.5`).
-  Returns `film_url`, `n_frames`, `duration_s` and `fps`. `vision_analyze` with the `film_url` judges the film: the
-  model gets pictures spread evenly over its length (`VISION_DESCRIBE_MAX_FRAMES`, 10); a film goes in alone.
-  A happening's burst films are named by `vision_query_events` as `film_urls` (`wide`, `zoom`); they go with the
-  last deleted event of their happening.
-- **`vision_analyze`** — `source_id` (required), `prompt` (optional; falls back
-  to the configured default prompt), `n_frames` (int, 1–10, default `1`).
+- **`vision_capture`** — `source_id` (required), `duration_s` (default `0`: one photo; otherwise a film this long),
+  `interval_s` (film only, default `0.5`). `film_url` and `image_url` go to `vision_analyze`; for a film the model gets
+  pictures spread evenly over its length (`VISION_DESCRIBE_MAX_FRAMES`, 10); a film goes in alone. A happening's burst
+  films are named by `vision_query_events` as `film_urls` (`wide`, `zoom`); they go with the last deleted event of their
+  happening.
+- **`vision_analyze`** — `image_urls` (required: URL(s) from `vision_capture` or uploads, or one film alone), `prompt` (optional; falls back to
+  the configured default prompt), `source_id` (optional; applies the camera briefing).
 - **`vision_enroll_face`** — `name` (required), `source_id` (required), `notes`
   (optional).
 - **`vision_start_watch`** — `source_id` (required), `fps` (optional; default
@@ -539,7 +537,7 @@ CPU) installed.
 
 ## Usage examples
 
-- "Take a photo of the front door." → `vision_snapshot`
+- "Take a photo of the front door." → `vision_capture`
 - "What do you see on the webcam right now?" → `vision_analyze`
 - "Remember this person as Alex." → `vision_enroll_face` (repeat for more angles)
 - "Watch the entrance and tell me if someone shows up." → `vision_start_watch`

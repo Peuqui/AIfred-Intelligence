@@ -32,8 +32,8 @@ class _Turn:
 
     async def chat_stream(self, model, messages, options, toolkit=None):
         yield {"type": "content", "text": "<think>plan</think>Ich schaue nach."}
-        yield {"type": "tool_call", "name": "vision_snapshot", "arguments": "{}"}
-        yield {"type": "tool_result", "name": "vision_snapshot", "result": json.dumps({
+        yield {"type": "tool_call", "name": "vision_capture", "arguments": "{}"}
+        yield {"type": "tool_result", "name": "vision_capture", "result": json.dumps({
             "success": True, "source_id": "cam", "image_url": BURST[-1], "image_urls": BURST,
         })}
         yield {"type": "tool_call", "name": "vision_analyze", "arguments": "{}"}

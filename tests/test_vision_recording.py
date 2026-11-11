@@ -10,14 +10,16 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from _vision_fakes import FakeSource, noise_jpeg
+from _vision_fakes import noise_jpeg
 
+import aifred.lib.vision_capture as vc
 import aifred.lib.vision_recording as vr
 import aifred.lib.vision_utils as vu
 from aifred.lib.config import VISION_RECORD_MAX_DURATION_S, VISION_RECORD_MIN_INTERVAL_S
 from aifred.lib.frame_sources import Frame
 from aifred.lib.user_error import Invalid
 from aifred.lib.vision_film import encode_film, film_frames
+from aifred.lib.vision_output import OutputChain
 from aifred.lib.vision_store import VisionStore
 
 pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg fehlt")
@@ -56,17 +58,16 @@ def test_limits_come_from_the_config() -> None:
 
 def test_a_recording_plays_in_real_time(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(vr, "RECORDINGS_DIR", tmp_path / "recordings")
-    monkeypatch.setattr(vr, "resolve_source_resolution", lambda source_id: (0, 0))
-    monkeypatch.setattr(vr, "source_overlay_label", lambda source_id: "Test")
     monkeypatch.setattr(vr, "resolve_source_alias", lambda source_id, fallback="": "tuer")
-    monkeypatch.setattr(vr, "annotate_frame", lambda image, label, timestamp: image)
+    monkeypatch.setattr(vc, "load_zone_mask", lambda source_id: None)
+    monkeypatch.setattr(OutputChain, "_stamp", staticmethod(lambda frame, suffix: frame))   # the stamp opens the default store
     taken = iter(range(100))
 
-    async def grab(source, width, height):
-        return Frame(source_id=source.source_id, timestamp=datetime.now(), image_bytes=noise_jpeg(seed=next(taken)))
+    async def grab(source_id, **options):
+        return Frame(source_id=source_id, timestamp=datetime.now(), image_bytes=noise_jpeg(seed=next(taken)))
 
-    monkeypatch.setattr(vr, "_grab", grab)
-    recording = asyncio.run(vr.record_film(FakeSource("cam/test", []), duration_s=0.7, interval_s=0.2))
+    monkeypatch.setattr(vr, "grab_frame", grab)
+    recording = asyncio.run(vr.record_film("cam/test", duration_s=0.7, interval_s=0.2))
     assert recording.n_frames == 4                       # at 0.0 0.2 0.4 0.6 s
     assert recording.path.parent.parent.name == "cam_test" and recording.path.parent.name == datetime.now().strftime("%Y-%m-%d")
     assert 4.0 < recording.fps < 6.0                     # measured, about the 5 pictures per second asked for

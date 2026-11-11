@@ -77,17 +77,9 @@ def current(token: str) -> Session:
 async def fresh_face_frame(source_id: str) -> Any:
     """The freshest picture of a camera for a face: over the camera's snapshot API with its tele lens where it has
     them (no stream lag), else the frame hub's snapshot. KeyError for no such camera."""
-    from .frame_hub import get_default_hub
-    from .frame_sources import get as get_source
-    from .vision_snap import snap_frames
+    from .vision_capture import grab_frame
 
-    frames = await snap_frames(source_id, 1, prefer_face=True)
-    if frames:
-        return frames[0]
-    source = get_source(source_id)
-    if source is None:
-        raise Missing("unknown_camera", camera=source_id)
-    return await get_default_hub().snapshot(source)
+    return await grab_frame(source_id, prefer_face=True)
 
 
 async def capture(token: str, source_id: str) -> Session:
