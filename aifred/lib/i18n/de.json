@@ -1208,6 +1208,8 @@
   "display_sizes_reset": "Alle Größen zurücksetzen",
   "pin_question": "Frage oben festhalten",
   "pin_question_hint": "Die Frage eines Zuges bleibt oben im Chat stehen, während die Antwort scrollt; gilt nur auf diesem Gerät",
+  "question_more": "mehr",
+  "question_less": "weniger",
   "new_version_waiting": "Neue Version – lädt, sobald du fertig getippt hast (oder jetzt hier klicken)",
   "size_interface": "Oberfläche",
   "size_console": "Konsole",

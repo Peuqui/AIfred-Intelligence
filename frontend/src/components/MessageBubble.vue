@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { ChatEntry } from "../api/types";
 import { t } from "../i18n";
 import { renderMarkdown } from "../lib/markdown";
@@ -9,13 +9,35 @@ import { useSettings } from "../stores/settings";
 import ImageLightbox from "./ImageLightbox.vue";
 
 // color: the agent's (agents.json); none for an agent deleted since, whose bubble then has no stripe of colour.
-const props = defineProps<{ entry: ChatEntry; speechOn: boolean; color?: string }>();
+// pinned: the user's question sticks at the top of the chat; it shows a few lines only (--pinned-question-lines), a link
+// below unfolds the rest.
+const props = defineProps<{ entry: ChatEntry; speechOn: boolean; color?: string; pinned?: boolean }>();
 const settings = useSettings();
 const emit = defineEmits<{ readAgain: [timestamp: string] }>();
 const html = computed(() => renderMarkdown(props.entry.content));
 const isUser = computed(() => props.entry.role === "user");
 const metadata = computed(() => props.entry.metadata ?? { audio_urls: [], browser_speech: [] });
 const canReplay = computed(() => (metadata.value.audio_urls?.length ?? 0) + (metadata.value.browser_speech?.length ?? 0) > 0);
+
+// Whether the folded question has more to show is known by measuring: the screen's line breaks are not the text's.
+const content = ref<HTMLElement>();
+const unfolded = ref(false);
+const overflowing = ref(false);
+const folded = computed(() => !!props.pinned && !unfolded.value);
+
+function measure(): void {
+  const element = content.value;
+  // Unfolded nothing is cut off; the link stays, to fold again.
+  if (!element || !props.pinned || unfolded.value) return;
+  overflowing.value = element.scrollHeight > element.clientHeight + 1;
+}
+const resizes = new ResizeObserver(measure);
+onMounted(() => {
+  measure();
+  if (content.value) resizes.observe(content.value);
+});
+onBeforeUnmount(() => resizes.disconnect());
+watch(() => [props.entry.content, props.pinned], () => void nextTick(measure));
 
 function play(): void {
   toggleReading(metadata.value.audio_urls ?? [], metadata.value.browser_speech ?? []);
@@ -29,8 +51,8 @@ const shownAt = ref<number | null>(null);
 function enlarge(event: MouseEvent): void {
   const picture = event.target instanceof HTMLImageElement ? event.target : null;
   if (!picture || picture.closest("a") || !picture.src.includes("/_upload/")) return;
-  const content = event.currentTarget as HTMLElement;
-  pictures.value = [...content.querySelectorAll("img")].map((image) => image.src).filter((src) => src.includes("/_upload/"));
+  const bubble = event.currentTarget as HTMLElement;
+  pictures.value = [...bubble.querySelectorAll("img")].map((image) => image.src).filter((src) => src.includes("/_upload/"));
   shownAt.value = pictures.value.indexOf(picture.src);
 }
 </script>
@@ -60,7 +82,10 @@ function enlarge(event: MouseEvent): void {
       <span v-if="entry.tts_note" class="note">{{ entry.tts_note }}</span>
     </header>
     <!-- eslint-disable-next-line vue/no-v-html -- sanitized by renderMarkdown (DOMPurify) -->
-    <div class="content" @click="enlarge" v-html="html" />
+    <div ref="content" class="content" :class="{ folded }" @click="enlarge" v-html="html" />
+    <button v-if="pinned && (overflowing || unfolded)" type="button" class="more" @click="unfolded = !unfolded">
+      {{ unfolded ? t("question_less") : t("question_more") }}
+    </button>
     <ImageLightbox
       v-if="shownAt !== null"
       :count="pictures.length"
@@ -95,6 +120,8 @@ header { font-size: var(--text-small); font-weight: 600; color: var(--aifred-pri
 .replay:has(.tts-icon) { opacity: 1; }
 .replay :deep(.tts-icon) { height: 2.2em; width: 2.2em; vertical-align: middle; }
 .note { color: var(--aifred-text-secondary); font-weight: 400; font-size: var(--text-small); align-self: center; }
+.content.folded { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--pinned-question-lines); overflow: hidden; }
+.more { background: none; border: none; padding: 0; margin-top: 2px; font: inherit; font-size: var(--text-small); color: var(--aifred-text-muted); text-decoration: underline; cursor: pointer; }
 .content :deep(p) { margin: 0.5em 0; }
 .content :deep(em.metrics) { font-size: var(--text-small); color: var(--aifred-text-secondary); }
 .content :deep(pre) { overflow-x: auto; background: var(--aifred-page-bg); padding: 8px; border-radius: 6px; }

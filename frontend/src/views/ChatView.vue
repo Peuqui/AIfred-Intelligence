@@ -213,6 +213,7 @@ onMounted(() => void start());
             :key="entry.timestamp + entry.role"
             :class="{ question: entry.role === 'user', pinned: entry.role === 'user' && pinQuestion }"
             :entry="entry"
+            :pinned="entry.role === 'user' && pinQuestion"
             :speech-on="!!settings.current?.enable_tts && entry.role === 'assistant'"
             :color="entry.agent ? colors[entry.agent] : undefined"
             @read-again="chat.readAgain"
