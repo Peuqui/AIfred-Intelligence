@@ -80,6 +80,10 @@ async def app_manifest() -> JSONResponse:
             "icons": [
                 {"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
                 {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"},
+                # Android's adaptive launcher icon: the hat on the page colour inside the mask's safe zone (instead of
+                # a white tile behind the plain icon), and its shape for themed icons (scripts/make_app_icons.py).
+                {"src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+                {"src": "icon-monochrome-512.png", "sizes": "512x512", "type": "image/png", "purpose": "monochrome"},
             ],
         },
         media_type="application/manifest+json",
