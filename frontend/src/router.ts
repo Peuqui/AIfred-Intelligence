@@ -4,6 +4,7 @@ import AgentsView from "./views/AgentsView.vue";
 import ChatView from "./views/ChatView.vue";
 import DocumentsView from "./views/DocumentsView.vue";
 import JobsView from "./views/JobsView.vue";
+import MaintenanceView from "./views/MaintenanceView.vue";
 import MemoryView from "./views/MemoryView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import AudioView from "./views/AudioView.vue";
@@ -18,6 +19,7 @@ export const router = createRouter({
     { path: "/memory", component: MemoryView },
     { path: "/jobs", component: JobsView },
     { path: "/audio", component: AudioView },
+    { path: "/maintenance", component: MaintenanceView },
     { path: "/vision", redirect: "/vision/live" },
     { path: "/vision/:tab", component: VisionView },
     { path: "/settings", component: SettingsView },

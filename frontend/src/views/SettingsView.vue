@@ -1,10 +1,9 @@
 <script setup lang="ts">
 // AIfred's general settings: language and the user, debate, the input and dictation, the LLM backend with GPUs and calibration, the plugins
-// (channels and tools with their settings), the local files nothing deletes by itself and the audit log.
+// (channels and tools with their settings).
 // Speech output has its own page (Audio), the agents' models and switches are their quick choices (🎛️ in the chat);
 // switching the backend, starting a calibration and the restarts follow.
 import BackendSettings from "../components/BackendSettings.vue";
-import HousekeepingSettings from "../components/HousekeepingSettings.vue";
 import InputSettings from "../components/InputSettings.vue";
 import PluginSettings from "../components/PluginSettings.vue";
 import { t } from "../i18n";
@@ -70,7 +69,6 @@ function named(event: Event): void {
     <InputSettings :settings="settings.current" @change="settings.change" />
     <BackendSettings />
     <PluginSettings />
-    <HousekeepingSettings />
   </main>
 </template>
 

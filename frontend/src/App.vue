@@ -115,6 +115,7 @@ onMounted(async () => {
         <RouterLink to="/memory">{{ t("nav_memory") }}</RouterLink>
         <RouterLink to="/jobs">{{ t("nav_jobs") }}</RouterLink>
         <RouterLink to="/audio"><TtsIcon /> {{ t("nav_audio") }}</RouterLink>
+        <RouterLink to="/maintenance">{{ t("nav_maintenance") }}</RouterLink>
         <RouterLink to="/settings">{{ t("settings") }}</RouterLink>
       </nav>
       <button class="logout" :title="t('logout')" :aria-label="t('logout')" @click="logout"><LogOut :size="18" /></button>

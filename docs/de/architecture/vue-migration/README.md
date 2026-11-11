@@ -264,8 +264,8 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Formulare ohne ein einziges Passwort in der Antwort, Rechner aus und an, Formular geöffnet und verworfen; Kanäle
   dort bewusst nicht geschaltet (ein Listener der Testinstanz antwortete neben der Produktion), das Schalten und
   Speichern ist mit Stellvertretern getestet.
-- **Speicher und Audit-Log (erledigt 08.11.2026):** Zwei aufklappbare Abschnitte der Einstellungsseite
-  (`HousekeepingSettings.vue`, laden beim Aufklappen): die Dateien, die nichts von selbst löscht (Chat-Exporte,
+- **Speicher und Audit-Log (erledigt 08.11.2026):** Zwei aufklappbare Abschnitte der Seite Wartung
+  (`/maintenance`, `MaintenanceView.vue`, laden beim Aufklappen; bis 11.11. unten in den Einstellungen): die Dateien, die nichts von selbst löscht (Chat-Exporte,
   Sandbox-Ausgaben) mit Öffnen, Übernehmen in den Showcase, Löschen einzeln oder als Auswahl nach Rückfrage, und die
   letzten Werkzeugläufe aus dem Audit-Log. Dünn über `storage_manager` und `security.load_audit_entries`
   (`/api/storage/files…`, `/api/storage/showcase`, `/api/audit`, Modul `api/housekeeping.py`). Geprüft gegen die

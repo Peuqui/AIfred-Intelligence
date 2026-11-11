@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// What the settings page keeps an eye on: the local files nothing deletes by itself (chat exports and sandbox output:
-// open, take an export into the GitHub showcase, delete one, several or all after asking) and the audit log of the
-// tools' last runs. Both load when their section is opened.
+// The maintenance page: the local files nothing deletes by itself (chat exports and sandbox output: open, take an
+// export into the GitHub showcase, delete one, several or all after asking) and the audit log of the tools' last
+// runs. Both load when their section is opened.
 import { ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { AuditEntry, ManagedFile } from "../api/types";
@@ -49,7 +49,7 @@ async function openAudit(event: Event): Promise<void> {
 </script>
 
 <template>
-  <section class="housekeeping">
+  <main class="maintenance">
     <p v-if="notice" class="notice">{{ notice }}</p>
     <details @toggle="openFiles">
       <summary>💾 {{ t("tab_storage") }}</summary>
@@ -113,11 +113,11 @@ async function openAudit(event: Event): Promise<void> {
         </tbody>
       </table>
     </details>
-  </section>
+  </main>
 </template>
 
 <style scoped>
-.housekeeping { display: flex; flex-direction: column; gap: 8px; }
+.maintenance { overflow-y: auto; padding: 16px 0; display: flex; flex-direction: column; gap: 8px; max-width: 720px; }
 details { padding: 10px 14px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 10px; }
 summary { cursor: pointer; font-weight: 600; }
 .hint { margin: 6px 0; font-size: 0.8rem; color: var(--aifred-text-muted); }
