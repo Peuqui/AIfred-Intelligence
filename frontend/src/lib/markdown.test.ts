@@ -55,3 +55,29 @@ describe("renderMarkdown", () => {
     expect(html).toContain("katex");
   });
 });
+
+describe("films of the camera", () => {
+  const film = "/_upload/vigilantia/films/cam_rtsp_reolink/2026-11-09/c-1_wide.mp4";
+
+  it("plays a film named as a link, with the link's words above", () => {
+    const html = renderMarkdown(`Hier: [Weitwinkel](${film})`);
+    expect(html).toContain("<video controls");
+    expect(html).toContain(`src="${film}"`);
+    expect(html).toContain("🎬 Weitwinkel");
+    expect(html).not.toContain("<a ");
+  });
+
+  it("plays a film named as a bare path, in the middle of a sentence", () => {
+    const html = renderMarkdown(`Der Film ${film} zeigt eine Person.`);
+    expect(html).toContain(`src="${film}"`);
+    expect(html).toContain("Der Film");
+    expect(html).toContain("zeigt eine Person.");
+  });
+
+  it("plays a recording as well, and leaves other mp4 links alone", () => {
+    expect(renderMarkdown("[x](/_upload/vigilantia/recordings/cam/2026-11-12/a_6s.mp4)")).toContain("<video");
+    const other = renderMarkdown("[x](https://example.org/film.mp4) [y](/_upload/images/abc/film.mp4)");
+    expect(other).not.toContain("<video");
+    expect(other).toContain("<a ");
+  });
+});
