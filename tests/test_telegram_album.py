@@ -145,3 +145,14 @@ class TestFilmAlbum:
             _deliver(tmp_path, bot, "Zusammenfassung", media_album=films)
         assert bot.groups == [] and bot.videos == []
         assert bot.texts == ["Zusammenfassung"]
+
+
+class TestSingleFilm:
+    def test_a_film_as_the_attachment_plays_in_the_chat(self, tmp_path):
+        """telegram_send with a recorded film (vision_record): a playable video, not a file to download."""
+        bot = _FakeBot()
+        film = tmp_path / "Hauseingang_2026-11-12_00-12-36_6s.mp4"
+        film.write_bytes(b"film")
+        _deliver(tmp_path, bot, "Aufnahme", media=str(film))
+        assert bot.videos == [{"caption": "Aufnahme", "streaming": True, "filename": film.name}]
+        assert bot.photos == [] and bot.groups == []

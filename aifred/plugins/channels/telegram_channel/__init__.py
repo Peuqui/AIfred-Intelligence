@@ -403,6 +403,10 @@ class TelegramChannel(BaseChannel):
                     data, name = await _read_local(local)
                     if is_image_file(pathlib.Path(local)):
                         m = await bot.send_photo(chat_id=chat_id, photo=data, filename=name, caption=caption)
+                    elif is_video_file(pathlib.Path(local)):
+                        m = await bot.send_video(
+                            chat_id=chat_id, video=data, filename=name, caption=caption, supports_streaming=True,
+                        )
                     else:
                         m = await bot.send_document(chat_id=chat_id, document=data, filename=name, caption=caption)
                     sent_ids.append(m.message_id)

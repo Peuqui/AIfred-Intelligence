@@ -168,14 +168,18 @@ class VisionPlugin:
         de_msg, en_msg = mapping.get(tool_name, ("", ""))
         return de_msg if is_de else en_msg
 
-    # Quellen, die Kamera-Bilder sehen dürfen (Snapshot/Analyze/Event-
+    # Quellen, die Kamera-Bilder sehen dürfen (Snapshot/Record/Analyze/Event-
     # Chronik): User am Bildschirm + Voice-Puck ("was siehst du auf der
-    # Kamera?"). Externe Message-Kanäle bekommen die Capture-Tools gar
-    # nicht gelistet — Prompt-Injection aus einer Mail darf kein Fernauge
-    # bekommen (A2). Source-Gate statt WRITE_DATA-Tier, weil der Puck auf
-    # TIER_COMMUNICATE läuft und sonst mit ausgesperrt wäre (Muster A7).
+    # Kamera?") + Telegram und Discord. Beide nehmen nur Nachrichten der
+    # numerischen Sender-Allowlist an (security.is_sender_allowed: fail-closed,
+    # kein "*"; Peuqui 12.11.2026), die Anweisung kommt also vom Besitzer wie
+    # im Browser. E-Mail bekommt die Capture-Tools gar nicht gelistet: ihre
+    # Allowlist kennt "*" und Domains, und der Absender (From) ist
+    # fälschbar — Prompt-Injection aus einer Mail darf kein Fernauge bekommen (A2).
+    # Source-Gate statt WRITE_DATA-Tier, weil der Puck auf TIER_COMMUNICATE
+    # läuft und sonst mit ausgesperrt wäre (Muster A7).
     # Watch-/Enroll-Steuerung bleibt WRITE_DATA (nur Browser).
-    _CAPTURE_SOURCES = ("browser", "freeecho2")
+    _CAPTURE_SOURCES = ("browser", "freeecho2", "telegram", "discord")
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         tools = [

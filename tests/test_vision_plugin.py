@@ -612,6 +612,24 @@ class TestPluginMeta:
         }
 
 
+class TestCaptureSources:
+    """Who gets the camera tools: the user's own channels (the web page, the puck, Telegram and Discord with their
+    sender allowlist), not e-mail (its allowlist knows "*" and domains, the sender is forgeable: a mail's text must not
+    give an injected prompt an eye on the cameras)."""
+
+    CAMERA_TOOLS = {"vision_snapshot", "vision_record", "vision_analyze", "vision_query_events"}
+
+    @pytest.mark.parametrize("source", ["browser", "freeecho2", "telegram", "discord"])
+    def test_own_channels_get_the_camera_tools(self, patched_plugin, source):
+        context = PluginContext(agent_id="test-agent", lang="de", session_id="a" * 32, source=source)
+        assert self.CAMERA_TOOLS <= {t.name for t in vp.plugin.get_tools(context)}
+
+    @pytest.mark.parametrize("source", ["email"])
+    def test_open_channels_get_none(self, patched_plugin, source):
+        context = PluginContext(agent_id="test-agent", lang="de", session_id="a" * 32, source=source)
+        assert not self.CAMERA_TOOLS & {t.name for t in vp.plugin.get_tools(context)}
+
+
 class TestVisionMode:
     def test_mode_on_demand_returns_all_tools(self, patched_plugin, ctx, monkeypatch):
         monkeypatch.setattr(vp, "vision_mode", lambda: "on-demand")
