@@ -781,13 +781,12 @@ VLM_NUM_CTX = 24576
 # neu kalibrieren (der Burn-in-Cache kennt nur Modell × Kontext).
 VLM_KV_CACHE_TYPE = "q8_0"
 
-# Hard wall-clock ceiling for a single Ollama VLM call (seconds). A VLM
-# request that lands on a GPU finishes in seconds; one that gets evicted
-# to CPU offload (no free VRAM next to a large resident LLM) runs for many
-# minutes with no upper bound — the ollama AsyncClient has no default
-# timeout, so the call would hang forever and the bulk worker with it.
-# This bound turns that hang into a clean error the caller can handle.
-VLM_CALL_TIMEOUT_S = 300
+# Hard wall-clock ceiling for a single VLM call, Ollama and llama.cpp/vLLM path alike (seconds). A request
+# that lands on a GPU finishes in seconds; one evicted to CPU offload, or a large model (GLM) with many
+# full-resolution images, runs for many minutes. Without any bound a hung call would block its caller (the
+# agent, the bulk worker) for good; this one turns the hang into a clean error. Generous on purpose
+# (Peuqui 11.11.2026: 30 minutes): a slow answer is no reason to cut an analysis off.
+VLM_CALL_TIMEOUT_S = 30 * 60
 
 # Log RAW messages sent to LLMs (debug.log only)
 # Useful for debugging prompt injection issues

@@ -328,6 +328,7 @@ async def _analyze_via_llamacpp(
         VISION_DESCRIBE_MAX_TOKENS,
         VISION_DESCRIBE_REPEAT_LAST_N,
         VISION_DESCRIBE_REPEAT_PENALTY,
+        VLM_CALL_TIMEOUT_S,
     )
     from .remote_describers import endpoint
     from .vlm_naming import is_visiond_profile
@@ -391,7 +392,7 @@ async def _analyze_via_llamacpp(
 
     started = time.perf_counter()
     try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        async with httpx.AsyncClient(timeout=VLM_CALL_TIMEOUT_S) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
             data = resp.json()
