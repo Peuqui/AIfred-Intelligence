@@ -106,11 +106,12 @@ watch(() => route.query.agent, (agent) => void (typeof agent === "string" && age
 </template>
 
 <style scoped>
-.memory { overflow-y: auto; padding: 12px 0; display: flex; flex-direction: column; gap: 12px; }
+.memory { padding: 12px 0; display: flex; flex-direction: column; gap: 12px; }
 h2 { margin: 0; font-size: 1rem; }
 .notice { margin: 0; color: var(--aifred-accent-amber); }
 .split { display: grid; grid-template-columns: minmax(180px, 240px) 1fr; gap: 14px; align-items: start; }
-.agents { display: flex; flex-direction: column; gap: 4px; }
+/* The list of agents stays in view while the page scrolls the entries (no scroll container of its own around it). */
+.agents { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 8px; }
 .agents button { display: flex; justify-content: space-between; gap: 8px; text-align: left; }
 .agents button.active { border-color: var(--aifred-primary); }
 .count { color: var(--aifred-text-muted); font-size: 0.8rem; }
