@@ -1221,6 +1221,7 @@ VLM_HEADROOM_MIB = 500
 LLAMACPP_TTS_BURNIN_ITERATIONS = 2
 
 # The agent whose voice the burn-in reads with (the service has no default voice for xtts/qwen3local).
+BASE_AGENT = "aifred"   # the agent that runs what names none (a scheduled job)
 TTS_BURNIN_AGENT = "aifred"
 
 # How often the burn-in asks the TTS service's catalog for the engine's VRAM

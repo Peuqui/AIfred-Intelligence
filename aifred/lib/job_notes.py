@@ -15,6 +15,8 @@ from . import file_manager
 from .config import SCHEDULER_JOBS_FOLDER
 
 _ID_SUFFIX = re.compile(r"_job-(\d+)$")
+# What an agent needs to keep notes: read them and write them (the prompt names these two).
+NOTES_TOOLS = frozenset({"read_file", "write_file"})
 
 
 def _slug(name: str) -> str:
@@ -55,6 +57,15 @@ def sync(job_id: int, name: str) -> tuple[str, str]:
             _checked(file_manager.rename(folder, f"{existing}.md", f"{wanted}.md"))
     folder = f"{SCHEDULER_JOBS_FOLDER}/{wanted}"
     return folder, f"{folder}/{wanted}.md"
+
+
+def agent_can_keep_notes(agent_id: str) -> bool:
+    """Does the agent have the tools to read and write the notes? A whitelist of tools (the agent's rights) that lacks one
+    of them leaves the notes out of its prompt, which would tell it to use what it has not."""
+    from .agent_config import get_agent_config
+
+    config = get_agent_config(agent_id)
+    return config is not None and (config.tools is None or NOTES_TOOLS <= set(config.tools))
 
 
 def has_notes(notes_file: str) -> bool:

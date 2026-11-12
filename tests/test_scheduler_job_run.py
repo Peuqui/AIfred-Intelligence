@@ -26,6 +26,10 @@ def temp_job_store(tmp_path, monkeypatch):
     sched._job_store = sched.JobStore(tmp_path / "jobs.db")
     monkeypatch.setattr("aifred.lib.file_manager.DOCUMENTS_DIR", tmp_path / "documents")  # the job's folder: never the real workspace
     monkeypatch.setattr("aifred.lib.settings.load_settings", lambda: {"ui_language": "de"})
+    # The real agents.json (its tool lists) is the user's: a run here has an agent with every tool.
+    from aifred.lib.agent_config import AgentConfig
+    every_tool = AgentConfig(display_name="Agent", emoji="", description="", role="agent", color="#000000", tools=None)
+    monkeypatch.setattr("aifred.lib.agent_config.get_agent_config", lambda agent_id: every_tool)
     yield
     sched._job_store = None
 
@@ -99,6 +103,16 @@ class TestJobPrompt:
         folder = job_notes.sync(job.job_id, job.name)[0]
         (file_manager.DOCUMENTS_DIR / folder / f"black-week_job-{job.job_id}.md").write_text("alt")
         assert "Lies sie zuerst" in sched.build_job_prompt(job, store)
+
+    def test_an_agent_without_the_file_tools_gets_no_notes(self, monkeypatch):
+        from aifred.lib.agent_config import AgentConfig
+
+        store = sched.get_job_store()
+        job = store.add("Gebet", "interval", "60", {"message": "x", "agent": "pater"})
+        for tools, told in ((["web_search", "read_file"], False), (["read_file", "write_file"], True), (None, True)):
+            config = AgentConfig(display_name="Pater", emoji="", description="", role="agent", color="#000000", tools=tools)
+            monkeypatch.setattr("aifred.lib.agent_config.get_agent_config", lambda agent_id, config=config: config)
+            assert ("Die Akte dieses Jobs" in sched.build_job_prompt(job, store)) is told, tools
 
     def test_a_job_below_the_tier_of_data_has_no_notes(self):
         store = sched.get_job_store()

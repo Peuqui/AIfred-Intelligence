@@ -24,7 +24,11 @@ from pathlib import Path
 from typing import Any
 
 from .browser_push import notify_changed
-from .config import SCHEDULER_CHECK_INTERVAL_SECONDS, SCHEDULER_WEBHOOK_TIMEOUT_SECONDS
+from .config import (
+    BASE_AGENT,
+    SCHEDULER_CHECK_INTERVAL_SECONDS,
+    SCHEDULER_WEBHOOK_TIMEOUT_SECONDS,
+)
 from .logging_utils import log_message
 from .security import JOB_DEFAULT_TIER
 from .user_error import Invalid
@@ -109,6 +113,11 @@ class Job:
     next_run: str = ""
     retry_count: int = 0
     ends_at: str = ""           # "" = no end; see parse_ends_at
+
+    @property
+    def agent(self) -> str:
+        """The agent that runs the job (the base agent when the payload names none)."""
+        return str(self.payload.get("agent", BASE_AGENT))
 
 
 # ============================================================
@@ -555,7 +564,7 @@ async def _execute_job(job: Job) -> None:
     from .security import DELIVERY_CHANNEL_KEY
 
     message_text = job.payload.get("message", "")
-    agent = job.payload.get("agent", "aifred")
+    agent = job.agent
 
     if not message_text:
         log_message(f"Scheduler: job '{job.name}' has no message, skipping", "warning")
@@ -650,12 +659,13 @@ def build_job_prompt(job: Job, store: JobStore) -> str:
 
 def _notes_text(job: Job, lang: str) -> str:
     """What the run is told of the job's notes (lib/job_notes.py): where they are and that it reads and continues them.
-    A job that may not write data (below the tier of the owner's) has none, and the run is not told of any."""
+    A job that may not write data (below the tier of the owner's), or whose agent lacks the tools to read and write
+    them, has none, and the run is not told of any."""
     from . import job_notes
     from .prompt_loader import load_prompt
     from .security import TIER_WRITE_DATA
 
-    if job.max_tier < TIER_WRITE_DATA:
+    if job.max_tier < TIER_WRITE_DATA or not job_notes.agent_can_keep_notes(job.agent):
         return ""
     folder, notes_file = job_notes.sync(job.job_id, job.name)
     key = "scheduler/notes" if job_notes.has_notes(notes_file) else "scheduler/notes_new"
@@ -712,7 +722,7 @@ async def _send_announcement(job: Job, text: str, session_id: str | None) -> boo
     metadata = {"subject": job.name, **job.payload.get("metadata", {}), "source": "scheduler"}
     if not announces_in_rooms(channel):
         return await announce_to_channel(channel, recipient, text, session_id=session_id, metadata=metadata)
-    speaker = agent_display_name(job.payload.get("agent", "aifred"))
+    speaker = agent_display_name(job.agent)
     metadata |= {"audio_type": job.payload.get("audio_type", "notification"), "proactive": True}
     rooms = resolve_announce_targets(channel, recipient)
     return bool(await announce_into_rooms(channel, rooms, text, speaker, metadata))
