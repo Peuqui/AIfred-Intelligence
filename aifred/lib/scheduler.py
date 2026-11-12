@@ -24,14 +24,12 @@ from pathlib import Path
 from typing import Any
 
 from .browser_push import notify_changed
+from .config import SCHEDULER_CHECK_INTERVAL_SECONDS, SCHEDULER_WEBHOOK_TIMEOUT_SECONDS
 from .logging_utils import log_message
 from .security import JOB_DEFAULT_TIER
 from .user_error import Invalid
 
 logger = logging.getLogger(__name__)
-
-# Check interval: how often the scheduler looks for due jobs
-_CHECK_INTERVAL_SECONDS = 60
 
 # What a job can be: one truth for the agents' scheduler tool (its JSON-schema enums), the jobs page and the
 # Reflex editor (the SQLite CHECK in _ensure_schema stays as the database's own limit).
@@ -538,7 +536,7 @@ async def scheduler_loop() -> None:
         except Exception as exc:  # noqa: BLE001 — the loop outlives every error
             log_message(f"Scheduler: loop error: {exc}", "error")
 
-        await asyncio.sleep(_CHECK_INTERVAL_SECONDS)
+        await asyncio.sleep(SCHEDULER_CHECK_INTERVAL_SECONDS)
 
 
 async def _execute_job(job: Job) -> None:
@@ -799,7 +797,7 @@ async def _deliver_webhook(job: Job, response_text: str) -> None:
         # is fire-and-forget, so there's no need to follow redirects anyway.
         async with aiohttp.ClientSession() as session, session.post(
             url, json=payload, allow_redirects=False,
-            timeout=aiohttp.ClientTimeout(total=30),
+            timeout=aiohttp.ClientTimeout(total=SCHEDULER_WEBHOOK_TIMEOUT_SECONDS),
         ) as resp:
             log_message(f"Scheduler: webhook POST to {url} → {resp.status}")
     except Exception as exc:  # noqa: BLE001 — reported in the log, the job itself succeeded

@@ -1594,6 +1594,8 @@ MESSAGE_HUB_OWNER = os.environ.get("MESSAGE_HUB_OWNER", "")
 # Scheduler: each run of a job sees what its previous runs delivered, so a
 # job like "a new psalm every morning" does not repeat itself.
 SCHEDULER_HISTORY_RUNS = 10            # runs stored per job (the page shows them; the next run is told their times)
+SCHEDULER_CHECK_INTERVAL_SECONDS = 60     # how often the scheduler looks for due jobs
+SCHEDULER_WEBHOOK_TIMEOUT_SECONDS = 30   # a job's webhook POST gives up after this long
 SCHEDULER_JOBS_FOLDER = "jobs"         # workspace folder with one folder per job: its notes and the data it keeps (lib/job_notes.py)
 
 # ============================================================
