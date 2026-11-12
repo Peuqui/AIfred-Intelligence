@@ -6,8 +6,15 @@ import { language, t } from "../i18n";
 import { enterSends } from "../lib/devicePrefs";
 import * as recorder from "../lib/recorder";
 import { speaking } from "../lib/speech";
+import { useServiceStatus } from "../stores/serviceStatus";
 import AttachMenu from "./AttachMenu.vue";
 import DictationBadge, { type BadgePhase } from "./DictationBadge.vue";
+
+// The GPU mark at the microphone: shown while the STT service has a model on a GPU (its snapshot lists a "cuda" device,
+// which the service pushes after every dictation and when the idle worker has ended), as in Agent-Orc. A dictation
+// goes to device "auto", so it may use that model.
+const serviceStatus = useServiceStatus();
+const onGpu = computed(() => serviceStatus.snapshot?.stt?.some((device) => device.device === "cuda") ?? false);
 
 const props = defineProps<{
   running: boolean;
@@ -129,6 +136,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", discardOnEscape));
         >
           <DictationBadge :phase="badgePhase" />
         </button>
+        <span v-if="onGpu" class="gpu" :title="t('dictation_on_gpu')">GPU</span>
         <!-- While a dictation is transcribed: Agent-Orc's spinner at the microphone's lower right. -->
         <span v-if="transcribing" class="spinner" role="status" :aria-label="t('dictation_running')" />
       </span>
@@ -216,6 +224,11 @@ figure button { cursor: pointer; font: inherit; border: none; }
 .mic { display: inline-flex; background: none; border: none; }
 .mic svg { width: 100%; height: 100%; }
 .mic:disabled { cursor: default; }
+/* The small GPU mark at the microphone's upper right (the exception, as in Agent-Orc); the spinner takes the lower right. */
+.gpu {
+  position: absolute; top: -2px; right: -2px; padding: 0 4px; pointer-events: none; font-size: 0.55rem; line-height: 14px; font-weight: 600;
+  color: var(--aifred-accent-gold); border: 1px solid var(--aifred-accent-gold); border-radius: 4px; background: var(--aifred-page-bg);
+}
 /* In the working colour, which tells it from the red rim of the recording microphone beside it (as in Agent-Orc). */
 .discard { display: inline-flex; align-items: center; justify-content: center; background: none; border: none; color: var(--aifred-primary); }
 /* Agent-Orc's spinner: an arc that turns in four steps a turn rather than smoothly. */

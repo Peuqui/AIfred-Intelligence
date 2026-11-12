@@ -1128,6 +1128,7 @@
   "stt_empty": "⚠️ Transkription lieferte keinen Text (Whisper-Log prüfen)",
   "stt_failed": "❌ Transkription fehlgeschlagen: {reason}",
   "dictation_record": "Diktieren",
+  "dictation_on_gpu": "Die Spracherkennung hat ein Modell auf der GPU geladen: Diktate laufen dort sofort",
   "dictation_stop": "Aufnahme beenden",
   "dictation_running": "Wird transkribiert …",
   "mic_access_denied": "Mikrofon-Zugriff verweigert! Bitte erlaube den Mikrofon-Zugriff in den Browser-Einstellungen.",

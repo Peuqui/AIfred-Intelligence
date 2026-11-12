@@ -1128,6 +1128,7 @@
   "stt_empty": "⚠️ The transcription returned no text (check the Whisper log)",
   "stt_failed": "❌ Transcription failed: {reason}",
   "dictation_record": "Dictate",
+  "dictation_on_gpu": "The speech recognition has a model loaded on the GPU: dictations run there at once",
   "dictation_stop": "Stop recording",
   "dictation_running": "Transcribing …",
   "mic_access_denied": "Microphone access denied! Please allow microphone access in the browser settings.",
