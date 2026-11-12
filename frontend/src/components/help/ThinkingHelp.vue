@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 💭 reasoning (a prompt) against 🧠 thinking (the model's own chain of thought), and what the two give together.
+// 💭 reasoning (a prompt) against 🤔 thinking (the model's own chain of thought), and what the two give together.
 import { t } from "../../i18n";
 </script>
 
@@ -18,9 +18,9 @@ import { t } from "../../i18n";
   <section>
     <h3>{{ t("reasoning_thinking_help_combinations_title") }}</h3>
     <dl>
-      <dt>💭+🧠</dt><dd>{{ t("reasoning_thinking_help_both_on") }}</dd>
+      <dt>💭+🤔</dt><dd>{{ t("reasoning_thinking_help_both_on") }}</dd>
       <dt>💭</dt><dd>{{ t("reasoning_thinking_help_reasoning_only") }}</dd>
-      <dt>🧠</dt><dd>{{ t("reasoning_thinking_help_thinking_only") }}</dd>
+      <dt>🤔</dt><dd>{{ t("reasoning_thinking_help_thinking_only") }}</dd>
       <dt>—</dt><dd>{{ t("reasoning_thinking_help_both_off") }}</dd>
     </dl>
   </section>

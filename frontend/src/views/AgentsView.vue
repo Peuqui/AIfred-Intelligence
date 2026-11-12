@@ -5,6 +5,7 @@
 // its quick choices (model, persona, reasoning, thinking, speed: the row of the quick-choice modal). ✏️ opens
 // the editor (persona, prompt texts, rights); ＋ makes a new agent from the template.
 import { computed, onMounted, ref } from "vue";
+import { NotebookPen } from "lucide-vue-next";
 import { RouterLink } from "vue-router";
 import type { AgentCard, SystemAgentCard } from "../api/types";
 import AgentBundles from "../components/AgentBundles.vue";
@@ -99,7 +100,7 @@ async function confirmDelete(): Promise<void> {
         />
         <p v-else-if="!card.enabled" class="off-hint">{{ t("agents_switched_off") }}</p>
         <footer>
-          <RouterLink class="button" :to="{ path: '/memory', query: { agent: card.id } }">🧠 {{ t("agent_open_memory") }}</RouterLink>
+          <RouterLink class="button" :to="{ path: '/memory', query: { agent: card.id } }"><NotebookPen :size="16" /> {{ t("agent_open_memory") }}</RouterLink>
           <button :title="t('agent_editor_edit')" @click="editing = card.id">✏️ {{ t("agent_editor_edit") }}</button>
           <button
             class="danger"
@@ -159,6 +160,7 @@ h3 { margin: 8px 0 0; font-size: 0.95rem; }
 .off-hint { margin: 0; font-size: 0.85rem; color: var(--aifred-text-muted); }
 .card footer { display: flex; justify-content: flex-end; gap: 8px; }
 button, a.button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; text-decoration: none; }
+a.button { display: inline-flex; align-items: center; gap: 4px; }
 button:disabled { opacity: 0.5; cursor: default; }
 .danger { border-color: var(--aifred-danger); color: var(--aifred-danger); }
 .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }

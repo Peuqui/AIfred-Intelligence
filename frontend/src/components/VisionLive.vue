@@ -4,6 +4,7 @@
 // in full resolution and its live analysis (the image model describing, faces recognised; lib/vision_live_analysis.py),
 // which lasts while a page follows it. What is shown and how often is kept by the server (data/vision_preview.json).
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from "vue";
+import { ScanSearch } from "lucide-vue-next";
 import { ApiError, api, apiUrl } from "../api/client";
 import type { CameraRow, ChoiceOption, LiveAnalysisRow, LiveView } from "../api/types";
 import { formatNumber, t } from "../i18n";
@@ -239,7 +240,7 @@ const similarity = (value: number | null): string => (value === null ? "" : ` ·
             </select>
           </span>
           <button :title="t('vision_preview_photo')" :disabled="busy === camera.id" @click="photo(camera)">📸</button>
-          <button :class="{ on: analysisOf(camera).vlm }" :title="t('vision_preview_watch_start')" :disabled="busy === camera.id" @click="analyse(camera, { vlm: !analysisOf(camera).vlm })">🧠</button>
+          <button :class="{ on: analysisOf(camera).vlm }" :title="t('vision_preview_watch_start')" :disabled="busy === camera.id" @click="analyse(camera, { vlm: !analysisOf(camera).vlm })"><ScanSearch :size="16" /></button>
           <button :class="{ on: analysisOf(camera).faces }" :title="t('vision_preview_face_button')" :disabled="busy === camera.id" @click="analyse(camera, { faces: !analysisOf(camera).faces })">👤</button>
           <button v-if="feedOf(camera).descriptions.length || feedOf(camera).faces.length" :title="t('vision_preview_teleprompter_clear')" @click="feeds[camera.id] = emptyFeed()">🧹</button>
           <select v-if="(resolutions[camera.id] ?? []).length > 1" :value="camera.resolution" @change="keep(camera, { resolution: picked($event) })">

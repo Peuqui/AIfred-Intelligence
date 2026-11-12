@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // One row of the agents' quick choices: the model and, for an agent (not the Automatik), 🎩 persona
-// (the agent's own emoji), 💭 reasoning, 🧠 thinking as its model offers it and ⚡ speed where the
+// (the agent's own emoji), 💭 reasoning, 🤔 thinking as its model offers it and ⚡ speed where the
 // model has a -speed variant, and under 🎲 the sampling with "the model's values". Below, the context window the
 // agent's calls get and where it comes from; on Ollama a value by hand (a chat agent's holds until the server
 // restarts, Vision's is saved — Peuqui 08.11.2026: it is for trying out, the calibration decides). The same row serves
@@ -89,7 +89,7 @@ function manualValue(event: Event): void {
           💭
         </label>
         <label :title="t('thinking_tooltip')">
-          🧠
+          🤔
           <select :value="row.thinking" :disabled="busy || row.thinking_options.length < 2" @change="emit('change', { thinking: picked($event) })">
             <option v-for="option in row.thinking_options" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
