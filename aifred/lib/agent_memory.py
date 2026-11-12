@@ -12,6 +12,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Optional
 
+from .browser_push import notify_changed
 from .config import (
     AGENT_MEMORY_COLLECTION_PREFIX,
     AGENT_MEMORY_DISTANCE_THRESHOLD,
@@ -109,6 +110,7 @@ class AgentMemory:
             }],
         )
         log_message(f"AgentMemory({agent_id}): stored {doc_id[:8]} [{memory_type}] {summary[:60]}")
+        notify_changed("memory")
         return f"Memory {doc_id[:8]} stored: [{memory_type}] {summary}"
 
     def _resolve_id(self, agent_id: str, memory_id: str) -> str:
@@ -159,6 +161,7 @@ class AgentMemory:
             }],
         )
         log_message(f"AgentMemory({agent_id}): updated {full_id[:8]} [{memory_type}] {summary[:60]}")
+        notify_changed("memory")
         return f"Memory {full_id[:8]} updated: [{memory_type}] {summary}"
 
     async def read(self, agent_id: str, memory_id: str) -> str:
@@ -180,6 +183,7 @@ class AgentMemory:
         summary = existing["metadatas"][0].get("summary", "")
         col.delete(ids=[full_id])
         log_message(f"AgentMemory({agent_id}): deleted {full_id[:8]} {summary[:60]}")
+        notify_changed("memory")
         return f"Memory {full_id[:8]} deleted: {summary}"
 
     def clear(self, agent_id: str) -> int:
@@ -189,6 +193,7 @@ class AgentMemory:
         if ids:
             col.delete(ids=ids)
         log_message(f"AgentMemory({agent_id}): cleared {len(ids)} memories")
+        notify_changed("memory")
         return len(ids)
 
     def find_by_session(self, agent_id: str, session_id: str) -> list[str]:
@@ -221,6 +226,7 @@ class AgentMemory:
                 "session_id": session_id,
             }] * len(ids),
         )
+        notify_changed("memory")
 
     async def recall(
         self, agent_id: str, query: str, n_results: int = AGENT_MEMORY_RESULTS,

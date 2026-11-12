@@ -6,7 +6,7 @@ export type SessionEventHandler = (kind: string, data: Record<string, unknown>) 
 
 // The lists of the server's data a page shows and that tell it when they change (lib/browser_push.py: RESOURCES): the
 // event is "<name>_changed", the page loads the list anew (lib/resourceChanges.ts).
-export const RESOURCES = ["jobs", "sessions", "agents"] as const;
+export const RESOURCES = ["jobs", "sessions", "agents", "memory"] as const;
 export type Resource = (typeof RESOURCES)[number];
 export const changedKind = (resource: Resource): string => `${resource}_changed`;
 

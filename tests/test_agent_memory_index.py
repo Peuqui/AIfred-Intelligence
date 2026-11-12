@@ -165,3 +165,15 @@ def test_a_long_request_is_searched_by_its_start_only(memory, monkeypatch):
     hits = asyncio.run(memory.recall("pater", request))
     assert asked == ["Heizöl Morgenbericht"]
     assert [hit["summary"] for hit in hits] == ["Heizöl Morgenbericht"]
+
+
+def test_every_change_tells_the_open_pages(memory, monkeypatch):
+    """The memory page loads anew when an agent stores, rewrites or deletes (tool or API), or the memories are cleared."""
+    told: list[str] = []
+    monkeypatch.setattr(agent_memory, "notify_changed", told.append)
+    _store(memory, "Erster Eintrag")
+    memory_id = next(iter(memory._collections["pater"].rows))
+    asyncio.run(memory.update("pater", memory_id, "neu", "Erster Eintrag, neu"))
+    asyncio.run(memory.delete("pater", memory_id))
+    memory.clear("pater")
+    assert told == ["memory"] * 4

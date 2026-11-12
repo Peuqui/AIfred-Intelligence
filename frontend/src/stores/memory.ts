@@ -3,6 +3,7 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import { ApiError, api } from "../api/client";
+import { onResourceChanged } from "../lib/resourceChanges";
 import type { MemoryAgent, MemoryEntry } from "../api/types";
 
 export const useMemory = defineStore("memory", () => {
@@ -37,6 +38,9 @@ export const useMemory = defineStore("memory", () => {
     call(() => api(path(id), { method: "PATCH", body: JSON.stringify({ summary, content }) }));
   const remove = (id: string): Promise<boolean> => call(() => api(path(id), { method: "DELETE" }));
   const clear = (): Promise<boolean> => call(() => api(`memory/${encodeURIComponent(agent.value)}`, { method: "DELETE" }));
+
+  // An agent stored, changed or deleted a memory (its tool, another tab): the counts and the open entries are read anew.
+  onResourceChanged("memory", () => void load());
 
   return { agents, agent, entries, notice, load, open, edit, remove, clear };
 });

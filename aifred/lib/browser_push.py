@@ -12,7 +12,7 @@ TTS_CHUNK_KINDS = frozenset({"tts", "tts_speak", "tts_pause"})
 # What the open pages show of the server's data, each as a list a page loads on its own: when it changes (an agent's tool,
 # a scheduled job, another tab), every connected page is told which and asks for it anew (stores/*.ts via
 # lib/resourceChanges.ts). One name per kind of data; the browser's list is api/events.ts: RESOURCES.
-RESOURCES = ("jobs", "sessions", "agents")
+RESOURCES = ("jobs", "sessions", "agents", "memory")
 
 
 def changed_kind(resource: str) -> str:
