@@ -62,6 +62,10 @@ TIER_I18N_KEYS: list[tuple[int, str, str]] = [
 # Higher than the channel default, but not full admin (no shell/code).
 OWNER_TIER = TIER_WRITE_DATA  # Owner can create/update data, but not delete system files
 
+# Unattended jobs: default for a new job and ceiling for a job made in chat (never above the
+# creator's own tier). Same as the owner's, so a job can write data but run no shell or code.
+JOB_DEFAULT_TIER = OWNER_TIER
+
 
 def resolve_tier_for_sender(
     channel: str, sender: str, metadata: dict | None = None,

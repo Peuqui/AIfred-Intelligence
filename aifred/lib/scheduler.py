@@ -25,6 +25,7 @@ from typing import Any
 
 from .browser_push import notify_changed
 from .logging_utils import log_message
+from .security import JOB_DEFAULT_TIER
 from .user_error import Invalid
 
 logger = logging.getLogger(__name__)
@@ -103,7 +104,7 @@ class Job:
     schedule_type: str          # "cron", "interval", "once"
     schedule_expr: str          # Cron expr, seconds, or ISO timestamp
     payload: dict[str, Any]     # What to do: {"message": "...", "agent": "aifred", ...}
-    max_tier: int = 1           # Security tier for this job
+    max_tier: int = JOB_DEFAULT_TIER  # Security tier for this job
     enabled: bool = True
     created_at: str = ""
     last_run: str = ""
@@ -143,7 +144,7 @@ class JobStore:
                     schedule_type TEXT NOT NULL CHECK(schedule_type IN ('cron', 'interval', 'once')),
                     schedule_expr TEXT NOT NULL,
                     payload TEXT NOT NULL DEFAULT '{}',
-                    max_tier INTEGER NOT NULL DEFAULT 1,
+                    max_tier INTEGER NOT NULL,
                     enabled INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime')),
                     last_run TEXT,
@@ -226,7 +227,7 @@ class JobStore:
         schedule_type: str,
         schedule_expr: str,
         payload: dict[str, Any],
-        max_tier: int = 1,
+        max_tier: int = JOB_DEFAULT_TIER,
         ends_at: str = "",
     ) -> Job:
         """Add a new job. Returns the created Job with its ID.
@@ -254,7 +255,7 @@ class JobStore:
         schedule_type: str,
         schedule_expr: str,
         payload: dict[str, Any],
-        max_tier: int = 1,
+        max_tier: int = JOB_DEFAULT_TIER,
         ends_at: str = "",
     ) -> Job | None:
         """Update a job in place.

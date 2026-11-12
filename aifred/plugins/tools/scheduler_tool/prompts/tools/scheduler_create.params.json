@@ -57,6 +57,10 @@
     "end_date": {
       "type": "string",
       "description": "Optional end of a cron or interval job: YYYY-MM-DD (that day still runs) or YYYY-MM-DDTHH:MM (no run after it). Leave it out for a job without an end"
+    },
+    "max_tier": {
+      "type": "integer",
+      "description": "Optional security tier of the job (0 read only, 1 communicate, 2 write data into the workspace, 3 system). Left out, the job gets your own tier, at most 2. You cannot grant more than you have."
     }
   },
   "required": [

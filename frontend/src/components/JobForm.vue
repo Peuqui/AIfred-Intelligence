@@ -31,7 +31,7 @@ const form = ref({
   webhook_url: props.job?.webhook_url ?? "",
   fixed_text: props.job?.fixed_text ?? false,
   audio_type: props.job?.audio_type ?? "notification",
-  max_tier: props.job?.max_tier ?? 1,
+  max_tier: props.job?.max_tier ?? props.options.default_tier,
 });
 // The end of a cron or interval schedule, optional: a day, and a time if the last day is to end earlier than its evening.
 const [startEndDate = "", startEndTime = ""] = (props.job?.ends_at ?? "").split("T");

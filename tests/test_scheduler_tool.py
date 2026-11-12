@@ -132,6 +132,49 @@ class TestSchedulerCreate:
         assert "error" in data
 
 
+class TestJobTier:
+    """A job made in chat gets its creator's tier (at most the job default), never more than the creator has."""
+
+    @staticmethod
+    def _tools(plugin, max_tier):
+        ctx = PluginContext(agent_id="aifred", lang="de", session_id="s", max_tier=max_tier, source="telegram")
+        return {t.name: t for t in plugin.get_tools(ctx)}
+
+    @staticmethod
+    def _create(tools, **extra):
+        return json.loads(_run(tools["scheduler_create"].executor(
+            name="j", schedule_type="interval", schedule_expr="3600", message="x", **extra,
+        )))
+
+    def _tier(self, data):
+        job = get_job_store().get(data["job_id"])
+        assert job is not None
+        return job.max_tier
+
+    def test_an_owner_job_may_write_data(self, plugin):
+        assert self._tier(self._create(self._tools(plugin, 2))) == 2
+
+    def test_a_browser_job_is_capped_at_the_job_default(self, plugin):
+        assert self._tier(self._create(self._tools(plugin, 4))) == 2
+
+    def test_a_communicate_only_creator_gets_communicate(self, plugin):
+        assert self._tier(self._create(self._tools(plugin, 1))) == 1
+
+    def test_a_job_can_be_set_lower(self, plugin):
+        assert self._tier(self._create(self._tools(plugin, 4), max_tier=0)) == 0
+
+    def test_a_creator_cannot_grant_more_than_they_have(self, plugin):
+        assert "error" in self._create(self._tools(plugin, 1), max_tier=2)
+
+    def test_update_keeps_the_tier_unless_asked(self, plugin):
+        tools = self._tools(plugin, 4)
+        job_id = self._create(tools, max_tier=1)["job_id"]
+        _run(tools["scheduler_update"].executor(job_id=job_id, name="renamed"))
+        assert self._tier({"job_id": job_id}) == 1
+        _run(tools["scheduler_update"].executor(job_id=job_id, max_tier=2))
+        assert self._tier({"job_id": job_id}) == 2
+
+
 class TestFixedText:
     def _create(self, plugin, ctx, **arguments):
         tool = next(t for t in plugin.get_tools(ctx) if t.name == "scheduler_create")

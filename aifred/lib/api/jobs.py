@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_message
 from ..scheduler import Job
-from ..security import TIER_ADMIN, TIER_READONLY
+from ..security import JOB_DEFAULT_TIER, TIER_ADMIN, TIER_READONLY
 from ..user_error import Invalid, Missing
 from .app import api_app
 from .schemas import ChoiceOption
@@ -30,6 +30,7 @@ class JobOptions(BaseModel):
     delivery_modes: list[str]
     audio_types: list[str]
     tiers: list[int]
+    default_tier: int = Field(description="The tier a new job starts with")
     cron_presets: list[CronPreset]
     agents: list[ChoiceOption] = Field(description="The selectable agents (none switched off)")
     channels: list[ChoiceOption] = Field(description="The channel plugins an announcement can go through")
@@ -70,7 +71,7 @@ class JobWrite(BaseModel):
     webhook_url: str = ""
     fixed_text: bool = False
     audio_type: str = "notification"
-    max_tier: int = Field(TIER_READONLY + 1, ge=TIER_READONLY, le=TIER_ADMIN)
+    max_tier: int = Field(JOB_DEFAULT_TIER, ge=TIER_READONLY, le=TIER_ADMIN)
     ends_at: str = Field("", description="YYYY-MM-DD (that day still runs) or YYYY-MM-DDTHH:MM; empty = no end")
 
 
@@ -152,7 +153,7 @@ async def jobs_options() -> JobOptions:
     channels = sorted(all_channels().items())
     return JobOptions(
         schedule_types=list(SCHEDULE_TYPES), delivery_modes=list(DELIVERY_MODES), audio_types=list(AUDIO_TYPES),
-        tiers=list(range(TIER_READONLY, TIER_ADMIN + 1)),
+        tiers=list(range(TIER_READONLY, TIER_ADMIN + 1)), default_tier=JOB_DEFAULT_TIER,
         cron_presets=[CronPreset(key=key, minute=minute, hour=hour, dom=dom, month=month, dow=dow)
                       for key, minute, hour, dom, month, dow in CRON_PRESETS],
         agents=[ChoiceOption(id=agent_id, label=f"{config.emoji} {config.display_name}") for agent_id, config in selectable_agents().items()],

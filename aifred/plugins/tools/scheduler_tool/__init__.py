@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ....lib.function_calling import Tool
-from ....lib.security import TIER_WRITE_DATA, TIER_READONLY
+from ....lib.security import JOB_DEFAULT_TIER, TIER_ADMIN, TIER_READONLY, TIER_WRITE_DATA
 from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.scheduler import DELIVERY_MODES, SCHEDULE_TYPES
 
@@ -40,6 +40,15 @@ class SchedulerPlugin:
         problem = job_problem(schedule_type, payload, ends_at)
         return json.dumps({"error": str(problem)}) if problem else None
 
+    @staticmethod
+    def _job_tier(requested: int | None, creator_tier: int, default: int) -> int | str:
+        """The tier a job runs with: the default, or the requested one up to the creator's own tier; else error JSON."""
+        if requested is None:
+            return default
+        if not TIER_READONLY <= requested <= min(creator_tier, TIER_ADMIN):
+            return json.dumps({"error": f"max_tier {requested} is outside what you may grant (0-{creator_tier})"})
+        return requested
+
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         from ....lib.logging_utils import log_message
         from ....lib.tool_args import InvalidValue, parse_bool
@@ -57,6 +66,7 @@ class SchedulerPlugin:
             fixed_text: bool = False,
             audio_type: str = "",
             end_date: str = "",
+            max_tier: int | None = None,
         ) -> str:
             """Create a new scheduled job."""
             from ....lib.scheduler import get_job_store
@@ -84,14 +94,9 @@ class SchedulerPlugin:
             if error:
                 return error
 
-            # Jobs laufen unbeaufsichtigt (channel="scheduler") — Cap auf
-            # TIER_COMMUNICATE, nicht auf das Tier des Erstellers. Bewusst
-            # über dem Scheduler-Default TIER_READONLY: per Chat erstellte
-            # Jobs sollen z.B. announce/Webhook nutzen können. Enforcement
-            # läuft über den metadata["max_tier"]-Override in security.py.
-            from ....lib.security import TIER_COMMUNICATE
-            job_tier = TIER_COMMUNICATE
-
+            job_tier = self._job_tier(max_tier, ctx.max_tier, default=min(ctx.max_tier, JOB_DEFAULT_TIER))
+            if isinstance(job_tier, str):
+                return job_tier
             try:
                 job = store.add(
                     name=name,
@@ -160,6 +165,7 @@ class SchedulerPlugin:
             fixed_text: bool | None = None,
             audio_type: str = "",
             end_date: str | None = None,
+            max_tier: int | None = None,
         ) -> str:
             """Change a scheduled job in place; empty arguments stay unchanged (end_date: "" removes the end)."""
             from ....lib.scheduler import get_job_store
@@ -182,13 +188,16 @@ class SchedulerPlugin:
             except InvalidValue as exc:
                 return json.dumps({"error": str(exc)})
             new_end = job.ends_at if end_date is None else end_date
+            new_tier = self._job_tier(max_tier, ctx.max_tier, default=job.max_tier)
+            if isinstance(new_tier, str):
+                return new_tier
             error = self._problem(new_type, payload, new_end)
             if error:
                 return error
             try:
                 updated = store.update(
                     job_id, name or job.name, new_type,
-                    schedule_expr or job.schedule_expr, payload, job.max_tier, new_end,
+                    schedule_expr or job.schedule_expr, payload, new_tier, new_end,
                 )
             except ValueError as exc:
                 return json.dumps({"error": f"{exc} — job {job_id} unchanged"})
