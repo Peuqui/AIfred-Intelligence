@@ -4,11 +4,12 @@
 import { LogOut } from "lucide-vue-next";
 import { computed, onMounted, ref, watch, watchEffect } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
-import { UPDATE_CHECK_MS, api, checkForUpdate, newVersion } from "./api/client";
+import { UPDATE_CHECK_MS, api, checkForUpdate } from "./api/client";
 import HubNoticeToast from "./components/HubNoticeToast.vue";
 import LoginForm from "./components/LoginForm.vue";
 import ServiceStatusBar from "./components/ServiceStatusBar.vue";
 import TtsIcon from "./components/TtsIcon.vue";
+import UpdateNotice from "./components/UpdateNotice.vue";
 import { loadLanguage, t } from "./i18n";
 import { useAuth } from "./stores/auth";
 import { useChat } from "./stores/chat";
@@ -41,10 +42,6 @@ watchEffect(() => {
   root.setProperty("--console-zoom", String(consoleZoom.value / 100));
 });
 
-function reloadPage(): void {
-  window.location.reload();
-}
-
 async function logout(): Promise<void> {
   chat.close();
   await auth.logout();
@@ -57,14 +54,6 @@ watch(() => auth.user, (user) => {
   void chat.openLatest();
 });
 
-// A newer build is installed: load it as soon as nothing would be lost (a draft, images, a dictation, a running
-// answer); until then the bar says so, and a click loads it at once.
-const updateBlocked = computed(
-  () => !!chat.draft.trim() || chat.pendingImages.length > 0 || chat.dictations.length > 0 || chat.running,
-);
-watch([newVersion, updateBlocked], ([available, blocked]) => {
-  if (available && !blocked) window.location.reload();
-});
 // Asked once a minute and whenever the page comes back to the front (a tab switched to, the app reopened).
 setInterval(() => void checkForUpdate(), UPDATE_CHECK_MS);
 document.addEventListener("visibilitychange", () => {
@@ -79,6 +68,7 @@ onMounted(async () => {
 </script>
 
 <template>
+  <UpdateNotice />
   <LoginForm v-if="auth.checked && !auth.user" />
   <div v-else-if="auth.user && settings.current" class="app" :class="{ wide }">
     <header class="top">
@@ -120,7 +110,6 @@ onMounted(async () => {
       </nav>
       <button class="logout" :title="t('logout')" :aria-label="t('logout')" @click="logout"><LogOut :size="18" /></button>
     </header>
-    <button v-if="newVersion" class="update" @click="reloadPage">{{ t("new_version_waiting") }}</button>
     <ServiceStatusBar />
     <div class="divider" role="separator" />
     <HubNoticeToast />
@@ -196,7 +185,6 @@ h1, h2, h3, input, textarea, select { color: var(--aifred-text-primary); }
 .size button:disabled { opacity: 0.4; cursor: default; }
 .reset { align-self: flex-start; margin-top: 2px; background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; padding: 2px 8px; }
 .menu a:hover, .menu a.router-link-active { color: var(--aifred-text-primary); background: var(--aifred-input-bg); }
-.update { margin: 6px 0; padding: 6px 10px; border: 1px solid var(--aifred-primary); border-radius: 6px; background: var(--aifred-input-bg); color: var(--aifred-primary); cursor: pointer; font: inherit; }
 /* Only the exit sign, everywhere: the tooltip names it. */
 .logout { display: inline-flex; align-items: center; background: none; border: 1px solid var(--aifred-border); color: inherit; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
 .page { flex: 1; }

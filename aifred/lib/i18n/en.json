@@ -1211,6 +1211,8 @@
   "question_more": "more",
   "question_less": "less",
   "new_version_waiting": "New version – loads once you have finished typing (or click here now)",
+  "new_version_loading": "New version – loading …",
+  "new_version_loaded": "New version loaded",
   "size_interface": "Interface",
   "size_console": "Console",
   "login_title": "Log in to AIfred",
