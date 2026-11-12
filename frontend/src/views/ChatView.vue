@@ -317,7 +317,7 @@ onMounted(() => void start());
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .toolbar h2 { margin-right: auto; }
 /* The text size and the ⋮ wrap as one: when they no longer fit beside the title they go down together, not one by one. */
-.tools { display: flex; align-items: center; gap: 8px; }
+.tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 /* The container of the agent pills' query: on a narrow row they show their emoji only. */
 .who { min-width: 0; container-type: inline-size; }
 .how { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
