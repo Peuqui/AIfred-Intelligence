@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Vigilantia in the chat, as on the Reflex page (vigilantia_feed.py): a one-line card with the newest event (or the
-// eye's state while there is none), a click shows the newest events with the step into Casus; the 💡 explains it,
+// eye's state while there is none), a click shows the step into Casus and the newest events, above the card (it sits at the page's foot); the 💡 explains it,
 // the eye arms the background watch or disarms it (open and orange: armed, crossed out and grey: off). New events
 // arrive over the events' stream; once a minute it asks again after the time the server names, so older events leave
 // the window. Away while the vision plugin is off.
@@ -86,6 +86,7 @@ onBeforeUnmount(() => {
       <Eye v-if="state.armed" :size="16" /><EyeOff v-else :size="16" />
     </button>
     <div v-if="open" class="popover">
+      <RouterLink class="all" to="/vision/events" @click="open = false"><ScrollText :size="14" /> {{ t("vigilantia_feed_open_casus") }}</RouterLink>
       <p v-if="!state.events.length" class="hint">{{ t("vision_badge_empty") }}</p>
       <RouterLink
         v-for="event in state.events"
@@ -102,7 +103,6 @@ onBeforeUnmount(() => {
           <span class="meta">{{ event.time_display }} · {{ event.source_name }}<template v-if="event.face_name || event.matched_name"> · {{ event.face_name || event.matched_name }}</template></span>
         </span>
       </RouterLink>
-      <RouterLink class="all" to="/vision/events" @click="open = false"><ScrollText :size="14" /> {{ t("vigilantia_feed_open_casus") }}</RouterLink>
     </div>
   </span>
 </template>
@@ -130,13 +130,13 @@ onBeforeUnmount(() => {
 }
 .eye.armed { background: var(--aifred-primary); color: var(--aifred-text-on-accent); border-color: var(--aifred-primary); }
 .eye:disabled { opacity: 0.6; cursor: progress; }
-.popover { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 320px; max-height: calc(60 * var(--dvh)); overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 8px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border-light); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.popover { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 30; width: 320px; max-height: calc(60 * var(--dvh)); overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 8px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border-light); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
 .event, .all { display: flex; align-items: center; gap: 8px; padding: 4px; border-radius: 6px; color: inherit; text-decoration: none; }
 .event:hover, .all:hover { background: var(--aifred-input-bg); }
 .event img, .event .none { width: 32px; height: 32px; border-radius: 4px; object-fit: cover; border: 1px solid var(--aifred-border); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .text { display: flex; flex-direction: column; min-width: 0; }
 .popover .kind { font-size: 0.8rem; }
 .meta { font-size: 0.72rem; color: var(--aifred-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.all { justify-content: center; font-size: 0.82rem; border-top: 1px solid var(--aifred-border); margin-top: 4px; }
+.all { justify-content: center; font-size: 0.82rem; border-bottom: 1px solid var(--aifred-border); margin-bottom: 4px; }
 .hint { margin: 0; font-size: 0.8rem; color: var(--aifred-text-muted); }
 </style>
