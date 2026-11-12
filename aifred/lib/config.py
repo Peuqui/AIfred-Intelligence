@@ -1762,10 +1762,10 @@ UI_THINKING_MAX_HEIGHT_MOBILE = "40vh"     # narrow screens (max-width 760px)
 UI_SANDBOX_MAX_HEIGHT = "60vh"             # details[data-sandbox]
 # A pinned question shows this many lines, a link below it unfolds the rest (so a long question does not cover the chat).
 UI_PINNED_QUESTION_LINES = 2
-# The chat history's box; on a phone lower, so the input below it is in view when the page opens (dvh: the screen
-# without the browser's bars).
+# The chat history's box; on a phone lower, so the input and the agents' row below it are in view when the page opens
+# (dvh: the screen without the browser's bars; the rows below those, mode and Vigilantia, may lie below the edge).
 UI_CHAT_HEIGHT_DESKTOP = "70vh"
-UI_CHAT_HEIGHT_MOBILE = "50dvh"            # narrow screens (max-width 760px)
+UI_CHAT_HEIGHT_MOBILE = "58dvh"            # narrow screens (max-width 760px)
 # The page's width, and the saved chats as a column at the left of the chat from this window width on (a switch of
 # the device turns it into the accordion above the chat again); with the column the page may be wider, so the chat
 # keeps its width.
