@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Vigilantia in the chat, as on the Reflex page (vigilantia_feed.py): a one-line card with the newest event (or the
-// eye's state while there is none), a click shows the step into Casus and the newest events, above the card (it sits at the page's foot); the 💡 explains it,
+// eye's state while there is none), a click shows the newest events above the card (it sits at the page's foot), the step into Casus last, next to the card; the 💡 explains it,
 // the eye arms the background watch or disarms it (open and orange: armed, crossed out and grey: off). New events
 // arrive over the events' stream; once a minute it asks again after the time the server names, so older events leave
 // the window. Away while the vision plugin is off.
@@ -86,7 +86,6 @@ onBeforeUnmount(() => {
       <Eye v-if="state.armed" :size="16" /><EyeOff v-else :size="16" />
     </button>
     <div v-if="open" class="popover">
-      <RouterLink class="all" to="/vision/events" @click="open = false"><ScrollText :size="14" /> {{ t("vigilantia_feed_open_casus") }}</RouterLink>
       <p v-if="!state.events.length" class="hint">{{ t("vision_badge_empty") }}</p>
       <RouterLink
         v-for="event in state.events"
@@ -103,6 +102,7 @@ onBeforeUnmount(() => {
           <span class="meta">{{ event.time_display }} · {{ event.source_name }}<template v-if="event.face_name || event.matched_name"> · {{ event.face_name || event.matched_name }}</template></span>
         </span>
       </RouterLink>
+      <RouterLink class="all" to="/vision/events" @click="open = false"><ScrollText :size="14" /> {{ t("vigilantia_feed_open_casus") }}</RouterLink>
     </div>
   </span>
 </template>
@@ -137,6 +137,6 @@ onBeforeUnmount(() => {
 .text { display: flex; flex-direction: column; min-width: 0; }
 .popover .kind { font-size: 0.8rem; }
 .meta { font-size: 0.72rem; color: var(--aifred-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.all { justify-content: center; font-size: 0.82rem; border-bottom: 1px solid var(--aifred-border); margin-bottom: 4px; }
+.all { justify-content: center; font-size: 0.82rem; border-top: 1px solid var(--aifred-border); margin-top: 4px; }
 .hint { margin: 0; font-size: 0.8rem; color: var(--aifred-text-muted); }
 </style>
