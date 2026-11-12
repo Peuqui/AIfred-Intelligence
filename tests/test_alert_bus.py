@@ -202,6 +202,7 @@ class TestSinkMedia:
         monkeypatch.setattr(mp, "announce_to_channel", fake_announce)
         monkeypatch.setattr(mp, "resolve_announce_targets", lambda channel, target: ["1"])
         monkeypatch.setattr(mp, "record_autonomous_turn", lambda *a, **k: None)
+        monkeypatch.setattr(mp, "session_for_channel", lambda *a, **k: "sess")
         monkeypatch.setattr(routing_table, "get_route", lambda *a, **k: None)
         rule = AlertRule(producer="vision", sinks=["telegram:1"], rule_id="r", compose=compose)
         asyncio.run(_default_deliver(ev, rule))
@@ -284,3 +285,31 @@ class TestFilmPlayers:
         from aifred.lib.alert_bus import _film_players
 
         assert _film_players(["/x/1.jpg"]) == ""
+
+
+class TestDeliveryInTheAlertsSession:
+    """What a delivery does (the describer, the wording) reaches the debug console of the alert's own session."""
+
+    def test_the_delivery_runs_in_the_session_of_the_alert(self, monkeypatch):
+        from aifred.lib import alert_bus
+        import aifred.lib.message_processor as mp
+        from aifred.lib.debug_bus import _current_session
+
+        asked: list[tuple[str, str]] = []
+        seen: list[str | None] = []
+
+        def session_for_channel(channel: str, channel_id: str) -> str:
+            asked.append((channel, channel_id))
+            return "vigilantia-session"
+
+        async def deliver_in_session(ev: AlertEvent, rule: AlertRule) -> bool:
+            seen.append(_current_session.get())
+            return True
+
+        monkeypatch.setattr(mp, "session_for_channel", session_for_channel)
+        monkeypatch.setattr(alert_bus, "_deliver_in_session", deliver_in_session)
+        ev = _ev(session_key="Hauseingang")
+        assert asyncio.run(alert_bus._default_deliver(ev, AlertRule(producer="vision", sinks=[], rule_id="r")))
+        assert asked == [("vision", "Hauseingang")]      # the same key record_autonomous_turn writes under
+        assert seen == ["vigilantia-session"]
+        assert _current_session.get() is None            # the scope ends with the delivery

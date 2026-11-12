@@ -358,6 +358,16 @@ def _film_players(album_paths: list[str]) -> str:
 
 
 async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
+    """``_deliver_in_session`` within the alert's own session, so what the delivery does (the describer's run, the
+    wording) reaches that session's debug console like a chat's."""
+    from .debug_bus import session_scope
+    from .message_processor import session_for_channel
+
+    with session_scope(session_for_channel(ev.producer, ev.session_key or ev.source_id or ev.producer)):
+        return await _deliver_in_session(ev, rule)
+
+
+async def _deliver_in_session(ev: AlertEvent, rule: AlertRule) -> bool:
     """SSoT-Zustellung: Text erzeugen (Template oder LLM), als normale
     Browser-Session sichtbar machen und an die Kanal-Sinks der Regel
     announcen. Eine Wahrheit pro Kanal (``announce_to_channel``) und pro

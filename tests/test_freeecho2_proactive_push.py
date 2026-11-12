@@ -291,6 +291,11 @@ class TestAlertBusSeverityMapping:
     """alert_bus._default_deliver mappt severity → audio_type und reicht
     das via announce_to_channel-metadata an die Sinks weiter."""
 
+    @pytest.fixture(autouse=True)
+    def _no_real_session(self, monkeypatch):
+        """The delivery looks up the alert's session; here none is made in the real sessions folder."""
+        monkeypatch.setattr("aifred.lib.message_processor.session_for_channel", lambda *args, **kwargs: "sess")
+
     def test_critical_maps_to_alarm(self):
         from aifred.lib.alert_bus import AlertEvent, AlertRule, _default_deliver
 

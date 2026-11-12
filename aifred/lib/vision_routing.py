@@ -18,10 +18,13 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from .debug_bus import debug
+from .formatting import format_number
 from .ollama_models import list_ollama_vlm_models
 
 if TYPE_CHECKING:
@@ -369,33 +372,42 @@ async def describe_with_second_attempt[T](
     oder B samt Ansage, die ``describer`` lieferte) läuft genau ein zweites Mal: Sie findet den Rechner
     nicht mehr und nimmt die nächste Stufe. Antwortet der Rechner noch, liegt der Fehler in der Anfrage
     oder im Modell und geht unverändert an den Aufrufer — ein Anlauf woanders würde ihn verdecken."""
-    from .logging_utils import log_message
     from .remote_describers import reachable, split
 
     try:
-        return await run(describer)
-    except Exception as error:
+        return await _described_by(describer, run)
+    except Exception as error:  # a machine that went away gets its second attempt; every other failure goes on
         remote = split(describer.model)
         if remote is None or reachable(remote[0]):
             raise
-        log_message(
+        debug(
             f"⚠️ Vision: {remote[0].name} went away while describing with {describer.model} "
-            f"({error}) — second attempt",
-            "warning",
+            f"({error}) — second attempt"
         )
-    return await run(choose_again())
+    return await _described_by(choose_again(), run)
+
+
+async def _described_by[T](describer: Describer, run: Callable[[Describer], Awaitable[T]]) -> T:
+    """``run(describer)``; the debug console says with which model it described and how long it took, or how it failed
+    (then the error goes on to the caller)."""
+    started = time.monotonic()
+    try:
+        result = await run(describer)
+    except Exception as error:  # reported to the console, then passed on unchanged
+        debug(f"❌ Vision: describing with {describer.model} failed after {format_number(time.monotonic() - started, 1)} s: {error}")
+        raise
+    debug(f"👁️ Vision: described with {describer.model} in {format_number(time.monotonic() - started, 1)} s")
+    return result
 
 
 async def describe_via[T](pick: Callable[[], Describer], run: Callable[[Describer], Awaitable[T]]) -> T:
     """Wie ``describe_with_second_attempt``, für Aufrufer, die den Beschreiber nur wählen lassen und nichts davor
     mit ihm tun: ``pick`` wählt ihn (beim zweiten Anlauf neu), verdrängt er das Chat-LLM, sagt die Debug-Konsole
     das an (``eviction_notice``), und ``run`` beschreibt mit ihm."""
-    from .logging_utils import log_message
-
     def chosen() -> Describer:
         describer = pick()
         if describer.evicts_chat_model:
-            log_message(eviction_notice(describer.model))
+            debug(eviction_notice(describer.model))
         return describer
 
     return await describe_with_second_attempt(chosen(), chosen, run)

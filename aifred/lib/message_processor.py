@@ -674,7 +674,7 @@ async def announce_to_channel(
         return False
 
 
-def _session_for_channel(channel: str, channel_id: str, owner: str = MESSAGE_HUB_OWNER) -> str:
+def session_for_channel(channel: str, channel_id: str, owner: str = MESSAGE_HUB_OWNER) -> str:
     """The session of a channel conversation: the routed one, or a fresh one that gets a
     route. SSoT for every autonomous or routed write into a channel's session."""
     route = routing_table.get_route(channel, channel_id)
@@ -704,7 +704,7 @@ def record_routed_voice_turn(
     from .security import resolve_trust_label, wrap_external_message
     from .session_storage import load_session, session_rmw_lock
 
-    session_id = _session_for_channel(channel, channel_id)
+    session_id = session_for_channel(channel, channel_id)
     # "[channel] sender — → route": the subject carries where the words went
     message = InboundMessage(
         channel=channel, channel_id=channel_id, sender=sender, text=text,
@@ -760,7 +760,7 @@ def record_autonomous_turn(
     zeigt den Absender (``title``) in der Kopfzeile, der Text bleibt ohne Namen."""
     from .session_storage import load_session
 
-    session_id = _session_for_channel(channel, channel_id, owner)
+    session_id = session_for_channel(channel, channel_id, owner)
 
     content = text
     image_urls: list[str] = []

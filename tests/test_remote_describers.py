@@ -289,7 +289,7 @@ def _attempts(fail_on: set[str]) -> tuple[list[str], Any]:
 
 def test_a_machine_that_went_away_gets_one_second_attempt_here(box, monkeypatch):
     logged: list[str] = []
-    monkeypatch.setattr("aifred.lib.logging_utils.log_message", lambda msg, *a, **k: logged.append(msg))
+    monkeypatch.setattr("aifred.lib.vision_routing.debug", logged.append)
     seen, run = _attempts({f"Box/{BIG}"})
     box["reachable"] = False  # answers no more after the failure
     result = asyncio.run(describe_with_second_attempt(
@@ -298,6 +298,8 @@ def test_a_machine_that_went_away_gets_one_second_attempt_here(box, monkeypatch)
     assert result == "described by Local-VL-visiond"
     assert seen == [f"Box/{BIG}", "Local-VL-visiond"]
     assert any("Box went away" in line for line in logged)
+    assert any("failed after" in line and f"Box/{BIG}" in line for line in logged)
+    assert any("described with Local-VL-visiond in" in line for line in logged)
 
 
 def test_a_machine_that_still_answers_gets_no_second_attempt(box):
@@ -320,14 +322,15 @@ def test_a_failure_on_this_machine_gets_no_second_attempt(box):
 
 def test_describe_via_announces_a_describer_that_evicts_the_chat_model(box, monkeypatch):
     logged: list[str] = []
-    monkeypatch.setattr("aifred.lib.logging_utils.log_message", lambda msg, *a, **k: logged.append(msg))
+    monkeypatch.setattr("aifred.lib.vision_routing.debug", logged.append)
     seen, run = _attempts(set())
     result = asyncio.run(describe_via(lambda: Describer("Vision-LLM", True), run))
     assert result == "described by Vision-LLM" and seen == ["Vision-LLM"]
     assert any("evicts the chat model" in line and "Vision-LLM" in line for line in logged)
     logged.clear()
     asyncio.run(describe_via(lambda: Describer("Local-VL-visiond", False), run))
-    assert logged == []                                  # nothing is evicted: nothing to announce
+    assert not any("evicts" in line for line in logged)  # nothing is evicted: nothing to announce
+    assert any("described with Local-VL-visiond in" in line for line in logged)
 
 
 def test_describe_via_picks_again_for_the_second_attempt(box):
