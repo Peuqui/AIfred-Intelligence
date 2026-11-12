@@ -94,10 +94,10 @@ class TestJobPrompt:
         store = sched.get_job_store()
         job = store.add("Black Week", "interval", "60", {"message": "x"})
         prompt = sched.build_job_prompt(job, store)
-        assert f"`jobs/black-week_{job.job_id}/black-week_{job.job_id}.md`" in prompt
+        assert f"`jobs/black-week_job-{job.job_id}/black-week_job-{job.job_id}.md`" in prompt
         assert "gibt es noch nicht" in prompt
         folder = job_notes.sync(job.job_id, job.name)[0]
-        (file_manager.DOCUMENTS_DIR / folder / f"black-week_{job.job_id}.md").write_text("alt")
+        (file_manager.DOCUMENTS_DIR / folder / f"black-week_job-{job.job_id}.md").write_text("alt")
         assert "Lies sie zuerst" in sched.build_job_prompt(job, store)
 
     def test_a_job_below_the_tier_of_data_has_no_notes(self):

@@ -1,6 +1,6 @@
 """A scheduled job's notes (its "Akte") and the folder it keeps its data in.
 
-Every job has a folder in the workspace, ``SCHEDULER_JOBS_FOLDER/<name>_<id>``, with its notes file of the same name
+Every job has a folder in the workspace, ``SCHEDULER_JOBS_FOLDER/<name>_job-<id>``, with its notes file of the same name
 inside. The model reads the notes at the start of a run and writes them at the end (its memory for the job: what it
 reported, what it used, numbers and names it needs again) and keeps the data it holds on disk beside them. The folder
 carries the job's name and its id: easy to find in the file tree, and the id finds it again when the job is renamed
@@ -14,13 +14,13 @@ import re
 from . import file_manager
 from .config import SCHEDULER_JOBS_FOLDER
 
-_ID_SUFFIX = re.compile(r"_(\d+)$")
+_ID_SUFFIX = re.compile(r"_job-(\d+)$")
 
 
 def _slug(name: str) -> str:
     """The job's name as part of a file name: letters and digits, the rest a hyphen (the underscore stays the
-    separator before the id)."""
-    return re.sub(r"[\W_]+", "-", name.lower()).strip("-") or "job"
+    separator before ``job-<id>``)."""
+    return re.sub(r"[\W_]+", "-", name.lower()).strip("-") or "unnamed"
 
 
 def _checked(result: file_manager.FileOpResult) -> None:
@@ -43,7 +43,7 @@ def _existing(job_id: int) -> str | None:
 def sync(job_id: int, name: str) -> tuple[str, str]:
     """The job's folder and its notes file, both relative to the workspace: the folder made, or renamed after the
     job's present name (and its notes file with it)."""
-    wanted = f"{_slug(name)}_{job_id}"
+    wanted = f"{_slug(name)}_job-{job_id}"
     existing = _existing(job_id)
     if existing is None:
         _checked(file_manager.create_folder("", SCHEDULER_JOBS_FOLDER))

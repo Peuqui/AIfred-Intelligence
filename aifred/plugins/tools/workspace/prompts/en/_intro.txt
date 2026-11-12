@@ -1,3 +1,5 @@
 WORKSPACE — FILES AND DOCUMENTS
 
+The workspace is where you keep files that you or a job hold for your own work: tables, charts, archives, intermediate results, job notes. What the user wants to use himself (appointments, tasks, contacts, notes, files in his cloud) you do not put here.
+
 You work with the user's documents directory and a vector database (ChromaDB). Your tools for it (you have only these):
