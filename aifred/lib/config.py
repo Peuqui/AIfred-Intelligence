@@ -1593,8 +1593,8 @@ MESSAGE_HUB_OWNER = os.environ.get("MESSAGE_HUB_OWNER", "")
 
 # Scheduler: each run of a job sees what its previous runs delivered, so a
 # job like "a new psalm every morning" does not repeat itself.
-SCHEDULER_HISTORY_RUNS = 10            # runs stored per job and shown to the next run
-SCHEDULER_HISTORY_EXCERPT_CHARS = 400  # characters kept per shown run
+SCHEDULER_HISTORY_RUNS = 10            # runs stored per job (the page shows them; the next run is told their times)
+SCHEDULER_JOBS_FOLDER = "jobs"         # workspace folder with one folder per job: its notes and the data it keeps (lib/job_notes.py)
 
 # ============================================================
 # AUTH CONFIGURATION

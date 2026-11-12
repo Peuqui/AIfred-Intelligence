@@ -225,14 +225,14 @@ class SchedulerPlugin:
             })
 
         async def _delete(job_id: int) -> str:
-            """Delete a scheduled job."""
-            from ....lib.scheduler import get_job_store
+            """Delete a scheduled job with its folder in the workspace."""
+            from ....lib.scheduler import delete_job, get_job_store
             store = get_job_store()
             job = store.get(job_id)
             if not job:
                 return json.dumps({"error": f"Job {job_id} not found"})
             name = job.name
-            store.delete(job_id)
+            await delete_job(job_id)
             log_message(f"Scheduler: job '{name}' (id={job_id}) deleted")
             return json.dumps({"success": True, "deleted": job_id, "name": name})
 

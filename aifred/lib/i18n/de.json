@@ -856,7 +856,7 @@
   "audit_col_duration": "Dauer",
   "scheduler_no_jobs": "Keine geplanten Jobs.",
   "scheduler_new_job": "Neuer Job",
-  "scheduler_delete_confirm": "Wirklich löschen?",
+  "scheduler_delete_confirm": "Wirklich löschen? Der Ordner des Jobs im Arbeitsbereich (Akte und Daten) wird mitgelöscht.",
   "sched_label_type": "Typ",
   "sched_label_schedule": "Zeitplan",
   "sched_label_delivery": "Zustellung",

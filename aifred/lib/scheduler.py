@@ -433,6 +433,14 @@ def _now_iso() -> str:
     return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
 
+async def delete_job(job_id: int) -> bool:
+    """Delete a job with its run history and its folder in the workspace (lib/job_notes.py). Returns True if deleted."""
+    from . import job_notes
+
+    await job_notes.remove(job_id)
+    return get_job_store().delete(job_id)
+
+
 def next_run_of(schedule_type: str, schedule_expr: str) -> str | None:
     """When an expression fires next from now on; None for one that never does."""
     return _calculate_next_run(schedule_type, schedule_expr, _now_iso())
@@ -604,30 +612,10 @@ async def _execute_job(job: Job) -> None:
     await _deliver_result(job, outbound.text, session_id)
 
 
-def history_excerpt(text: str, limit: int) -> str:
-    """A delivered text for the job history: whole sentences up to about
-    ``limit`` characters, " …" when something was left out. Never cuts inside
-    a sentence, so the excerpt may end below the limit, or above it when the
-    first sentence alone is longer."""
-    from .audio_processing import extract_complete_sentences
-
-    # The trailing paragraph break flushes the last sentence out of the buffer.
-    sentences, _ = extract_complete_sentences(text.strip() + "\n\n")
-    kept: list[str] = []
-    length = 0
-    for sentence in sentences:
-        if kept and length + 1 + len(sentence) > limit:
-            break
-        kept.append(sentence)
-        length += len(sentence) + (1 if len(kept) > 1 else 0)
-    excerpt = " ".join(kept)
-    return excerpt if len(kept) == len(sentences) else f"{excerpt} …"
-
-
 def build_job_prompt(job: Job, store: JobStore) -> str:
-    """The message a job run starts with: job context, delivery, the
-    previous runs' deliveries and the task (prompts/<lang>/scheduler/)."""
-    from .config import SCHEDULER_HISTORY_EXCERPT_CHARS, SCHEDULER_HISTORY_RUNS
+    """The message a job run starts with: job context, delivery, the times of the
+    previous runs, where the job's notes are and the task (prompts/<lang>/scheduler/)."""
+    from .config import SCHEDULER_HISTORY_RUNS
     from .message_processor import announces_in_rooms, channel_display_label
     from .prompt_loader import load_prompt
     from .settings import load_settings
@@ -650,19 +638,30 @@ def build_job_prompt(job: Job, store: JobStore) -> str:
 
     runs = store.recent_runs(job.job_id, SCHEDULER_HISTORY_RUNS)
     if runs:
-        lines = []
-        for ran_at, text in runs:
-            excerpt = history_excerpt(text, SCHEDULER_HISTORY_EXCERPT_CHARS)
-            lines.append(f"- {ran_at[:16].replace('T', ' ')}: {excerpt}")
-        history = load_prompt("scheduler/history", lang=lang, runs="\n".join(lines))
+        times = ", ".join(ran_at[:16].replace("T", " ") for ran_at, _text in runs)
+        history = load_prompt("scheduler/history", lang=lang, runs=times)
     else:
         history = load_prompt("scheduler/history_empty", lang=lang)
 
     return load_prompt(
         "scheduler/job_context", lang=lang,
         job_name=job.name, delivery=delivery_text.strip(),
-        history=history.strip(), task=job.payload.get("message", ""),
+        history=history.strip(), notes=_notes_text(job, lang), task=job.payload.get("message", ""),
     )
+
+
+def _notes_text(job: Job, lang: str) -> str:
+    """What the run is told of the job's notes (lib/job_notes.py): where they are and that it reads and continues them.
+    A job that may not write data (below the tier of the owner's) has none, and the run is not told of any."""
+    from . import job_notes
+    from .prompt_loader import load_prompt
+    from .security import TIER_WRITE_DATA
+
+    if job.max_tier < TIER_WRITE_DATA:
+        return ""
+    folder, notes_file = job_notes.sync(job.job_id, job.name)
+    key = "scheduler/notes" if job_notes.has_notes(notes_file) else "scheduler/notes_new"
+    return load_prompt(key, lang=lang, folder=folder, file=notes_file).strip()
 
 
 # ============================================================

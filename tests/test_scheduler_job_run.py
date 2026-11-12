@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 import aifred.lib.scheduler as sched
+from aifred.lib import file_manager, job_notes
 from aifred.lib.function_calling import Tool
 from aifred.lib.security import (
     TIER_COMMUNICATE,
@@ -23,6 +24,7 @@ from aifred.lib.security import (
 @pytest.fixture(autouse=True)
 def temp_job_store(tmp_path, monkeypatch):
     sched._job_store = sched.JobStore(tmp_path / "jobs.db")
+    monkeypatch.setattr("aifred.lib.file_manager.DOCUMENTS_DIR", tmp_path / "documents")  # the job's folder: never the real workspace
     monkeypatch.setattr("aifred.lib.settings.load_settings", lambda: {"ui_language": "de"})
     yield
     sched._job_store = None
@@ -75,7 +77,7 @@ class TestJobPrompt:
         assert "erste Lauf" in prompt
         assert prompt.rstrip().endswith("Schreib ein Gebet.")
 
-    def test_history_and_announce_delivery(self, monkeypatch):
+    def test_history_names_the_times_and_announce_delivery(self, monkeypatch):
         monkeypatch.setattr("aifred.lib.message_processor.channel_display_label", lambda ch: "Telegram")
         store = sched.get_job_store()
         job = store.add("News", "interval", "60", {
@@ -85,22 +87,25 @@ class TestJobPrompt:
         store.add_run(job.job_id, "s1", "Heute Psalm 23. " + "Noch ein Satz. " * 100)
         prompt = sched.build_job_prompt(job, store)
         assert "über Telegram an Peuqui" in prompt
-        assert "Heute Psalm 23." in prompt
-        assert "Noch ein Satz. " * 100 not in prompt
-        assert "Satz. …" in prompt
+        assert "Bisherige Läufe dieses Jobs (neueste zuerst): " in prompt
+        assert "Psalm 23" not in prompt              # the delivered texts are not in the prompt, the notes hold what matters
 
+    def test_the_run_is_told_where_the_notes_are(self):
+        store = sched.get_job_store()
+        job = store.add("Black Week", "interval", "60", {"message": "x"})
+        prompt = sched.build_job_prompt(job, store)
+        assert f"`jobs/black-week_{job.job_id}/black-week_{job.job_id}.md`" in prompt
+        assert "gibt es noch nicht" in prompt
+        folder = job_notes.sync(job.job_id, job.name)[0]
+        (file_manager.DOCUMENTS_DIR / folder / f"black-week_{job.job_id}.md").write_text("alt")
+        assert "Lies sie zuerst" in sched.build_job_prompt(job, store)
 
-class TestHistoryExcerpt:
-    def test_short_text_stays_whole_without_ellipsis(self):
-        assert sched.history_excerpt("Guten Morgen. Psalm 23.", 400) == "Guten Morgen. Psalm 23."
-
-    def test_cut_at_sentence_boundary_with_ellipsis(self):
-        text = "Erster Satz, z.B. mit Abkürzung. Zweiter Satz! Dritter Satz?"
-        assert sched.history_excerpt(text, 50) == "Erster Satz, z.B. mit Abkürzung. Zweiter Satz! …"
-
-    def test_overlong_first_sentence_is_kept_whole(self):
-        text = "Ein sehr langer erster Satz ohne Pause. Zweiter."
-        assert sched.history_excerpt(text, 10) == "Ein sehr langer erster Satz ohne Pause. …"
+    def test_a_job_below_the_tier_of_data_has_no_notes(self):
+        store = sched.get_job_store()
+        job = store.add("Lesen", "interval", "60", {"message": "x"}, max_tier=TIER_COMMUNICATE)
+        prompt = sched.build_job_prompt(job, store)
+        assert "Die Akte dieses Jobs" not in prompt
+        assert not (file_manager.DOCUMENTS_DIR / "jobs").exists()
 
 
 # ── Execution: the whole answer is delivered and recorded ────

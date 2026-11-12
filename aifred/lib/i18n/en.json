@@ -856,7 +856,7 @@
   "audit_col_duration": "Duration",
   "scheduler_no_jobs": "No scheduled tasks.",
   "scheduler_new_job": "New Job",
-  "scheduler_delete_confirm": "Really delete?",
+  "scheduler_delete_confirm": "Really delete? The job's folder in the workspace (notes and data) is deleted with it.",
   "sched_label_type": "Type",
   "sched_label_schedule": "Schedule",
   "sched_label_delivery": "Delivery",

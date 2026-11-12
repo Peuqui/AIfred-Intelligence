@@ -32,9 +32,10 @@ def ctx():
 
 
 @pytest.fixture(autouse=True)
-def temp_job_store(tmp_path):
-    """Use a temp database for all tests."""
+def temp_job_store(tmp_path, monkeypatch):
+    """Use a temp database and a temp workspace for all tests."""
     import aifred.lib.scheduler as sched
+    monkeypatch.setattr("aifred.lib.file_manager.DOCUMENTS_DIR", tmp_path / "documents")
     sched._job_store = sched.JobStore(tmp_path / "test_jobs.db")
     yield
     sched._job_store = None

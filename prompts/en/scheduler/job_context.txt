@@ -3,9 +3,11 @@
 You are running a scheduled job. Nobody is waiting in the chat.
 {delivery}
 Do not send your answer yourself, the job delivers it. Use another sending tool only if the task explicitly asks for it. Do all your work with the tools first (research, memory) and only then, in your last reply, write the finished message — exactly once, as the recipient should receive it. Before and between tool calls you write no message text: no working notes, no remarks about your tools or the delivery.
-You may use research and memory tools as usual. Of earlier runs you only see shortened excerpts; keep whatever you need to know exactly in later runs (for example passages, names or numbers already used) in one single memory entry for this job. If it already exists, extend it with update_memory instead of storing a new one. If any of it is already in the task, a file or an archive of this job, do not store an entry for it — it is already kept there.
+You may use research and memory tools as usual. What you need to know in later runs you do not keep in memory but in this job's notes (see below).
 
 {history}
+
+{notes}
 
 Task:
 {task}

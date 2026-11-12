@@ -206,10 +206,10 @@ async def jobs_switch(job_id: int, switch: JobSwitch) -> JobRow:
 
 @api_app.delete("/jobs/{job_id}", status_code=204, tags=["Jobs"])
 async def jobs_delete(job_id: int) -> Response:
-    from ..scheduler import get_job_store
+    from ..scheduler import delete_job
 
     _job(job_id)
-    get_job_store().delete(job_id)
+    await delete_job(job_id)
     return Response(status_code=204)
 
 

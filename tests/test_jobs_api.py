@@ -24,6 +24,7 @@ CRON = {"name": "Morgengruß", "schedule_type": "cron", "schedule_expr": "0 8 * 
 def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> scheduler.JobStore:
     job_store = scheduler.JobStore(tmp_path / "jobs.db")
     monkeypatch.setattr(scheduler, "_job_store", job_store)
+    monkeypatch.setattr("aifred.lib.file_manager.DOCUMENTS_DIR", tmp_path / "documents")  # a job's folder lies here, not in the real workspace
     agents_file = tmp_path / "agents.json"
     agents = agent_config._default_agents()
     agents["sokrates"]["enabled"] = False
