@@ -41,5 +41,5 @@ export function progressLine(running: boolean, phase: TurnPhase | null, waitingF
     };
   }
   if (!waitingForText) return null;
-  return { icon: "🧠", text: t("generating_answer"), done: 0, count: "", failed: "" };
+  return { icon: "✨", text: t("generating_answer"), done: 0, count: "", failed: "" };
 }

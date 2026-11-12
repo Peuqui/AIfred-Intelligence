@@ -22,7 +22,7 @@ test("scraping counts the pages read and the unreachable ones; the bar covers bo
 });
 
 test("without a phase the turn generates its answer until text or a tool line comes", () => {
-  expect(progressLine(true, null, true)).toMatchObject({ icon: "🧠", text: "generating_answer" });
+  expect(progressLine(true, null, true)).toMatchObject({ icon: "✨", text: "generating_answer" });
   expect(progressLine(true, null, false)).toBeNull();
 });
 
