@@ -6,6 +6,7 @@ import type { JobRow, JobRun } from "../api/types";
 import JobForm from "../components/JobForm.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import { t } from "../i18n";
+import { renderMarkdown } from "../lib/markdown";
 import { useJobs } from "../stores/jobs";
 
 const jobs = useJobs();
@@ -82,7 +83,7 @@ async function showRuns(job: JobRow): Promise<void> {
         <p v-if="!runs.runs.length" class="empty">–</p>
         <article v-for="run in runs.runs" :key="run.ran_at">
           <span class="stamp">{{ when(run.ran_at) }}</span>
-          <p>{{ run.text }}</p>
+          <div class="text" v-html="renderMarkdown(run.text)" />
         </article>
       </div>
     </ModalDialog>
@@ -112,7 +113,14 @@ button { background: var(--aifred-input-bg); color: inherit; border: 1px solid v
 input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
 .runs { width: min(760px, calc(86 * var(--vw))); max-height: calc(70 * var(--dvh)); overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-.runs p { margin: 4px 0 0; white-space: pre-wrap; font-size: 0.85rem; }
+/* What a run delivered, set like the chat's bubbles (the same renderer), a little smaller. */
+.runs .text { margin-top: 4px; font-size: 0.9rem; overflow-wrap: anywhere; }
+.runs .text :deep(p) { margin: 0.5em 0; }
+.runs .text :deep(h1), .runs .text :deep(h2), .runs .text :deep(h3) { margin: 0.8em 0 0.3em; font-size: 1rem; }
+.runs .text :deep(ul), .runs .text :deep(ol) { margin: 0.4em 0; padding-left: 1.4em; }
+.runs .text :deep(img) { max-width: 100%; }
+.runs article { padding-bottom: 10px; border-bottom: 1px solid var(--aifred-border); }
+.runs article:last-child { border-bottom: none; }
 @media (max-width: 760px) {
   .list th:nth-child(3), .list td:nth-child(3), .list th:nth-child(6), .list td:nth-child(6) { display: none; }
 }
