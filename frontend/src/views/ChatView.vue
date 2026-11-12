@@ -203,22 +203,24 @@ onMounted(() => void start());
            Agent-Orc, who answers and how below it (Peuqui 09.11.2026). -->
       <div class="toolbar">
         <h2>{{ chat.title || t("untitled_chat") }}</h2>
-        <button class="zoom" :disabled="chatZoom <= ZOOM.min" :title="t('chat_font_smaller')" @click="zoomBy('chat', -1)">A−</button>
-        <button class="zoom" :disabled="chatZoom >= ZOOM.max" :title="t('chat_font_larger')" @click="zoomBy('chat', 1)">A+</button>
-        <ChatMenu>
-          <button v-if="settings.current?.enable_tts" :disabled="!hasReplies || chat.regenerating" @click="chat.regenerateAll">
-            <TtsIcon />{{ t("tts_regenerate_all") }}
-          </button>
-          <button :disabled="!hasReplies || chat.remembering || chat.running" :title="t('save_memory_hint')" @click="chat.remember">
-            <Pin :size="16" />{{ t("save_memory") }}
-          </button>
-          <button :disabled="!chat.history.length || exporting" @click="shareChat"><Share2 :size="16" />{{ t("share_chat") }}</button>
-          <button :disabled="!chat.history.length || exporting" @click="downloadChat"><Download :size="16" />{{ t("download_chat") }}</button>
-          <button :disabled="!chat.sessionId" :title="t('sandbox_outputs_tooltip')" @click="outputsOpen = true">
-            <FolderOpen :size="16" />{{ t("sandbox_outputs") }}
-          </button>
-          <button class="danger" :disabled="!chat.history.length" @click="chat.clearChat"><Trash2 :size="16" />{{ t("clear_chat") }}</button>
-        </ChatMenu>
+        <div class="tools">
+          <button class="zoom" :disabled="chatZoom <= ZOOM.min" :title="t('chat_font_smaller')" @click="zoomBy('chat', -1)">A−</button>
+          <button class="zoom" :disabled="chatZoom >= ZOOM.max" :title="t('chat_font_larger')" @click="zoomBy('chat', 1)">A+</button>
+          <ChatMenu>
+            <button v-if="settings.current?.enable_tts" :disabled="!hasReplies || chat.regenerating" @click="chat.regenerateAll">
+              <TtsIcon />{{ t("tts_regenerate_all") }}
+            </button>
+            <button :disabled="!hasReplies || chat.remembering || chat.running" :title="t('save_memory_hint')" @click="chat.remember">
+              <Pin :size="16" />{{ t("save_memory") }}
+            </button>
+            <button :disabled="!chat.history.length || exporting" @click="shareChat"><Share2 :size="16" />{{ t("share_chat") }}</button>
+            <button :disabled="!chat.history.length || exporting" @click="downloadChat"><Download :size="16" />{{ t("download_chat") }}</button>
+            <button :disabled="!chat.sessionId" :title="t('sandbox_outputs_tooltip')" @click="outputsOpen = true">
+              <FolderOpen :size="16" />{{ t("sandbox_outputs") }}
+            </button>
+            <button class="danger" :disabled="!chat.history.length" @click="chat.clearChat"><Trash2 :size="16" />{{ t("clear_chat") }}</button>
+          </ChatMenu>
+        </div>
       </div>
       <div ref="messages" class="messages" @scroll.passive="updateStuck">
         <div class="bubbles">
@@ -314,6 +316,8 @@ onMounted(() => void start());
 .chat { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding-bottom: 12px; }
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .toolbar h2 { margin-right: auto; }
+/* The text size and the ⋮ wrap as one: when they no longer fit beside the title they go down together, not one by one. */
+.tools { display: flex; align-items: center; gap: 8px; }
 /* The container of the agent pills' query: on a narrow row they show their emoji only. */
 .who { min-width: 0; container-type: inline-size; }
 .how { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
