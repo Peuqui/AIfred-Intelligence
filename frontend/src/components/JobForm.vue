@@ -72,6 +72,11 @@ async function save(): Promise<void> {
           <option v-for="agent in options.agents" :key="agent.id" :value="agent.id">{{ agent.label }}</option>
         </select>
       </label>
+      <label :title="t('sched_tier_hint')">{{ t("sched_label_tier") }}
+        <select v-model.number="form.max_tier">
+          <option v-for="tier in options.tiers" :key="tier" :value="tier">{{ tier }} · {{ t(`sched_tip_tier_${tier}`) }}</option>
+        </select>
+      </label>
 
       <fieldset class="wide">
         <legend>{{ t("sched_label_schedule") }}</legend>
@@ -131,11 +136,6 @@ async function save(): Promise<void> {
             </label>
           </template>
           <label v-else-if="form.delivery === 'webhook'" class="grow">{{ t("jobs_webhook_url") }}<input v-model="form.webhook_url" type="url" required /></label>
-          <label class="cron" :title="t(`sched_tip_tier_${form.max_tier}`)">{{ t("sched_label_tier") }}
-            <select v-model.number="form.max_tier">
-              <option v-for="tier in options.tiers" :key="tier" :value="tier">{{ tier }} · {{ t(`sched_tip_tier_${tier}`) }}</option>
-            </select>
-          </label>
         </div>
         <label v-if="form.delivery === 'announce'" class="check" :title="t('sched_tip_fixed_text')">
           <input v-model="form.fixed_text" type="checkbox" /> {{ t("sched_label_fixed_text") }}
