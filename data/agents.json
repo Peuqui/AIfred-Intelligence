@@ -99,6 +99,8 @@
         "search_documents",
         "list_indexed",
         "read_file",
+        "write_file",
+        "patch_file",
         "search_in_file",
         "ai_connect_peer_list",
         "ai_connect_peer_history",
@@ -315,7 +317,11 @@
         "ai_connect_peer_history",
         "ai_connect_peer_send",
         "email",
-        "telegram_send"
+        "telegram_send",
+        "list_files",
+        "read_file",
+        "write_file",
+        "patch_file"
       ],
       "color": "#3fb950"
     },
