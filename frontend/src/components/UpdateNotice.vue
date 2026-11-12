@@ -41,8 +41,7 @@ onMounted(() => {
 <style scoped>
 .notice {
   position: fixed; inset-inline: 0; top: 0; z-index: 60; padding: 8px 16px; border: none; text-align: center; font: inherit;
-  font-weight: 600; color: var(--aifred-text-on-accent);
+  font-weight: 600; color: var(--aifred-text-on-accent); background: var(--aifred-danger);
 }
-.notice { background: var(--aifred-danger); }
 .loading { cursor: pointer; }
 </style>
