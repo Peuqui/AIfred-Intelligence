@@ -1744,15 +1744,23 @@ TOOL_LOOP_CONTEXT_GUARD = 0.85
 # dazwischen (Schreibvorgang, Sub-Agent) geht durch.
 SECURITY_MAX_IDENTICAL_TOOL_CALLS = env_int("SECURITY_MAX_IDENTICAL_TOOL_CALLS", 2)
 SECURITY_RATE_LIMIT_WINDOW_SEC = env_int("SECURITY_RATE_LIMIT_WINDOW_SEC", 60)  # Rate limit window in seconds
+# Tool calls a channel may make per window (0 = unlimited); each value can be set in .env as
+# SECURITY_RATE_LIMIT_<CHANNEL> (e.g. SECURITY_RATE_LIMIT_CRON=40).
 SECURITY_RATE_LIMITS: dict[str, int] = {
-    "browser": 0,       # 0 = unlimited
-    "email": 5,         # Max 5 tool calls per minute
-    "discord": 10,
-    "telegram": 10,
-    "ai_connect": 10,
-    "cron": 20,
-    "webhook": 3,
+    source: env_int(f"SECURITY_RATE_LIMIT_{source.upper()}", default)
+    for source, default in (
+        ("browser", 0),
+        ("email", 5),
+        ("discord", 10),
+        ("telegram", 10),
+        ("ai_connect", 10),
+        ("cron", 20),
+        ("webhook", 3),
+    )
 }
+# A channel that broke its limit this many times within the window is blocked for the cooldown.
+SECURITY_RATE_BREAKER_THRESHOLD = env_int("SECURITY_RATE_BREAKER_THRESHOLD", 3)
+SECURITY_RATE_BREAKER_COOLDOWN_SEC = env_int("SECURITY_RATE_BREAKER_COOLDOWN_SEC", 300)
 
 # ============================================================
 # HTML PREVIEW CONFIGURATION

@@ -502,11 +502,6 @@ class _RateTracker:
     racing prune+append on _calls would let calls slip past the limit.
     """
 
-    # After this many rate limit violations, the circuit breaker trips
-    _BREAKER_THRESHOLD = 3
-    # Channel is blocked for this many seconds after tripping
-    _BREAKER_COOLDOWN_SEC = 300  # 5 minutes
-
     def __init__(self) -> None:
         self._calls: list[tuple[float, str]] = []  # (timestamp, source)
         self._violations: dict[str, list[float]] = {}  # source → [violation_timestamps]
@@ -555,18 +550,24 @@ class _RateTracker:
         """
         if source not in self._violations:
             self._violations[source] = []
-        # Prune old violations
-        cutoff = now - 60  # Violations within last 60 seconds
+        from .config import (
+            SECURITY_RATE_BREAKER_COOLDOWN_SEC,
+            SECURITY_RATE_BREAKER_THRESHOLD,
+            SECURITY_RATE_LIMIT_WINDOW_SEC,
+        )
+
+        # Only violations within the rate window count toward the breaker.
+        cutoff = now - SECURITY_RATE_LIMIT_WINDOW_SEC
         self._violations[source] = [t for t in self._violations[source] if t > cutoff]
         self._violations[source].append(now)
 
-        if len(self._violations[source]) >= self._BREAKER_THRESHOLD:
-            self._tripped[source] = now + self._BREAKER_COOLDOWN_SEC
+        if len(self._violations[source]) >= SECURITY_RATE_BREAKER_THRESHOLD:
+            self._tripped[source] = now + SECURITY_RATE_BREAKER_COOLDOWN_SEC
             self._violations[source] = []
             from .logging_utils import log_message
             log_message(
                 f"Security: CIRCUIT BREAKER TRIPPED for '{source}' — "
-                f"blocked for {self._BREAKER_COOLDOWN_SEC}s",
+                f"blocked for {SECURITY_RATE_BREAKER_COOLDOWN_SEC}s",
                 "error",
             )
 
