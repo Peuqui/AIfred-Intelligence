@@ -1,0 +1,117 @@
+/* The speaker button's symbol: the TTS-Suite's logo (speaker.svg), and a small arrow down (speaker-from.svg) for "reads
+   this and what comes after it". The one source for every program that reads aloud (see tools/speaker-consumers.json);
+   never change a copy, change this. The shape is in the svg files, how it stands and moves is here. The values that belong
+   to a program are the variables below: a program sets the ones it wants differently on :root (or any ancestor), the
+   rest stay as given here.
+
+   Markup, `playing` while the answer is read:
+
+     <span class="speaker playing">
+       <svg class="speaker-icon">…speaker.svg…</svg>
+       <svg class="speaker-from">…speaker-from.svg…</svg>     (only for "from here on")
+     </span>
+
+   While it is read, the bars rise and fall like a level and the arcs glow (not where motion is reduced), as the
+   dictation's badge does while speech is taken in (the STT-Suite's badge). */
+
+/* :where keeps these at no weight, so any declaration of a program wins, wherever it sits. The colours are Agent-Orc's
+   (Tailwind 4: slate-600, slate-200) and the logo's own. */
+:where(:root) {
+  /* In em: it grows with the text around it. */
+  --speaker-size: 1.4em;
+  --speaker-wave-start: #e0f2fe;
+  --speaker-wave-middle: #38bdf8;
+  --speaker-wave-end: #0284c7;
+  --speaker-arc-near: #94a3b8;
+  --speaker-arc-far: #64748b;
+  --speaker-from-plate: #45556c;
+  --speaker-from-arrow: #e2e8f0;
+}
+
+.speaker {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: var(--speaker-size);
+  height: var(--speaker-size);
+  vertical-align: text-bottom;
+}
+.speaker .speaker-icon {
+  width: 100%;
+  height: 100%;
+}
+.speaker .wave-start {
+  stop-color: var(--speaker-wave-start);
+}
+.speaker .wave-middle {
+  stop-color: var(--speaker-wave-middle);
+}
+.speaker .wave-end {
+  stop-color: var(--speaker-wave-end);
+}
+.speaker .arc.near {
+  stroke: var(--speaker-arc-near);
+}
+.speaker .arc.far {
+  stroke: var(--speaker-arc-far);
+}
+.speaker .speaker-from {
+  position: absolute;
+  right: -16.7%;
+  bottom: -16.7%;
+  width: 50%;
+  height: 50%;
+  border-radius: 9999px;
+  color: var(--speaker-from-arrow);
+  background: var(--speaker-from-plate);
+}
+
+.speaker .bar {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.speaker.playing .bar {
+  animation: speaker-level 0.9s ease-in-out infinite;
+}
+.speaker.playing .bar:nth-child(2) {
+  animation-delay: -0.6s;
+}
+.speaker.playing .bar:nth-child(3) {
+  animation-delay: -0.3s;
+}
+.speaker.playing .bar:nth-child(4) {
+  animation-delay: -0.75s;
+}
+.speaker.playing .bar:nth-child(5) {
+  animation-delay: -0.45s;
+}
+.speaker.playing .arc {
+  animation: speaker-glow 1.2s ease-in-out infinite;
+}
+.speaker.playing .arc.far {
+  animation-delay: -0.6s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .speaker.playing .bar,
+  .speaker.playing .arc {
+    animation: none;
+  }
+}
+@keyframes speaker-level {
+  0%,
+  100% {
+    transform: scaleY(0.45);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+@keyframes speaker-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
