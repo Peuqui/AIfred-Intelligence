@@ -1,5 +1,5 @@
 /* The dictation button: the STT-Suite's logo in a round badge (badge.svg), the small GPU mark and the spinner.
-   The one source for every program that shows it (see scripts/badge-consumers.json); never change a copy, change this.
+   The one source for every program that shows it (see STT-Suite/scripts/ui-consumers.json); never change a copy, change this.
    The shape is in badge.svg, how it stands in the phases is here. The colours that belong to a program are the
    variables below: a program sets the ones it wants differently on :root (or any ancestor), the rest stay as given here.
 

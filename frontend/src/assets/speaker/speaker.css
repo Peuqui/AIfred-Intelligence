@@ -1,5 +1,5 @@
 /* The speaker button's symbol: the TTS-Suite's logo (speaker.svg), and a small arrow down (speaker-from.svg) for "reads
-   this and what comes after it". The one source for every program that reads aloud (see scripts/speaker-consumers.json);
+   this and what comes after it". The one source for every program that reads aloud (see STT-Suite/scripts/ui-consumers.json);
    never change a copy, change this. The shape is in the svg files, how it stands and moves is here. The values that belong
    to a program are the variables below: a program sets the ones it wants differently on :root (or any ancestor), the
    rest stay as given here.
