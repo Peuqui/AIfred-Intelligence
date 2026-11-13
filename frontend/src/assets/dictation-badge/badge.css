@@ -1,0 +1,190 @@
+/* The dictation button: the STT-Suite's logo in a round badge (badge.svg), the small GPU mark and the spinner.
+   The one source for every program that shows it (see scripts/badge-consumers.json); never change a copy, change this.
+   The shape is in badge.svg, how it stands in the phases is here. The colours that belong to a program are the
+   variables below: a program sets the ones it wants differently on :root (or any ancestor), the rest stay as given here.
+
+   Markup, the phase being `listening` or `transcribing` (ready is the badge without one) on the svg and on the mark:
+
+     <span class="dictation-mic">
+       <button type="button"><svg class="dictation-badge listening">…badge.svg…</svg></button>
+       <span class="dictation-gpu">GPU</span>                    (only while the service has a model on the GPU)
+       <span class="dictation-spinner" role="status"></span>     (only while it transcribes)
+     </span>
+
+   Ready, the badge stands still and waits to be pressed. While speech is taken in, its bars rise and fall like a
+   level, the arcs glow and the rim turns red (also where motion is reduced, so that ready and recording never look
+   alike). While it transcribes, it stands still and grey; the GPU mark goes grey with it. */
+
+/* The values of Agent-Orc (Tailwind 4: amber-300, amber-500, red-500, slate-400, slate-500, slate-900), as hex: an
+   older browser drops oklch() in a variable. :where keeps them at no weight, so any declaration of a program wins,
+   wherever it sits. */
+:where(:root) {
+  --badge-face: #0f172b;
+  --badge-wave-start: #fef9c3;
+  --badge-wave-middle: #f59e0b;
+  --badge-wave-end: #ea580c;
+  --badge-arc-near: #94a3b8;
+  --badge-arc-far: #64748b;
+  --badge-rim: #ffd230;
+  --badge-rim-listening: #fb2c36;
+  /* Under the GPU mark and the spinner: the page's own background, so the badge does not show through. */
+  --badge-plate: #0f172b;
+  --badge-gpu-text: #ffd230;
+  --badge-gpu-border: #fe9a00;
+  --badge-grey-text: #90a1b9;
+  --badge-grey-border: #62748e;
+  --badge-working: #e67700;
+}
+
+.dictation-badge .wave-start {
+  stop-color: var(--badge-wave-start);
+}
+.dictation-badge .wave-middle {
+  stop-color: var(--badge-wave-middle);
+}
+.dictation-badge .wave-end {
+  stop-color: var(--badge-wave-end);
+}
+.dictation-badge .rim {
+  fill: var(--badge-face);
+  stroke: var(--badge-rim);
+}
+.dictation-badge .arc.near {
+  stroke: var(--badge-arc-near);
+}
+.dictation-badge .arc.far {
+  stroke: var(--badge-arc-far);
+}
+.dictation-badge.listening .rim {
+  stroke: var(--badge-rim-listening);
+}
+.dictation-badge.transcribing {
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+.dictation-badge .bar {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.dictation-badge.listening .arc {
+  animation: dictation-badge-glow 1.2s ease-in-out infinite;
+}
+.dictation-badge.listening .arc.far {
+  animation-delay: -0.6s;
+}
+.dictation-badge.listening .bar {
+  animation: dictation-badge-level 0.9s ease-in-out infinite;
+}
+.dictation-badge.listening .bar:nth-child(2) {
+  animation-delay: -0.6s;
+}
+.dictation-badge.listening .bar:nth-child(3) {
+  animation-delay: -0.3s;
+}
+.dictation-badge.listening .bar:nth-child(4) {
+  animation-delay: -0.75s;
+}
+.dictation-badge.listening .bar:nth-child(5) {
+  animation-delay: -0.45s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dictation-badge.listening .bar,
+  .dictation-badge.listening .arc {
+    animation: none;
+  }
+}
+@keyframes dictation-badge-level {
+  0%,
+  100% {
+    transform: scaleY(0.45);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+@keyframes dictation-badge-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* The button as a whole, for a program that does not size it itself: on a touch screen as large as the field and the
+   buttons beside it, the badge standing inside it. */
+.dictation-mic {
+  --badge-button-size: 2.75rem;
+  --badge-size: 2rem;
+  position: relative;
+  display: inline-flex;
+}
+@media (pointer: coarse) {
+  .dictation-mic {
+    --badge-button-size: 2.5rem;
+    --badge-size: 2.25rem;
+  }
+}
+.dictation-mic > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--badge-button-size);
+  height: var(--badge-button-size);
+  padding: 0;
+  background: none;
+  border: none;
+}
+.dictation-mic > button:disabled {
+  opacity: 0.3;
+}
+.dictation-mic .dictation-badge {
+  width: var(--badge-size);
+  height: var(--badge-size);
+}
+
+/* The GPU mark at the badge's upper right, its top edge level with the field's (the exception, so only the GPU is
+   shown, not the CPU). The box ends at the capitals, not at the font's room for descenders: the same rim above
+   and below the letters. */
+.dictation-gpu {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 2px 4px;
+  pointer-events: none;
+  font-size: 0.5rem;
+  line-height: 1;
+  font-weight: 600;
+  text-box: trim-both cap alphabetic;
+  color: var(--badge-gpu-text);
+  border: 1px solid var(--badge-gpu-border);
+  border-radius: 4px;
+  background: var(--badge-plate);
+}
+.dictation-gpu.transcribing {
+  color: var(--badge-grey-text);
+  border-color: var(--badge-grey-border);
+}
+
+/* While a dictation is transcribed: an arc at the lower right that turns in four steps a turn rather than
+   smoothly (the browser draws a frame per step instead of one per refresh of the display). */
+.dictation-spinner {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  border-radius: 50%;
+  border: 2px solid var(--badge-working);
+  border-top-color: transparent;
+  background: var(--badge-plate);
+  animation: dictation-spinner-turn 2s steps(4) infinite;
+}
+@keyframes dictation-spinner-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}

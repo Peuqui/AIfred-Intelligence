@@ -140,9 +140,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", discardOnEscape));
         >
           <DictationBadge :phase="badgePhase" />
         </button>
-        <span v-if="onGpu" class="gpu" :class="{ idle: transcribing && !recording }" :title="t('dictation_on_gpu')">GPU</span>
-        <!-- While a dictation is transcribed: Agent-Orc's spinner at the microphone's lower right. -->
-        <span v-if="transcribing" class="spinner" role="status" :aria-label="t('dictation_running')" />
+        <span v-if="onGpu" class="dictation-gpu" :class="{ transcribing: transcribing && !recording }" :title="t('dictation_on_gpu')">GPU</span>
+        <!-- While a dictation is transcribed: the spinner at the microphone's lower right. -->
+        <span v-if="transcribing" class="dictation-spinner" role="status" :aria-label="t('dictation_running')" />
       </span>
       <textarea
         ref="field"
@@ -232,25 +232,27 @@ figure button { cursor: pointer; font: inherit; border: none; }
 .mic { display: inline-flex; box-sizing: border-box; padding: 2px; background: none; border: none; }
 .mic svg { width: 100%; height: 100%; }
 .mic:disabled { cursor: default; }
-/* The small GPU mark at the microphone's upper right, its top edge level with the field's (the exception, as in Agent-Orc), on the page's own background so the
-   badge does not show through it; the spinner takes the lower right. */
-.gpu {
-  position: absolute; top: 0; right: 0; padding: 2px 4px; pointer-events: none; font-size: 0.5rem; line-height: 1; font-weight: 600;
-  /* The box ends at the capitals, not at the font's room for descenders: the same rim above and below the letters. */
-  text-box: trim-both cap alphabetic;
-  color: var(--aifred-gpu-mark-text); border: 1px solid var(--aifred-gpu-mark-border); border-radius: 4px; background: var(--aifred-page-bg);
+/* The badge, the GPU mark and the spinner are the STT-Suite's (assets/dictation-badge/badge.css, DictationBadge.vue); here only
+   the colours, in this app's names (aifred/theme.py): the wave from amber to the primary colour (the middle stop is the mean of
+   both, as a gradient of two stops), the page's own background under the mark and the spinner. */
+.mic-box {
+  --badge-face: var(--aifred-page-bg);
+  --badge-wave-start: var(--aifred-accent-amber);
+  --badge-wave-middle: color-mix(in srgb, var(--aifred-accent-amber) 50%, var(--aifred-primary-active));
+  --badge-wave-end: var(--aifred-primary-active);
+  --badge-arc-near: var(--aifred-text-primary);
+  --badge-arc-far: var(--aifred-text-muted);
+  --badge-rim: var(--aifred-accent-gold);
+  --badge-rim-listening: var(--aifred-danger);
+  --badge-plate: var(--aifred-page-bg);
+  --badge-gpu-text: var(--aifred-gpu-mark-text);
+  --badge-gpu-border: var(--aifred-gpu-mark-border);
+  --badge-grey-text: var(--aifred-text-muted);
+  --badge-grey-border: var(--aifred-text-muted);
+  --badge-working: var(--aifred-primary);
 }
-/* While a dictation is transcribed the badge stands grey (DictationBadge); the mark goes with it. */
-.gpu.idle { color: var(--aifred-text-muted); border-color: var(--aifred-text-muted); }
 /* In the working colour, which tells it from the red rim of the recording microphone beside it (as in Agent-Orc). */
 .discard { display: inline-flex; align-items: center; justify-content: center; background: none; border: none; color: var(--aifred-primary); }
-/* Agent-Orc's spinner: an arc that turns in four steps a turn rather than smoothly. */
-.spinner {
-  position: absolute; right: -2px; bottom: -2px; width: 14px; height: 14px; box-sizing: border-box; pointer-events: none;
-  border-radius: 50%; border: 2px solid var(--aifred-primary); border-top-color: transparent;
-  background: var(--aifred-page-bg); animation: spin 2s steps(4) infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
 /* Send and stop: an icon in its colour, framed (the look of the Reflex page's action buttons). */
 .line-button {
   display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;
