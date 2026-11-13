@@ -327,6 +327,7 @@ class VisionPlugin:
             executor=_exec,
             # Camera imagery → exfil vector from external channels. Gated by SOURCE in get_tools.
             tier=TIER_READONLY,
+            observes=True,  # a fresh look each call (function_calling.Tool.observes)
         )
 
     # ── analyze ──────────────────────────────────────────────────
@@ -532,6 +533,7 @@ class VisionPlugin:
             # VLM description of camera imagery → exfil vector from external
             # channels. Gated by SOURCE in get_tools (browser + Puck only).
             tier=TIER_READONLY,
+            observes=True,  # a fresh look each call (function_calling.Tool.observes)
         )
 
     # ── enroll_face ──────────────────────────────────────────────
@@ -704,6 +706,7 @@ class VisionPlugin:
             parameters=load_tool_parameters(__file__, "vision_list_active_watches"),
             executor=_exec,
             tier=TIER_READONLY,
+            observes=True,  # a fresh look each call (function_calling.Tool.observes)
         )
 
     # ── query_events ─────────────────────────────────────────────
@@ -891,6 +894,7 @@ class VisionPlugin:
             # exfil vector from external channels. Gated by SOURCE in
             # get_tools (browser + Puck only).
             tier=TIER_READONLY,
+            observes=True,  # a fresh look each call (function_calling.Tool.observes)
         )
 
 

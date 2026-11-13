@@ -106,6 +106,9 @@ class Tool:
     outbound_channel: str = ""  # The channel it sends on, empty if it sends nothing (see may_send_outbound)
     owner_gated: bool = False  # Admitted by in_owner_context, not by the tier
     read_only: bool = False  # Changes nothing above tier 0: the tier rates the data, not the effect
+    # Looks at the world anew each call (a camera, its event log): the same answer again is news ("still nothing"), not a
+    # loop, so the unchanged-result breaker leaves it alone; a model waiting for an event asks again and again.
+    observes: bool = False
 
     @property
     def definition(self) -> dict[str, Any]:
@@ -382,7 +385,7 @@ class ToolKit:
             # Sanitize before it enters LLM context.
             from .security import sanitize_tool_output
             result_str = sanitize_tool_output(result_str)
-            if reads_only:
+            if reads_only and not tool.observes:
                 result_str = self._refuse_unchanged_read(name, call_key, result_str)
             yield {"type": "tool_result", "result": result_str}
         except Exception as e:  # the model sees the failure; logged with its traceback
@@ -391,7 +394,7 @@ class ToolKit:
             result_str = json.dumps({"error": str(e)})
             from .security import sanitize_tool_output
             result_str = sanitize_tool_output(result_str)
-            if reads_only:
+            if reads_only and not tool.observes:
                 result_str = self._refuse_unchanged_read(name, call_key, result_str)
             yield {"type": "tool_result", "result": result_str}
         finally:

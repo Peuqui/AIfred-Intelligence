@@ -182,3 +182,25 @@ def test_sensitive_read_with_unchanged_result_is_still_refused():
     results = asyncio.run(run())
     assert results[:2] == ["same", "same"]
     assert all("did not change" in r for r in results[2:])
+
+
+def test_an_observing_read_is_asked_again_however_often_it_answers_the_same():
+    """A camera or its event log says "nothing new" again and again while a model waits for an event."""
+    calls: list[dict] = []
+
+    def look(**kw):
+        calls.append(kw)
+        return "nothing to see"
+
+    kit = ToolKit(
+        tools=[Tool(name="vision_query_events", description="x", parameters={}, executor=look, tier=0, observes=True)],
+        _source="browser",
+        _max_tier=4,
+    )
+
+    async def run():
+        return [await kit.execute("vision_query_events", {"source": "cam"}) for _ in range(6)]
+
+    results = asyncio.run(run())
+    assert all("error" not in r for r in results)
+    assert len(calls) == 6
