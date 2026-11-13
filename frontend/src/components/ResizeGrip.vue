@@ -32,13 +32,16 @@ function move(event: PointerEvent): void {
 
 <style scoped>
 /* Hardly more than the pill: the gap the parent puts between its children (--grip-gap) is taken back, so the bar costs its
-   own 14 px and nothing around it. The hit area reaches 4 px beyond it above and below. */
+   own 14 px and nothing around it. Only the pill itself takes the touch (4 px beyond it above and below), not the
+   row to its left and right: a swipe there belongs to the page. */
 .grip {
-  position: relative; display: flex; align-items: center; justify-content: center; height: 14px;
+  display: flex; align-items: center; justify-content: center; height: 14px; pointer-events: none;
   margin-block: calc(-1 * var(--grip-gap, 0px));
+}
+.grip span {
+  position: relative; pointer-events: auto; width: 56px; height: 5px; border-radius: 3px; background: var(--aifred-border);
   cursor: ns-resize; touch-action: none; user-select: none;
 }
-.grip::before { content: ""; position: absolute; inset: -4px 0; }
-.grip span { width: 56px; height: 5px; border-radius: 3px; background: var(--aifred-border); }
+.grip span::before { content: ""; position: absolute; inset: -4px 0; }
 .grip:hover span, .grip:active span { background: var(--aifred-primary); }
 </style>
