@@ -165,6 +165,8 @@ export const useChat = defineStore("chat", () => {
         break;
       }
       case "resync":
+        // The server started anew: its status line state is new too, and nothing pushes it to a page that was open.
+        void useServiceStatus().fetch(false);
         if (sessionId.value) void load(sessionId.value);
         break;
       case "history_replaced":
