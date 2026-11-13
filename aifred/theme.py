@@ -45,6 +45,11 @@ COLORS = {
     "accent_warning": "#d29922", # Warnung, gedämpftes Gold
     "accent_gold": "#FFD700",    # Glühbirnen und Überschriften der Hilfe-Texte
     "accent_amber": "#FFA500",   # Speed-/Aktiv-Markierung
+    # Radix-Knöpfe der alten Reflex-Oberfläche (Radix Themes 3.2.1, dunkel), für Knöpfe, die genauso aussehen
+    # sollen: solid orange (accent-9 / accent-contrast) und soft grau (gray-a3 / gray-a11).
+    "radix_solid_orange": "#f76b15",
+    "radix_soft_gray_bg": "#ffffff12",
+    "radix_soft_gray_text": "#ffffffaf",
     "gpu_mark_text": "#fcd34d",  # GPU-Etikett am Mikrofon: Schrift (amber-300, wie in Agent-Orc)
     "gpu_mark_border": "#f59e0b",  # GPU-Etikett am Mikrofon: Rand (amber-500, wie in Agent-Orc)
     "danger": "#ef1c3f",         # Fehler, Löschen (Karminrot wie Agent-Orc; 4,0:1 auf card_bg)

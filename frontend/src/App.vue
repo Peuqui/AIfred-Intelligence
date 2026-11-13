@@ -30,13 +30,15 @@ const menuOpen = ref(false);
 // The two sizes the menu offers (the chat's own is above the chat).
 // The menu's pages, each its icon in a colour of its own from the palette (theme.py), as the coloured emojis
 // before them were; the audio page's speaker keeps the TTS suite's own colours.
+// The chat is amber, here and in the way back to it in the header.
+const CHAT_COLOR = "var(--aifred-accent-amber)";
 const menuEntries: { to: string; icon: Component; label: string; color?: string }[] = [
-  { to: "/", icon: MessageSquare, label: "nav_chat", color: "var(--aifred-primary)" },
+  { to: "/", icon: MessageSquare, label: "nav_chat", color: CHAT_COLOR },
   { to: "/agents", icon: Bot, label: "nav_agents", color: "var(--aifred-user-name)" },
   { to: "/documents", icon: Folder, label: "doc_manager_title", color: "var(--aifred-accent-blue)" },
   { to: "/vision", icon: Eye, label: "nav_vision", color: "var(--aifred-accent-purple)" },
   { to: "/memory", icon: NotebookPen, label: "nav_memory", color: "var(--aifred-accent-success)" },
-  { to: "/jobs", icon: Clock, label: "nav_jobs", color: "var(--aifred-accent-amber)" },
+  { to: "/jobs", icon: Clock, label: "nav_jobs", color: "var(--aifred-primary)" },
   { to: "/audio", icon: TtsIcon, label: "nav_audio" },
   { to: "/maintenance", icon: Wrench, label: "nav_maintenance", color: "var(--aifred-accent-cyan)" },
   { to: "/settings", icon: Settings, label: "settings", color: "var(--aifred-accent-gold)" },
@@ -103,7 +105,7 @@ onMounted(async () => {
           </small>
         </div>
       </div>
-      <RouterLink v-if="route.path !== '/'" to="/" class="back"><MessageSquare :size="16" /> {{ t("nav_chat") }}</RouterLink>
+      <RouterLink v-if="route.path !== '/'" to="/" class="back"><MessageSquare :size="16" :style="{ color: CHAT_COLOR }" /> {{ t("nav_chat") }}</RouterLink>
       <span class="user">{{ auth.user }}</span>
       <button class="burger" :aria-expanded="menuOpen" :title="t('settings')" @click="menuOpen = !menuOpen"><Menu :size="22" /></button>
       <div v-if="menuOpen" class="backdrop" @click="menuOpen = false" />
