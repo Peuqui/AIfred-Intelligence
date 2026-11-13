@@ -52,7 +52,7 @@ watch(
   { immediate: true },
 );
 // Never under one line (the buttons' height), whatever the finger drags to.
-const fieldSize = computed(() => `max(var(--line-size), ${inputHeight.value ?? 0}px)`);
+const fieldSize = computed(() => `min(max(var(--line-size), ${inputHeight.value ?? 0}px), calc(100 * var(--dvh)))`);
 const recording = recorder.recording;
 const badgePhase = computed<BadgePhase>(() => (recording.value ? "listening" : props.transcribing ? "transcribing" : "ready"));
 const canSend = computed(() => text.value.trim() !== "" || props.images.length > 0);
@@ -160,7 +160,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", discardOnEscape));
         <Send :size="20" />
       </button>
     </div>
-    <ResizeGrip :target="field" @resize="(height) => (inputHeight = height)" @reset="inputHeight = null" />
+    <ResizeGrip :target="field" :max-screens="1" @resize="(height) => (inputHeight = height)" @reset="inputHeight = null" />
   </div>
 </template>
 

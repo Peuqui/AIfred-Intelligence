@@ -2,8 +2,6 @@
 // A bar under a box that drags its height (vertical only). Wide and in the middle, so a finger hits it: the browser's own
 // grip at the corner is a few pixels, sits next to the buttons and at the screen's edge, where the back gesture lies.
 // It reports the height in the box's own units (a zoom set on the page or on the box is taken out again); the box sets it.
-import { nextTick } from "vue";
-
 // maxScreens: the most the box may take, in screens high (the chat box must stay one whose grip and top can be reached).
 // A quick second tap on the bar sets the box back to its default height (``reset``).
 const props = defineProps<{ target: HTMLElement | null; minHeight?: number; maxScreens?: number }>();
@@ -11,10 +9,36 @@ const emit = defineEmits<{ resize: [height: number]; reset: [] }>();
 
 const DOUBLE_TAP_MS = 400;
 const TAP_SLOP_PX = 6;
+const EDGE_PX = 64; // a finger this close to the screen's top or bottom edge takes the page along
+const EDGE_STEP_PX = 12; // per frame
 let grab = 0; // how far the finger stands below the box's lower edge, in screen pixels
 let scale = 1; // screen pixels per own unit
+let fingerY = 0;
 let pressedAt = { x: 0, y: 0 };
 let lastTapAt = -Infinity;
+let frame = 0;
+
+// The box's height from where its lower edge should be (above the finger, by the distance it was grabbed at). The target
+// boxes are border-box, so the height reported is the one the box takes.
+function follow(): boolean {
+  const box = props.target;
+  if (!box) return false;
+  const most = props.maxScreens ? (props.maxScreens * window.innerHeight) / scale : Infinity;
+  const height = (fingerY - grab - box.getBoundingClientRect().top) / scale;
+  emit("resize", Math.min(most, Math.max(props.minHeight ?? 0, height)));
+  return height >= most;
+}
+
+// While the finger holds at an edge the page scrolls on by itself (the finger does not move, so no event comes), and the
+// box follows: a box can grow beyond the screen. Only here the page is scrolled, never to make up for the box's size.
+function edgeScroll(): void {
+  frame = requestAnimationFrame(edgeScroll);
+  const step = fingerY > window.innerHeight - EDGE_PX ? EDGE_STEP_PX : fingerY < EDGE_PX ? -EDGE_STEP_PX : 0;
+  if (!step) return;
+  if (step > 0 && follow()) return; // the box is as high as it may be: the page stays
+  window.scrollBy(0, step);
+  follow();
+}
 
 function start(event: PointerEvent): void {
   const box = props.target;
@@ -22,12 +46,15 @@ function start(event: PointerEvent): void {
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   grab = event.clientY - box.getBoundingClientRect().bottom;
   scale = box.getBoundingClientRect().height / box.offsetHeight || 1;
+  fingerY = event.clientY;
   pressedAt = { x: event.clientX, y: event.clientY };
   // The page is scrolled by this drag alone: the browser's own scroll anchoring would move it against the drag.
   document.documentElement.style.overflowAnchor = "none";
+  frame = requestAnimationFrame(edgeScroll);
 }
 
 function end(event: PointerEvent): void {
+  cancelAnimationFrame(frame);
   document.documentElement.style.overflowAnchor = "";
   const tapped = Math.hypot(event.clientX - pressedAt.x, event.clientY - pressedAt.y) < TAP_SLOP_PX;
   if (!tapped || event.type === "pointercancel") return;
@@ -40,18 +67,10 @@ function end(event: PointerEvent): void {
   }
 }
 
-// The height is read from where the box's edge should be (the finger's place), not from how far the finger moved: the page
-// scrolls along, so the box's upper edge moves too. A box that grows below the screen takes the page with it: the grip
-// stays under the finger and the drag goes on.
-async function move(event: PointerEvent): Promise<void> {
-  const box = props.target;
-  if (!box || !(event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) return;
-  const wantedBottom = event.clientY - grab;
-  const most = props.maxScreens ? (props.maxScreens * window.innerHeight) / scale : Infinity;
-  const height = Math.min(most, Math.max(props.minHeight ?? 0, (wantedBottom - box.getBoundingClientRect().top) / scale));
-  emit("resize", height);
-  await nextTick();
-  window.scrollBy(0, box.getBoundingClientRect().bottom - wantedBottom);
+function move(event: PointerEvent): void {
+  if (!(event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) return;
+  fingerY = event.clientY;
+  follow();
 }
 </script>
 
@@ -74,5 +93,7 @@ async function move(event: PointerEvent): Promise<void> {
   cursor: ns-resize; touch-action: none; user-select: none;
 }
 .grip span::before { content: ""; position: absolute; inset: -6px 0; }
-.grip:hover span, .grip:active span { background: var(--aifred-primary); }
+/* Lit while held; the hover only where there is a mouse (on a touch screen it stays on the last place touched). */
+.grip:active span { background: var(--aifred-primary); }
+@media (hover: hover) { .grip:hover span { background: var(--aifred-primary); } }
 </style>

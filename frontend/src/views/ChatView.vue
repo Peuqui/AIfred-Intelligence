@@ -333,6 +333,7 @@ h2 { margin: 0; font-size: 1.1rem; }
 /* The box keeps 70 % of the screen whatever the sizes; only its content takes the chat's size (the interface's
    size, set on the page, is taken out again). */
 .messages {
+  box-sizing: border-box; /* the grip's height is the one the box takes */
   height: calc(var(--chat-height-desktop) / var(--ui-zoom));
   overflow-y: auto;
   overflow-wrap: anywhere;
