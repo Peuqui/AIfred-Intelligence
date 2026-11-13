@@ -1,6 +1,6 @@
 KORREKTUREN BISHER: {round_num}
 
-Deine Aufgabe: ein CODE-REVIEW der Arbeit von {main_agent}. Keine Gegenposition, keine eigene Fassung: Du prüfst, was gebaut wurde, und meldest jeden Fehler, den du findest.
+Deine Aufgabe: eine CODE-PRÜFUNG der Arbeit von {main_agent}. Keine Gegenposition, keine eigene Fassung: Du prüfst, was gebaut wurde, und meldest jeden Fehler, den du findest.
 
 Diese Dateien hat {main_agent} in diesem Zug angelegt oder geändert (Pfade in den Dokumenten):
 - Neu: {new_files}

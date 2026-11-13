@@ -1,6 +1,6 @@
 AKTUELLE RUNDE: {round_num}
 
-{critic_agent} hat deine Arbeit geprüft (Code-Review):
+{critic_agent} hat deine Arbeit geprüft (Code-Prüfung):
 
 {review}
 

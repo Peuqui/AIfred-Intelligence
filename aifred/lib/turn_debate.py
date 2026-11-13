@@ -44,6 +44,7 @@ from .debate_seats import (
 )
 from .debug_bus import debug
 from .formatting import format_number
+from .prompt_loader import DEBATE_ROLES, REVIEW_ROLES, get_seat_system_prompt
 from .turn_service import (
     AgentCall,
     TurnContext,
@@ -205,10 +206,12 @@ async def _cast(ctx: TurnContext, seats: dict[str, str]) -> dict[str, _Member]:
     return members
 
 
-def _base_system(member: _Member, lang: str, seats: dict[str, str]) -> str:
+def _base_system(member: _Member, lang: str, seats: dict[str, str], roles: str = DEBATE_ROLES) -> str:
     from .prompt_loader import get_agent_system_prompt
 
-    return get_agent_system_prompt(member.agent, _BASE_PROMPT, lang=lang, seats=seats, memory=member.memory_enabled)
+    return get_agent_system_prompt(
+        member.agent, _BASE_PROMPT, lang=lang, seats=seats, memory=member.memory_enabled, roles=roles,
+    )
 
 
 def _seat_system(member: _Member, key: str, lang: str, seats: dict[str, str], **variables: Any) -> str:
@@ -408,7 +411,7 @@ async def _code_review(ctx: TurnContext, plan: TurnPlan) -> None:
             "review_fix", plan.seats, lang,
             review=strip_thinking_blocks(review), round_num=round_num, **_file_lists(_author_files(ctx, author.agent)),
         )
-        system_prompt = _with_memory(_base_system(author, lang, plan.seats), author)
+        system_prompt = _with_memory(_base_system(author, lang, plan.seats, REVIEW_ROLES), author)
         await _compress_before(ctx, plan, author, _prompt_tokens(system_prompt, question))
         call = _call(ctx, author, system_prompt, question=question, log_label=f"{author.label} Fix")
         debug(_prompt_line(call, f"R{round_num}", author.num_ctx))
@@ -431,8 +434,12 @@ async def _review(ctx: TurnContext, plan: TurnPlan, reviewer: _Member, author: _
     files = _author_files(ctx, author.agent)
     step = f"R{fixes}" if fixes else "answer"
     debug(f"🔎 Review ({step}): {format_number(len(files))} files of {author.label}")
-    system_prompt = _seat_system(
-        reviewer, "review", ctx.intent.language, plan.seats, round_num=fixes, **_file_lists(files),
+    # The review is the reviewer's whole task: it takes the place of the agent's everyday task, under the
+    # description of the two roles; identity and personality stay.
+    lang = ctx.intent.language
+    task = seat_prompt("review", plan.seats, lang, round_num=fixes, **_file_lists(files))
+    system_prompt = get_seat_system_prompt(
+        reviewer.agent, task, lang, plan.seats, REVIEW_ROLES, memory=reviewer.memory_enabled,
     )
     await _compress_before(ctx, plan, reviewer, _prompt_tokens(system_prompt))
     call = _call(ctx, reviewer, system_prompt, memory_before_question=True)

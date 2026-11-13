@@ -55,7 +55,7 @@ def test_the_agents_in_the_seats_are_named_by_the_tasks() -> None:
 def test_no_seat_task_names_an_agent_itself(lang: str) -> None:
     files = [PROMPTS / lang / "debate" / f"{key}.txt" for key in SEAT_TASKS]
     assert sorted(path.name for path in (PROMPTS / lang / "debate").iterdir()) == sorted(path.name for path in files)
-    for path in [*files, PROMPTS / lang / "shared" / "multi_agent_roles.txt"]:
+    for path in [*files, *(PROMPTS / lang / "shared" / name for name in ("multi_agent_roles.txt", "multi_agent_roles_review.txt"))]:
         text = path.read_text(encoding="utf-8")
         named = [name for name in ("AIfred", "Sokrates", "Salomo", "AIFRED", "SOKRATES", "SALOMO") if name in text]
         assert named == [], path

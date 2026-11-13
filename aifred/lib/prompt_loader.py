@@ -364,12 +364,19 @@ def list_available_prompts() -> list:
 # Generic Agent Prompt Loader (dynamic agents)
 # ============================================================
 
+# The descriptions of the seats: the dialectic of three (critic, judge) and the code review of two
+# (author and reviewer, no antithesis).
+DEBATE_ROLES = "shared/multi_agent_roles"
+REVIEW_ROLES = "shared/multi_agent_roles_review"
+
+
 def get_agent_system_prompt(
     agent_id: str,
     prompt_key: str = "task",
     lang: str | None = None,
     seats: dict[str, str] | None = None,
     memory: bool = True,
+    roles: str = DEBATE_ROLES,
     **kwargs,
 ) -> str:
     """
@@ -385,6 +392,7 @@ def get_agent_system_prompt(
         seats: The debate's seats (lib/debate_seats.py): with them, the description of the seats and
             of who sits in them (shared/multi_agent_roles)
         memory: If True, include memory instructions (False in incognito mode)
+        roles: The prompt that describes the seats (DEBATE_ROLES or REVIEW_ROLES)
         **kwargs: Extra placeholders for the prompt template
 
     Returns:
@@ -409,9 +417,18 @@ def get_agent_system_prompt(
     task_prompt = load_prompt(prompt_name, lang=lang, **kwargs)
     return _merge_prompt_layers(
         agent_id, task_prompt, lang,
-        seats=seats, memory=memory,
+        seats=seats, memory=memory, roles=roles,
         source=kwargs.get('source', 'browser'),
     )
+
+
+def get_seat_system_prompt(
+    agent_id: str, task_prompt: str, lang: str, seats: dict[str, str], roles: str, memory: bool = True,
+) -> str:
+    """An agent's prompt with the task of its seat AS its task layer, in place of its everyday task:
+    the reviewer's task is the whole job, the agent's own ("better short than long") would pull against
+    it. Identity and personality stay."""
+    return _merge_prompt_layers(agent_id, task_prompt, lang, seats=seats, memory=memory, roles=roles)
 
 
 # ============================================================
@@ -455,21 +472,11 @@ def get_intent_detection_prompt(user_query: str, lang: str | None = None) -> str
     )
 
 
-def load_multi_agent_roles(seats: dict[str, str], lang: str | None = None) -> str:
-    """
-    Load shared multi-agent roles description.
-
-    This explains the three-agent system (AIfred, Sokrates, Salomo) and
-    history labels. Used in all multi-agent modes (not in direct modes).
-
-    Args:
-        lang: Language code (de/en), defaults to current language
-
-    Returns:
-        Multi-agent roles prompt text
-    """
+def load_multi_agent_roles(seats: dict[str, str], lang: str | None = None, roles: str = DEBATE_ROLES) -> str:
+    """Who sits in which seat and the history labels (``roles``: DEBATE_ROLES or REVIEW_ROLES).
+    Used in all multi-agent modes (not in direct modes)."""
     from .debate_seats import seat_names
-    return load_prompt('shared/multi_agent_roles', lang=lang, **seat_names(seats))
+    return load_prompt(roles, lang=lang, **seat_names(seats))
 
 
 def load_memory_instructions(lang: str | None = None) -> str:
@@ -484,6 +491,7 @@ def _merge_prompt_layers(
     seats: dict[str, str] | None = None,
     memory: bool = True,
     source: str = "browser",
+    roles: str = DEBATE_ROLES,
 ) -> str:
     """
     Merge prompt layers in correct order.
@@ -537,9 +545,9 @@ def _merge_prompt_layers(
 
     # Layer 3: Multi-Agent Roles (only in multi-agent modes)
     if seats is not None:
-        roles = load_multi_agent_roles(seats, lang)
-        if roles:
-            parts.append(roles)
+        roles_prompt = load_multi_agent_roles(seats, lang, roles)
+        if roles_prompt:
+            parts.append(roles_prompt)
 
     # Layer 4: Task prompt (always)
     parts.append(task_prompt)

@@ -68,7 +68,7 @@ funktionieren.
 |---|---|---|
 | **Standard** | Ein Agent antwortet (ausgewählt über die Agenten-Pills) | — |
 | **Kritische Prüfung** | AIfred → Sokrates (Kritik + Pro/Contra) → Stopp | Du |
-| **Code-Review** | Verfasser → Prüfer liest und testet die geänderten Dateien → Verfasser behebt → erneutes Review, bis zu N Runden | Prüfer (`[LGTM]`) |
+| **Code-Prüfung** | Verfasser → Prüfer liest und testet die geänderten Dateien → Verfasser behebt → erneutes Review, bis zu N Runden | Prüfer (`[LGTM]`) |
 | **Auto-Konsens** | AIfred → Sokrates → Salomo, bis zu N Runden | Salomo (Abstimmung) |
 | **Tribunal** | AIfred ↔ Sokrates für N Runden → Salomo | Salomo (Urteil) |
 | **Symposion** | 2+ frei gewählte Agenten diskutieren N Runden, Reflection-Layer ab Runde 2 | Niemand — mehrere Perspektiven |
@@ -103,7 +103,7 @@ Konsens-Art (Einstellungen): **Mehrheit** (2 von 3 stimmen mit `[LGTM]`) oder
 **einstimmig** (alle 3). Sokrates kritisiert nur — über den Konsens zu
 entscheiden ist Salomos Aufgabe.
 
-### Code-Review
+### Code-Prüfung
 
 Der Verfasser antwortet, der Prüfer (der Kritiker-Platz) prüft danach seine Arbeit: Er bekommt die Liste
 der Dateien, die der Verfasser in diesem Zug in den Dokumenten angelegt, geändert oder gelöscht hat, liest
@@ -148,8 +148,8 @@ Diskussions-Prompt (`shared/symposion.txt`).
 | Standard | beliebig | `<agent>/system_minimal` (Aufgaben-Schicht) |
 | Direkte Ansprache | angesprochener Agent | `<agent>/direct` |
 | Kritische Prüfung, Auto-Konsens — Kritik | Kritiker | `debate/critic` |
-| Code-Review — Review | Kritiker (Prüfer) | `debate/review` |
-| Code-Review — Korrektur | Verfasser | `debate/review_fix` |
+| Code-Prüfung — Prüfung | Prüfer (Kritiker-Platz) | `debate/review` |
+| Code-Prüfung — Korrektur | Verfasser | `debate/review_fix` |
 | Auto-Konsens — Überarbeitung | Verfasser | `debate/refinement` |
 | Auto-Konsens — Synthese | Richter | `debate/mediator` |
 | Tribunal — Angriff | Kritiker | `debate/tribunal` |
@@ -158,7 +158,7 @@ Diskussions-Prompt (`shared/symposion.txt`).
 | Symposion | jeder Teilnehmer | `shared/symposion` (+ `shared/symposion_reflection` ab Runde 2) |
 
 `{round_num}` wird eingesetzt, damit der Kritiker weiß, welche Runde es ist;
-Kritiker sind angewiesen, pro Runde höchstens ein oder zwei Punkte anzubringen (das Code-Review nicht:
+Kritiker sind angewiesen, pro Runde höchstens ein oder zwei Punkte anzubringen (die Code-Prüfung nicht:
 es meldet alles, was es belegen kann).
 
 ---
@@ -230,9 +230,9 @@ Multi-Agent-Schritte tragen ein Label `[<Modus>: <Schritt> R<Runde>]` (gebaut in
 |---|---|
 | 🎩 AIfred | Standard-Antwort oder direkt angesprochener Agent (kein Label) |
 | 🏛️ Sokrates [Kritische Prüfung] | Kritik in der Kritischen Prüfung |
-| 🔴 HAL 9000 [Code-Review] | Review der Antwort |
-| 🤖 Codine [Code-Review: Korrektur R1] | Korrektur, Runde 1 |
-| 🔴 HAL 9000 [Code-Review R1] | Nachprüfung, Runde 1 |
+| 🔴 HAL 9000 [Code-Prüfung] | Review der Antwort |
+| 🤖 Codine [Code-Prüfung: Korrektur R1] | Korrektur, Runde 1 |
+| 🔴 HAL 9000 [Code-Prüfung R1] | Nachprüfung, Runde 1 |
 | 🎩 AIfred [Auto-Konsens: Überarbeitung R2] | Überarbeitung, Runde 2 |
 | 👑 Salomo [Auto-Konsens: Synthese R2] | Synthese, Runde 2 |
 | 🏛️ Sokrates [Tribunal R1] | Tribunal-Austausch, Runde 1 |

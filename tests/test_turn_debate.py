@@ -421,15 +421,20 @@ def test_code_review_ends_when_the_reviewer_gives_lgtm(world: dict[str, Any]) ->
         ("sokrates", "code_review", 1),
     ]
     chat = _data()["chat_history"]
-    assert "[Code-Review]" in chat[2]["content"]                     # the mode is the step: no prefix
-    assert "[Code-Review: Korrektur R1]" in chat[3]["content"]
-    assert "[Code-Review R1]" in chat[4]["content"]
+    assert "[Code-Prüfung]" in chat[2]["content"]                     # the mode is the step: no prefix
+    assert "[Code-Prüfung: Korrektur R1]" in chat[3]["content"]
+    assert "[Code-Prüfung R1]" in chat[4]["content"]
     assert any("Code review passed after 1 fixes" in event["line"] for event in _events("debug"))
     # The author fixes, not the reviewer: the review is its task, after the history.
     fix = next(messages for label, messages in world["calls"] if label == "AIfred Fix")
     assert fix[-1]["role"] == "user" and "Zeile 12 rechnet falsch." in fix[-1]["content"]
     review = _system_prompt(world, "Sokrates")
-    assert "CODE-REVIEW" in review and "KORREKTUREN BISHER: 0" in review and "Neu: —" in review
+    assert "CODE-PRÜFUNG" in review and "KORREKTUREN BISHER: 0" in review and "Neu: —" in review
+    # The two roles of the review, not the dialectic of three; the review in place of the everyday task.
+    assert "Code-Prüfung mit zwei Rollen" in review and "Antithese" not in review
+    assert "Du bist Sokrates" in review                                # identity and personality stay
+    fix_system = fix[0]["content"]
+    assert "Code-Prüfung mit zwei Rollen" in fix_system and "Antithese" not in fix_system
 
 
 def test_without_lgtm_the_code_review_stops_after_max_debate_rounds(world: dict[str, Any]) -> None:
