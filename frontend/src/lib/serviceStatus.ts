@@ -19,7 +19,7 @@ export interface Row {
   color: Color;
   text: string;
   title?: string;
-  detail?: string; // a second line under the text (a machine's loaded models)
+  detail?: string; // lines under the text (a machine's loaded models, one a line)
   remaining: number | null;
   upperBound: boolean; // the model was loaded before AIfred listened: the time is at most this long
   action: Action | null;
@@ -33,7 +33,6 @@ export interface Labels {
   busy: string;
   unreachable: string;
   hostHeld: string;
-  hostFreeCards: string;
   hostUsed: string; // "{used} of {total} MiB in use"
 }
 
@@ -90,21 +89,22 @@ export function serviceRows(snapshot: ServiceSnapshot, labels: Labels): Record<S
   return rows;
 }
 
-// One line per machine with describers: red its GPU-Orc does not answer, yellow its card is held free for somebody,
-// green open to describers; the button holds the card free or releases it.
+// One entry per machine with describers, its words kept short (Peuqui 13.11.2026): the dot tells red its GPU-Orc does not
+// answer, yellow its cards are held free for somebody, green open; the text is the memory in use, and under it one line
+// per model on its cards with the service that holds it (the describer's llama-swap, the TTS-Suite …). The button holds
+// the cards free or releases them.
 export function hostRows(hosts: HostStatus[], labels: Labels): (Row & { label: string })[] {
   const mib = (n: number) => n.toLocaleString(labels.lang);
   return hosts.map((host) => {
     if (!host.reachable) {
-      return { label: host.name, color: "red", text: labels.unreachable, title: host.error, remaining: null, upperBound: false, action: null };
+      return { label: host.name, color: "red", text: "", title: host.error, remaining: null, upperBound: false, action: null };
     }
-    const used = labels.hostUsed.replace("{used}", mib(host.used_mib)).replace("{total}", mib(host.total_mib));
-    const text = `${host.held ? labels.hostHeld : labels.hostFreeCards} · ${used}`;
+    const text = labels.hostUsed.replace("{used}", mib(host.used_mib)).replace("{total}", mib(host.total_mib));
     return {
       label: host.name,
       color: host.held ? "yellow" : "green",
       text,
-      detail: host.holders.join(", ") || undefined,
+      detail: host.holders.map((holder) => `${holder.consumer}: ${holder.item}`).join("\n") || undefined,
       title: host.held ? `${labels.hostHeld}: ${host.held}` : text,
       remaining: null,
       upperBound: false,

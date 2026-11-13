@@ -34,7 +34,6 @@ const labels = computed(() => ({
   busy: t("service_status_busy"),
   unreachable: t("service_status_unreachable"),
   hostHeld: t("service_status_host_held"),
-  hostFreeCards: t("service_status_host_free_cards"),
   hostUsed: t("service_status_host_used"),
 }));
 const rows = computed(() => (status.snapshot ? serviceRows(status.snapshot, labels.value) : null));
@@ -147,7 +146,7 @@ summary::-webkit-details-marker { display: none; }
 .notice, .lifecycle { grid-column: 1 / -1; }
 .label { color: var(--aifred-text-secondary); white-space: nowrap; }
 .value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.detail { grid-column: 3 / -1; margin-top: -2px; color: var(--aifred-text-muted); overflow-wrap: anywhere; }
+.detail { grid-column: 3 / -1; margin-top: -2px; color: var(--aifred-text-muted); overflow-wrap: anywhere; white-space: pre-line; }
 .value.wrap { white-space: normal; overflow-wrap: anywhere; } /* a machine's line breaks instead of cutting off its numbers */
 .time { color: var(--aifred-text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .power:disabled { opacity: 0.5; cursor: progress; }

@@ -1179,7 +1179,6 @@
   "service_status_load": "Laden",
   "service_status_unload": "Entladen",
   "service_status_host_held": "freigehalten",
-  "service_status_host_free_cards": "Karte frei für Beschreiber",
   "service_status_host_used": "{used} von {total} MiB belegt",
   "service_status_host_hold": "Karte freihalten",
   "service_status_host_release": "Karte freigeben",

@@ -266,6 +266,15 @@ def overview() -> list[HostOverview]:
 
 
 @dataclass(frozen=True)
+class HostHolder:
+    """A model on a machine's cards and the service that holds it there (its GPU-Orc consumer: the describer's
+    llama-swap, the TTS-Suite …), as that machine's GPU-Orc names them."""
+
+    consumer: str
+    item: str
+
+
+@dataclass(frozen=True)
 class HostStatus:
     """One line of the status bar for a machine with describers, from its GPU-Orc's ``/status``."""
 
@@ -274,7 +283,7 @@ class HostStatus:
     held: str | None  # the reason somebody holds the cards, None = free
     used_mib: int
     total_mib: int
-    holders: list[str]  # what is on its cards (the describer, TTS containers), as its consumers report it
+    holders: list[HostHolder]  # what is on its cards (the describer, TTS containers), as its consumers report it
     error: str  # why it is not reachable
 
 
@@ -295,7 +304,7 @@ def host_status() -> list[HostStatus]:
         rows.append(HostStatus(
             host.name, True, light.held["reason"] if light.held else None,
             sum(c.used_mib for c in cards), sum(c.total_mib for c in cards),
-            sorted({h.item for c in cards for h in c.holders}), "",
+            sorted({HostHolder(h.consumer, h.item) for c in cards for h in c.holders}, key=lambda h: (h.consumer, h.item)), "",
         ))
     return rows
 

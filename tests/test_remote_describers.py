@@ -391,7 +391,8 @@ def test_the_image_request_goes_to_the_machine_with_the_id_there(box, monkeypatc
 def test_the_status_bar_shows_load_holders_and_hold(box):
     box["gpu_orc"].cards = [_card(24564, 8834, ("llama-swap", SMALL, 7235))]
     [row] = remote_describers.host_status()
-    assert (row.reachable, row.held, row.used_mib, row.total_mib, row.holders) == (True, None, 8834, 24564, [SMALL])
+    assert (row.reachable, row.held, row.used_mib, row.total_mib, row.holders) == (
+        True, None, 8834, 24564, [remote_describers.HostHolder("llama-swap", SMALL)])
     box["gpu_orc"].held = {"since": "2026-11-05T09:00:00+01:00", "reason": "gaming"}
     assert remote_describers.host_status()[0].held == "gaming"
 
