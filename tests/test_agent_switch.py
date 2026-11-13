@@ -11,7 +11,6 @@ import asyncio
 import json
 from collections.abc import Iterator
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -109,9 +108,11 @@ def test_a_job_of_an_agent_switched_off_fails_out_loud(agents_file: Path, monkey
         raise AssertionError("no answer may be asked for")
 
     monkeypatch.setattr("aifred.lib.message_processor.process_inbound", must_not_run)
-    job = SimpleNamespace(name="Morgengruß", payload={"message": "Guten Morgen", "agent": "sokrates"}, job_id="j1")
+    job = scheduler.Job(
+        job_id=1, name="Morgengruß", schedule_type="once", schedule_expr="", payload={"message": "Guten Morgen", "agent": "sokrates"},
+    )
     with pytest.raises(RuntimeError, match="'sokrates' is switched off"):
-        asyncio.run(scheduler._execute_job(job))  # type: ignore[arg-type]  # a stand-in with the job's fields
+        asyncio.run(scheduler._execute_job(job))
 
 
 def test_sokrates_off_the_default_seats_is_deleted_like_any_agent(
