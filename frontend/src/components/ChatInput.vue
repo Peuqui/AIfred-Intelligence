@@ -192,7 +192,7 @@ textarea {
   line-height: var(--field-line);
   background: var(--aifred-input-bg);
   color: var(--aifred-text-primary);
-  border: var(--field-border) solid var(--aifred-border);
+  border: var(--field-border) solid var(--aifred-border-light); /* the lighter rim, as Agent-Orc's field has */
   border-radius: 8px;
 }
 .pending { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
