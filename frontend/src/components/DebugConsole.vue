@@ -41,7 +41,7 @@ watch(
         <div v-for="(line, index) in lines" :key="index" :class="{ error: line.includes('✗') || line.includes('❌') }">{{ line }}</div>
       </div>
     </div>
-    <ResizeGrip v-if="open" :target="list" :min-height="60" @resize="(height) => (consoleHeight = height)" />
+    <ResizeGrip v-if="open" :target="list" :min-height="60" @resize="(height) => (consoleHeight = height)" @reset="consoleHeight = null" />
   </section>
 </template>
 

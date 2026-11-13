@@ -160,7 +160,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", discardOnEscape));
         <Send :size="20" />
       </button>
     </div>
-    <ResizeGrip :target="field" @resize="(height) => (inputHeight = height)" />
+    <ResizeGrip :target="field" @resize="(height) => (inputHeight = height)" @reset="inputHeight = null" />
   </div>
 </template>
 

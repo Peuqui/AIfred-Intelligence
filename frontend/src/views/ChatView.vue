@@ -225,7 +225,7 @@ onMounted(() => void start());
           </ChatMenu>
         </div>
       </div>
-      <div ref="messages" class="messages" :style="chatHeight ? { height: `${chatHeight}px` } : undefined" @scroll.passive="updateStuck">
+      <div ref="messages" class="messages" :style="chatHeight ? { height: `min(${chatHeight}px, calc(100 * var(--dvh)))` } : undefined" @scroll.passive="updateStuck">
         <div class="bubbles">
         <section v-for="turn in turns" :key="turn.key" :data-key="turn.key" class="turn">
           <MessageBubble
@@ -253,7 +253,7 @@ onMounted(() => void start());
         <p v-if="settings.notice" class="notice">⚠️ {{ settings.notice }}</p>
         </div>
       </div>
-      <ResizeGrip :target="messages" :min-height="MESSAGES_MIN_HEIGHT" @resize="(height) => (chatHeight = height)" />
+      <ResizeGrip :target="messages" :min-height="MESSAGES_MIN_HEIGHT" :max-screens="1" @resize="(height) => (chatHeight = height)" @reset="chatHeight = null" />
       <MediaPlayer />
       <ChatInput
         v-if="settings.current"
