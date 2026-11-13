@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// Vigilantia in the chat, as on the Reflex page (vigilantia_feed.py): a one-line card with the newest event (or the
-// eye's state while there is none), a click shows the newest events above the card (it sits at the page's foot), the step into Casus last, next to the card; the 💡 explains it,
-// the eye arms the background watch or disarms it (VigilantiaEye.vue). New events
-// arrive over the events' stream; once a minute it asks again after the time the server names, so older events leave
-// the window. Away while the vision plugin is off.
+// Vigilantia in the chat, after the Reflex page (vigilantia_feed.py): a one-line card with the newest event (or the
+// eye's state while there is none), a click shows the newest events above the card (it sits at the page's foot), the
+// step into Casus last. Next to the card the eye (VigilantiaEye.vue) arms the background watch or disarms it, the 💡
+// outermost explains it (Peuqui 13.11.2026: eye inside, bulb at the edge). New events arrive over the events' stream;
+// once a minute it asks again after the time the server names, so older events leave the window. Away while the
+// vision plugin is off.
 import { ScrollText } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
@@ -75,13 +76,13 @@ onBeforeUnmount(() => {
       </template>
       <span v-else class="idle" :class="{ warn: state.armed && !state.has_watched_camera }">{{ idle }}</span>
     </button>
-    <HelpButton topic="vigilantia" />
     <VigilantiaEye
       :armed="state.armed"
       :disabled="arming"
       :title="t(state.armed ? 'vigilantia_disarm_tooltip' : 'vigilantia_arm_tooltip')"
       @toggle="arm"
     />
+    <HelpButton topic="vigilantia" />
     <div v-if="open" class="popover">
       <p v-if="!state.events.length" class="hint">{{ t("vision_badge_empty") }}</p>
       <RouterLink
