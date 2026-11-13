@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import VISION_RECORD_MAX_DURATION_S, VISION_RECORD_MIN_INTERVAL_S
+from .formatting import format_number
 from .frame_sources import Frame
 from .user_error import Invalid
 from .vision_capture import grab_frame, output_chain
@@ -47,9 +48,9 @@ class Recording:
 def check_request(duration_s: float, interval_s: float) -> None:
     """Wirft :class:`Invalid`, wenn Dauer oder Bildabstand außerhalb der Grenzen aus ``config.py`` liegen."""
     if not 0 < duration_s <= VISION_RECORD_MAX_DURATION_S:
-        raise Invalid(f"duration_s must be above 0 and at most {VISION_RECORD_MAX_DURATION_S:g} seconds")
+        raise Invalid("record_duration_out_of_range", max_s=format_number(VISION_RECORD_MAX_DURATION_S))
     if interval_s < VISION_RECORD_MIN_INTERVAL_S:
-        raise Invalid(f"interval_s must be at least {VISION_RECORD_MIN_INTERVAL_S:g} seconds")
+        raise Invalid("record_interval_too_short", min_s=format_number(VISION_RECORD_MIN_INTERVAL_S, 1))
 
 
 async def _stamp_and_store(chain: OutputChain, frame: Frame, folder: Path, index: int) -> Path:

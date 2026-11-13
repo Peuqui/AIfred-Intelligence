@@ -1182,6 +1182,8 @@
   "service_status_host_used": "{used} of {total} MiB in use",
   "service_status_host_hold": "Keep the card free",
   "service_status_host_release": "Release the card",
+  "error_record_duration_out_of_range": "The recording duration must be above 0 and at most {max_s} seconds.",
+  "error_record_interval_too_short": "The frame interval must be at least {min_s} seconds.",
   "error_hold_failed": "{host}: holding or releasing failed: {error}",
   "error_service_control_not_llamaswap": "Loading works only while AIfred runs on llama-swap (llama.cpp or vLLM).",
   "error_service_control_no_main_model": "No main model is set in AIfred.",

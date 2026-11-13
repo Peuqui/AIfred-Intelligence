@@ -1182,6 +1182,8 @@
   "service_status_host_used": "{used} von {total} MiB belegt",
   "service_status_host_hold": "Karte freihalten",
   "service_status_host_release": "Karte freigeben",
+  "error_record_duration_out_of_range": "Die Aufnahmedauer muss über 0 und höchstens {max_s} Sekunden liegen.",
+  "error_record_interval_too_short": "Der Bildabstand muss mindestens {min_s} Sekunden betragen.",
   "error_hold_failed": "{host}: Freihalten oder Freigeben ging nicht: {error}",
   "error_service_control_not_llamaswap": "Laden geht nur, wenn AIfred über llama-swap arbeitet (llama.cpp oder vLLM).",
   "error_service_control_no_main_model": "In AIfred ist kein Hauptmodell eingestellt.",
