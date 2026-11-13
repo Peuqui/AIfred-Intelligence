@@ -10,7 +10,7 @@ const emit = defineEmits<{ resize: [height: number]; reset: [] }>();
 const DOUBLE_TAP_MS = 400;
 const TAP_SLOP_PX = 6;
 const EDGE_PX = 64; // a finger this close to the screen's top or bottom edge takes the page along
-const EDGE_STEP_PX = 12; // per frame
+const EDGE_STEP_MAX_PX = 8; // per frame, at the very edge; it starts at 1 where the edge zone begins
 let grab = 0; // how far the finger stands below the box's lower edge, in screen pixels
 let scale = 1; // screen pixels per own unit
 let fingerY = 0;
@@ -31,11 +31,19 @@ function follow(): boolean {
 
 // While the finger holds at an edge the page scrolls on by itself (the finger does not move, so no event comes), and the
 // box follows: a box can grow beyond the screen. Only here the page is scrolled, never to make up for the box's size.
+// The deeper the finger in the edge zone, the faster, from 1 to EDGE_STEP_MAX_PX per frame. Upwards only while the box's
+// top lies above the screen: the box shrinks by every pixel the page moves, and with its top in view the finger alone
+// reaches every height (12 px a frame from the first pixel of the zone had shrunk it to its minimum at once).
 function edgeScroll(): void {
   frame = requestAnimationFrame(edgeScroll);
-  const step = fingerY > window.innerHeight - EDGE_PX ? EDGE_STEP_PX : fingerY < EDGE_PX ? -EDGE_STEP_PX : 0;
-  if (!step) return;
-  if (step > 0 && follow()) return; // the box is as high as it may be: the page stays
+  const box = props.target;
+  if (!box) return;
+  const depth = fingerY > window.innerHeight - EDGE_PX ? fingerY - (window.innerHeight - EDGE_PX)
+    : fingerY < EDGE_PX ? fingerY - EDGE_PX : 0;
+  if (!depth) return;
+  if (depth < 0 && box.getBoundingClientRect().top >= 0) return;
+  if (depth > 0 && follow()) return; // the box is as high as it may be: the page stays
+  const step = Math.sign(depth) * Math.max(1, Math.round((EDGE_STEP_MAX_PX * Math.abs(depth)) / EDGE_PX));
   window.scrollBy(0, step);
   follow();
 }
