@@ -11,6 +11,7 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
+from fake_vlm_stream import streaming_client
 
 from aifred.lib.frame_sources import Frame
 from aifred.lib.perf_metrics import InferenceWork
@@ -45,6 +46,7 @@ def _make_frame(idx: int = 0) -> Frame:
         width=320,
         height=240,
     )
+
 
 
 class TestAnalyzeFrame:
@@ -182,49 +184,24 @@ class TestLlamacppDispatch:
         import aifred.lib.vision_utils as vu
         monkeypatch.setattr(vu, "has_native_vision", lambda m: m == "main-llm")
 
-        captured: dict = {}
-
-        class FakeResponse:
-            def raise_for_status(self) -> None:
-                pass
-
-            def json(self) -> dict:
-                return {
-                    "choices": [
-                        {"message": {"content": "Beschreibung vom Hauptmodell."}}
-                    ],
-                    "usage": {"prompt_tokens": 100, "completion_tokens": 20},
-                    "timings": {
-                        "prompt_ms": 500.0, "predicted_ms": 800.0,
-                        "prompt_n": 100, "predicted_n": 20,
-                        "prompt_per_second": 200.0,
-                        "predicted_per_second": 25.0,
-                    },
-                }
-
-        class FakeAsyncClient:
-            def __init__(self, **kwargs) -> None:
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                return False
-
-            async def post(self, url, json=None):
-                captured["url"] = url
-                captured["payload"] = json
-                return FakeResponse()
-
+        sent: list[dict] = []
         import httpx
-        monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+        monkeypatch.setattr(httpx, "AsyncClient", streaming_client(sent, ["Beschreibung ", "vom Hauptmodell."], {
+            "usage": {"prompt_tokens": 100, "completion_tokens": 20},
+            "timings": {
+                "prompt_ms": 500.0, "predicted_ms": 800.0,
+                "prompt_n": 100, "predicted_n": 20,
+                "prompt_per_second": 200.0,
+                "predicted_per_second": 25.0,
+            },
+        }))
 
         result = run(analyze_sequence(
             [_make_frame(0)], "Was ist zu sehen?", model="main-llm"
         ))
 
         assert result.text == "Beschreibung vom Hauptmodell."
+        captured = sent[0]
         # Regression: BACKEND_URLS["llamacpp"] enthält bereits /v1
         assert captured["url"].endswith("/v1/chat/completions")
         assert "/v1/v1/" not in captured["url"]
@@ -240,41 +217,18 @@ class TestLlamacppDispatch:
         # The main model describing itself gets no cap: a model that thinks first would use it up.
         assert "max_tokens" not in captured["payload"] and "repeat_penalty" not in captured["payload"]
 
-    def test_a_describer_profile_gets_the_loop_guard(self, monkeypatch):
+    def test_a_describer_profile_gets_the_repeat_penalty_and_no_cap(self, monkeypatch):
         import httpx
 
         import aifred.lib.vision_routing as vr
         import aifred.lib.vision_utils as vu
-        from aifred.lib.config import VISION_DESCRIBE_MAX_TOKENS
         monkeypatch.setattr(vu, "has_native_vision", lambda m: True)
         monkeypatch.setattr(vr, "release_side_channels_for_describer", lambda profile: None)
-        captured: dict = {}
-
-        class FakeResponse:
-            def raise_for_status(self) -> None:
-                pass
-
-            def json(self) -> dict:
-                return {"choices": [{"message": {"content": "Eine Person."}}], "usage": {}}
-
-        class FakeAsyncClient:
-            def __init__(self, **kwargs) -> None:
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                return False
-
-            async def post(self, url, json=None):
-                captured["payload"] = json
-                return FakeResponse()
-
-        monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+        sent: list[dict] = []
+        monkeypatch.setattr(httpx, "AsyncClient", streaming_client(sent, ["Eine Person."]))
         run(analyze_sequence([_make_frame(0)], "Was ist zu sehen?", model="Small-VL-4B-visiond"))
-        assert captured["payload"]["max_tokens"] == VISION_DESCRIBE_MAX_TOKENS
-        assert "repeat_penalty" in captured["payload"]
+        # No length cap for any model (its limit is its context); the loop guard reads the stream.
+        assert "max_tokens" not in sent[0]["payload"] and "repeat_penalty" in sent[0]["payload"]
 
     def test_the_vision_row_choice_for_the_describing_model_goes_on_the_wire(self, monkeypatch):
         # GLM as main model describes: the vision row's choice for GLM ("high")
@@ -292,33 +246,26 @@ class TestLlamacppDispatch:
         monkeypatch.setattr(settings, "persisted_settings",
                             lambda: {"agent_tuning": {"vision": {"thinking_by_model": choices}}})
         sent: list[dict] = []
-
-        class FakeResponse:
-            def raise_for_status(self) -> None:
-                pass
-
-            def json(self) -> dict:
-                return {"choices": [{"message": {"content": "Ein Plan."}}], "usage": {}}
-
-        class FakeAsyncClient:
-            def __init__(self, **kwargs) -> None:
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                return False
-
-            async def post(self, url, json=None):
-                sent.append(json)
-                return FakeResponse()
-
-        monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+        monkeypatch.setattr(httpx, "AsyncClient", streaming_client(sent, ["Ein Plan."]))
         run(analyze_sequence([_make_frame(0)], "Was steht da?", model="GLM-X-vllm"))
         run(analyze_sequence([_make_frame(0)], "Was steht da?", model="Small-VL-4B-visiond"))
-        assert sent[0]["chat_template_kwargs"] == {"enable_thinking": True, "reasoning_effort": "high"}
-        assert sent[1]["chat_template_kwargs"] == {"enable_thinking": False}
+        assert sent[0]["payload"]["chat_template_kwargs"] == {"enable_thinking": True, "reasoning_effort": "high"}
+        assert sent[1]["payload"]["chat_template_kwargs"] == {"enable_thinking": False}
+
+    def test_a_sentence_loop_stops_the_stream_and_keeps_the_text_before_it(self, monkeypatch):
+        import httpx
+
+        import aifred.lib.vision_routing as vr
+        import aifred.lib.vision_utils as vu
+        monkeypatch.setattr(vu, "has_native_vision", lambda m: True)
+        monkeypatch.setattr(vr, "release_side_channels_for_describer", lambda profile: None)
+        loop = "Die Person steht vor der Haustür. "
+        sent: list[dict] = []
+        monkeypatch.setattr(httpx, "AsyncClient", streaming_client(
+            sent, ["Ein Paketbote kommt den Weg herauf. ", loop, loop, loop, loop, "Nie erreicht."],
+        ))
+        result = run(analyze_sequence([_make_frame(0)], "Was ist zu sehen?", model="Small-VL-4B-visiond"))
+        assert result.text == "Ein Paketbote kommt den Weg herauf. Die Person steht vor der Haustür."
 
     def test_non_mmproj_model_stays_on_ollama(self, monkeypatch):
         import aifred.lib.vision_utils as vu

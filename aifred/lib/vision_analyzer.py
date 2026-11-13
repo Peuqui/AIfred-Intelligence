@@ -304,8 +304,6 @@ async def _analyze_via_llamacpp(
     beschreibt die Bilder selbst (OpenAI-kompatibler Call mit
     ``image_url``-Parts). ``num_ctx``/``keep_alive`` sind Ollama-Konzepte
     und gelten hier nicht — der Kontext kommt aus der llama-swap-YAML."""
-    import httpx
-
     from .config import BACKEND_URLS
 
     # llama-server (Build pr26574) verschluckt bei DIREKT aufeinander-
@@ -325,10 +323,9 @@ async def _analyze_via_llamacpp(
         )
     content.append({"type": "text", "text": prompt})
     from .config import (
-        VISION_DESCRIBE_MAX_TOKENS,
+        REPETITION_GUARD_REPEATS,
         VISION_DESCRIBE_REPEAT_LAST_N,
         VISION_DESCRIBE_REPEAT_PENALTY,
-        VLM_CALL_TIMEOUT_S,
     )
     from .remote_describers import endpoint
     from .vlm_naming import is_visiond_profile
@@ -363,20 +360,19 @@ async def _analyze_via_llamacpp(
     payload: dict[str, Any] = {
         "model": model_there,
         "messages": [{"role": "user", "content": content}],
-        "stream": False,
+        # Streamed, so a sentence loop is caught while it runs (lib/repetition_guard.py); the
+        # last chunk carries the usage (and llama-server's timings).
+        "stream": True,
+        "stream_options": {"include_usage": True},
         "chat_template_kwargs": template_kwargs,
     }
     if describer_profile:
-        # Nur für die kleinen Beschreiber: Bei vielen fast gleichen Bildern läuft
-        # ein kleines VLM sonst in eine Wiederholungsschleife bis zum Kontextende
-        # (siehe VISION_DESCRIBE_MAX_TOKENS). Deckeln und die Schleife selbst
-        # unterbinden (llama-server nimmt die Sampling-Felder im OpenAI-Body, der
-        # Eintrag in llama-swap bleibt unangetastet). Das Hauptmodell bekommt
-        # keinen Deckel: Ein Modell, das vor der Antwort denkt, verbrauchte ihn
-        # schon beim Denken, und eine abgeschnittene Antwort ist wertlos; seine
-        # Grenze ist sein Kontext.
+        # Nur für die kleinen Beschreiber: eine milde Wiederholungsstrafe gegen die
+        # Satzschleife bei vielen fast gleichen Bildern (llama-server nimmt die
+        # Sampling-Felder im OpenAI-Body, der Eintrag in llama-swap bleibt
+        # unangetastet). Eine Längengrenze bekommt kein Modell, siehe
+        # REPETITION_GUARD_REPEATS.
         payload.update({
-            "max_tokens": VISION_DESCRIBE_MAX_TOKENS,
             "repeat_penalty": VISION_DESCRIBE_REPEAT_PENALTY,
             "repeat_last_n": VISION_DESCRIBE_REPEAT_LAST_N,
         })
@@ -392,10 +388,7 @@ async def _analyze_via_llamacpp(
 
     started = time.perf_counter()
     try:
-        async with httpx.AsyncClient(timeout=VLM_CALL_TIMEOUT_S) as client:
-            resp = await client.post(url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
+        streamed = await _stream_completion(url, payload)
     except Exception as e:
         duration_ms = (time.perf_counter() - started) * 1000.0
         logger.warning(
@@ -405,24 +398,24 @@ async def _analyze_via_llamacpp(
         raise RuntimeError(f"VLM call failed: {e}") from e
     duration_ms = (time.perf_counter() - started) * 1000.0
 
-    choice = (data.get("choices") or [{}])[0]
-    message = choice.get("message") or {}
-    text = str(message.get("content") or "").strip()
-    # Am Limit abgeschnitten? max_tokens ist ein HARTER Schnitt — die
-    # Beschreibung endet dann mitten im Satz. Das darf nicht still
-    # passieren: sichtbar im Log, damit der Deckel nachgezogen werden
-    # kann, falls er echte Beschreibungen kappt statt nur Schleifen.
-    if str(choice.get("finish_reason") or "") == "length":
+    text = streamed.text.strip()
+    if streamed.loop:
         logger.warning(
-            "VLM response hit max_tokens (model=%s, n_frames=%d, %d chars) — "
-            "description is cut off mid-sentence; raise "
-            "VISION_DESCRIBE_MAX_TOKENS if this is not a repetition loop",
+            "VLM answer looped (model=%s, n_frames=%d): sentence %r came %d times — stream stopped, "
+            "description kept up to the repeat (%d chars)",
+            model, n_frames, streamed.loop, REPETITION_GUARD_REPEATS, len(text),
+        )
+    # Ran into the end of its context: the description ends mid-sentence. Never silent.
+    if streamed.finish_reason == "length":
+        logger.warning(
+            "VLM response hit the end of its context (model=%s, n_frames=%d, %d chars) — "
+            "description is cut off mid-sentence",
             model, n_frames, len(text),
         )
-    usage = data.get("usage") or {}
+    usage = streamed.usage
     # llama-server measures the request itself (``timings``); without them
     # (server built without) the work is unknown, never guessed.
-    timings = data.get("timings") or {}
+    timings = streamed.timings
     work = InferenceWork.from_llamacpp_timings(timings) if timings else InferenceWork.unmeasured()
     stats = vlm_stats(
         work, backend="llamacpp", wall_clock_s=duration_ms / 1000.0,
@@ -440,6 +433,56 @@ async def _analyze_via_llamacpp(
         duration_ms=duration_ms,
         metadata=metadata,
     )
+
+
+@dataclass
+class _Streamed:
+    """A streamed chat completion: the answer, how it ended, and the server's own figures."""
+
+    text: str = ""
+    finish_reason: str = ""
+    usage: dict[str, Any] = field(default_factory=dict)
+    timings: dict[str, Any] = field(default_factory=dict)
+    loop: str = ""      # the repeated sentence when the guard stopped the stream
+
+
+async def _stream_completion(url: str, payload: dict[str, Any]) -> _Streamed:
+    """POST ``payload`` (``stream: true``) and read the server-sent events. The answer and the
+    thinking each have a RepetitionGuard; once one loops, the stream is closed (the server then
+    stops generating) and the answer keeps its text up to the repeat."""
+    import json
+
+    import httpx
+
+    from .config import VLM_CALL_TIMEOUT_S
+    from .repetition_guard import RepetitionGuard
+
+    answer, thinking = RepetitionGuard(), RepetitionGuard()
+    result = _Streamed()
+    async with httpx.AsyncClient(timeout=VLM_CALL_TIMEOUT_S) as client, client.stream(
+        "POST", url, json=payload,
+    ) as response:
+        response.raise_for_status()
+        async for line in response.aiter_lines():
+            if not line.startswith("data:"):
+                continue
+            data = line[len("data:"):].strip()
+            if data == "[DONE]":
+                break
+            chunk = json.loads(data)
+            result.usage = chunk.get("usage") or result.usage
+            result.timings = chunk.get("timings") or result.timings
+            for choice in chunk.get("choices") or []:
+                delta = choice.get("delta") or {}
+                looping = thinking.feed(delta.get("reasoning_content") or delta.get("reasoning") or "")
+                looping = answer.feed(delta.get("content") or "") or looping
+                result.finish_reason = choice.get("finish_reason") or result.finish_reason
+                if looping:
+                    result.loop = answer.repeated or thinking.repeated
+                    result.text = answer.kept_text()
+                    return result
+    result.text = answer.text
+    return result
 
 
 def vlm_stats(

@@ -6,11 +6,12 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
-from typing import Any, Self
+from typing import Any
 
 import httpx
 import pytest
 from fake_gpu_orc import FakeGpuOrc, card
+from fake_vlm_stream import streaming_client
 
 from aifred.lib import describer_list, remote_describers, vision_routing, vision_utils, vlm_vram_cache
 from aifred.lib.describer_list import LOCAL, MAIN
@@ -351,37 +352,15 @@ def test_describe_via_picks_again_for_the_second_attempt(box):
 
 def test_the_image_request_goes_to_the_machine_with_the_id_there(box, monkeypatch):
     from aifred.lib.vision_analyzer import analyze_sequence
-    captured: dict[str, Any] = {}
+    sent: list[dict[str, Any]] = []
     released: list[str] = []
     monkeypatch.setattr(vision_routing, "release_side_channels_for_describer", released.append)
-
-    class FakeResponse:
-        def raise_for_status(self) -> None:
-            pass
-
-        def json(self) -> dict[str, Any]:
-            return {"choices": [{"message": {"content": "Eine Person am Briefkasten."}}], "usage": {}}
-
-    class FakeAsyncClient:
-        def __init__(self, **kwargs: Any) -> None:
-            pass
-
-        async def __aenter__(self) -> Self:
-            return self
-
-        async def __aexit__(self, *args: object) -> bool:
-            return False
-
-        async def post(self, url: str, json: dict[str, Any] | None = None) -> FakeResponse:
-            captured.update(url=url, payload=json)
-            return FakeResponse()
-
-    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(httpx, "AsyncClient", streaming_client(sent, ["Eine Person am Briefkasten."]))
     frame = Frame(source_id="cam/test", timestamp=datetime.now(), image_bytes=b"FAKEJPEG", format="jpeg",
                   width=320, height=240)
     result = asyncio.run(analyze_sequence([frame], "Was ist zu sehen?", model=f"Box/{BIG}"))
-    assert captured["url"] == "http://box.test:11435/v1/chat/completions"
-    assert captured["payload"]["model"] == BIG
+    assert sent[0]["url"] == "http://box.test:11435/v1/chat/completions"
+    assert sent[0]["payload"]["model"] == BIG
     assert result.model == f"Box/{BIG}" and result.text == "Eine Person am Briefkasten."
     assert released == [f"Box/{BIG}"]  # the machine's GPU-Orc clears its cards
 

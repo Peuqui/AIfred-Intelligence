@@ -1001,15 +1001,16 @@ VISION_OVERLAY_SUFFIX_PREROLL = " · Vorlauf"
 # höher gehen heißt num_ctx mitziehen (siehe dort) und ggf. 8B-VLM.
 VISION_DESCRIBE_MAX_FRAMES = 10
 
-# Obergrenze für die Antwortlänge einer Bildbeschreibung durch einen kleinen
-# Beschreiber (-visiond-Profil, Modell eines anderen Rechners; das Hauptmodell
-# bekommt keinen Deckel, vision_analyzer._analyze_via_llamacpp). OHNE Limit
-# generiert ein kleines VLM bei vielen fast identischen Bildern bis zum
-# Kontextende weiter und wiederholt dabei denselben Satz hunderte Male
-# (live gesehen 24.08.2026 mit Qwen3VL-4B: ~10.000 Zeichen Schleife aus
-# 10 Frames im 0,5-s-Abstand). Eine ausführliche Personenbeschreibung
-# braucht ~400 Token; der Rest ist Puffer für volle Szenen.
-VISION_DESCRIBE_MAX_TOKENS = 768
+# Eine Bildbeschreibung hat keine Längengrenze: Ihre Grenze ist der Kontext des
+# Modells (Peuqui 13.11.2026; der frühere Deckel von 768 Token schnitt echte
+# Beschreibungen von Sandbox-Screenshots mitten im Satz ab und hätte einen
+# denkenden Beschreiber vor der Antwort aufgebraucht). Gegen die Satzschleife
+# eines kleinen VLM (24.08.2026: ~10.000 Zeichen aus 10 fast gleichen Frames)
+# liest der Aufruf die Antwort als Strom und bricht ab, sobald ein Satz
+# REPETITION_GUARD_REPEATS-mal kommt (lib/repetition_guard.py).
+REPETITION_GUARD_REPEATS = 3
+# Kürzere Sätze zählen nicht ("Ja.", Aufzählungsteile), sie wiederholen sich legitim.
+REPETITION_GUARD_MIN_SENTENCE_CHARS = 20
 # Wiederholungsstrafe fuer den Describer: das 4B-VLM kippte 2026-09-05 bei
 # fast gleichen Burst-Bildern in eine Satzschleife bis zum max_tokens-
 # Schnitt (24x derselbe Satz). Der llama-swap-Eintrag faehrt repeat-penalty
