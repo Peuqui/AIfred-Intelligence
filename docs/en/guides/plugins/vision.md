@@ -64,6 +64,9 @@ the assistant does not see the plugin at all.
   happening.
 - **`vision_analyze`** — `image_urls` (required: URL(s) from `vision_capture` or uploads, or one film alone), `prompt` (optional; falls back to
   the configured default prompt), `source_id` (optional; applies the camera briefing).
+  The description has no length limit; its limit is the model's context. If a model repeats the same sentence
+  `REPETITION_GUARD_REPEATS` times (3), the call closes the stream and keeps the text up to the repetition
+  (`lib/repetition_guard.py`, `vision_analyzer._stream_completion`); the log reports it.
 - **`vision_enroll_face`** — `name` (required), `source_id` (required), `notes`
   (optional).
 - **`vision_start_watch`** — `source_id` (required), `fps` (optional; default

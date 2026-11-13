@@ -17,8 +17,6 @@
         "reminder": "aifred/reminder.txt",
         "task": "aifred/system_minimal.txt",
         "direct": "aifred/direct.txt",
-        "refinement": "aifred/refinement.txt",
-        "defense": "aifred/defense.txt",
         "memory_context": "aifred/memory_context.txt"
       },
       "toggles": {
@@ -129,8 +127,6 @@
         "reminder": "sokrates/reminder.txt",
         "task": "sokrates/system_minimal.txt",
         "direct": "sokrates/direct.txt",
-        "critic": "sokrates/critic.txt",
-        "tribunal": "sokrates/tribunal.txt",
         "memory_context": "sokrates/memory_context.txt"
       },
       "toggles": {
@@ -202,8 +198,6 @@
         "reminder": "salomo/reminder.txt",
         "task": "salomo/system_minimal.txt",
         "direct": "salomo/direct.txt",
-        "mediator": "salomo/mediator.txt",
-        "judge": "salomo/judge.txt",
         "memory_context": "salomo/memory_context.txt"
       },
       "toggles": {

@@ -66,6 +66,9 @@ Liste und der Assistent sieht das Plugin gar nicht.
   mit dem letzten gelöschten Ereignis ihres Vorkommnisses.
 - **`vision_analyze`** — `image_urls` (Pflicht: URL(s) von `vision_capture` oder Uploads, oder ein Film allein), `prompt` (optional; fällt auf den
   konfigurierten Default-Prompt zurück), `source_id` (optional; wendet das Kamera-Briefing an).
+  Die Beschreibung hat keine Längengrenze, ihre Grenze ist der Kontext des Modells. Wiederholt ein Modell denselben Satz
+  `REPETITION_GUARD_REPEATS`-mal (3), schließt der Aufruf den Strom und behält den Text bis zur Wiederholung
+  (`lib/repetition_guard.py`, `vision_analyzer._stream_completion`); das Log meldet es.
 - **`vision_enroll_face`** — `name` (Pflicht), `source_id` (Pflicht), `notes`
   (optional).
 - **`vision_start_watch`** — `source_id` (Pflicht), `fps` (optional; Standard aus

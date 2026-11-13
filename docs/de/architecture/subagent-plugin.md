@@ -58,7 +58,7 @@ Ein Sub-Agent „nach Codine“ unterscheidet sich von einem „nach AIfred“ i
 vier Dingen: Identity und Personality, Modell, Tuning, Werkzeugliste. Der
 Wert eines Hauptagenten liegt oft im Prompt und nicht im Modell: Codines
 Personality enthält ihre Fachrolle und den Pflicht-Workflow für Änderungen
-an bestehendem Code, HALs die Code-Review-Methodik. Nur den Werkzeugkasten
+an bestehendem Code, HALs die Prüfmethodik (er ist der Prüfer an Bord). Nur den Werkzeugkasten
 mitzugeben wäre der halbe Sinn, deshalb lädt ein Sub-Agent mit `agent`
 Identity und Personality des gewählten Agenten (geändert am 20.09.2026,
 vorher lief er ohne Persona). Der Parameter steht hinter einem Schalter mit
@@ -132,7 +132,8 @@ bekommt sie auch über einen Sub-Agenten nicht.
 **Budget.** Keine neue Budgetierung und kein eigener Schalter für die
 Kappung. Der Sub-Agent hat seinen eigenen `ToolKit` und damit automatisch
 eigene Kettentiefe und eigenen Schleifenbrecher. Sein Kontextfenster ist die
-harte Grenze, der Kontext-Wächter des Backends greift wie bei jedem Turn.
+harte Grenze; seine Tool-Schleife komprimiert mit dem eigenen Modell, wenn sie den Trigger erreicht,
+und der Kontext-Wächter des Backends greift wie bei jedem Turn.
 Der Bericht läuft beim Aufrufer durch die bestehende Kappung, die nur
 greift, wenn er den freien Kontext des Hauptmodells sprengen würde. Beim
 Aufrufer zählt die Delegation als ein Werkzeugaufruf.

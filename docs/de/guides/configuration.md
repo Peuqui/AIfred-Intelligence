@@ -26,8 +26,8 @@ bedient auch die Cloud-TTS-Engine Qwen-Audio 3 (siehe [Sprachausgabe](#sprachaus
 live vom `/models`-Endpoint des Providers geholt; jeder Provider merkt sich sein
 zuletzt genutztes Modell; `-vl`-Varianten bleiben aus dem Dropdown für das Haupt-LLM draußen; der Token-Verbrauch
 erscheint in der Debug-Konsole. Praktisch, um große Modelle ohne Hardware auszuprobieren,
-für Laptops ohne GPU oder um Cloud- und lokale Qualität zu vergleichen. Die History-Kompression
-nutzt immer lokale Modelle (bei denen das echte Kontextlimit bekannt ist).
+für Laptops ohne GPU oder um Cloud- und lokale Qualität zu vergleichen. Bei der History-Kompression
+fasst das Modell zusammen, das gerade läuft oder als Nächstes spricht (siehe unten).
 
 **GPU-Kompatibilität:** Beim Start liest AIfred die Compute Capability jeder GPU
 und warnt, wenn ein Backend nur einen Teil der Karten oder gar keine nutzen kann
@@ -221,8 +221,8 @@ Trigger (gemessen wie bisher: vom Server gemeldete Füllung plus die neuen Werkz
 `context_manager.compress_tool_loop` zuerst den früheren Verlauf zusammen und, reicht das nicht bis
 zum Ziel, die ältesten abgeschlossenen Werkzeugrunden dieses Zuges. System-Nachricht, Nutzerfrage
 und die letzten zwei Runden bleiben im Wortlaut; eine Runde (Aufrufe und ihre Ergebnisse) wird nie
-getrennt. Die Zusammenfassung steht als Kontext-Nachricht vor der Frage, die Werkzeuge bleiben. Es
-fasst dasselbe Modell zusammen wie vor der Nachricht. Das wirkt nur auf die Nachrichten dieser
+getrennt. Die Zusammenfassung steht als Kontext-Nachricht vor der Frage, die Werkzeuge bleiben. Es fasst das
+Modell zusammen, das gerade läuft (vor der Nachricht das des ersten Redners, zwischen den Rednern einer Debatte das des nächsten); ein zweites Modell wird nie geladen. Das wirkt nur auf die Nachrichten dieser
 Anfrage; die gespeicherte History bleibt, vor der nächsten Nachricht greift die Kompression wie
 gewohnt. Erst wenn danach noch über dem Trigger (nichts mehr zu komprimieren), endet die
 Werkzeugphase wie zuvor: keine Werkzeuge mehr, Hinweis `utility/context_guard`, Antwort.

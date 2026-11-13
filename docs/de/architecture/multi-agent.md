@@ -94,7 +94,7 @@ ein Modal mit einer Übersicht aller Modi.
                ┌───────────────┴───────────────┐
                ▼                               ▼
      ┌────────────────┐              ┌─────────────────┐
-     │ 2/3 oder 3/3   │              │ Zu wenig Stimmen│
+     │ Mehrheit/alle  │              │ Zu wenig Stimmen│
      │ = Konsens      │              │ = nächste Runde │
      └────────────────┘              └─────────────────┘
 ```

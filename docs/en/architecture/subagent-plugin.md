@@ -55,7 +55,7 @@ A sub-agent "after Codine" differs from one "after AIfred" in four things:
 identity and personality, model, tuning, tool list. A main agent's value
 often sits in its prompt rather than in its model: Codine's personality
 holds her professional role and the mandatory workflow for changing existing
-code, HAL's holds the code review method. Handing over the toolkit alone
+code, HAL's holds the review method (he is the reviewer on board). Handing over the toolkit alone
 would be half the point, so a sub-agent with `agent` loads the identity and
 personality of the chosen agent (changed on 2026-09-20; before that it ran
 without persona). The parameter sits behind a switch that defaults to off:

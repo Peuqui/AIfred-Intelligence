@@ -27,7 +27,7 @@ fetched live from the provider's `/models` endpoint; each provider remembers its
 last model; `-vl` variants are kept out of the main-LLM dropdown; token usage
 appears in the debug console. Handy for trying large models without hardware,
 for laptops without a GPU, or to compare cloud and local quality. History
-compression always uses local models (where the real context limit is known).
+compression is done by the model that is running or speaks next (see below).
 
 **GPU compatibility:** at startup AIfred reads each GPU's compute capability
 and warns when a backend can only use some of the cards or none of them
@@ -221,8 +221,8 @@ visible `chat_history` keeps every summary.
 `context_manager.compress_tool_loop` first summarizes the earlier conversation and, if that does not
 reach the target, the oldest finished tool rounds of this turn. The system message, the user's
 question and the last two rounds stay verbatim; a round (calls and their results) is never split.
-The summary sits as a context message before the question, and the tools stay. The same model
-summarizes as before a message. This only affects the messages of this request; the stored history
+The summary sits as a context message before the question, and the tools stay. The model that is
+running summarizes (before a message the first speaker's, between the speakers of a debate the next one's); a second model is never loaded. This only affects the messages of this request; the stored history
 stays, and before the next message compression works as usual. Only if the context is still over
 the trigger afterwards (nothing left to compress) does the tool phase end as before: no more tools,
 the `utility/context_guard` note, the answer.

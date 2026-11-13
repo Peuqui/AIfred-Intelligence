@@ -92,7 +92,7 @@ with an overview of all modes.
                ┌───────────────┴───────────────┐
                ▼                               ▼
      ┌────────────────┐              ┌─────────────────┐
-     │ 2/3 or 3/3     │              │ Not enough votes│
+     │ Majority / all │              │ Not enough votes│
      │ = consensus    │              │ = next round    │
      └────────────────┘              └─────────────────┘
 ```
