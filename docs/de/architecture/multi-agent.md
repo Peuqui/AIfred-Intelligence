@@ -108,8 +108,9 @@ entscheiden ist Salomos Aufgabe.
 Der Verfasser antwortet, der Prüfer (der Kritiker-Platz) prüft danach seine Arbeit: Er bekommt die Liste
 der Dateien, die der Verfasser in diesem Zug in den Dokumenten angelegt, geändert oder gelöscht hat, liest
 sie, testet sie in der Sandbox und meldet jeden Befund mit Stelle und Beleg, ohne Höchstzahl und ohne eigene
-Gegenfassung. Bei `[WEITER]` behebt der Verfasser die Befunde in den Dateien, dann prüft der Prüfer erneut;
-`[LGTM]` beendet die Schleife, sonst endet sie nach N Runden mit dem letzten Review.
+Gegenfassung. Bei `[WEITER]` folgt eine Runde: Der Verfasser behebt die Befunde in den Dateien, dann prüft der
+Prüfer erneut. `[LGTM]` beendet die Schleife, sonst endet sie nach N Runden (Korrekturen) mit dem letzten
+Review; das erste Review der Antwort gehört zu keiner Runde.
 
 Welche Dateien ein Agent geändert hat, weiß sein Werkzeugkasten: Jeder schreibende Werkzeugaufruf wird von
 einem Blick auf den Dokumentenordner vorher und nachher umklammert (`lib/document_changes.py`,
@@ -229,8 +230,9 @@ Multi-Agent-Schritte tragen ein Label `[<Modus>: <Schritt> R<Runde>]` (gebaut in
 |---|---|
 | 🎩 AIfred | Standard-Antwort oder direkt angesprochener Agent (kein Label) |
 | 🏛️ Sokrates [Kritische Prüfung] | Kritik in der Kritischen Prüfung |
-| 🔴 HAL 9000 [Code-Review R1] | Review, Runde 1 |
-| 🤖 Codine [Code-Review: Korrektur R2] | Korrektur nach dem Review, Runde 2 |
+| 🔴 HAL 9000 [Code-Review] | Review der Antwort |
+| 🤖 Codine [Code-Review: Korrektur R1] | Korrektur, Runde 1 |
+| 🔴 HAL 9000 [Code-Review R1] | Nachprüfung, Runde 1 |
 | 🎩 AIfred [Auto-Konsens: Überarbeitung R2] | Überarbeitung, Runde 2 |
 | 👑 Salomo [Auto-Konsens: Synthese R2] | Synthese, Runde 2 |
 | 🏛️ Sokrates [Tribunal R1] | Tribunal-Austausch, Runde 1 |

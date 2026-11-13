@@ -246,7 +246,7 @@
   "multi_agent_help_standard_decision": "—",
   "multi_agent_help_critical_review_flow": "Antwort → Kritiker prüft → Stopp",
   "multi_agent_help_critical_review_decision": "Du",
-  "multi_agent_help_code_review_flow": "Antwort → Prüfer liest und testet die geänderten Dateien → Antwortender behebt die Befunde → erneutes Review (bis {rounds})",
+  "multi_agent_help_code_review_flow": "Antwort → Prüfer liest und testet die geänderten Dateien → je Runde: Antwortender behebt die Befunde, Prüfer prüft erneut (bis {rounds})",
   "multi_agent_help_code_review_decision": "Prüfer ([LGTM])",
   "multi_agent_help_auto_consensus_flow": "Antwort → Kritiker → Richter fasst zusammen → alle drei stimmen ab; ohne Konsens überarbeitet der Antwortende (bis {rounds})",
   "multi_agent_help_auto_consensus_decision": "Abstimmung der drei: {consensus}",

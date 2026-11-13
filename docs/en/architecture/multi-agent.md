@@ -106,8 +106,9 @@ Salomo's job.
 The author answers, then the reviewer (the critic's seat) checks the work: it gets the list of files the
 author created, changed or deleted in the documents during this turn, reads them, tests them in the sandbox
 and reports every finding with its place and proof, without a maximum and without a version of its own. On
-`[WEITER]` the author fixes the findings in the files and the reviewer checks again; `[LGTM]` ends the loop,
-otherwise it ends after N rounds with the last review.
+`[WEITER]` a round follows: the author fixes the findings in the files and the reviewer checks again.
+`[LGTM]` ends the loop, otherwise it ends after N rounds (fixes) with the last review; the first review, of
+the answer, belongs to no round.
 
 Which files an agent changed, its toolkit knows: every writing tool call is bracketed by a look at the
 documents folder before and after it (`lib/document_changes.py`, `ToolKit.changed_documents`). So what
@@ -223,8 +224,9 @@ carry a label `[<mode>: <step> R<round>]` (built in `_chat_mixin.py`):
 |---|---|
 | 🎩 AIfred | Standard answer or directly addressed agent (no label) |
 | 🏛️ Sokrates [Critical Review] | Critique in Critical Review |
-| 🔴 HAL 9000 [Code Review R1] | Review, round 1 |
-| 🤖 Codine [Code Review: Fix R2] | Fix after the review, round 2 |
+| 🔴 HAL 9000 [Code Review] | Review of the answer |
+| 🤖 Codine [Code Review: Fix R1] | Fix, round 1 |
+| 🔴 HAL 9000 [Code Review R1] | Re-check, round 1 |
 | 🎩 AIfred [Auto-Consensus: Refinement R2] | Refinement, round 2 |
 | 👑 Salomo [Auto-Consensus: Synthesis R2] | Synthesis, round 2 |
 | 🏛️ Sokrates [Tribunal R1] | Tribunal exchange, round 1 |

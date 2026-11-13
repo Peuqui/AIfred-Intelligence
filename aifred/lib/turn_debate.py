@@ -386,49 +386,63 @@ async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
 
 
 async def _code_review(ctx: TurnContext, plan: TurnPlan) -> None:
-    """The reviewer reads and tests the files the author changed in this turn and reports every fault;
-    on [WEITER] the author fixes them in the files, then the next review, until [LGTM] or
-    ``max_debate_rounds``."""
+    """The reviewer reads and tests the files the author changed in this turn and reports every fault.
+    On [WEITER] a round follows: the author fixes the findings in the files, the reviewer checks again;
+    until [LGTM] or ``max_debate_rounds`` rounds (fixes). The first review, of the answer, belongs to
+    no round (Peuqui 14.11.2026: a round is fix and review)."""
     from .context_manager import strip_thinking_blocks
-    from .logging_utils import log_raw_messages
 
     lang = ctx.intent.language
     debug(_llm_line(ctx.view, plan.debate[SEAT_CRITIC]))
     members = await _cast(ctx, plan.debate)
     reviewer, author = members[SEAT_CRITIC], members[SEAT_MAIN]
     max_rounds = ctx.view.max_debate_rounds
+    review = await _review(ctx, plan, reviewer, author, 0)
     for round_num in range(1, max_rounds + 1):
-        files = _author_files(ctx, author.agent)
-        debug(f"🔎 Review R{format_number(round_num)}: {format_number(len(files))} files of {author.label}")
-        system_prompt = _seat_system(reviewer, "review", lang, plan.seats, round_num=round_num, **_file_lists(files))
-        await _compress_before(ctx, plan, reviewer, _prompt_tokens(system_prompt))
-        call = _call(ctx, reviewer, system_prompt, memory_before_question=True)
-        debug(_prompt_line(call, f"R{round_num}", reviewer.num_ctx))
-        log_raw_messages(f"{reviewer.label} R{round_num}", call.messages)
-        result = await _speak(ctx, call)
-        if result is None:
+        if review is None:
             return
-        finish_call(ctx, call, result, mode="code_review", round_num=round_num)
-        if _agrees(result.text):
-            debug(f"✅ Code review passed in round {format_number(round_num)}")
+        if _agrees(review):
+            debug(f"✅ Code review passed after {format_number(round_num - 1)} fixes")
             return
-        if round_num == max_rounds:
-            debug(f"⚠️ Code review still open after {format_number(max_rounds)} rounds")
-            return
-
         question = seat_prompt(
             "review_fix", plan.seats, lang,
-            review=strip_thinking_blocks(result.text), round_num=round_num + 1, **_file_lists(files),
+            review=strip_thinking_blocks(review), round_num=round_num, **_file_lists(_author_files(ctx, author.agent)),
         )
         system_prompt = _with_memory(_base_system(author, lang, plan.seats), author)
         await _compress_before(ctx, plan, author, _prompt_tokens(system_prompt, question))
         call = _call(ctx, author, system_prompt, question=question, log_label=f"{author.label} Fix")
-        debug(_prompt_line(call, f"R{round_num + 1}", author.num_ctx))
-        log_raw_messages(f"{author.label} R{round_num + 1}", call.messages)
+        debug(_prompt_line(call, f"R{round_num}", author.num_ctx))
         result = await _speak(ctx, call)
         if result is None:
             return
-        finish_call(ctx, call, result, mode="review_fix", round_num=round_num + 1)
+        finish_call(ctx, call, result, mode="review_fix", round_num=round_num)
+        review = await _review(ctx, plan, reviewer, author, round_num)
+    if review is not None and _agrees(review):
+        debug(f"✅ Code review passed after {format_number(max_rounds)} fixes")
+    elif review is not None:
+        debug(f"⚠️ Code review still open after {format_number(max_rounds)} rounds")
+
+
+async def _review(ctx: TurnContext, plan: TurnPlan, reviewer: _Member, author: _Member, fixes: int) -> str | None:
+    """One review of the author's files; ``fixes`` the corrections so far (0: the review of the answer,
+    without a round number). Its text, None when the stream gave nothing."""
+    from .logging_utils import log_raw_messages
+
+    files = _author_files(ctx, author.agent)
+    step = f"R{fixes}" if fixes else "answer"
+    debug(f"🔎 Review ({step}): {format_number(len(files))} files of {author.label}")
+    system_prompt = _seat_system(
+        reviewer, "review", ctx.intent.language, plan.seats, round_num=fixes, **_file_lists(files),
+    )
+    await _compress_before(ctx, plan, reviewer, _prompt_tokens(system_prompt))
+    call = _call(ctx, reviewer, system_prompt, memory_before_question=True)
+    debug(_prompt_line(call, step, reviewer.num_ctx))
+    log_raw_messages(f"{reviewer.label} {step}", call.messages)
+    result = await _speak(ctx, call)
+    if result is None:
+        return None
+    finish_call(ctx, call, result, mode="code_review", round_num=fixes or None)
+    return result.text
 
 
 def _author_files(ctx: TurnContext, author: str) -> dict[str, str]:

@@ -413,21 +413,23 @@ def test_code_review_ends_when_the_reviewer_gives_lgtm(world: dict[str, Any]) ->
         "AIfred Fix": ["Zeile 12 korrigiert."],
     }
     _turn("Bau mir einen Rechner.")
+    # A round is a fix and its review; the first review, of the answer, belongs to no round.
     assert _bubbles() == [
         ("aifred", "direct", None),
+        ("sokrates", "code_review", None),
+        ("aifred", "review_fix", 1),
         ("sokrates", "code_review", 1),
-        ("aifred", "review_fix", 2),
-        ("sokrates", "code_review", 2),
     ]
     chat = _data()["chat_history"]
-    assert "[Code-Review R1]" in chat[2]["content"]                  # the mode is the step: no prefix
-    assert "[Code-Review: Korrektur R2]" in chat[3]["content"]
-    assert any("Code review passed in round 2" in event["line"] for event in _events("debug"))
-    # The fix answers the review: the author's task, after the history, with the files it changed.
+    assert "[Code-Review]" in chat[2]["content"]                     # the mode is the step: no prefix
+    assert "[Code-Review: Korrektur R1]" in chat[3]["content"]
+    assert "[Code-Review R1]" in chat[4]["content"]
+    assert any("Code review passed after 1 fixes" in event["line"] for event in _events("debug"))
+    # The author fixes, not the reviewer: the review is its task, after the history.
     fix = next(messages for label, messages in world["calls"] if label == "AIfred Fix")
     assert fix[-1]["role"] == "user" and "Zeile 12 rechnet falsch." in fix[-1]["content"]
     review = _system_prompt(world, "Sokrates")
-    assert "CODE-REVIEW" in review and "Neu: —" in review          # no toolkit here: no files
+    assert "CODE-REVIEW" in review and "KORREKTUREN BISHER: 0" in review and "Neu: —" in review
 
 
 def test_without_lgtm_the_code_review_stops_after_max_debate_rounds(world: dict[str, Any]) -> None:
@@ -436,10 +438,10 @@ def test_without_lgtm_the_code_review_stops_after_max_debate_rounds(world: dict[
     _turn("Bau mir einen Rechner.")
     assert _bubbles() == [
         ("aifred", "direct", None),
-        ("sokrates", "code_review", 1),
-        ("aifred", "review_fix", 2),
-        ("sokrates", "code_review", 2),
-    ]                                                                  # no fix after the last review
+        ("sokrates", "code_review", None),
+        ("aifred", "review_fix", 1), ("sokrates", "code_review", 1),
+        ("aifred", "review_fix", 2), ("sokrates", "code_review", 2),
+    ]                                                                  # two rounds: two fixes, each re-checked
     assert any("Code review still open after 2 rounds" in event["line"] for event in _events("debug"))
 
 
