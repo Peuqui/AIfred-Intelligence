@@ -231,10 +231,10 @@ figure button { cursor: pointer; font: inherit; border: none; }
 .mic { display: inline-flex; background: none; border: none; }
 .mic svg { width: 100%; height: 100%; }
 .mic:disabled { cursor: default; }
-/* The small GPU mark at the microphone's upper right (the exception, as in Agent-Orc), on the page's own background so the
+/* The small GPU mark at the microphone's upper right, its top edge level with the field's (the exception, as in Agent-Orc), on the page's own background so the
    badge does not show through it; the spinner takes the lower right. */
 .gpu {
-  position: absolute; top: -2px; right: -2px; padding: 0 4px; pointer-events: none; font-size: 0.5rem; line-height: 12px; font-weight: 600;
+  position: absolute; top: 0; right: -2px; padding: 0 4px; pointer-events: none; font-size: 0.5rem; line-height: 12px; font-weight: 600;
   color: var(--aifred-accent-gold); border: 1px solid var(--aifred-accent-gold); border-radius: 4px; background: var(--aifred-page-bg);
 }
 /* While a dictation is transcribed the badge stands grey (DictationBadge); the mark goes with it. */
