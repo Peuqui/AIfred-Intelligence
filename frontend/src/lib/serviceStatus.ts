@@ -19,6 +19,7 @@ export interface Row {
   color: Color;
   text: string;
   title?: string;
+  detail?: string; // a second line under the text (a machine's loaded models)
   remaining: number | null;
   upperBound: boolean; // the model was loaded before AIfred listened: the time is at most this long
   action: Action | null;
@@ -33,6 +34,7 @@ export interface Labels {
   unreachable: string;
   hostHeld: string;
   hostFreeCards: string;
+  hostUsed: string; // "{used} of {total} MiB in use"
 }
 
 export function serviceRows(snapshot: ServiceSnapshot, labels: Labels): Record<Service, Row[]> {
@@ -96,12 +98,14 @@ export function hostRows(hosts: HostStatus[], labels: Labels): (Row & { label: s
     if (!host.reachable) {
       return { label: host.name, color: "red", text: labels.unreachable, title: host.error, remaining: null, upperBound: false, action: null };
     }
-    const parts = [host.held ? labels.hostHeld : labels.hostFreeCards, `${mib(host.used_mib)} / ${mib(host.total_mib)} MiB`, ...host.holders];
+    const used = labels.hostUsed.replace("{used}", mib(host.used_mib)).replace("{total}", mib(host.total_mib));
+    const text = `${host.held ? labels.hostHeld : labels.hostFreeCards} · ${used}`;
     return {
       label: host.name,
       color: host.held ? "yellow" : "green",
-      text: parts.join(" · "),
-      title: host.held ? `${labels.hostHeld}: ${host.held}` : parts.join(" · "),
+      text,
+      detail: host.holders.join(", ") || undefined,
+      title: host.held ? `${labels.hostHeld}: ${host.held}` : text,
       remaining: null,
       upperBound: false,
       action: { verb: host.held ? "release" : "hold", service: "host", item: host.name },

@@ -1180,6 +1180,7 @@
   "service_status_unload": "Unload",
   "service_status_host_held": "held free",
   "service_status_host_free_cards": "card open to describers",
+  "service_status_host_used": "{used} of {total} MiB in use",
   "service_status_host_hold": "Keep the card free",
   "service_status_host_release": "Release the card",
   "error_hold_failed": "{host}: holding or releasing failed: {error}",

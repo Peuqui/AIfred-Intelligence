@@ -35,6 +35,7 @@ const labels = computed(() => ({
   unreachable: t("service_status_unreachable"),
   hostHeld: t("service_status_host_held"),
   hostFreeCards: t("service_status_host_free_cards"),
+  hostUsed: t("service_status_host_used"),
 }));
 const rows = computed(() => (status.snapshot ? serviceRows(status.snapshot, labels.value) : null));
 const machines = computed(() => hostRows(status.hosts, labels.value));
@@ -106,13 +107,14 @@ onBeforeUnmount(() => {
       <div v-for="host in machines" :key="host.label" class="line">
         <span class="badge" :class="host.color"><img :src="ICONS.host" alt="" /><span class="dot" /></span>
         <span class="label">{{ host.label }}:</span>
-        <span class="value" :title="host.title ?? host.text">{{ host.text }}</span>
+        <span class="value wrap" :title="host.title ?? host.text">{{ host.text }}</span>
         <span class="time" />
         <span class="act">
           <button v-if="host.action" class="power" :disabled="status.acting" :title="t(ACTION_TITLES[host.action.verb])" @click="status.act(host.action)">
             <Power :size="14" />
           </button>
         </span>
+        <span v-if="host.detail" class="detail" :title="host.detail">{{ host.detail }}</span>
       </div>
       <p v-if="status.notice" class="notice">⚠️ {{ status.notice }}</p>
       <p class="lifecycle"><HelpButton topic="lifecycle" /> {{ t("model_lifecycle_help_tooltip") }}</p>
@@ -145,6 +147,8 @@ summary::-webkit-details-marker { display: none; }
 .notice, .lifecycle { grid-column: 1 / -1; }
 .label { color: var(--aifred-text-secondary); white-space: nowrap; }
 .value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.detail { grid-column: 3 / -1; margin-top: -2px; color: var(--aifred-text-muted); overflow-wrap: anywhere; }
+.value.wrap { white-space: normal; overflow-wrap: anywhere; } /* a machine's line breaks instead of cutting off its numbers */
 .time { color: var(--aifred-text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .power:disabled { opacity: 0.5; cursor: progress; }
 .notice { margin: 2px 0 0; color: var(--aifred-accent-amber); }

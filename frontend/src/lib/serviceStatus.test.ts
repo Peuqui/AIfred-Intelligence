@@ -5,7 +5,7 @@ import { formatRemaining, hostRows, serviceRows, summaryColor } from "./serviceS
 
 const LABELS = {
   lang: "de", noModel: "kein Modell", noneLoaded: "nichts", loading: "lädt", busy: "arbeitet",
-  unreachable: "weg", hostHeld: "freigehalten", hostFreeCards: "frei",
+  unreachable: "weg", hostHeld: "freigehalten", hostFreeCards: "frei", hostUsed: "{used} von {total} MiB belegt",
 };
 
 const SNAPSHOT: ServiceSnapshot = {
@@ -46,7 +46,8 @@ describe("hostRows", () => {
   it("a held machine is yellow and offers the release", () => {
     const [row] = hostRows([{ name: "Aragon", reachable: true, held: "vllm", used_mib: 1024, total_mib: 24576, holders: ["eyes"], error: "" }], LABELS);
     expect(row).toMatchObject({ color: "yellow", label: "Aragon", action: { verb: "release", service: "host", item: "Aragon" } });
-    expect(row?.text).toBe("freigehalten · 1.024 / 24.576 MiB · eyes");
+    expect(row?.text).toBe("freigehalten · 1.024 von 24.576 MiB belegt");
+    expect(row?.detail).toBe("eyes");
   });
 });
 
