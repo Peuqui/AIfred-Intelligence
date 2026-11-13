@@ -2,7 +2,7 @@
 // The user's sessions, the last used first: open, start a new one, delete one, or select several (or all) and delete
 // them. On a wide window a column at the left of the chat, always open (lib/sessionsColumn.ts), else an accordion
 // above it; the switch between both shows only where the column is possible.
-import { PanelLeft, PanelTop, RefreshCw } from "lucide-vue-next";
+import { ChevronDown, ChevronRight, ListChecks, PanelLeft, PanelTop, RefreshCw, Trash2 } from "lucide-vue-next";
 import { computed, ref } from "vue";
 import { t } from "../i18n";
 import { useSessionsColumn } from "../lib/sessionsColumn";
@@ -44,7 +44,7 @@ function removeAll(): void {
     <header>
       <span v-if="column.shown.value" class="toggle">{{ t("saved_chats") }} <span class="count">{{ sessions.list.length }}</span></span>
       <button v-else class="toggle" @click="opened = !opened">
-        {{ opened ? "▾" : "▸" }} {{ t("saved_chats") }} <span class="count">{{ sessions.list.length }}</span>
+        <ChevronDown v-if="opened" :size="16" /><ChevronRight v-else :size="16" /> {{ t("saved_chats") }} <span class="count">{{ sessions.list.length }}</span>
       </button>
       <button
         v-if="column.possible.value"
@@ -63,7 +63,7 @@ function removeAll(): void {
     <!-- The choosing of chats in a row of its own, as soon as the list is open; its buttons (and the boxes at the chats)
          only while choosing: without boxes they would have nothing to act on (Peuqui 09.11.2026). -->
     <div v-if="open && sessions.list.length" class="bulk">
-      <button class="select" :class="{ on: selecting }" :title="selecting ? t('sessions_select_done') : t('sessions_select')" @click="toggleSelecting">☑</button>
+      <button class="select" :class="{ on: selecting }" :title="selecting ? t('sessions_select_done') : t('sessions_select')" @click="toggleSelecting"><ListChecks :size="16" /></button>
       <template v-if="selecting">
         <button @click="chosen = sessions.list.map((session) => session.session_id)">{{ t("select_all") }}</button>
         <button :disabled="!chosen.length" @click="removeChosen">{{ t("delete_selected") }} ({{ chosen.length }})</button>
@@ -78,7 +78,7 @@ function removeAll(): void {
           <span class="title">{{ session.title || t("untitled_chat") }}</span>
           <span class="meta">{{ session.last_message_display }} · {{ session.message_count }}</span>
         </button>
-        <button v-if="!selecting" class="remove" :title="t('delete_chat')" @click="emit('remove', [session.session_id])">🗑</button>
+        <button v-if="!selecting" class="remove" :title="t('delete_chat')" @click="emit('remove', [session.session_id])"><Trash2 :size="16" /></button>
       </li>
     </ul>
   </nav>

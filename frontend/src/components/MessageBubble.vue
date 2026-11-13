@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { RefreshCw } from "lucide-vue-next";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { ChatEntry } from "../api/types";
 import { t } from "../i18n";
@@ -94,7 +95,7 @@ function enlarge(event: MouseEvent): void {
         :title="canReplay ? t('audio_regenerate_tooltip') : t('audio_generate_tooltip')"
         @click="emit('readAgain', entry.timestamp)"
       >
-        🔄
+        <RefreshCw :size="16" />
       </button>
       <span v-if="entry.tts_note" class="note">{{ entry.tts_note }}</span>
     </header>

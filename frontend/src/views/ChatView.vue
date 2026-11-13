@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Download, FolderOpen, Pin, Share2, Trash2 } from "lucide-vue-next";
+import { Download, FolderOpen, Lock, LockOpen, Pin, Share2, SlidersHorizontal, Trash2, TriangleAlert } from "lucide-vue-next";
 import { computed, defineAsyncComponent, nextTick, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { AgentSummary, ChatEntry, CropBox, DebateMode } from "../api/types";
@@ -248,9 +248,9 @@ onMounted(() => void start());
           <TurnProgress v-if="progress" :line="progress" />
         </article>
         <TurnProgress v-else-if="progress" class="waiting" :line="progress" />
-        <p v-if="chat.notice" class="notice">⚠️ {{ chat.notice }}</p>
+        <p v-if="chat.notice" class="notice"><TriangleAlert :size="16" /> {{ chat.notice }}</p>
         <p v-if="chat.info" class="info">{{ chat.info }}</p>
-        <p v-if="settings.notice" class="notice">⚠️ {{ settings.notice }}</p>
+        <p v-if="settings.notice" class="notice"><TriangleAlert :size="16" /> {{ settings.notice }}</p>
         </div>
       </div>
       <ResizeGrip :target="messages" :min-height="MESSAGES_MIN_HEIGHT" :max-screens="1" @resize="(height) => (chatHeight = height)" @reset="chatHeight = null" />
@@ -285,9 +285,9 @@ onMounted(() => void start());
           :title="chat.config.incognito ? t('incognito_mode') : t('memory_active')"
           @click="chat.configure({ incognito: !chat.config.incognito })"
         >
-          {{ chat.config.incognito ? "🔒" : "🔓" }}
+          <Lock v-if="chat.config.incognito" :size="16" /><LockOpen v-else :size="16" />
         </button>
-        <button class="agent-choices" :title="t('agent_choices_title')" @click="choicesOpen = true">🎛️</button>
+        <button class="agent-choices" :title="t('agent_choices_title')" @click="choicesOpen = true"><SlidersHorizontal :size="16" /></button>
         <HelpButton topic="chat" />
         <VisionBadge class="watch" />
       </div>

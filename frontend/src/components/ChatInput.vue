@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Send, Square, X } from "lucide-vue-next";
+import { Crop, Send, Square, X } from "lucide-vue-next";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import type { Settings, UploadedImage } from "../api/types";
 import { language, t } from "../i18n";
@@ -118,7 +118,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", discardOnEscape));
       <figure v-for="(image, index) in images" :key="image.name">
         <img :src="image.url" :alt="image.name" />
         <button class="remove" :title="t('remove_image')" @click="emit('removeImage', image.name)">×</button>
-        <button class="edit" :title="t('crop_tooltip')" @click="emit('editImage', index)">✂️</button>
+        <button class="edit" :title="t('crop_tooltip')" @click="emit('editImage', index)"><Crop :size="12" /></button>
       </figure>
       <span v-if="uploading" class="uploading">{{ t("image_uploading") }}</span>
     </div>

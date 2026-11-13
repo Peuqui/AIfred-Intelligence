@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The shell: the login, then the top bar (the pages behind ☰, as under Reflex) and the page itself. The chat
 // page stays alive while another page shows (its session and event stream go on).
-import { LogOut } from "lucide-vue-next";
+import { LogOut, Menu, MessageSquare } from "lucide-vue-next";
 import { computed, onMounted, ref, watch, watchEffect } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
 import { UPDATE_CHECK_MS, api, checkForUpdate } from "./api/client";
@@ -90,9 +90,9 @@ onMounted(async () => {
           </small>
         </div>
       </div>
-      <RouterLink v-if="route.path !== '/'" to="/" class="back">💬 {{ t("nav_chat") }}</RouterLink>
+      <RouterLink v-if="route.path !== '/'" to="/" class="back"><MessageSquare :size="16" /> {{ t("nav_chat") }}</RouterLink>
       <span class="user">{{ auth.user }}</span>
-      <button class="burger" :aria-expanded="menuOpen" :title="t('settings')" @click="menuOpen = !menuOpen">☰</button>
+      <button class="burger" :aria-expanded="menuOpen" :title="t('settings')" @click="menuOpen = !menuOpen"><Menu :size="22" /></button>
       <div v-if="menuOpen" class="backdrop" @click="menuOpen = false" />
       <nav v-if="menuOpen" class="menu" @click="menuOpen = false">
         <div class="sizes" @click.stop>
@@ -106,7 +106,7 @@ onMounted(async () => {
           <!-- Also of this device: a phone starts with it off. -->
           <label class="pin" :title="t('pin_question_hint')"><input v-model="pinQuestion" type="checkbox" /> {{ t("pin_question") }}</label>
         </div>
-        <RouterLink to="/">💬 {{ t("nav_chat") }}</RouterLink>
+        <RouterLink to="/"><MessageSquare :size="16" /> {{ t("nav_chat") }}</RouterLink>
         <RouterLink to="/agents">{{ t("nav_agents") }}</RouterLink>
         <RouterLink to="/documents">{{ t("doc_manager_title") }}</RouterLink>
         <RouterLink to="/vision">{{ t("nav_vision") }}</RouterLink>
@@ -138,6 +138,8 @@ html, body { -webkit-tap-highlight-color: transparent; }
    vw/vh would grow with it (a dialog of 88vw became wider than the screen). Every size in screen units uses these. */
 :root { --vw: calc(1vw / var(--ui-zoom)); --vh: calc(1vh / var(--ui-zoom)); --dvh: calc(1dvh / var(--ui-zoom)); }
 button, input, select, textarea { font: inherit; }
+/* Lucide icons sit on the line of the text beside them (a label with an icon in front), and never shrink in a flex row. */
+svg.lucide { vertical-align: -0.15em; flex: none; }
 /* A switch as a pill, as on the Reflex page: grey when off, a muted orange when on (tools of an agent, agents of the chat). */
 .pill { border-radius: 999px; padding: 2px 10px; font-size: var(--text-small); color: var(--aifred-text-muted); background: var(--aifred-input-bg); border: 1px solid var(--aifred-border); cursor: pointer; }
 .pill.on { color: var(--aifred-primary); background: color-mix(in srgb, var(--aifred-primary) 18%, transparent); border-color: var(--aifred-primary); }
