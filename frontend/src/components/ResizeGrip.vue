@@ -11,20 +11,22 @@ const DOUBLE_TAP_MS = 400;
 const TAP_SLOP_PX = 6;
 const EDGE_PX = 64; // a finger this close to the screen's top or bottom edge takes the page along
 const EDGE_STEP_MAX_PX = 8; // per frame, at the very edge; it starts at 1 where the edge zone begins
-let grab = 0; // how far the finger stands below the box's lower edge, in screen pixels
+let startY = 0; // where the finger took hold, in screen pixels
+let startHeight = 0; // the box's height then, in its own units
+let ownScroll = 0; // how far the edge scrolling below has moved the page since, in screen pixels
 let scale = 1; // screen pixels per own unit
 let fingerY = 0;
 let pressedAt = { x: 0, y: 0 };
 let lastTapAt = -Infinity;
 let frame = 0;
 
-// The box's height from where its lower edge should be (above the finger, by the distance it was grabbed at). The target
-// boxes are border-box, so the height reported is the one the box takes.
+// The box's height from the way the finger went since it took hold, plus the way the edge scrolling moved the page.
+// Never from where the box stands on the screen now: a box that shrinks makes the page shorter, the browser then moves
+// the page by itself, the box's top comes down the screen, and a height read from it shrinks again, and again (the box
+// collapsed in one go). The target boxes are border-box, so the height reported is the one the box takes.
 function follow(): boolean {
-  const box = props.target;
-  if (!box) return false;
   const most = props.maxScreens ? (props.maxScreens * window.innerHeight) / scale : Infinity;
-  const height = (fingerY - grab - box.getBoundingClientRect().top) / scale;
+  const height = startHeight + (fingerY - startY + ownScroll) / scale;
   emit("resize", Math.min(most, Math.max(props.minHeight ?? 0, height)));
   return height >= most;
 }
@@ -44,7 +46,9 @@ function edgeScroll(): void {
   if (depth < 0 && box.getBoundingClientRect().top >= 0) return;
   if (depth > 0 && follow()) return; // the box is as high as it may be: the page stays
   const step = Math.sign(depth) * Math.max(1, Math.round((EDGE_STEP_MAX_PX * Math.abs(depth)) / EDGE_PX));
+  const before = window.scrollY;
   window.scrollBy(0, step);
+  ownScroll += window.scrollY - before; // what the page really moved (none at its end)
   follow();
 }
 
@@ -52,8 +56,10 @@ function start(event: PointerEvent): void {
   const box = props.target;
   if (!box) return;
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-  grab = event.clientY - box.getBoundingClientRect().bottom;
   scale = box.getBoundingClientRect().height / box.offsetHeight || 1;
+  startY = event.clientY;
+  startHeight = box.offsetHeight;
+  ownScroll = 0;
   fingerY = event.clientY;
   pressedAt = { x: event.clientX, y: event.clientY };
   // The page is scrolled by this drag alone: the browser's own scroll anchoring would move it against the drag.
