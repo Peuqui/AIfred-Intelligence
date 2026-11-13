@@ -2,7 +2,7 @@
 // The shell: the login, then the top bar (the pages behind ☰, as under Reflex) and the page itself. The chat
 // page stays alive while another page shows (its session and event stream go on).
 import { Bot, Clock, Eye, Folder, LogOut, Menu, MessageSquare, NotebookPen, Settings, Wrench } from "lucide-vue-next";
-import { computed, onMounted, ref, watch, watchEffect } from "vue";
+import { type Component, computed, onMounted, ref, watch, watchEffect } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
 import { UPDATE_CHECK_MS, api, checkForUpdate } from "./api/client";
 import HubNoticeToast from "./components/HubNoticeToast.vue";
@@ -28,6 +28,19 @@ const wide = computed(() => sessionsColumn.value && route.path === "/");
 const menuOpen = ref(false);
 
 // The two sizes the menu offers (the chat's own is above the chat).
+// The menu's pages, each its icon in a colour of its own from the palette (theme.py), as the coloured emojis
+// before them were; the audio page's speaker keeps the TTS suite's own colours.
+const menuEntries: { to: string; icon: Component; label: string; color?: string }[] = [
+  { to: "/", icon: MessageSquare, label: "nav_chat", color: "var(--aifred-primary)" },
+  { to: "/agents", icon: Bot, label: "nav_agents", color: "var(--aifred-user-name)" },
+  { to: "/documents", icon: Folder, label: "doc_manager_title", color: "var(--aifred-accent-blue)" },
+  { to: "/vision", icon: Eye, label: "nav_vision", color: "var(--aifred-accent-purple)" },
+  { to: "/memory", icon: NotebookPen, label: "nav_memory", color: "var(--aifred-accent-success)" },
+  { to: "/jobs", icon: Clock, label: "nav_jobs", color: "var(--aifred-accent-amber)" },
+  { to: "/audio", icon: TtsIcon, label: "nav_audio" },
+  { to: "/maintenance", icon: Wrench, label: "nav_maintenance", color: "var(--aifred-accent-cyan)" },
+  { to: "/settings", icon: Settings, label: "settings", color: "var(--aifred-accent-gold)" },
+];
 const sizes = computed<{ name: ZoomName; label: string; value: number }[]>(() => [
   { name: "ui", label: "size_interface", value: uiZoom.value },
   { name: "console", label: "size_console", value: consoleZoom.value },
@@ -106,15 +119,9 @@ onMounted(async () => {
           <!-- Also of this device: a phone starts with it off. -->
           <label class="pin" :title="t('pin_question_hint')"><input v-model="pinQuestion" type="checkbox" /> {{ t("pin_question") }}</label>
         </div>
-        <RouterLink to="/"><MessageSquare :size="16" /> {{ t("nav_chat") }}</RouterLink>
-        <RouterLink to="/agents"><Bot :size="16" /> {{ t("nav_agents") }}</RouterLink>
-        <RouterLink to="/documents"><Folder :size="16" /> {{ t("doc_manager_title") }}</RouterLink>
-        <RouterLink to="/vision"><Eye :size="16" /> {{ t("nav_vision") }}</RouterLink>
-        <RouterLink to="/memory"><NotebookPen :size="16" /> {{ t("nav_memory") }}</RouterLink>
-        <RouterLink to="/jobs"><Clock :size="16" /> {{ t("nav_jobs") }}</RouterLink>
-        <RouterLink to="/audio"><TtsIcon /> {{ t("nav_audio") }}</RouterLink>
-        <RouterLink to="/maintenance"><Wrench :size="16" /> {{ t("nav_maintenance") }}</RouterLink>
-        <RouterLink to="/settings"><Settings :size="16" /> {{ t("settings") }}</RouterLink>
+        <RouterLink v-for="entry in menuEntries" :key="entry.to" :to="entry.to">
+          <component :is="entry.icon" :size="16" class="menu-icon" :style="{ color: entry.color }" /> {{ t(entry.label) }}
+        </RouterLink>
       </nav>
       <button class="logout" :title="t('logout')" :aria-label="t('logout')" @click="logout"><LogOut :size="18" /></button>
     </header>
