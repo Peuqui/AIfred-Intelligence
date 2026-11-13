@@ -90,12 +90,13 @@ Every plugin is a directory under `aifred/plugins/tools/` or `aifred/plugins/cha
 ### 🎩 Multi-Agent System
 
 - **Agents** — 🎩 AIfred (butler & scholar), 🏛️ Sokrates (critic), 👑 Salomo (judge), 📷 Vision, plus shipped custom agents 🔥 Pater Tuck, 🤖 Codine (code & sandbox), 🔴 HAL 9000, 🕎 Rabbi Shmuel — and as many of your own as you like: name, emoji, role, bilingual prompts, own memory, own model and voice, created in the **Agent Editor**
-- **Five discussion modes**
+- **Six discussion modes**
 
   | Mode | Flow | Who decides? |
   |---|---|---|
   | **Standard** | One agent answers | — |
   | **Critical Review** | AIfred → Sokrates (critique + pro/contra) | You |
+  | **Code Review** | Author → reviewer reads and tests the changed files → author fixes, N rounds | Reviewer (`[LGTM]`) |
   | **Auto-Consensus** | AIfred → Sokrates → Salomo, N rounds | Salomo (votes) |
   | **Tribunal** | AIfred ↔ Sokrates, N rounds → Salomo | Salomo (verdict) |
   | **Symposion** | 2+ chosen agents discuss, reflection layer from round 2 | Nobody — many perspectives |

@@ -13,8 +13,11 @@ from aifred.lib import agent_config, prompt_loader
 from aifred.lib.debate_seats import SEAT_CRITIC, SEAT_JUDGE, SEAT_MAIN, seat_names, seat_prompt
 
 PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
-SEAT_TASKS = ("critic", "tribunal", "refinement", "defense", "mediator", "judge")
-VARIABLES = {"round_num": 2, "critique": "Die Kritik.", "user_interjection": ""}
+SEAT_TASKS = ("critic", "tribunal", "refinement", "defense", "mediator", "judge", "review", "review_fix")
+VARIABLES = {
+    "round_num": 2, "critique": "Die Kritik.", "user_interjection": "", "review": "Das Review.",
+    "new_files": "v8.html", "changed_files": "—", "deleted_files": "—",
+}
 DEFAULT_SEATS = {SEAT_MAIN: "aifred", SEAT_CRITIC: "sokrates", SEAT_JUDGE: "salomo"}
 
 

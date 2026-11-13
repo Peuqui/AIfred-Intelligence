@@ -90,12 +90,13 @@ Jedes Plugin ist ein Verzeichnis unter `aifred/plugins/tools/` oder `aifred/plug
 ### 🎩 Multi-Agent-System
 
 - **Agenten** — 🎩 AIfred (Butler & Gelehrter), 🏛️ Sokrates (Kritiker), 👑 Salomo (Richter), 📷 Vision, dazu die mitgelieferten eigenen Agenten 🔥 Pater Tuck, 🤖 Codine (Code & Sandbox), 🔴 HAL 9000, 🕎 Rabbi Shmuel — und beliebig viele eigene: Name, Emoji, Rolle, zweisprachige Prompts, eigenes Gedächtnis, eigenes Modell und eigene Stimme, angelegt im **Agenten-Editor**
-- **Fünf Diskussionsmodi**
+- **Sechs Diskussionsmodi**
 
   | Modus | Ablauf | Wer entscheidet? |
   |---|---|---|
   | **Standard** | Ein Agent antwortet | — |
   | **Kritische Prüfung** | AIfred → Sokrates (Kritik + Pro/Contra) | Du |
+  | **Code-Review** | Verfasser → Prüfer liest und testet die geänderten Dateien → Verfasser behebt, N Runden | Prüfer (`[LGTM]`) |
   | **Auto-Konsens** | AIfred → Sokrates → Salomo, N Runden | Salomo (Abstimmung) |
   | **Tribunal** | AIfred ↔ Sokrates, N Runden → Salomo | Salomo (Urteil) |
   | **Symposion** | 2+ ausgewählte Agenten diskutieren, Reflection-Layer ab Runde 2 | Niemand — viele Perspektiven |

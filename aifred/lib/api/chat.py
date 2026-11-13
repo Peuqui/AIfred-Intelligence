@@ -213,7 +213,7 @@ class SessionConfigRequest(BaseModel):
     )
     multi_agent_mode: str | None = Field(
         None,
-        description="Multi-agent mode: 'standard', 'sokrates', 'tribunal', 'symposion', 'critical_review', 'auto_consensus'"
+        description="Multi-agent mode: 'standard', 'critical_review', 'code_review', 'auto_consensus', 'tribunal', 'symposion'"
     )
     symposion_agents: list[str] | None = Field(
         None,

@@ -152,6 +152,14 @@ class ToolKit:
         self._unchanged_reads: dict[str, tuple[str, int]] = {}
         # What ran during this request, for call_note.
         self._calls: list[_ToolCall] = []
+        # Files in the documents the writing calls changed, path → new/changed/deleted
+        # (lib/document_changes.py); kept for the whole turn, the code review reads it.
+        self._changed_documents: dict[str, str] = {}
+
+    @property
+    def changed_documents(self) -> dict[str, str]:
+        """The files this toolkit's writing calls changed in the documents, in the order they changed."""
+        return dict(self._changed_documents)
 
     @property
     def definitions(self) -> list[dict[str, Any]]:
@@ -324,6 +332,9 @@ class ToolKit:
             yield {"type": "tool_result", "result": json.dumps({"error": msg})}
             return
 
+        from . import document_changes
+
+        documents_before = None if reads_only else document_changes.snapshot()
         t0 = time.perf_counter()
         result_str = ""
         success = True
@@ -399,6 +410,10 @@ class ToolKit:
             yield {"type": "tool_result", "result": result_str}
         finally:
             self._calls.append(_ToolCall(name, reads_only, args, not success or _reports_error(result_str)))
+            if documents_before is not None:
+                document_changes.merge(
+                    self._changed_documents, document_changes.changes(documents_before, document_changes.snapshot()),
+                )
             try:
                 from .security import audit_log
                 audit_log(

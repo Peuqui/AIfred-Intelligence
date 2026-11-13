@@ -6,6 +6,8 @@ its own persona and the seat's task prompt. A seat whose agent is gone rejects t
 anyone speaks.
 
 - critical_review: the direct answer, then one critique.
+- code_review: the direct answer, then per round a review of the files the author changed and the
+  author's fixes, until the reviewer gives [LGTM] or the rounds reach ``max_debate_rounds``.
 - auto_consensus: the direct answer, then per round critique, synthesis, vote and refinement, until
   the votes reach ``consensus_type`` or the rounds ``max_debate_rounds``.
 - tribunal: the direct answer, then ``max_debate_rounds`` of attack and defense, the verdict last.
@@ -70,6 +72,7 @@ _BASE_PROMPT = "task"
 # The seats that speak after the direct answer, per mode.
 _DEBATE_SEATS: dict[str, tuple[str, ...]] = {
     "critical_review": (SEAT_CRITIC,),
+    "code_review": (SEAT_MAIN, SEAT_CRITIC),
     "auto_consensus": (SEAT_MAIN, SEAT_CRITIC, SEAT_JUDGE),
     "tribunal": (SEAT_MAIN, SEAT_CRITIC, SEAT_JUDGE),
 }
@@ -290,6 +293,9 @@ async def run_debate(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
     if ctx.mode == "tribunal":
         debug("⚖️ Multi-Agent: Tribunal starting...")
         await _tribunal(ctx, plan)
+    elif ctx.mode == "code_review":
+        debug(f"🔎 Multi-Agent: code review by {agent_display_name(plan.debate[SEAT_CRITIC])} starting...")
+        await _code_review(ctx, plan)
     else:
         debug(f"🏛️ Multi-Agent: {agent_display_name(plan.debate[SEAT_CRITIC])} analysis starting...")
         await _critique(ctx, plan, answer)
@@ -377,6 +383,78 @@ async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
             debug(f"⚠️ No consensus after {format_number(max_rounds)} rounds")
             if votes:
                 debug(_votes_line(members, votes, round_num))
+
+
+async def _code_review(ctx: TurnContext, plan: TurnPlan) -> None:
+    """The reviewer reads and tests the files the author changed in this turn and reports every fault;
+    on [WEITER] the author fixes them in the files, then the next review, until [LGTM] or
+    ``max_debate_rounds``."""
+    from .context_manager import strip_thinking_blocks
+    from .logging_utils import log_raw_messages
+
+    lang = ctx.intent.language
+    debug(_llm_line(ctx.view, plan.debate[SEAT_CRITIC]))
+    members = await _cast(ctx, plan.debate)
+    reviewer, author = members[SEAT_CRITIC], members[SEAT_MAIN]
+    max_rounds = ctx.view.max_debate_rounds
+    for round_num in range(1, max_rounds + 1):
+        files = _author_files(ctx, author.agent)
+        debug(f"🔎 Review R{format_number(round_num)}: {format_number(len(files))} files of {author.label}")
+        system_prompt = _seat_system(reviewer, "review", lang, plan.seats, round_num=round_num, **_file_lists(files))
+        await _compress_before(ctx, plan, reviewer, _prompt_tokens(system_prompt))
+        call = _call(ctx, reviewer, system_prompt, memory_before_question=True)
+        debug(_prompt_line(call, f"R{round_num}", reviewer.num_ctx))
+        log_raw_messages(f"{reviewer.label} R{round_num}", call.messages)
+        result = await _speak(ctx, call)
+        if result is None:
+            return
+        finish_call(ctx, call, result, mode="code_review", round_num=round_num)
+        if _agrees(result.text):
+            debug(f"✅ Code review passed in round {format_number(round_num)}")
+            return
+        if round_num == max_rounds:
+            debug(f"⚠️ Code review still open after {format_number(max_rounds)} rounds")
+            return
+
+        question = seat_prompt(
+            "review_fix", plan.seats, lang,
+            review=strip_thinking_blocks(result.text), round_num=round_num + 1, **_file_lists(files),
+        )
+        system_prompt = _with_memory(_base_system(author, lang, plan.seats), author)
+        await _compress_before(ctx, plan, author, _prompt_tokens(system_prompt, question))
+        call = _call(ctx, author, system_prompt, question=question, log_label=f"{author.label} Fix")
+        debug(_prompt_line(call, f"R{round_num + 1}", author.num_ctx))
+        log_raw_messages(f"{author.label} R{round_num + 1}", call.messages)
+        result = await _speak(ctx, call)
+        if result is None:
+            return
+        finish_call(ctx, call, result, mode="review_fix", round_num=round_num + 1)
+
+
+def _author_files(ctx: TurnContext, author: str) -> dict[str, str]:
+    """The files the author changed in this turn so far (its answer and its fixes), path → kind
+    (lib/document_changes.py); each of its toolkits once."""
+    from . import document_changes
+
+    files: dict[str, str] = {}
+    toolkits = {id(call.toolkit): call.toolkit for call in ctx.calls if call.agent == author and call.toolkit is not None}
+    for toolkit in toolkits.values():
+        document_changes.merge(files, toolkit.changed_documents)
+    return files
+
+
+def _file_lists(files: dict[str, str]) -> dict[str, str]:
+    """The prompts' three lists: new, changed and deleted files, each comma-separated or "—"."""
+    from . import document_changes
+
+    def listed(kind: str) -> str:
+        return ", ".join(path for path, found in files.items() if found == kind) or "—"
+
+    return {
+        "new_files": listed(document_changes.NEW),
+        "changed_files": listed(document_changes.CHANGED),
+        "deleted_files": listed(document_changes.DELETED),
+    }
 
 
 def _agrees(text: str) -> bool:

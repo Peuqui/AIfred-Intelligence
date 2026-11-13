@@ -15,6 +15,11 @@ const rows = computed(() => {
     { mode: t("multi_agent_standard"), flow: t("multi_agent_help_standard_flow"), decision: t("multi_agent_help_standard_decision") },
     { mode: t("multi_agent_critical_review"), flow: t("multi_agent_help_critical_review_flow"), decision: t("multi_agent_help_critical_review_decision") },
     {
+      mode: t("multi_agent_code_review"),
+      flow: t("multi_agent_help_code_review_flow", { rounds }),
+      decision: t("multi_agent_help_code_review_decision"),
+    },
+    {
       mode: t("multi_agent_auto_consensus"),
       flow: t("multi_agent_help_auto_consensus_flow", { rounds }),
       decision: t("multi_agent_help_auto_consensus_decision", { consensus }),

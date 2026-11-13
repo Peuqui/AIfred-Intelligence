@@ -84,7 +84,7 @@ def test_the_debate_seats_are_the_sessions_choice_over_the_default(client: TestC
 def test_every_mode_names_the_seats_a_session_chooses_for_it(client: TestClient) -> None:
     modes = {entry["mode"]: entry["seats"] for entry in client.get("/debate/modes").json()}
     assert modes == {
-        "standard": [], "critical_review": ["critic"], "auto_consensus": ["critic", "judge"],
+        "standard": [], "critical_review": ["critic"], "code_review": ["critic"], "auto_consensus": ["critic", "judge"],
         "tribunal": ["critic", "judge"], "symposion": [],
     }
 

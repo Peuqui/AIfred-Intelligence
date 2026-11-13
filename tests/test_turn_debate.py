@@ -401,3 +401,79 @@ def test_a_cancelled_debate_keeps_the_streamed_critique(world: dict[str, Any]) -
     assert reply["agent"] == "sokrates" and reply["content"].startswith("Halb gedacht")
     assert _speakers() == ["[AIFRED]", "[SOKRATES]"]
     assert _events("turn_finished")[0]["status"] == "cancelled"
+
+
+# ── code_review ──────────────────────────────────────────────────────────
+
+
+def test_code_review_ends_when_the_reviewer_gives_lgtm(world: dict[str, Any]) -> None:
+    _mode("code_review")
+    world["replies"] = {
+        "Sokrates": ["Befund: Zeile 12 rechnet falsch. [WEITER]", "Alles behoben. [LGTM]"],
+        "AIfred Fix": ["Zeile 12 korrigiert."],
+    }
+    _turn("Bau mir einen Rechner.")
+    assert _bubbles() == [
+        ("aifred", "direct", None),
+        ("sokrates", "code_review", 1),
+        ("aifred", "review_fix", 2),
+        ("sokrates", "code_review", 2),
+    ]
+    chat = _data()["chat_history"]
+    assert "[Code-Review R1]" in chat[2]["content"]                  # the mode is the step: no prefix
+    assert "[Code-Review: Korrektur R2]" in chat[3]["content"]
+    assert any("Code review passed in round 2" in event["line"] for event in _events("debug"))
+    # The fix answers the review: the author's task, after the history, with the files it changed.
+    fix = next(messages for label, messages in world["calls"] if label == "AIfred Fix")
+    assert fix[-1]["role"] == "user" and "Zeile 12 rechnet falsch." in fix[-1]["content"]
+    review = _system_prompt(world, "Sokrates")
+    assert "CODE-REVIEW" in review and "Neu: —" in review          # no toolkit here: no files
+
+
+def test_without_lgtm_the_code_review_stops_after_max_debate_rounds(world: dict[str, Any]) -> None:
+    _mode("code_review")
+    world["view"].max_debate_rounds = 2
+    _turn("Bau mir einen Rechner.")
+    assert _bubbles() == [
+        ("aifred", "direct", None),
+        ("sokrates", "code_review", 1),
+        ("aifred", "review_fix", 2),
+        ("sokrates", "code_review", 2),
+    ]                                                                  # no fix after the last review
+    assert any("Code review still open after 2 rounds" in event["line"] for event in _events("debug"))
+
+
+def test_the_reviewer_gets_the_files_the_author_changed(
+    world: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The author's direct answer writes a file through its toolkit; the review names it."""
+    from aifred.lib import agent_memory, document_changes, llm_pipeline
+    from aifred.lib.function_calling import Tool, ToolKit
+
+    documents = tmp_path / "documents"
+    documents.mkdir()
+    monkeypatch.setattr(document_changes, "DOCUMENTS_DIR", documents)
+
+    def write(path: str) -> str:
+        (documents / path).write_text("<html></html>", encoding="utf-8")
+        return "ok"
+
+    async def toolkit(agent: str, *_args: Any, **_kwargs: Any) -> tuple[str, ToolKit]:
+        tools = [Tool(name="execute_code_write", description="x", parameters={}, executor=write, tier=2)]
+        return "", ToolKit(tools=tools, _source="browser", _max_tier=4)
+
+    scripted = llm_pipeline.run_llm_stream
+
+    async def stream(client: Any, model: str, messages: list[dict[str, Any]], options: Any, label: str,
+                     **kwargs: Any) -> AsyncIterator[dict[str, Any]]:
+        if label == "AIfred":
+            await kwargs["toolkit"].execute("execute_code_write", {"path": "rechner.html"})
+        async for event in scripted(client, model, messages, options, label, **kwargs):
+            yield event
+
+    monkeypatch.setattr(agent_memory, "prepare_agent_toolkit", toolkit)
+    monkeypatch.setattr(llm_pipeline, "run_llm_stream", stream)
+    _mode("code_review")
+    world["replies"] = {"Sokrates": ["Geprüft. [LGTM]"]}
+    _turn("Bau mir einen Rechner.")
+    assert "Neu: rechner.html" in _system_prompt(world, "Sokrates")

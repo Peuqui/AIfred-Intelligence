@@ -40,6 +40,7 @@ comma-separated key=value pairs:
 - `multi=tribunal`   → all three agents debate (AIfred + Sokrates + Salomo)
 - `multi=symposion`  → multiple selected agents discuss
 - `multi=critical_review` → Sokrates critically reviews AIfred's answer
+- `multi=code_review` → a reviewer reads and tests the code the answering agent wrote, the author fixes the findings, until the review passes
 - `multi=auto_consensus`  → agents debate until consensus
 - `agent=<id>`       → set a specific agent as responder. **MUST be the
   lowercase agent ID** from the list in section 2 above (e.g. `hal`,

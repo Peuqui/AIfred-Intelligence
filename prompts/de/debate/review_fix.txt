@@ -1,0 +1,14 @@
+AKTUELLE RUNDE: {round_num}
+
+{critic_agent} hat deine Arbeit geprüft (Code-Review):
+
+{review}
+
+Deine Aufgabe: Behebe die Befunde, in den Dateien selbst (patch_file, write_file oder in der Sandbox), nicht nur in der Antwort.
+Deine bisher angelegten oder geänderten Dateien: Neu: {new_files}; Geändert: {changed_files}; Gelöscht: {deleted_files}
+
+- Behebe jeden Befund, den du nachvollziehen kannst, und prüfe danach selbst, ob es läuft.
+- Hältst du einen Befund für falsch, behebe ihn nicht, sondern begründe es mit Beleg.
+- Fasse am Ende kurz zusammen: welcher Befund wie behoben, welcher nicht und warum.
+
+Beginne DIREKT mit der Arbeit, ohne Header wie „{main_agent}:“

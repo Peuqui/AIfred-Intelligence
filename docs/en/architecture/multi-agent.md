@@ -2,7 +2,7 @@
 
 > **Deutsche Version:** [multi-agent.md](../../de/architecture/multi-agent.md)
 
-How AIfred's agents work together: the built-in and custom agents, the five
+How AIfred's agents work together: the built-in and custom agents, the six
 discussion modes, how each agent sees the conversation, and which prompt files
 drive which step.
 
@@ -66,6 +66,7 @@ The current date and time are part of every prompt, so temporal questions work.
 |---|---|---|
 | **Standard** | One agent answers (selected via the agent pills) | — |
 | **Critical Review** | AIfred → Sokrates (critique + pro/contra) → stop | You |
+| **Code Review** | Author → reviewer reads and tests the changed files → author fixes → review again, up to N rounds | Reviewer (`[LGTM]`) |
 | **Auto-Consensus** | AIfred → Sokrates → Salomo, up to N rounds | Salomo (votes) |
 | **Tribunal** | AIfred ↔ Sokrates for N rounds → Salomo | Salomo (verdict) |
 | **Symposion** | 2+ freely chosen agents discuss for N rounds, reflection layer from round 2 | Nobody — multiple perspectives |
@@ -100,6 +101,18 @@ Consensus type (settings): **majority** (2 of 3 vote `[LGTM]`) or
 **unanimous** (all 3). Sokrates only criticises — deciding consensus is
 Salomo's job.
 
+### Code Review
+
+The author answers, then the reviewer (the critic's seat) checks the work: it gets the list of files the
+author created, changed or deleted in the documents during this turn, reads them, tests them in the sandbox
+and reports every finding with its place and proof, without a maximum and without a version of its own. On
+`[WEITER]` the author fixes the findings in the files and the reviewer checks again; `[LGTM]` ends the loop,
+otherwise it ends after N rounds with the last review.
+
+Which files an agent changed, its toolkit knows: every writing tool call is bracketed by a look at the
+documents folder before and after it (`lib/document_changes.py`, `ToolKit.changed_documents`). So what
+`execute_code_write` writes through code counts too.
+
 ### Tribunal
 
 ```
@@ -130,16 +143,19 @@ a replacement of the discussion prompt (`shared/symposion.txt`).
 |---|---|---|
 | Standard | any | `<agent>/system_minimal` (task layer) |
 | Direct addressing | addressed agent | `<agent>/direct` |
-| Critical Review, Auto-Consensus — critique | Sokrates | `sokrates/critic` |
-| Auto-Consensus — refinement | AIfred | `aifred/refinement` |
-| Auto-Consensus — synthesis | Salomo | `salomo/mediator` |
-| Tribunal — attack | Sokrates | `sokrates/tribunal` |
-| Tribunal — defense | AIfred | `aifred/defense` |
-| Tribunal — verdict | Salomo | `salomo/judge` |
+| Critical Review, Auto-Consensus — critique | critic | `debate/critic` |
+| Code Review — review | critic (reviewer) | `debate/review` |
+| Code Review — fix | author | `debate/review_fix` |
+| Auto-Consensus — refinement | author | `debate/refinement` |
+| Auto-Consensus — synthesis | judge | `debate/mediator` |
+| Tribunal — attack | critic | `debate/tribunal` |
+| Tribunal — defense | author | `debate/defense` |
+| Tribunal — verdict | judge | `debate/judge` |
 | Symposion | every participant | `shared/symposion` (+ `shared/symposion_reflection` from round 2) |
 
 `{round_num}` is filled in so the critic knows which round it is; critics are
-told to raise at most one or two points per round.
+told to raise at most one or two points per round (not the code review: it reports everything it can
+prove).
 
 ---
 
@@ -207,6 +223,8 @@ carry a label `[<mode>: <step> R<round>]` (built in `_chat_mixin.py`):
 |---|---|
 | 🎩 AIfred | Standard answer or directly addressed agent (no label) |
 | 🏛️ Sokrates [Critical Review] | Critique in Critical Review |
+| 🔴 HAL 9000 [Code Review R1] | Review, round 1 |
+| 🤖 Codine [Code Review: Fix R2] | Fix after the review, round 2 |
 | 🎩 AIfred [Auto-Consensus: Refinement R2] | Refinement, round 2 |
 | 👑 Salomo [Auto-Consensus: Synthesis R2] | Synthesis, round 2 |
 | 🏛️ Sokrates [Tribunal R1] | Tribunal exchange, round 1 |
