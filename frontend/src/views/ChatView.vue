@@ -39,7 +39,7 @@ const agents = ref<AgentSummary[]>([]);
 const colors = ref<Record<string, string>>({});
 const modes = ref<DebateMode[]>([]);
 const messages = ref<HTMLElement | null>(null);
-const chatMain = ref<HTMLElement | null>(null);
+const agentRow = ref<HTMLElement | null>(null);
 const streamingHtml = computed(() => (chat.streaming ? renderMarkdown(chat.streaming.text) : ""));
 const hasReplies = computed(() => chat.history.some((entry) => entry.role === "assistant"));
 // The history in turns: a question with the answers after it. The question stays at the top edge of the box while its
@@ -182,11 +182,12 @@ watch(() => chat.sessionId, async () => {
   if (messages.value) messages.value.scrollTop = messages.value.scrollHeight;
 });
 
-// A chat chosen in the list: it opens, the list has closed, and the page goes to the chat so that it shows.
+// A chat chosen in the list: it opens, the list has closed, and the page goes to the chat so that it shows: the agents'
+// row, the last of what belongs to the chat, at the bottom edge, the title above the box at the top (the box is sized for it).
 async function openSession(sessionId: string): Promise<void> {
   await chat.open(sessionId);
   await nextTick();
-  chatMain.value?.scrollIntoView({ block: "start", behavior: "smooth" });
+  agentRow.value?.scrollIntoView({ block: "end", behavior: "smooth" });
 }
 
 // The shell shows this page only once logged in and has opened the session (App.vue).
@@ -198,7 +199,7 @@ onMounted(() => void start());
 <template>
   <div class="layout" :class="{ column: sessionsColumn }">
     <SessionList class="side" :current="chat.sessionId" @open="openSession" @create="create" @remove="remove" />
-    <main ref="chatMain" class="chat">
+    <main class="chat">
       <!-- The history's title with the text size and the ⋮ of what concerns the whole chat above it; the input as in
            Agent-Orc, who answers and how below it (Peuqui 09.11.2026). -->
       <div class="toolbar">
@@ -270,7 +271,7 @@ onMounted(() => void start());
       />
       <!-- Who answers: the agents in a row of their own (room for more), below it the mode with its seats, memory, the
            quick choices and the help on the left, Vigilantia on the right (Peuqui 09.11.2026). -->
-      <div class="who">
+      <div ref="agentRow" class="who">
         <AgentPills :config="chat.config" :agents="agents" @configure="chat.configure" />
       </div>
       <div class="how">
