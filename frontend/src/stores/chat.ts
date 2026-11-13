@@ -110,6 +110,19 @@ export const useChat = defineStore("chat", () => {
     await open(latest ? latest.session_id : await sessions.create());
   }
 
+  // The page may have missed what the server pushes only on change (it started anew, the stream ended, the user was on
+  // another device): the status line, every list and the open session are read anew. A page that comes back to the front
+  // calls it too (App.vue); the second call of the focus events that arrive together is skipped.
+  const RESYNC_MIN_GAP_MS = 2000;
+  let resyncedAt = -Infinity;
+  function resync(): void {
+    if (performance.now() - resyncedAt < RESYNC_MIN_GAP_MS) return;
+    resyncedAt = performance.now();
+    void useServiceStatus().fetch(false);
+    RESOURCES.forEach(resourceChanged);
+    if (sessionId.value) void load(sessionId.value);
+  }
+
   function close(): void {
     source?.close();
     speech.stop();
@@ -165,11 +178,7 @@ export const useChat = defineStore("chat", () => {
         break;
       }
       case "resync":
-        // The server started anew: the status line and every list it pushes only on change may have changed while
-        // this page was not listening, and nothing pushes them to a page that was open.
-        void useServiceStatus().fetch(false);
-        RESOURCES.forEach(resourceChanged);
-        if (sessionId.value) void load(sessionId.value);
+        resync();
         break;
       case "history_replaced":
         history.value = data.chat_history as ChatEntry[];
@@ -451,7 +460,7 @@ export const useChat = defineStore("chat", () => {
 
   return {
     sessionId, title, history, debugLines, config, running, streaming, toolStatus, phase, notice, info, queued,
-    pendingImages, uploading, draft, dictations, open, openLatest, close, send, stop, configure,
+    pendingImages, uploading, draft, dictations, open, openLatest, resync, close, send, stop, configure,
     uploadImages, removeImage, dictate, dictated,
     readAgain, regenerating, regenerateAll, rotateImage, cropImage, exportChat, clearChat,
     remembering, remember, mediaControl,

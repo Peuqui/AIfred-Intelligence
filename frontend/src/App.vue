@@ -56,9 +56,17 @@ watch(() => auth.user, (user) => {
 
 // Asked once a minute and whenever the page comes back to the front (a tab switched to, the app reopened).
 setInterval(() => void checkForUpdate(), UPDATE_CHECK_MS);
+// Also the lists and the open session are read anew then: what happened on another device or while the page slept
+// reaches no page that was not listening (the user switches between devices).
+function pageCameBack(): void {
+  void checkForUpdate();
+  if (auth.user) chat.resync();
+}
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") void checkForUpdate();
+  if (document.visibilityState === "visible") pageCameBack();
 });
+window.addEventListener("focus", pageCameBack);
+window.addEventListener("online", pageCameBack);
 
 onMounted(async () => {
   // AIfred's UI language, also for the login form (the shell serves it without a login).

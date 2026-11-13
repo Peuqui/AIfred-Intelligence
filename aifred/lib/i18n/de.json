@@ -53,6 +53,7 @@
   "chat_messages": "Nachrichten",
   "saved_chats": "📁 Gespeicherte Chats",
   "sessions_place_above": "Liste über den Chat setzen",
+  "sessions_reload": "Chats neu laden",
   "sessions_place_column": "Liste als Spalte links neben den Chat setzen",
   "no_saved_chats": "Keine gespeicherten Chats",
   "new_chat": "Neuer Chat",

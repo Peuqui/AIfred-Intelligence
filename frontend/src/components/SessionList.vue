@@ -2,7 +2,7 @@
 // The user's sessions, the last used first: open, start a new one, delete one, or select several (or all) and delete
 // them. On a wide window a column at the left of the chat, always open (lib/sessionsColumn.ts), else an accordion
 // above it; the switch between both shows only where the column is possible.
-import { PanelLeft, PanelTop } from "lucide-vue-next";
+import { PanelLeft, PanelTop, RefreshCw } from "lucide-vue-next";
 import { computed, ref } from "vue";
 import { t } from "../i18n";
 import { useSessionsColumn } from "../lib/sessionsColumn";
@@ -55,6 +55,9 @@ function removeAll(): void {
       >
         <PanelTop v-if="column.shown.value" :size="16" /><PanelLeft v-else :size="16" />
       </button>
+      <button class="reload" :title="t('sessions_reload')" :aria-label="t('sessions_reload')" @click="sessions.refresh()">
+        <RefreshCw :size="16" />
+      </button>
       <button class="new" @click="emit('create')">＋ {{ t("new_chat") }}</button>
     </header>
     <!-- The choosing of chats in a row of its own, as soon as the list is open; its buttons (and the boxes at the chats)
@@ -92,7 +95,8 @@ function removeAll(): void {
 .sessions.column header { flex-wrap: wrap; }
 .sessions.column .toggle { flex-basis: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sessions.column .placement { margin-left: auto; }
-.placement { display: inline-flex; align-items: center; background: none; border: none; padding: 2px; color: var(--aifred-text-secondary); cursor: pointer; }
+.reload:hover { color: var(--aifred-primary); }
+.placement, .reload { display: inline-flex; align-items: center; background: none; border: none; padding: 2px; color: var(--aifred-text-secondary); cursor: pointer; }
 .count { margin-left: 6px; font-weight: 400; color: var(--aifred-text-muted); }
 header { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 600; }
 .new, .remove, .entry { background: none; border: none; color: inherit; cursor: pointer; font: inherit; }
