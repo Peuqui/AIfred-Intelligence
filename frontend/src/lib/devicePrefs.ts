@@ -40,12 +40,20 @@ export const chatZoom = stored("aifred-chat-zoom", ZOOM.default, isZoom);
 export const uiZoom = stored("aifred-ui-zoom", ZOOM.default, isZoom);
 export const consoleZoom = stored("aifred-console-zoom", ZOOM.default, isZoom);
 
+// The heights the user dragged with the grips under the chat, the input field and the console (px in the box's own
+// units); none = the default height.
+const isHeight = (value: unknown): value is number | null => value === null || (typeof value === "number" && value > 0);
+export const chatHeight = stored<number | null>("aifred-chat-height", null, isHeight);
+export const inputHeight = stored<number | null>("aifred-input-height", null, isHeight);
+export const consoleHeight = stored<number | null>("aifred-console-height", null, isHeight);
+
 const zooms = { chat: chatZoom, ui: uiZoom, console: consoleZoom };
 export type ZoomName = keyof typeof zooms;
 
-/** Every size of this device back to the default (the chat's, the interface's, the console's). */
+/** Every size of this device back to the default (the chat's, the interface's, the console's, and the dragged heights). */
 export function resetZooms(): void {
   for (const zoom of Object.values(zooms)) zoom.value = ZOOM.default;
+  for (const height of [chatHeight, inputHeight, consoleHeight]) height.value = null;
 }
 
 export function zoomBy(name: ZoomName, steps: number): void {

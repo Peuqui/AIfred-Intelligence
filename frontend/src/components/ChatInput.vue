@@ -3,12 +3,13 @@ import { Send, Square, X } from "lucide-vue-next";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import type { Settings, UploadedImage } from "../api/types";
 import { language, t } from "../i18n";
-import { enterSends } from "../lib/devicePrefs";
+import { enterSends, inputHeight } from "../lib/devicePrefs";
 import * as recorder from "../lib/recorder";
 import { speaking } from "../lib/speech";
 import { useServiceStatus } from "../stores/serviceStatus";
 import AttachMenu from "./AttachMenu.vue";
 import DictationBadge, { type BadgePhase } from "./DictationBadge.vue";
+import ResizeGrip from "./ResizeGrip.vue";
 
 // The GPU mark at the microphone: shown while the STT service has a model on a GPU (its snapshot lists a "cuda" device,
 // which the service pushes after every dictation and when the idle worker has ended), as in Agent-Orc. A dictation
@@ -36,10 +37,11 @@ const emit = defineEmits<{
 // The input field's text lives in the chat store: a dictation in edit mode lands there.
 const text = defineModel<string>({ required: true });
 
-// The field grows with its text (typed, dictated, pasted) from its three rows up to its max-height, then it scrolls.
+// The field grows with its text (typed, dictated, pasted) from its three rows up to its max-height, then it scrolls. Dragged
+// by its grip, the height set is the least it keeps (the text still makes it taller, and it is never lower than its text).
 const field = ref<HTMLTextAreaElement | null>(null);
 watch(
-  text,
+  [text, inputHeight],
   async () => {
     await nextTick();
     const box = field.value;
@@ -49,6 +51,8 @@ watch(
   },
   { immediate: true },
 );
+// Never under one line (the buttons' height), whatever the finger drags to.
+const fieldSize = computed(() => `max(var(--line-size), ${inputHeight.value ?? 0}px)`);
 const recording = recorder.recording;
 const badgePhase = computed<BadgePhase>(() => (recording.value ? "listening" : props.transcribing ? "transcribing" : "ready"));
 const canSend = computed(() => text.value.trim() !== "" || props.images.length > 0);
@@ -143,6 +147,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", discardOnEscape));
       <textarea
         ref="field"
         v-model="text"
+        :style="{ minHeight: fieldSize }"
         rows="1"
         :placeholder="t('text_input_placeholder')"
         @keydown="onKey"
@@ -155,11 +160,12 @@ onBeforeUnmount(() => window.removeEventListener("keydown", discardOnEscape));
         <Send :size="20" />
       </button>
     </div>
+    <ResizeGrip :target="field" @resize="(height) => (inputHeight = height)" />
   </div>
 </template>
 
 <style scoped>
-.input { display: flex; flex-direction: column; gap: 6px; }
+.input { --grip-gap: 6px; display: flex; flex-direction: column; gap: 6px; }
 /* Paperclip, microphone, field and the buttons in the size of what one reads (the chat's A−/A+, the interface's taken
    out again), the buttons exactly as high as the field's one line: from the same line height, padding and border
    (--line-size, also the paperclip's in AttachMenu; its em is the field's). */
@@ -177,7 +183,8 @@ textarea {
   flex: 1;
   min-width: 0;
   box-sizing: border-box;
-  resize: vertical;
+  resize: none;
+  min-height: var(--line-size);
   max-height: calc(40 * var(--vh));
   overflow-y: auto;
   padding: var(--field-pad);

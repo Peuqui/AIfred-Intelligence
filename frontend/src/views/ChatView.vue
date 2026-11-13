@@ -10,6 +10,7 @@ import DebateControls from "../components/DebateControls.vue";
 import VisionBadge from "../components/VisionBadge.vue";
 import ChatInput from "../components/ChatInput.vue";
 import DebugConsole from "../components/DebugConsole.vue";
+import ResizeGrip from "../components/ResizeGrip.vue";
 import ImageEditor from "../components/ImageEditor.vue";
 import MediaPlayer from "../components/MediaPlayer.vue";
 import TtsIcon from "../components/TtsIcon.vue";
@@ -17,7 +18,7 @@ import MessageBubble from "../components/MessageBubble.vue";
 import SessionList from "../components/SessionList.vue";
 import TurnProgress from "../components/TurnProgress.vue";
 import { t } from "../i18n";
-import { ZOOM, chatZoom, zoomBy } from "../lib/devicePrefs";
+import { ZOOM, chatHeight, chatZoom, zoomBy } from "../lib/devicePrefs";
 import { pinQuestion } from "../lib/devicePrefs";
 import { answerStartTop, isAtEnd } from "../lib/followScroll";
 import { useSessionsColumn } from "../lib/sessionsColumn";
@@ -39,6 +40,7 @@ const agents = ref<AgentSummary[]>([]);
 const colors = ref<Record<string, string>>({});
 const modes = ref<DebateMode[]>([]);
 const messages = ref<HTMLElement | null>(null);
+const MESSAGES_MIN_HEIGHT = 120; // px: a box the grip cannot shrink to nothing
 const agentRow = ref<HTMLElement | null>(null);
 const streamingHtml = computed(() => (chat.streaming ? renderMarkdown(chat.streaming.text) : ""));
 const hasReplies = computed(() => chat.history.some((entry) => entry.role === "assistant"));
@@ -223,7 +225,7 @@ onMounted(() => void start());
           </ChatMenu>
         </div>
       </div>
-      <div ref="messages" class="messages" @scroll.passive="updateStuck">
+      <div ref="messages" class="messages" :style="chatHeight ? { height: `${chatHeight}px` } : undefined" @scroll.passive="updateStuck">
         <div class="bubbles">
         <section v-for="turn in turns" :key="turn.key" :data-key="turn.key" class="turn">
           <MessageBubble
@@ -251,6 +253,7 @@ onMounted(() => void start());
         <p v-if="settings.notice" class="notice">⚠️ {{ settings.notice }}</p>
         </div>
       </div>
+      <ResizeGrip :target="messages" :min-height="MESSAGES_MIN_HEIGHT" @resize="(height) => (chatHeight = height)" />
       <MediaPlayer />
       <ChatInput
         v-if="settings.current"
@@ -314,7 +317,7 @@ onMounted(() => void start());
   flex: none; width: var(--sessions-column-width); position: sticky; top: 12px; max-height: calc(100 * var(--dvh) - 24px);
 }
 .layout.column .chat { flex: 1; }
-.chat { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding-bottom: 12px; }
+.chat { --grip-gap: 10px; display: flex; flex-direction: column; gap: 10px; min-width: 0; padding-bottom: 12px; }
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .toolbar h2 { margin-right: auto; }
 /* The text size and the ⋮ wrap as one: when they no longer fit beside the title they go down together, not one by one. */
