@@ -32,6 +32,13 @@ def history_speaker(content: str) -> tuple[str | None, str]:
     return agent, content[match.end():]
 
 
+def context_message(content: str) -> dict[str, str]:
+    """A summary of compressed history as the model sees it: a user message with a context prefix
+    (many models allow one system message only, at the start). The history builder and the
+    compression inside the tool loop (context_manager.compress_tool_loop) both use it."""
+    return {"role": "user", "content": f"[CONVERSATION CONTEXT]:\n{content}"}
+
+
 def build_messages_from_llm_history(
     llm_history: list[dict[str, str]],
     current_user_text: str = "",
@@ -60,7 +67,7 @@ def build_messages_from_llm_history(
         role = msg.get("role", "user")
         content = msg.get("content", "")
         if role == "system":
-            messages.append({"role": "user", "content": f"[CONVERSATION CONTEXT]:\n{content}"})
+            messages.append(context_message(content))
             continue
         speaker, text = history_speaker(content)
         if speaker == perspective and not observer:

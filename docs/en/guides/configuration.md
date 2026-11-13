@@ -183,20 +183,22 @@ Two independent toggles per agent in the LLM settings:
 
 ## History compression
 
-A check runs **before** every LLM call. At 70 % context utilisation the oldest
-messages are compressed into a summary:
+A check runs **before** every LLM call. At 85 % context utilisation the oldest
+messages are compressed into a summary. The same thresholds apply **within a turn**, in the
+tool loop (see below):
 
 | Parameter (`config.py`) | Value | Meaning |
 |---|---|---|
-| `HISTORY_COMPRESSION_TRIGGER` | 0.7 | compress at 70 % utilisation |
+| `HISTORY_COMPRESSION_TRIGGER` | 0.85 | compress at 85 % utilisation |
 | `HISTORY_COMPRESSION_TARGET` | 0.3 | target after compression (room for ~2 round trips) |
 | `HISTORY_SUMMARY_RATIO` | 0.25 | summary = 25 % of the compressed content (4:1) |
 | `HISTORY_SUMMARY_MIN_TOKENS` | 500 | minimum for a useful summary |
 | `HISTORY_SUMMARY_TOLERANCE` | 0.5 | allowed overshoot, beyond that it is truncated |
 | `HISTORY_SUMMARY_MAX_RATIO` | 0.2 | at most 20 % of the context for summaries |
+| `TOOL_LOOP_KEPT_ROUNDS` | 2 | tool rounds of the running turn the in-turn compression never touches |
 
 **Algorithm**
-1. Pre-check before each LLM call, trigger at 70 %
+1. Pre-check before each LLM call, trigger at 85 %
 2. Maximum number of summaries from the context size (20 % budget / 500 tokens, capped at 10)
 3. Too many summaries → the oldest is dropped first (FIFO)
 4. Collect the oldest messages until less than 30 % remain
@@ -205,14 +207,25 @@ messages are compressed into a summary:
 
 | Context | Trigger | Target | Compressed | Summary |
 |---|---|---|---|---|
-| 7K | 4,900 tok | 2,100 tok | ~2,800 tok | ~700 tok |
-| 40K | 28,000 tok | 12,000 tok | ~16,000 tok | ~4,000 tok |
-| 200K | 140,000 tok | 60,000 tok | ~80,000 tok | ~20,000 tok |
+| 7K | 5,950 tok | 2,100 tok | ~3,850 tok | ~960 tok |
+| 40K | 34,000 tok | 12,000 tok | ~22,000 tok | ~5,500 tok |
+| 200K | 170,000 tok | 60,000 tok | ~110,000 tok | ~27,500 tok |
 
 The token estimate ignores `<details>`, `<span>` and `<think>` blocks (they are
 not sent to the LLM). Summaries appear inline in the chat where compression
 happened, as collapsibles; the FIFO limit only applies to `llm_history` — the
 visible `chat_history` keeps every summary.
+
+**Within a turn (tool loop):** when a request's context reaches the trigger during its tool rounds
+(measured as before: the server-reported fill plus the new tool results),
+`context_manager.compress_tool_loop` first summarizes the earlier conversation and, if that does not
+reach the target, the oldest finished tool rounds of this turn. The system message, the user's
+question and the last two rounds stay verbatim; a round (calls and their results) is never split.
+The summary sits as a context message before the question, and the tools stay. The same model
+summarizes as before a message. This only affects the messages of this request; the stored history
+stays, and before the next message compression works as usual. Only if the context is still over
+the trigger afterwards (nothing left to compress) does the tool phase end as before: no more tools,
+the `utility/context_guard` note, the answer.
 
 ---
 

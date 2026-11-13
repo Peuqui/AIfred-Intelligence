@@ -3,12 +3,14 @@ Context Manager - Token and Context Window Management
 
 Handles token estimation and history compression for LLMs:
 - Token estimation for messages (using HuggingFace tokenizers)
-- History compression (summarize_history_if_needed)
+- History compression before a message (summarize_history_if_needed) and inside
+  a turn's tool loop (compress_tool_loop), both summarizing with summarize_messages
 """
 
 import json
 import re
 from collections.abc import AsyncIterator, Iterable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from .config import (
@@ -20,6 +22,7 @@ from .config import (
     HISTORY_SUMMARY_RATIO,
     HISTORY_SUMMARY_TEMPERATURE,
     HISTORY_SUMMARY_TOLERANCE,
+    TOOL_LOOP_KEPT_ROUNDS,
 )
 from .formatting import format_number
 from .logging_utils import log_message, log_raw_messages
@@ -31,6 +34,12 @@ if TYPE_CHECKING:
 
 # Global tokenizer cache (model_name -> tokenizer)
 _tokenizer_cache: dict[str, "Tokenizer"] = {}
+
+# Marks a summary entry in the llm_history (role "system"); the history builder hands it to the
+# model as a context message (message_builder.context_message).
+SUMMARY_PREFIX = "[Summary]"
+# A summary shorter than this counts as failed: the messages stay as they are.
+_MIN_SUMMARY_CHARS = 10
 
 
 def parse_model_size_from_name(model_name: str) -> float:
@@ -382,6 +391,170 @@ def count_summaries(history: list[dict[str, Any]]) -> int:
     return sum(1 for msg in history if is_summary_message(msg))
 
 
+def llm_summary_entry(summary_text: str) -> dict[str, str]:
+    """A summary as llm_history entry (clean text, no UI markers)."""
+    return {"role": "system", "content": f"{SUMMARY_PREFIX}\n{summary_text.strip()}"}
+
+
+def _is_llm_summary(msg: dict[str, Any]) -> bool:
+    return msg.get("role") == "system" and str(msg.get("content", "")).startswith(SUMMARY_PREFIX)
+
+
+async def summarize_messages(
+    messages: list[dict[str, Any]],
+    llm_client: Any,
+    model_name: str,
+    context_limit: int,
+    detected_language: str,
+) -> AsyncIterator[dict]:
+    """Summarize ``messages`` (``role`` and text ``content``) with the compression model.
+
+    The one place that turns messages into a summary, before a message (summarize_history_if_needed)
+    and inside a turn's tool loop (compress_tool_loop): prompt utility/history_summarization, summary
+    size HISTORY_SUMMARY_RATIO of the compressed content (at least HISTORY_SUMMARY_MIN_TOKENS), cut
+    beyond HISTORY_SUMMARY_TOLERANCE. ``num_ctx`` of the request comes from the compression model's
+    calibration, ``context_limit`` only when it has none.
+
+    Yields debug events, last ``{"type": "summary", "text": str, "thinking": str}``; ``text`` is
+    empty when the summary failed or came back too short (the caller keeps its messages then).
+    """
+    import datetime
+
+    from .formatting import fix_orphan_closing_think_tag
+    from .logging_utils import log_exception
+
+    tokens_to_compress = estimate_tokens_from_llm_history(messages)
+    summary_target_tokens = get_summary_target_tokens(tokens_to_compress)
+    summary_target_words = int(summary_target_tokens * 0.75)  # ~0.75 words per token for German
+
+    log_message(f"   └─ LLM messages to compress: {len(messages)}")
+    log_message(f"   └─ Tokens to compress: {format_number(tokens_to_compress)}")
+    log_message(f"   └─ Summary target: {format_number(summary_target_tokens)} tok (~{format_number(summary_target_words)} words)")
+
+    # Format conversation for summary LLM
+    conversation_text = ""
+    for i, msg in enumerate(messages, 1):
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+        # Strip thinking blocks from content
+        clean_content = strip_thinking_blocks(content) if content else ""
+        log_message(f"   └─ Msg {i}: {role}={len(content)}→{len(clean_content)} chars")
+        conversation_text += f"{role.title()}: {clean_content}\n\n"
+
+    # Load summarization prompt with dynamic target
+    summary_prompt = load_prompt(
+        'utility/history_summarization',
+        lang=detected_language,
+        conversation=conversation_text.strip(),
+        max_tokens=summary_target_tokens,
+        max_words=summary_target_words
+    )
+
+    start_timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+
+    # Get num_ctx from VRAM cache (calibrated value for compression model)
+    # IMPORTANT: Always use VRAM cache value, NOT manual settings!
+    # Manual num_ctx is for testing agents, not for compression.
+    from .model_vram_cache import (
+        get_llamacpp_calibration,
+        get_ollama_calibrated_max_context,
+        get_rope_factor_for_model,
+    )
+    # Try llama.cpp calibration first, then Ollama
+    compression_num_ctx = get_llamacpp_calibration(model_name)
+    if not compression_num_ctx:
+        rope_factor = get_rope_factor_for_model(model_name)
+        compression_num_ctx = get_ollama_calibrated_max_context(model_name, rope_factor)
+    if not compression_num_ctx:
+        # Not calibrated: the context the caller measured with
+        compression_num_ctx = context_limit
+        log_message(f"⚠️ Compression model {model_name} not calibrated, using context_limit={context_limit}")
+
+    log_message(f"🗜️ [START {start_timestamp}] Compressing {len(messages)} messages with {model_name}...")
+    log_message(f"   └─ Compression LLM: {model_name} (Context={format_number(compression_num_ctx)}, from VRAM cache)")
+    yield {"type": "debug", "message": f"🗜️ Compression LLM: {model_name} (Context: {format_number(compression_num_ctx)})"}
+    summary_timer = Timer()
+
+    summary_text = ""
+    thinking_content = ""
+    tokens_generated = 0
+
+    try:
+        log_message("   Calling LLM (non-streaming)...")
+        from ..backends.base import LLMMessage, LLMOptions
+
+        # Rolle "user", nicht "system": Der Prompt ist ein Arbeitsauftrag samt
+        # Konversationstext, keine Rollendefinition. Chat-Templates (Qwen4Exp)
+        # brechen ab, wenn die Nachrichtenliste keine Nutzerfrage enthaelt —
+        # der Jinja-`raise_exception` kommt als HTTP 400 zurueck.
+        request = [LLMMessage(role="user", content=summary_prompt)]
+        options = LLMOptions(
+            temperature=HISTORY_SUMMARY_TEMPERATURE,
+            num_ctx=compression_num_ctx,
+            enable_thinking=False
+        )
+
+        # DEBUG: Log RAW messages sent to Compression LLM (controlled by DEBUG_LOG_RAW_MESSAGES)
+        log_raw_messages("Compression LLM", request)
+
+        response = await llm_client.chat(
+            model=model_name,
+            messages=request,
+            options=options
+        )
+
+        summary_time = summary_timer.elapsed()
+        end_timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+
+        summary_text = response.text if response else ""
+        # Repair orphaned </think> tags before any processing
+        if summary_text:
+            summary_text = fix_orphan_closing_think_tag(summary_text)
+
+        # Extract thinking content BEFORE stripping (for nested collapsible)
+        think_match = re.search(r'<think>(.*?)</think>', summary_text, flags=re.DOTALL) if summary_text else None
+        thinking_content = think_match.group(1).strip() if think_match else ""
+
+        # Strip thinking blocks — models like GPT-OSS always reason regardless of enable_thinking
+        summary_text = strip_thinking_blocks(summary_text).strip() if summary_text else ""
+
+        if response:
+            tokens_generated = response.tokens_generated
+            tokens_per_second = response.tokens_per_second
+        else:
+            tokens_generated = int(len(summary_text) / HISTORY_CHARS_PER_TOKEN)
+            tokens_per_second = tokens_generated / summary_time if summary_time > 0 else 0
+
+        log_message(f"✅ [END {end_timestamp}] Summary generated:")
+        log_message(f"   └─ Chars: {len(summary_text)}, Tokens: ~{format_number(tokens_generated)}")
+        log_message(f"   └─ Time: {format_number(summary_time, 2)}s, Speed: {format_number(tokens_per_second, 1)} tok/s")
+
+        # TOLERANCE CHECK: Is summary too large?
+        summary_tokens = int(len(summary_text) / HISTORY_CHARS_PER_TOKEN)
+        max_allowed = int(summary_target_tokens * (1 + HISTORY_SUMMARY_TOLERANCE))
+
+        if summary_tokens > max_allowed:
+            log_message(f"⚠️ Summary too large: {format_number(summary_tokens)} > {format_number(max_allowed)} (target + 50%) → truncating")
+            summary_text = truncate_to_tokens(summary_text, max_allowed)
+            yield {"type": "debug", "message": f"✂️ Summary truncated: {format_number(summary_tokens)} → ~{format_number(max_allowed)} tok"}
+
+        if tokens_to_compress > 0 and tokens_generated > 0:
+            log_message(f"   └─ Compression: {format_number(tokens_to_compress)} → {format_number(tokens_generated)} tok ({format_number(tokens_to_compress/tokens_generated, 1)}:1)")
+
+    except TimeoutError:
+        log_message("⚠️ Async timeout during summary generation")
+        yield {"type": "debug", "message": "⚠️ Summary generation timeout"}
+        summary_text = ""
+    except Exception as e:  # noqa: BLE001 — a failed summary must not end the answer
+        log_exception("❌ Error during summary generation", e)
+        yield {"type": "debug", "message": f"❌ Summary error: {e}"}
+        summary_text = ""
+
+    if len(summary_text.strip()) <= _MIN_SUMMARY_CHARS:
+        summary_text = ""
+    yield {"type": "summary", "text": summary_text, "thinking": thinking_content}
+
+
 async def summarize_history_if_needed(
     history: list[dict[str, Any]],
     llm_client,
@@ -401,7 +574,7 @@ async def summarize_history_if_needed(
     - llm_history (LLM): Alte Messages werden durch Summary ersetzt (ready-to-use für LLM)
 
     NEW ALGORITHM (dynamic, percentage-based):
-    1. Trigger: >= 70% context utilization (HISTORY_COMPRESSION_TRIGGER)
+    1. Trigger: >= 85% context utilization (HISTORY_COMPRESSION_TRIGGER, also inside the tool loop)
     2. Target: Compress down to 30% (HISTORY_COMPRESSION_TARGET) - leaves room for ~2 roundtrips
     3. Summary size: 25% of compressed content (4:1 ratio, min 500 tokens)
     4. Tolerance: Allow up to 50% over target, then truncate
@@ -435,8 +608,8 @@ async def summarize_history_if_needed(
         max_summaries = calculate_max_summaries(context_limit)
 
     # Calculate thresholds from config
-    trigger_threshold = int(context_limit * HISTORY_COMPRESSION_TRIGGER)  # 70%
-    target_threshold = int(context_limit * HISTORY_COMPRESSION_TARGET)    # 30%
+    trigger_threshold = int(context_limit * HISTORY_COMPRESSION_TRIGGER)
+    target_threshold = int(context_limit * HISTORY_COMPRESSION_TARGET)
 
     # Token estimation - use llm_history if available (already cleaned, accurate)
     if llm_history:
@@ -460,7 +633,7 @@ async def summarize_history_if_needed(
     else:
         yield {"type": "debug", "message": f"📊 History: {format_number(history_tokens)} / {format_number(context_limit)} tok ({int(utilization)}%)"}
 
-    # Check trigger: Only compress when >= 70% utilized
+    # Check trigger: Only compress when the trigger share is reached
     if total_tokens < trigger_threshold:
         return
 
@@ -491,16 +664,13 @@ async def summarize_history_if_needed(
     # Count summaries in llm_history for FIFO decision
     llm_summary_count = 0
     if llm_history is not None:
-        llm_summary_count = sum(
-            1 for msg in llm_history
-            if msg.get("role") == "system" and msg.get("content", "").startswith("[Summary]")
-        )
+        llm_summary_count = sum(1 for msg in llm_history if _is_llm_summary(msg))
 
     # FIFO only on llm_history - remove oldest summaries until below max
     while llm_summary_count >= max_summaries and llm_history is not None:
         log_message(f"⚠️ Max {max_summaries} summaries in LLM-History (have {llm_summary_count}) → removing oldest (FIFO)")
         for j, msg in enumerate(llm_history):
-            if msg.get("role") == "system" and msg.get("content", "").startswith("[Summary]"):
+            if _is_llm_summary(msg):
                 llm_history.pop(j)
                 llm_summary_count -= 1
                 yield {"type": "debug", "message": f"🗑️ Oldest LLM-Summary removed (FIFO, max={max_summaries})"}
@@ -524,7 +694,7 @@ async def summarize_history_if_needed(
     llm_preserved_summaries = []
     llm_remaining = []
     for msg in llm_history:
-        if msg.get("role") == "system" and msg.get("content", "").startswith("[Summary]"):
+        if _is_llm_summary(msg):
             llm_preserved_summaries.append(msg)
         else:
             llm_remaining.append(msg)
@@ -547,142 +717,19 @@ async def summarize_history_if_needed(
             llm_preserved_summaries + llm_remaining
         )
 
-    # Calculate tokens being compressed
-    tokens_to_compress = estimate_tokens_from_llm_history(llm_to_compress)
-    summary_target_tokens = get_summary_target_tokens(tokens_to_compress)
-    summary_target_words = int(summary_target_tokens * 0.75)  # ~0.75 words per token for German
-
     log_message("📝 Compression plan:")
-    log_message(f"   └─ LLM messages to compress: {len(llm_to_compress)}")
-    log_message(f"   └─ Tokens to compress: {format_number(tokens_to_compress)}")
-    log_message(f"   └─ Summary target: {format_number(summary_target_tokens)} tok (~{format_number(summary_target_words)} words)")
     log_message(f"   └─ LLM remaining after: {len(llm_remaining)} messages, ~{format_number(current_tokens)} tok")
 
-    # Format conversation for summary LLM
-    conversation_text = ""
-    for i, msg in enumerate(llm_to_compress, 1):
-        role = msg.get("role", "unknown")
-        content = msg.get("content", "")
-        # Strip thinking blocks from content
-        clean_content = strip_thinking_blocks(content) if content else ""
-        log_message(f"   └─ Msg {i}: {role}={len(content)}→{len(clean_content)} chars")
-        conversation_text += f"{role.title()}: {clean_content}\n\n"
-
-    # Use detected_language from Intent Detection (passed from state.py)
-
-    # Load summarization prompt with dynamic target
-    summary_prompt = load_prompt(
-        'utility/history_summarization',
-        lang=detected_language,
-        conversation=conversation_text.strip(),
-        max_tokens=summary_target_tokens,
-        max_words=summary_target_words
-    )
-
-    # LLM Summarization
-    import datetime
-    start_timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
-
-    # Get num_ctx from VRAM cache (calibrated value for compression model)
-    # IMPORTANT: Always use VRAM cache value, NOT manual settings!
-    # Manual num_ctx is for testing agents, not for compression.
-    from .model_vram_cache import (
-        get_llamacpp_calibration,
-        get_ollama_calibrated_max_context,
-        get_rope_factor_for_model,
-    )
-    # Try llama.cpp calibration first, then Ollama
-    compression_num_ctx = get_llamacpp_calibration(model_name)
-    if not compression_num_ctx:
-        rope_factor = get_rope_factor_for_model(model_name)
-        compression_num_ctx = get_ollama_calibrated_max_context(model_name, rope_factor)
-    if not compression_num_ctx:
-        # Fallback: use context_limit (min of all agents) if not calibrated
-        compression_num_ctx = context_limit
-        log_message(f"⚠️ Compression model {model_name} not calibrated, using context_limit={context_limit}")
-
-    log_message(f"🗜️ [START {start_timestamp}] Compressing {len(llm_to_compress)} messages with {model_name}...")
-    log_message(f"   └─ Compression LLM: {model_name} (Context={format_number(compression_num_ctx)}, from VRAM cache)")
-    yield {"type": "debug", "message": f"🗜️ Compression LLM: {model_name} (Context: {format_number(compression_num_ctx)})"}
-    summary_timer = Timer()
-
-    summary_text = ""
-    tokens_generated = 0
-
-    try:
-        log_message("   Calling LLM (non-streaming)...")
-        from ..backends.base import LLMMessage, LLMOptions
-
-        # Rolle "user", nicht "system": Der Prompt ist ein Arbeitsauftrag samt
-        # Konversationstext, keine Rollendefinition. Chat-Templates (Qwen4Exp)
-        # brechen ab, wenn die Nachrichtenliste keine Nutzerfrage enthaelt —
-        # der Jinja-`raise_exception` kommt als HTTP 400 zurueck.
-        messages = [LLMMessage(role="user", content=summary_prompt)]
-        options = LLMOptions(
-            temperature=HISTORY_SUMMARY_TEMPERATURE,
-            num_ctx=compression_num_ctx,
-            enable_thinking=False
-        )
-
-        # DEBUG: Log RAW messages sent to Compression LLM (controlled by DEBUG_LOG_RAW_MESSAGES)
-        log_raw_messages("Compression LLM", messages)
-
-        response = await llm_client.chat(
-            model=model_name,
-            messages=messages,
-            options=options
-        )
-
-        summary_time = summary_timer.elapsed()
-        end_timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
-
-        summary_text = response.text if response else ""
-        # Repair orphaned </think> tags before any processing
-        from .formatting import fix_orphan_closing_think_tag
-        if summary_text:
-            summary_text = fix_orphan_closing_think_tag(summary_text)
-
-        # Extract thinking content BEFORE stripping (for nested collapsible)
-        think_match = re.search(r'<think>(.*?)</think>', summary_text, flags=re.DOTALL) if summary_text else None
-        thinking_content = think_match.group(1).strip() if think_match else ""
-
-        # Strip thinking blocks — models like GPT-OSS always reason regardless of enable_thinking
-        summary_text = strip_thinking_blocks(summary_text).strip() if summary_text else ""
-
-        if response:
-            tokens_generated = response.tokens_generated
-            tokens_per_second = response.tokens_per_second
+    summary: dict[str, Any] = {}
+    async for event in summarize_messages(llm_to_compress, llm_client, model_name, context_limit, detected_language):
+        if event["type"] == "summary":
+            summary = event
         else:
-            tokens_generated = int(len(summary_text) / HISTORY_CHARS_PER_TOKEN)
-            tokens_per_second = tokens_generated / summary_time if summary_time > 0 else 0
-
-        log_message(f"✅ [END {end_timestamp}] Summary generated:")
-        log_message(f"   └─ Chars: {len(summary_text)}, Tokens: ~{format_number(tokens_generated)}")
-        log_message(f"   └─ Time: {format_number(summary_time, 2)}s, Speed: {format_number(tokens_per_second, 1)} tok/s")
-
-        # TOLERANCE CHECK: Is summary too large?
-        summary_tokens = int(len(summary_text) / HISTORY_CHARS_PER_TOKEN)
-        max_allowed = int(summary_target_tokens * (1 + HISTORY_SUMMARY_TOLERANCE))
-
-        if summary_tokens > max_allowed:
-            log_message(f"⚠️ Summary too large: {format_number(summary_tokens)} > {format_number(max_allowed)} (target + 50%) → truncating")
-            summary_text = truncate_to_tokens(summary_text, max_allowed)
-            yield {"type": "debug", "message": f"✂️ Summary truncated: {format_number(summary_tokens)} → ~{format_number(max_allowed)} tok"}
-
-        if tokens_to_compress > 0 and tokens_generated > 0:
-            log_message(f"   └─ Compression: {format_number(tokens_to_compress)} → {format_number(tokens_generated)} tok ({format_number(tokens_to_compress/tokens_generated, 1)}:1)")
-    
-    except TimeoutError:
-        log_message("⚠️ Async timeout during summary generation")
-        yield {"type": "debug", "message": "⚠️ Summary generation timeout"}
-        summary_text = ""
-    except Exception as e:  # noqa: BLE001 — a failed summary must not end the answer
-        log_message(f"❌ Error during summary generation: {e}")
-        yield {"type": "debug", "message": f"❌ Summary error: {e}"}
-        summary_text = ""
+            yield event
+    summary_text, thinking_content = summary["text"], summary["thinking"]
 
     # Build new histories only if summary successful
-    if summary_text and len(summary_text.strip()) > 10:
+    if summary_text:
         # New format: [📊 Summary #N|X Messages|Timestamp]
         # - N = sequential number (count of ALL existing summaries in entire history + 1)
         # - X Messages = how many NON-SUMMARY messages were compressed
@@ -765,11 +812,7 @@ async def summarize_history_if_needed(
         # NOTE: llm_to_compress messages are DELETED (replaced by summary), not kept!
         new_llm_history = None
         if llm_history is not None:
-            # New summary as system message (clean text only, no UI markers)
-            summary_system_msg = {
-                "role": "system",
-                "content": f"[Summary]\n{summary_text.strip()}"
-            }
+            summary_system_msg = llm_summary_entry(summary_text)
 
             # Use llm_remaining (already filtered and popped during compression loop)
             # llm_preserved_summaries = existing summaries after FIFO cleanup
@@ -811,6 +854,144 @@ async def summarize_history_if_needed(
     }
     # Calculate message count change: Compressed NON-summary messages → 1 new summary
     yield {"type": "debug", "message": f"📦 Compressed: {int(utilization)}% → {int(new_utilization)}% ({format_number(total_tokens)} → {format_number(new_total_tokens)} tok, {non_summary_compressed}→1 msg, {summaries_count} summaries)"}
+
+
+@dataclass(frozen=True)
+class LoopCompression:
+    """Who summarizes inside a tool loop. The caller of the stream knows the turn (its agents, its
+    language); the backend's loop does not, so the caller hands this in with the request."""
+
+    llm_client: Any
+    model: str
+    language: str
+
+
+def _loop_message_text(msg: dict[str, Any]) -> str:
+    """A tool-loop message as text for the summary: what it says and the calls it makes."""
+    content = msg.get("content")
+    if isinstance(content, list):
+        text = "\n".join(part.get("text", "") for part in content if part.get("type") == "text")
+    else:
+        text = content or ""
+    calls = [
+        f"{call['function']['name']}({call['function']['arguments']})" for call in msg.get("tool_calls", [])
+    ]
+    return "\n".join([text, *calls]).strip()
+
+
+def _loop_tokens(messages: list[dict[str, Any]]) -> int:
+    """Tokens of tool-loop messages: text, calls and the reasoning a backend sends back."""
+    return estimate_tokens(
+        [{"content": f"{_loop_message_text(msg)}\n{msg.get('reasoning_content', '')}"} for msg in messages]
+    )
+
+
+def _split_tool_loop(
+    messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], list[list[dict[str, Any]]]]:
+    """The tool loop's messages in their parts: the leading system message(s), the earlier
+    conversation, the current question, and this turn's tool rounds (an assistant message with its
+    tool_calls, then the tool results that answer them). Only the loop writes tool_calls, so the
+    first message carrying them opens the turn's rounds and the message before it is the question."""
+    head = 0
+    while messages[head]["role"] == "system":
+        head += 1
+    first_round = next(
+        index for index, msg in enumerate(messages) if msg["role"] == "assistant" and msg.get("tool_calls")
+    )
+    rounds: list[list[dict[str, Any]]] = []
+    for msg in messages[first_round:]:
+        if msg["role"] == "assistant" and msg.get("tool_calls"):
+            rounds.append([msg])
+        else:
+            rounds[-1].append(msg)
+    return messages[:head], messages[head:first_round - 1], messages[first_round - 1], rounds
+
+
+async def compress_tool_loop(
+    messages: list[dict[str, Any]],
+    used_tokens: int,
+    num_ctx: int,
+    compression: LoopCompression,
+) -> AsyncIterator[dict]:
+    """Make room inside a tool loop that reached HISTORY_COMPRESSION_TRIGGER, so the turn can go on.
+
+    First the earlier conversation (everything between the system message(s) and the question) is
+    summarized; when that does not reach HISTORY_COMPRESSION_TARGET, also the oldest finished tool
+    rounds of this turn. Never touched: the system message(s), the question as written and the last
+    TOOL_LOOP_KEPT_ROUNDS rounds; a round is never torn apart (its results answer its calls). The
+    summary takes the place of what it covers, as the context message a summary of the llm_history
+    becomes, right before the question: system…, summary, user, assistant(tool_calls), tool…
+
+    ``used_tokens`` is the context the loop measured (the server's count of the last request plus
+    the new results); it shrinks by what is removed and grows by the summary. The messages are this
+    request's only: the session's histories stay as they are.
+
+    Yields debug and progress events and, when it compressed, last ``{"type": "loop_compressed",
+    "messages": [...], "used_tokens": int}``. Nothing to compress or a failed summary: no such event.
+    """
+    from .message_builder import context_message
+
+    target = int(num_ctx * HISTORY_COMPRESSION_TARGET)
+    system, earlier, question, rounds = _split_tool_loop(messages)
+    to_compress = list(earlier)
+    removed = _loop_tokens(to_compress)
+    taken = 0
+    while used_tokens - removed > target and len(rounds) - taken > TOOL_LOOP_KEPT_ROUNDS:
+        to_compress.extend(rounds[taken])
+        removed += _loop_tokens(rounds[taken])
+        taken += 1
+    if not to_compress:
+        log_message("⚠️ Tool loop compression: nothing left to compress")
+        yield {"type": "debug", "message": "⚠️ Tool loop: nothing left to compress"}
+        return
+
+    log_message(
+        f"⚠️ Tool loop compression triggered: ~{format_number(used_tokens)}/{format_number(num_ctx)} tok "
+        f">= {int(HISTORY_COMPRESSION_TRIGGER * 100)}% threshold"
+    )
+    log_message(f"📝 Compression plan: {len(earlier)} earlier messages, {taken} of {len(rounds)} tool rounds")
+    yield {"type": "progress", "phase": "compress"}
+    yield {
+        "type": "debug",
+        "message": (
+            f"🗜️ Tool loop compressing: {len(earlier)} earlier messages + {taken} tool rounds "
+            f"(~{format_number(used_tokens)} → {int(HISTORY_COMPRESSION_TARGET * 100)}% target "
+            f"{format_number(target)} tok)"
+        ),
+    }
+    summary: dict[str, Any] = {}
+    texts = [{"role": msg["role"], "content": _loop_message_text(msg)} for msg in to_compress]
+    async for event in summarize_messages(texts, compression.llm_client, compression.model, num_ctx, compression.language):
+        if event["type"] == "summary":
+            summary = event
+        else:
+            yield event
+    yield {"type": "progress", "phase": ""}
+    if not summary["text"]:
+        log_message("⚠️ Tool loop summary empty - messages unchanged")
+        yield {"type": "debug", "message": "⚠️ Tool loop compression failed - messages unchanged"}
+        return
+
+    summary_message = context_message(llm_summary_entry(summary["text"])["content"])
+    compressed_tokens = used_tokens - removed + _loop_tokens([summary_message])
+    kept = [msg for round_messages in rounds[taken:] for msg in round_messages]
+    log_message(
+        f"✅ Tool loop compressed: ~{format_number(used_tokens)} → ~{format_number(compressed_tokens)} tok, "
+        f"{len(to_compress)}→1 msg"
+    )
+    yield {
+        "type": "debug",
+        "message": (
+            f"📦 Tool loop compressed: ~{format_number(used_tokens)} → ~{format_number(compressed_tokens)} tok "
+            f"({len(to_compress)}→1 msg, {len(rounds) - taken} tool rounds kept)"
+        ),
+    }
+    yield {
+        "type": "loop_compressed",
+        "messages": [*system, summary_message, question, *kept],
+        "used_tokens": compressed_tokens,
+    }
 
 
 async def prepare_automatik_llm(

@@ -77,6 +77,7 @@ Every LLM call in AIfred flows through a unified chunk-processing pipeline (`run
 | `tool_result` | `name: str, result: str` | Tool execution result |
 | `thinking` | `text: str` | Chain-of-thought block |
 | `debug` | `message: str` | Backend debug item (truncation warning, context guard, ...) |
+| `progress` | `phase: str` | Backend work between rounds: `compress` while the tool loop compresses, `""` ends it |
 | `done` | `metrics: dict` | Stream end with backend metrics |
 | `pipeline_result` | `result: PipelineResult` | Final aggregated result |
 
@@ -97,7 +98,7 @@ _chat_mixin.py: send_message()
   |-- Intent Detection (detect_query_intent_and_addressee)
   |     Returns: addressee, detected_language, mode_switch_updates,
   |              is_pure_command, raw_response, load_time
-  |-- History Compression (if >70% context utilization)
+  |-- History Compression (if >85% context utilization)
   |-- run_generic_agent_direct_response("aifred")
   |
   v

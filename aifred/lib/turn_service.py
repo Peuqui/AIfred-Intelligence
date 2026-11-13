@@ -216,6 +216,9 @@ class TurnContext:
     stamp: str            # the turn's time stamp (message_builder.user_turn_stamp)
     origin: TurnOrigin | None   # a message from outside the chat: its sender's rights for the tools
     replies: list[TurnReply]    # the turn's replies so far (finish_call), for the caller of run_turn
+    # The model that compresses for this turn, before a message and inside a tool loop: the largest of
+    # the turn's agents (context_manager.largest_compression_model; compression quality matters most).
+    compression_model: str
     # The images the answering agent sees itself in its request; empty when the turn has none or a
     # description of them joined the user turn (_look_at_images).
     seen_images: tuple[TurnImage, ...] = ()
@@ -225,6 +228,7 @@ class TurnContext:
 async def _run(request: TurnRequest, turn_id: str, routing: _Routing) -> None:
     from . import turn_debate
     from .calibration_gate import is_calibration_active
+    from .context_manager import largest_compression_model
     from .formatting import build_user_chat_entry
     from .llm_client import LLMClient
     from .message_builder import stamp_user_turn, user_turn_stamp
@@ -285,7 +289,7 @@ async def _run(request: TurnRequest, turn_id: str, routing: _Routing) -> None:
             debug("🔒 Incognito mode (no memory)")
         ctx = TurnContext(
             session_id, view, llm_client, user_text, llm_user_text, intent, request.source, mode, memory_enabled, stamp,
-            origin, routing.replies, seen,
+            origin, routing.replies, largest_compression_model(agent_model(view, member) for member in plan.agents), seen,
         )
         await _compress(ctx, plan.agents)
         if plan.responder is None:
@@ -488,20 +492,19 @@ async def _compress(ctx: TurnContext, agents: list[str]) -> None:
 
     context_limit = min(agent_context(ctx.view, agent)[0] for agent in agents)
     prompt_tokens = max(get_direct_prompt_tokens(agent, ctx.intent.language, memory=ctx.memory_enabled) for agent in agents)
-    await compress_history(ctx, agents, context_limit, prompt_tokens, 0, "Pre-Message Compression")
+    await compress_history(ctx, context_limit, prompt_tokens, 0, "Pre-Message Compression")
 
 
 async def compress_history(
     ctx: TurnContext,
-    agents: list[str],
     context_limit: int,
     system_prompt_tokens: int,
     toolkit_tokens: int,
     label: str,
 ) -> None:
-    """Compress the session's history when it would crowd ``context_limit``; the largest model of
-    the turn's ``agents`` summarizes (compression quality matters most)."""
-    from .context_manager import largest_compression_model, summarize_history_if_needed
+    """Compress the session's history when it would crowd ``context_limit``; the turn's compression
+    model summarizes."""
+    from .context_manager import summarize_history_if_needed
     from .session_storage import load_session, session_rmw_lock, update_chat_data
 
     data = (load_session(ctx.session_id) or {}).get("data", {})
@@ -509,7 +512,7 @@ async def compress_history(
     async for event in summarize_history_if_needed(
         history=data["chat_history"],
         llm_client=ctx.llm_client,
-        model_name=largest_compression_model(agent_model(ctx.view, agent) for agent in agents),
+        model_name=ctx.compression_model,
         context_limit=context_limit,
         llm_history=data.get("llm_history", []),
         system_prompt_tokens=system_prompt_tokens,
@@ -701,6 +704,7 @@ async def stream_call(ctx: TurnContext, call: AgentCall) -> PipelineResult | Non
     its reply itself.
     """
     from . import reply_speech
+    from .context_manager import LoopCompression
     from .llm_pipeline import run_llm_stream
     from .tool_output_cap import budget_var
 
@@ -723,6 +727,7 @@ async def stream_call(ctx: TurnContext, call: AgentCall) -> PipelineResult | Non
         async for event in run_llm_stream(
             ctx.llm_client, call.model, call.messages, call.options, call.log_label,
             source=ctx.source, toolkit=call.toolkit, on_debug=debug,
+            compression=LoopCompression(ctx.llm_client, ctx.compression_model, ctx.intent.language),
         ):
             result = _handle_stream_event(ctx.session_id, event, stream, ctx.view.ui_language, tool_agent) or result
         streamed = True
@@ -873,6 +878,9 @@ def _handle_stream_event(
     elif kind == "debug":
         if event.get("message"):
             debug(event["message"])
+    elif kind == "progress":
+        # The compression inside the tool loop: begun with its phase, ended with "".
+        report_phase(event["phase"])
     elif kind == "pipeline_result":
         return event["result"]
     return None

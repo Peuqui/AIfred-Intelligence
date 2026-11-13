@@ -42,7 +42,7 @@ A directly addressed agent is activated immediately, regardless of the
 temperature setting. The message itself is never rewritten by the
 detector (see [mode switches](multi-agent.md#mode-switches-by-voice-or-text)).
 
-Before every LLM call the history-compression check runs (70 % of the smallest
+Before every LLM call the history-compression check runs (85 % of the smallest
 context window, see [Configuration → History compression](../guides/configuration.md#history-compression)).
 
 ---

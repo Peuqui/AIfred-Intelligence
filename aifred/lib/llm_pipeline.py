@@ -31,7 +31,7 @@ from .bubble import (
     image_markdown,
 )
 from .config import DEBUG_LOG_RAW_OUTPUT
-from .context_manager import estimate_tokens, strip_thinking_blocks
+from .context_manager import LoopCompression, estimate_tokens, strip_thinking_blocks
 from .formatting import build_inference_metadata
 from .logging_utils import log_message, log_raw_messages, log_system_prompt
 from .model_discovery import running_profile_label
@@ -150,6 +150,7 @@ async def run_llm_stream(
     source: str,
     toolkit: Any = None,
     on_debug: Callable[[str], None] | None = None,
+    compression: LoopCompression | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Unified LLM chunk-processing pipeline.
 
@@ -172,6 +173,8 @@ async def run_llm_stream(
         source: Channel of the request ("browser", "scheduler", "hub", ...)
         toolkit: Optional toolkit with tools
         on_debug: Optional debug callback (e.g. state.add_debug)
+        compression: Who summarizes when the tool loop's context reaches the trigger
+            (context_manager.compress_tool_loop); None ends the tool phase there
     """
     # Raw debug logging
     log_raw_messages(f"{agent_label} (stream)", messages, estimate_tokens, toolkit=toolkit)
@@ -239,7 +242,7 @@ async def run_llm_stream(
     # gezeigten Event-Bilder gehängt.
     event_descriptions: dict[str, tuple[str, str]] = {}
 
-    async for chunk in llm_client.chat_stream(model, messages, options, toolkit=toolkit):
+    async for chunk in llm_client.chat_stream(model, messages, options, toolkit=toolkit, compression=compression):
         chunk_type = chunk["type"]
 
         if chunk_type == "model_load":
@@ -460,6 +463,11 @@ async def run_llm_stream(
             thinking_content = chunk.get("text", "")
             if thinking_content:
                 full_response += f"<think>{thinking_content}</think>"
+            yield chunk
+
+        elif chunk_type == "progress":
+            # A phase of the backend's own work between the model's rounds
+            # (the compression inside the tool loop); "" ends it.
             yield chunk
 
         elif chunk_type == "debug":

@@ -214,8 +214,8 @@ class TestRun:
 
         captured: dict[str, Any] = {}
 
-        async def fake_stream(client, model, messages, options, label, *, source, toolkit=None):
-            captured.update(model=model, messages=messages, toolkit=toolkit, label=label)
+        async def fake_stream(client, model, messages, options, label, *, source, toolkit=None, compression=None):
+            captured.update(model=model, messages=messages, toolkit=toolkit, label=label, compression=compression)
             yield {"type": "thinking", "text": "erst lesen"}
             yield {"type": "tool_call", "name": "read_file", "arguments": '{"path": "a.txt"}'}
             yield {"type": "tool_progress", "message": "lese …"}
@@ -299,6 +299,9 @@ class TestRun:
         assert "Lies a.txt" in messages[1]["content"] and "Zusammenfassung" in messages[1]["content"]
         assert self.captured["model"] == "test-model"
         assert [t.name for t in self.captured["toolkit"].tools] == ["read_file"]
+        # Its own loop compresses with its own model, in the caller's language
+        compression = self.captured["compression"]
+        assert (compression.model, compression.language) == ("test-model", ctx.lang)
 
     def test_other_main_agent_brings_identity_and_personality(self, plugin, ctx, monkeypatch):
         from aifred.lib import prompt_loader

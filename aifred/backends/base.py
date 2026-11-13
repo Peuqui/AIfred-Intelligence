@@ -7,12 +7,15 @@ Supports: Ollama, vLLM, llama.cpp, OpenAI, etc.
 import asyncio
 import re
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 from aifred.lib.config import DEFAULT_OLLAMA_URL, STREAM_RETRY_DELAY_S, STREAM_RETRY_WINDOW_S
 from aifred.lib.perf_metrics import InferenceWork, ThinkingClock
+
+if TYPE_CHECKING:
+    from aifred.lib.context_manager import LoopCompression
 
 # llama-swap's answer when the upstream process died before serving.
 UPSTREAM_EXIT_MARKER = "upstream command exited prematurely"
@@ -811,7 +814,13 @@ class OpenAICompatibleBackend(LLMBackend):
         messages: list[LLMMessage],
         options: LLMOptions | None = None,
         toolkit: Any | None = None,
+        compression: "LoopCompression | None" = None,
     ) -> AsyncIterator[dict]:
+        """Stream the answer; with a ``toolkit`` the tool loop runs here.
+
+        ``compression``: who summarizes when the loop's messages reach HISTORY_COMPRESSION_TRIGGER
+        (context_manager.compress_tool_loop); without it the loop ends the tool phase there.
+        """
         if options is None:
             options = LLMOptions()
 
@@ -842,7 +851,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
         import time
 
-        from ..lib.config import MAX_TOOL_ROUNDS, TOOL_LOOP_CONTEXT_GUARD
+        from ..lib.config import HISTORY_COMPRESSION_TRIGGER, MAX_TOOL_ROUNDS
         max_tool_rounds = MAX_TOOL_ROUNDS
         start_time = time.monotonic()
         last_error: Exception | None = None
@@ -870,7 +879,8 @@ class OpenAICompatibleBackend(LLMBackend):
                 # the done metrics so the pipeline can mark the result as
                 # truncated (⚠️ in the done line instead of a clean ✅).
                 truncated_any = False
-                # True once the context guard stopped further tool rounds —
+                # True once the context guard stopped further tool rounds (the
+                # context stays over the trigger after compressing) —
                 # gates the text-extraction fallback below so a model that
                 # emits tool-call syntax as text can't sneak in another round.
                 context_guard_tripped = False
@@ -1083,21 +1093,34 @@ class OpenAICompatibleBackend(LLMBackend):
                         from ..lib.context_manager import estimate_tokens
                         round_result_tokens += estimate_tokens([{"content": result}])
 
-                    # Context guard: history compression only runs between
-                    # user turns — inside this loop nothing bounds context
-                    # growth, and with --no-context-shift the final answer
-                    # gets hard-truncated when the window runs full. Compare
-                    # the server-reported usage of this round (prompt +
-                    # completion, the honest live value) plus the estimated
-                    # size of the just-appended tool results against the
-                    # guard ratio. When crossed: the model still sees the
-                    # results it already requested, but gets no further tool
-                    # rounds — only an explicit note to finalize now. Nothing
-                    # is rewritten or dropped; the reserve stays free for
-                    # thinking + answer. Guard is inactive when num_ctx is
-                    # unknown (no usable limit to measure against).
+                    # Context guard: the loop's context is bounded by the same
+                    # thresholds as the history before a message. Compare the
+                    # server-reported usage of this round (prompt + completion,
+                    # the honest live value) plus the estimated size of the
+                    # just-appended tool results against HISTORY_COMPRESSION_TRIGGER.
+                    # When crossed, compress the earlier conversation and the
+                    # oldest tool rounds of this turn and go on. Only what stays
+                    # over the trigger then (nothing left to compress, the summary
+                    # failed, or the caller gave no compression) ends the tool
+                    # phase as before: the model still sees the results it
+                    # requested, but gets no further tool rounds — only an
+                    # explicit note to finalize now, with the reserve free for
+                    # thinking + answer (with --no-context-shift a full window
+                    # hard-truncates the answer; 2026-08-15 a 1h research loop
+                    # died at 92% mid-answer). That end is the loop's existing
+                    # stop, not a second path. Inactive when num_ctx is unknown
+                    # (no usable limit to measure against).
                     used_tokens = prompt_tokens + total_tokens + round_result_tokens
-                    if options.num_ctx and used_tokens >= TOOL_LOOP_CONTEXT_GUARD * options.num_ctx:
+                    num_ctx = options.num_ctx
+                    if num_ctx and used_tokens >= HISTORY_COMPRESSION_TRIGGER * num_ctx and compression is not None:
+                        from ..lib.context_manager import compress_tool_loop
+                        async for item in compress_tool_loop(kwargs["messages"], used_tokens, num_ctx, compression):
+                            if item["type"] == "loop_compressed":
+                                kwargs["messages"] = item["messages"]
+                                used_tokens = item["used_tokens"]
+                            else:
+                                yield item
+                    if num_ctx and used_tokens >= HISTORY_COMPRESSION_TRIGGER * num_ctx:
                         context_guard_tripped = True
                         kwargs.pop("tools", None)
                         from ..lib.prompt_loader import load_prompt
@@ -1107,10 +1130,10 @@ class OpenAICompatibleBackend(LLMBackend):
                         })
                         from ..lib.formatting import format_number
                         from ..lib.logging_utils import log_message
-                        pct = used_tokens / options.num_ctx * 100
+                        pct = used_tokens / num_ctx * 100
                         guard_msg = (
                             f"⚠️ Context guard: ~{format_number(used_tokens)}/"
-                            f"{format_number(options.num_ctx)} tok "
+                            f"{format_number(num_ctx)} tok "
                             f"({format_number(pct, 1)}%) — tool rounds stopped, "
                             f"forcing final answer"
                         )

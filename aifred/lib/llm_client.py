@@ -12,6 +12,7 @@ from ..backends import BackendFactory
 from ..backends.base import LLMBackend, LLMMessage, LLMOptions, LLMResponse
 
 if TYPE_CHECKING:
+    from .context_manager import LoopCompression
     from .runtime_settings import TuningTarget
 
 # Type alias for messages: can be Dict[str, str] or LLMMessage
@@ -194,6 +195,7 @@ class LLMClient:
         messages: list[MessageType],
         options: dict[str, Any] | LLMOptions | None = None,
         toolkit: Any = None,
+        compression: "LoopCompression | None" = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """
         Async streaming chat completion
@@ -203,6 +205,7 @@ class LLMClient:
             messages: List of messages (dict or LLMMessage)
             options: Generation options (dict or LLMOptions)
             toolkit: Optional ToolKit for function calling
+            compression: Who summarizes when the tool loop's context reaches the trigger
 
         Yields:
             Dict with either:
@@ -214,7 +217,9 @@ class LLMClient:
         llm_options = self._prepare_options(options)
 
         # NOTE: Backend is cached in self._backend to prevent GC during async operations
-        async for chunk in backend.chat_stream(model, converted_messages, llm_options, toolkit=toolkit):
+        async for chunk in backend.chat_stream(
+            model, converted_messages, llm_options, toolkit=toolkit, compression=compression,
+        ):
             yield chunk
 
     async def get_model_context_limit(self, model: str) -> tuple[int, int]:

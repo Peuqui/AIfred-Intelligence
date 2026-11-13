@@ -80,24 +80,31 @@ Die History-Kompression verwendet folgende Schwellenwerte (konfigurierbar in `co
 
 | Parameter | Wert | Beschreibung |
 |-----------|------|--------------|
-| `HISTORY_COMPRESSION_TRIGGER` | 0.7 (70%) | Bei dieser Context-Auslastung wird komprimiert |
+| `HISTORY_COMPRESSION_TRIGGER` | 0.85 (85%) | Bei dieser Context-Auslastung wird komprimiert (vor der Nachricht und in der Werkzeugschleife) |
 | `HISTORY_COMPRESSION_TARGET` | 0.3 (30%) | Ziel nach Kompression (Platz für ~2 Roundtrips) |
 | `HISTORY_SUMMARY_RATIO` | 0.25 (4:1) | Summary = 25% des zu komprimierenden Inhalts |
 | `HISTORY_SUMMARY_MIN_TOKENS` | 500 | Minimum für sinnvolle Zusammenfassungen |
 | `HISTORY_SUMMARY_TOLERANCE` | 0.5 (50%) | Erlaubte Überschreitung, darüber wird gekürzt |
 
 **Ablauf:**
-1. Trigger bei 70% Context-Auslastung
+1. Trigger bei 85% Context-Auslastung
 2. Sammle älteste Messages (FIFO) bis remaining < 30%
 3. Komprimiere gesammelte Messages zu Summary (4:1 Ratio)
 4. Neue History = [Summary] + [verbleibende Messages]
 
+**Im Zug (Werkzeugschleife, `context_manager.compress_tool_loop`):** Erreicht die Schleife den Trigger,
+wird zuerst der frühere Verlauf, dann bei Bedarf die ältesten Werkzeugrunden dieses Zuges zusammengefasst
+(bis zum Ziel); System-Nachricht, Nutzerfrage und die letzten `TOOL_LOOP_KEPT_ROUNDS` (2) Runden bleiben.
+Dieselbe Zusammenfassungsfunktion (`summarize_messages`), dasselbe Modell (`TurnContext.compression_model`).
+Wirkt nur auf die Nachrichten der Anfrage, nicht auf die gespeicherte History. Erst was danach noch über dem
+Trigger liegt, beendet die Werkzeugphase (Prompt `utility/context_guard`).
+
 **Token-Estimation:** Ignoriert `<details>`, `<span>`, `<think>` Tags (gehen nicht ans LLM)
 
 **Beispiele:**
-- 7K Context: Trigger bei 4.900, Ziel 2.100, Summary ~700 tok
-- 40K Context: Trigger bei 28.000, Ziel 12.000, Summary ~4.000 tok
-- 200K Context: Trigger bei 140.000, Ziel 60.000, Summary ~20.000 tok
+- 7K Context: Trigger bei 5.950, Ziel 2.100, Summary ~960 tok
+- 40K Context: Trigger bei 34.000, Ziel 12.000, Summary ~5.500 tok
+- 200K Context: Trigger bei 170.000, Ziel 60.000, Summary ~27.500 tok
 
 ---
 

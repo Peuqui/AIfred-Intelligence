@@ -122,7 +122,8 @@ today does not get them through a sub-agent either.
 
 **Budget.** No new budgeting and no switch of its own for the cap. The
 sub-agent has its own `ToolKit` and with it its own chain depth and loop
-breaker. Its context window is the hard limit; the backend's context guard
+breaker. Its context window is the hard limit; its tool loop compresses with
+its own model when it reaches the trigger, and the backend's context guard
 applies as in every turn. At the caller, the report passes through the
 existing cap, which only bites if it would blow the main model's free
 context. For the caller, the delegation counts as one tool call.

@@ -15,6 +15,7 @@ Zusammenfassung ohne Inhalt in der llm_history ab.
 import asyncio
 
 from aifred.lib import context_manager
+from aifred.lib.config import HISTORY_COMPRESSION_TARGET, HISTORY_COMPRESSION_TRIGGER
 from aifred.lib.prompt_loader import get_agent_direct_prompt, get_direct_prompt_tokens
 
 
@@ -80,16 +81,16 @@ def _history(pairs: int) -> list[dict]:
 
 class TestTriggerAndSelectionUseOneYardstick:
     def test_fixed_overhead_makes_the_loop_select(self):
-        # DER Bugfall: System-Prompt und Tools tragen die Fuellung ueber 70 %,
-        # die History allein liegt unter dem 30-%-Ziel. Vorher waehlte die
+        # DER Bugfall: System-Prompt und Tools tragen die Fuellung ueber den
+        # Ausloeser, die History allein liegt unter dem Ziel. Vorher waehlte die
         # Schleife nichts aus und fasste eine leere Konversation zusammen.
         llm_history = _history(2)
         context_limit = 16384
         history_tokens = context_manager.estimate_tokens_from_llm_history(llm_history)
-        assert history_tokens < int(context_limit * 0.3), (
-            "Testaufbau: die History muss unter dem 30-%-Ziel liegen"
+        assert history_tokens < int(context_limit * HISTORY_COMPRESSION_TARGET), (
+            "Testaufbau: die History muss unter dem Ziel liegen"
         )
-        system_prompt_tokens = int(context_limit * 0.7) - history_tokens
+        system_prompt_tokens = int(context_limit * HISTORY_COMPRESSION_TRIGGER) - history_tokens
 
         client = _compress(
             llm_history,
@@ -104,11 +105,11 @@ class TestTriggerAndSelectionUseOneYardstick:
 
     def test_no_trigger_below_threshold(self):
         # Die realen Werte aus dem Vorfall nach dem Fix: 2.247 + 542 + History
-        # bleiben deutlich unter 70 % — hier darf nichts passieren.
+        # bleiben deutlich unter dem Ausloeser — hier darf nichts passieren.
         client = _compress(
             _history(2),
             context_limit=16384,
             system_prompt_tokens=2247,
             toolkit_tokens=542,
         )
-        assert client.seen_prompt is None, "unter 70 % darf nicht komprimiert werden"
+        assert client.seen_prompt is None, "unter dem Ausloeser darf nicht komprimiert werden"

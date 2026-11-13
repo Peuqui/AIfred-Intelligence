@@ -558,11 +558,22 @@ PLAYWRIGHT_FALLBACK_THRESHOLD = 800  # words - below this value Playwright is tr
 # ============================================================
 # HISTORY SUMMARIZATION CONFIGURATION
 # ============================================================
-# Trigger: At what percentage of context limit should compression occur?
-HISTORY_COMPRESSION_TRIGGER = 0.7  # 70% - when to compress
+# One pair of thresholds for both places that compress: before a message
+# (the session's llm_history) and inside a turn (the tool loop's messages,
+# context_manager.compress_tool_loop).
+# Trigger: At what share of the context window compression occurs. 0.85 keeps
+# ~15% of the window for thinking and answer (~34K tok at 225K ctx): the tool
+# loop's old stop at 0.85 was set from a 1h research loop that died at 92%
+# mid-answer (2026-08-15).
+HISTORY_COMPRESSION_TRIGGER = 0.85  # 85% - when to compress
 
 # Target: Compress down to this percentage (aggressive, leaves room for ~2 roundtrips)
 HISTORY_COMPRESSION_TARGET = 0.3  # 30% - where to compress to
+
+# Tool rounds of the running turn that the compression inside the tool loop
+# never touches (a round: the assistant message with its tool calls and their
+# results): the model keeps the exact results it is working with right now.
+TOOL_LOOP_KEPT_ROUNDS = 2
 
 # Summary size: Percentage of content being compressed (4:1 compression ratio)
 HISTORY_SUMMARY_RATIO = 0.25  # 25% of compressed content = 4:1 ratio
@@ -1723,20 +1734,6 @@ TOOL_CALL_NOTE_VALUE_CHARS = 120
 # Call-Budget 0 = "deaktiviert" darf den Not-Aus nicht mitdeaktivieren.
 MAX_TOOL_ROUNDS = SECURITY_MAX_TOOL_CHAIN_DEPTH or 100
 
-# Context guard for the tool loop — stops further tool rounds once the
-# server-reported context usage (prompt + completion of the last round,
-# plus the just-appended tool results) crosses this share of the model's
-# context window. The model then gets one final round WITHOUT tools plus
-# an explicit note to write its answer from the gathered material.
-# Rationale: history compression only runs between user turns; inside a
-# long tool loop nothing bounds context growth, and with
-# --no-context-shift the final answer gets hard-truncated when the
-# window runs full (observed 2026-08-15: 1h research loop died at 92%
-# mid-answer). 0.85 leaves ~15% of the window for thinking + answer
-# (~34K tok at 225K ctx) — 0.90 would have been barely enough for that
-# real case, 0.80 wastes tool-phase headroom. Ratio (not absolute
-# tokens) so small context windows keep a proportional reserve.
-TOOL_LOOP_CONTEXT_GUARD = 0.85
 # Loop breaker für identische Tool-Calls (0 = aus). Schreib-Tools: derselbe Call
 # mit denselben Argumenten wird nach so vielen Wiederholungen vor der Ausführung
 # verweigert. Lese-Tools (Tier 0 oder read_only): verweigert wird erst, wenn derselbe Call so oft

@@ -183,20 +183,22 @@ Zwei voneinander unabhängige Schalter pro Agent in den LLM-Einstellungen:
 
 ## History-Kompression
 
-**Vor** jedem LLM-Aufruf läuft eine Prüfung. Bei 70 % Kontextauslastung werden die ältesten
-Nachrichten zu einer Zusammenfassung komprimiert:
+**Vor** jedem LLM-Aufruf läuft eine Prüfung. Bei 85 % Kontextauslastung werden die ältesten
+Nachrichten zu einer Zusammenfassung komprimiert. Dieselben Schwellen gelten **im Zug**, in der
+Werkzeugschleife (siehe unten):
 
 | Parameter (`config.py`) | Wert | Bedeutung |
 |---|---|---|
-| `HISTORY_COMPRESSION_TRIGGER` | 0.7 | bei 70 % Auslastung komprimieren |
+| `HISTORY_COMPRESSION_TRIGGER` | 0.85 | bei 85 % Auslastung komprimieren |
 | `HISTORY_COMPRESSION_TARGET` | 0.3 | Ziel nach der Kompression (Platz für ~2 Roundtrips) |
 | `HISTORY_SUMMARY_RATIO` | 0.25 | Zusammenfassung = 25 % des komprimierten Inhalts (4:1) |
 | `HISTORY_SUMMARY_MIN_TOKENS` | 500 | Minimum für eine sinnvolle Zusammenfassung |
 | `HISTORY_SUMMARY_TOLERANCE` | 0.5 | erlaubte Überschreitung, darüber wird gekürzt |
 | `HISTORY_SUMMARY_MAX_RATIO` | 0.2 | höchstens 20 % des Kontexts für Zusammenfassungen |
+| `TOOL_LOOP_KEPT_ROUNDS` | 2 | Werkzeugrunden des laufenden Zuges, die die Kompression im Zug nie anfasst |
 
 **Algorithmus**
-1. Vorab-Prüfung vor jedem LLM-Aufruf, Trigger bei 70 %
+1. Vorab-Prüfung vor jedem LLM-Aufruf, Trigger bei 85 %
 2. Maximale Anzahl an Zusammenfassungen aus der Kontextgröße (20 % Budget / 500 Tokens, gedeckelt bei 10)
 3. Zu viele Zusammenfassungen → die älteste fliegt zuerst raus (FIFO)
 4. Die ältesten Nachrichten sammeln, bis weniger als 30 % übrig sind
@@ -205,14 +207,25 @@ Nachrichten zu einer Zusammenfassung komprimiert:
 
 | Kontext | Trigger | Ziel | Komprimiert | Zusammenfassung |
 |---|---|---|---|---|
-| 7K | 4.900 tok | 2.100 tok | ~2.800 tok | ~700 tok |
-| 40K | 28.000 tok | 12.000 tok | ~16.000 tok | ~4.000 tok |
-| 200K | 140.000 tok | 60.000 tok | ~80.000 tok | ~20.000 tok |
+| 7K | 5.950 tok | 2.100 tok | ~3.850 tok | ~960 tok |
+| 40K | 34.000 tok | 12.000 tok | ~22.000 tok | ~5.500 tok |
+| 200K | 170.000 tok | 60.000 tok | ~110.000 tok | ~27.500 tok |
 
 Die Token-Schätzung ignoriert `<details>`-, `<span>`- und `<think>`-Blöcke (sie werden
 nicht ans LLM geschickt). Zusammenfassungen erscheinen im Chat inline an der Stelle, an der die Kompression
 stattfand, als Collapsibles; das FIFO-Limit gilt nur für `llm_history` — die
 sichtbare `chat_history` behält jede Zusammenfassung.
+
+**Im Zug (Werkzeugschleife):** Erreicht der Kontext einer Anfrage während der Werkzeugrunden den
+Trigger (gemessen wie bisher: vom Server gemeldete Füllung plus die neuen Werkzeugergebnisse), fasst
+`context_manager.compress_tool_loop` zuerst den früheren Verlauf zusammen und, reicht das nicht bis
+zum Ziel, die ältesten abgeschlossenen Werkzeugrunden dieses Zuges. System-Nachricht, Nutzerfrage
+und die letzten zwei Runden bleiben im Wortlaut; eine Runde (Aufrufe und ihre Ergebnisse) wird nie
+getrennt. Die Zusammenfassung steht als Kontext-Nachricht vor der Frage, die Werkzeuge bleiben. Es
+fasst dasselbe Modell zusammen wie vor der Nachricht. Das wirkt nur auf die Nachrichten dieser
+Anfrage; die gespeicherte History bleibt, vor der nächsten Nachricht greift die Kompression wie
+gewohnt. Erst wenn danach noch über dem Trigger (nichts mehr zu komprimieren), endet die
+Werkzeugphase wie zuvor: keine Werkzeuge mehr, Hinweis `utility/context_guard`, Antwort.
 
 ---
 

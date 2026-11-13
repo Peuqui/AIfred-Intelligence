@@ -45,7 +45,7 @@ class _FakeClient:
 
     backend_type = "vllm"
 
-    async def chat_stream(self, model, messages, options, toolkit=None):
+    async def chat_stream(self, model, messages, options, toolkit=None, compression=None):
         for text in ["<think>", "Ich denke.", "</think>\n\n", "Antwort."]:
             yield {"type": "content", "text": text}
         work = InferenceWork(decode_tokens=4, decode_s=0.4, thinking_s=2.5)

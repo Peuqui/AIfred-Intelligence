@@ -392,7 +392,7 @@ async def run_subagent(
     """Executor body: yields ``progress`` events while the sub-agent works,
     one ``collapsible`` with the full transcript, and the ``result``."""
     from ....lib.agent_config import get_agent_config
-    from ....lib.context_manager import estimate_tokens, estimate_toolkit_tokens
+    from ....lib.context_manager import LoopCompression, estimate_tokens, estimate_toolkit_tokens
     from ....lib.prompt_loader import get_subagent_system_prompt, load_prompt
     from ....lib.tool_output_cap import budget_var, compute_budget
 
@@ -454,9 +454,12 @@ async def run_subagent(
     budget_token = budget_var.set(compute_budget(params.num_ctx, sys_tok, task_tok, 0, tools_tok))
     llm_client = LLMClient(backend_type=params.backend_type, base_url=params.backend_url)
     try:
+        # Its own loop compresses with its own model and client: the sub-agent's backend can be
+        # another one than the caller's, and the caller's turn is not known here.
         async for event in run_llm_stream(
             llm_client, params.model, messages, options, agent_label,
             source=ctx.source, toolkit=toolkit,
+            compression=LoopCompression(llm_client, params.model, ctx.lang),
         ):
             kind = event.get("type")
             if kind == "content":

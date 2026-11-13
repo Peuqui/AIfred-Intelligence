@@ -42,7 +42,7 @@ Temperatur-Einstellung. Die Nachricht selbst wird vom
 Detektor nie umgeschrieben (siehe
 [Moduswechsel](multi-agent.md#moduswechsel-per-sprache-oder-text)).
 
-Vor jedem LLM-Call läuft die Prüfung auf History-Kompression (70 % des
+Vor jedem LLM-Call läuft die Prüfung auf History-Kompression (85 % des
 kleinsten Kontextfensters, siehe
 [Konfiguration → History-Kompression](../guides/configuration.md#history-kompression)).
 

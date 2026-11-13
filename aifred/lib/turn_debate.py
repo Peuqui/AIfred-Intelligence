@@ -270,7 +270,7 @@ async def _compress_before(ctx: TurnContext, plan: TurnPlan, member: _Member, sy
     from .context_manager import estimate_toolkit_tokens
 
     await compress_history(
-        ctx, plan.agents, member.num_ctx, system_prompt_tokens,
+        ctx, member.num_ctx, system_prompt_tokens,
         estimate_toolkit_tokens(member.toolkit, model_name=member.model), "History compressed",
     )
 
