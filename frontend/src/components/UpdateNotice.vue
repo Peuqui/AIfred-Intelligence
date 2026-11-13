@@ -4,7 +4,7 @@
 // short notice confirms that the new version is the one running.
 import { computed, onMounted, ref, watch } from "vue";
 import { newVersion } from "../api/client";
-import { t } from "../i18n";
+import { t, textsLoaded } from "../i18n";
 import { UPDATED_NOTICE_MS, UPDATE_BANNER_MS, reloadForUpdate, takeUpdatedMark } from "../lib/update";
 import { useChat } from "../stores/chat";
 
@@ -32,16 +32,22 @@ onMounted(() => {
 </script>
 
 <template>
-  <button v-if="newVersion" class="notice loading" @click="reloadForUpdate">
-    {{ t(blocked ? "new_version_waiting" : "new_version_loading") }}
-  </button>
-  <div v-else-if="loaded" class="notice loaded">{{ t("new_version_loaded") }}</div>
+  <template v-if="textsLoaded">
+    <button v-if="newVersion" class="notice loading" @click="reloadForUpdate">
+      {{ t(blocked ? "new_version_waiting" : "new_version_loading") }}
+    </button>
+    <div v-else-if="loaded" class="notice loaded">{{ t("new_version_loaded") }}</div>
+  </template>
 </template>
 
 <style scoped>
 .notice {
   position: fixed; inset-inline: 0; top: 0; z-index: 60; padding: 8px 16px; border: none; text-align: center; font: inherit;
-  font-weight: 600; color: var(--aifred-text-on-accent); background: var(--aifred-danger);
+  font-weight: 600;
+  /* The send button's colours (the Reflex page's action buttons): the colour itself for text and rim, a light tint of
+     it on the page's background below (opaque, so the chat under the bar does not show through the letters). */
+  color: var(--aifred-accent-warning); border-bottom: 1px solid var(--aifred-accent-warning);
+  background: color-mix(in srgb, var(--aifred-accent-warning) 22%, var(--aifred-page-bg));
 }
 .loading { cursor: pointer; }
 </style>
