@@ -2,25 +2,32 @@
 // A bar under a box that drags its height (vertical only). Wide and in the middle, so a finger hits it: the browser's own
 // grip at the corner is a few pixels, sits next to the buttons and at the screen's edge, where the back gesture lies.
 // It reports the height in the box's own units (a zoom set on the page or on the box is taken out again); the box sets it.
+import { nextTick } from "vue";
+
 const props = defineProps<{ target: HTMLElement | null; minHeight?: number }>();
 const emit = defineEmits<{ resize: [height: number] }>();
 
-let startY = 0;
-let startHeight = 0;
+let grab = 0; // how far the finger stands below the box's lower edge, in screen pixels
 let scale = 1; // screen pixels per own unit
 
 function start(event: PointerEvent): void {
   const box = props.target;
   if (!box) return;
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-  startY = event.clientY;
-  startHeight = box.offsetHeight;
+  grab = event.clientY - box.getBoundingClientRect().bottom;
   scale = box.getBoundingClientRect().height / box.offsetHeight || 1;
 }
 
-function move(event: PointerEvent): void {
-  if (!(event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) return;
-  emit("resize", Math.max(props.minHeight ?? 0, startHeight + (event.clientY - startY) / scale));
+// The height is read from where the box's edge should be (the finger's place), not from how far the finger moved: the page
+// scrolls along, so the box's upper edge moves too. A box that grows below the screen takes the page with it: the grip
+// stays under the finger and the drag goes on.
+async function move(event: PointerEvent): Promise<void> {
+  const box = props.target;
+  if (!box || !(event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) return;
+  const wantedBottom = event.clientY - grab;
+  emit("resize", Math.max(props.minHeight ?? 0, (wantedBottom - box.getBoundingClientRect().top) / scale));
+  await nextTick();
+  window.scrollBy(0, box.getBoundingClientRect().bottom - wantedBottom);
 }
 </script>
 
