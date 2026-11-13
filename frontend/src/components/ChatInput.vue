@@ -238,7 +238,7 @@ figure button { cursor: pointer; font: inherit; border: none; }
   position: absolute; top: 0; right: 0; padding: 2px 4px; pointer-events: none; font-size: 0.5rem; line-height: 1; font-weight: 600;
   /* The box ends at the capitals, not at the font's room for descenders: the same rim above and below the letters. */
   text-box: trim-both cap alphabetic;
-  color: var(--aifred-accent-gold); border: 1px solid var(--aifred-accent-gold); border-radius: 4px; background: var(--aifred-page-bg);
+  color: var(--aifred-gpu-mark-text); border: 1px solid var(--aifred-gpu-mark-border); border-radius: 4px; background: var(--aifred-page-bg);
 }
 /* While a dictation is transcribed the badge stands grey (DictationBadge); the mark goes with it. */
 .gpu.idle { color: var(--aifred-text-muted); border-color: var(--aifred-text-muted); }

@@ -45,6 +45,8 @@ COLORS = {
     "accent_warning": "#d29922", # Warnung, gedämpftes Gold
     "accent_gold": "#FFD700",    # Glühbirnen und Überschriften der Hilfe-Texte
     "accent_amber": "#FFA500",   # Speed-/Aktiv-Markierung
+    "gpu_mark_text": "#fcd34d",  # GPU-Etikett am Mikrofon: Schrift (amber-300, wie in Agent-Orc)
+    "gpu_mark_border": "#f59e0b",  # GPU-Etikett am Mikrofon: Rand (amber-500, wie in Agent-Orc)
     "danger": "#ef1c3f",         # Fehler, Löschen (Karminrot wie Agent-Orc; 4,0:1 auf card_bg)
     "user_name": "#ea5f50",      # Name des Users im Chat (Rotorange, bewusst nicht danger; 4,5:1 auf input_bg)
     # The chat history's own panel (between page_bg and card_bg, as the Reflex page's "Chat History" box)
