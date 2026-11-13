@@ -3,7 +3,7 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import { ApiError, api } from "../api/client";
-import { followSession } from "../api/events";
+import { RESOURCES, followSession } from "../api/events";
 import type {
   ChatEntry,
   ChatExported,
@@ -165,8 +165,10 @@ export const useChat = defineStore("chat", () => {
         break;
       }
       case "resync":
-        // The server started anew: its status line state is new too, and nothing pushes it to a page that was open.
+        // The server started anew: the status line and every list it pushes only on change may have changed while
+        // this page was not listening, and nothing pushes them to a page that was open.
         void useServiceStatus().fetch(false);
+        RESOURCES.forEach(resourceChanged);
         if (sessionId.value) void load(sessionId.value);
         break;
       case "history_replaced":
