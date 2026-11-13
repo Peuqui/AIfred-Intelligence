@@ -1,0 +1,8 @@
+═══════════════════════════════════════════════════════════════
+THIS ROUND: {main_agent} has revised
+═══════════════════════════════════════════════════════════════
+→ Start with "PROGRESS": compare the LATEST answer of {main_agent} with your LAST critique.
+→ The history also holds the recommendations of {judge_agent} from the previous round.
+→ Has {main_agent} adopted your point or the recommendation of {judge_agent}? → Briefly acknowledge, do NOT criticize again.
+→ Has {main_agent} NOT adopted your point? → You may mention it again.
+→ Length of the alternative solution: focused (150-250 words), add only what is still missing; if most is adopted, shorter still (100-150 words).

@@ -1,10 +1,6 @@
 CURRENT ROUND: {round_num}
 
-{critic_agent} has attacked your thesis.
-
-Critique of {critic_agent}: {critique}
-
-{user_interjection}
+{critic_agent} has attacked your thesis; the attack is the latest contribution in the history.
 
 ═══════════════════════════════════════════════════════════════
 TRIBUNAL MODE: YOU MAY DEFEND YOURSELF!

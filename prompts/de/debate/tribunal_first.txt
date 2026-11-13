@@ -1,0 +1,6 @@
+═══════════════════════════════════════════════════════════════
+DIESE RUNDE: der erste Angriff
+═══════════════════════════════════════════════════════════════
+→ Du siehst NUR die ERSTE Antwort von {main_agent}
+→ Greife die KERNTHESE an, nicht Nebensächlichkeiten
+→ Beginne direkt mit "ANGRIFF"

@@ -1,14 +1,9 @@
-AKTUELLE RUNDE: {round_num}
-
 Als neutraler Beobachter siehst du ALLES - nutze die vollständige History!
 
 DEINE AUFGABE:
 1. Fasse zusammen: Was ist gut an der Antwort von {main_agent}? Was ist berechtigt an der Kritik von {critic_agent}?
 2. Synthetisiere: Wie lässt sich beides verbinden?
-3. Nutze die komprimierte History (ab Runde 2):
-   • [ADRESSIERT]/[OFFEN]-Status der Kritikpunkte
-   • Deine eigenen Empfehlungen aus der vorherigen Runde
-   • Hat {main_agent} deine Empfehlungen umgesetzt?
+3. {round_rules}
 4. Entscheide: Ist die Diskussion zu einem guten Ergebnis gekommen?
 
 ═══════════════════════════════════════════════════════════════

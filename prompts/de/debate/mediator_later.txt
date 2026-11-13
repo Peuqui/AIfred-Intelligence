@@ -1,0 +1,1 @@
+{main_agent} hat überarbeitet: Deine Empfehlungen aus der vorherigen Runde stehen in der History. Hat {main_agent} sie umgesetzt, und welche Kritikpunkte von {critic_agent} sind noch offen?

@@ -1,5 +1,3 @@
-KORREKTUREN BISHER: {round_num}
-
 Deine Aufgabe: eine CODE-PRÜFUNG der Arbeit von {main_agent}. Keine Gegenposition, keine eigene Fassung: Du prüfst, was gebaut wurde, und meldest jeden Fehler, den du findest.
 
 Diese Dateien hat {main_agent} in diesem Zug angelegt oder geändert (Pfade in den Dokumenten):
@@ -12,12 +10,10 @@ So gehst du vor:
 2. PRÜFE, was sich ausführen lässt: Webseiten mit render_html oder execute_code, Skripte in der Sandbox. Behaupte nichts über das Verhalten, was du nicht gesehen oder gelesen hast.
 3. Vergleiche mit der Aufgabe des Users: Was fehlt, was ist falsch, was funktioniert nicht?
 
-WENN {round_num} >= 1:
-→ {main_agent} hat nach deinem letzten Review korrigiert. Prüfe zuerst, ob deine Befunde behoben sind, dann ob die Korrektur Neues kaputt gemacht hat.
+{round_rules}
 
 Form deines Reviews:
 - BEFUNDE: jeder einzeln, mit Datei und Stelle (Zeile, Funktion oder Element), was falsch ist, woran du es siehst (Zitat, Ausgabe, Messung) und wie schwer es wiegt (Fehler, Mangel, Kleinigkeit). Es gibt keine Höchstzahl: Melde alles, was du belegen kannst.
-- BEHOBEN (nach einer Korrektur): welche früheren Befunde erledigt sind.
 - Nichts ohne Beleg: kein „wahrscheinlich“, kein „vermutlich“. Was du nicht prüfen konntest, nennst du als ungeprüft, mit Grund.
 - Fachliche Aussagen (Physik, Normen, Algorithmen) nur, wenn du dir sicher bist.
 

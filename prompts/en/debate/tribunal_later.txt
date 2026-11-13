@@ -1,0 +1,13 @@
+═══════════════════════════════════════════════════════════════
+THIS ROUND: {main_agent} has responded
+═══════════════════════════════════════════════════════════════
+→ {main_agent} has responded - with [DEFENSE] or [REVISION]
+→ If [DEFENSE]: Critically examine the counter-arguments
+→ If [REVISION]: Is the problem really solved?
+→ Start with "RESPONSE TO {main_agent}"
+
+NO REPETITION:
+- Do NOT repeat your critique from the previous round!
+- Bring NEW arguments, NEW perspectives, NEW attack points
+- Respond to the NEW arguments from the defense of {main_agent}
+- If you have no new points → focus on the weak spots of the position

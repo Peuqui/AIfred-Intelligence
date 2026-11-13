@@ -787,8 +787,8 @@ def _mode_label(mode: str, lang: str) -> str:
         "synthesis": t("salomo_synthesis_label", lang=lang),
         "verdict": t("salomo_verdict_label", lang=lang),
         "critical_review": t("critical_review_label", lang=lang),
-        "code_review": t("code_review_label", lang=lang),
-        "review_fix": t("review_fix_label", lang=lang),
+        "recensio": t("recensio_label", lang=lang),
+        "correctura": t("correctura_label", lang=lang),
         "symposion": t("multi_agent_symposion", lang=lang),
     }
     return labels[mode].rstrip(":") if mode in labels else ""

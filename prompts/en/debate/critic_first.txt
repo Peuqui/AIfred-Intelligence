@@ -1,0 +1,6 @@
+═══════════════════════════════════════════════════════════════
+THIS ROUND: the first critique
+═══════════════════════════════════════════════════════════════
+→ There is NO previous exchange. You see ONLY the FIRST answer of {main_agent}.
+→ Leave out the PROGRESS section - there is nothing to acknowledge. Start directly with "NEW CRITIQUE".
+→ Length of the alternative solution: detailed (300-400 words) - you lay the foundation.

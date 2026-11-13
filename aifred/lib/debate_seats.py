@@ -64,3 +64,9 @@ def seat_prompt(key: str, seats: dict[str, str], lang: str, **variables: Any) ->
     from .prompt_loader import load_prompt
 
     return load_prompt(f"debate/{key}", lang=lang, **seat_names(seats), **variables)
+
+
+def round_rules(key: str, first: bool, seats: dict[str, str], lang: str, **variables: Any) -> str:
+    """What a seat's task says about its round: ``debate/<key>_first`` for the first, ``<key>_later`` for
+    every further one. The code picks the block; the model never weighs "IF round = 1" itself."""
+    return seat_prompt(f"{key}_{'first' if first else 'later'}", seats, lang, **variables)

@@ -198,8 +198,11 @@ def test_auto_consensus_ends_when_the_votes_reach_consensus(world: dict[str, Any
     assert "[Auto-Konsens: Verfeinerung R2]" in chat[4]["content"]
     assert any("Consensus reached in round 2" in event["line"] for event in _events("debug"))
     # The refinement answers the synthesis: it is the main agent's task, after the history.
+    # The refinement is the main agent's task, after the history; the synthesis it answers is in the
+    # history (the last contribution), not copied into the task a second time.
     refinement = next(messages for label, messages in world["calls"] if label == "AIfred Refinement")
-    assert refinement[-1]["role"] == "user" and "Noch nicht." in refinement[-1]["content"]
+    assert refinement[-1]["role"] == "user" and "Noch nicht." not in refinement[-1]["content"]
+    assert any("Noch nicht." in message["content"] for message in refinement[:-1])
 
 
 def test_without_consensus_auto_consensus_stops_after_max_debate_rounds(world: dict[str, Any]) -> None:
@@ -215,13 +218,22 @@ def test_without_consensus_auto_consensus_stops_after_max_debate_rounds(world: d
     assert any("No consensus after 2 rounds" in event["line"] for event in _events("debug"))
 
 
-def test_unanimous_consensus_needs_all_three_votes(world: dict[str, Any]) -> None:
+def test_in_round_1_only_critic_and_judge_vote(world: dict[str, Any]) -> None:
+    """The direct answer was never asked to vote: in round 1 it does not count (until 14.11.2026 it
+    counted as a no, so a unanimous consensus could never come in round 1)."""
+    _mode("auto_consensus")
+    world["view"].consensus_type = "unanimous"
+    world["replies"] = {"Sokrates": ["Gut so. [LGTM]"], "Salomo": ["Einverstanden. [LGTM]"]}
+    _turn()
+    assert any("Consensus reached in round 1 (2/2 votes, unanimous)" in event["line"] for event in _events("debug"))
+
+
+def test_unanimous_consensus_needs_every_vote(world: dict[str, Any]) -> None:
     _mode("auto_consensus")
     world["view"].consensus_type = "unanimous"
     world["view"].max_debate_rounds = 1
-    world["replies"] = {"Sokrates": ["Gut so. [LGTM]"], "Salomo": ["Einverstanden. [LGTM]"]}
+    world["replies"] = {"Sokrates": ["Gut so. [LGTM]"], "Salomo": ["Noch nicht. [WEITER]"]}
     _turn()
-    # 2 of 3 (the direct answer did not vote): a majority, but not unanimous.
     assert any("No consensus after 1 rounds" in event["line"] for event in _events("debug"))
 
 
@@ -314,7 +326,7 @@ def new_agent(world: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyP
 
 
 def test_the_sessions_critic_critiques_with_the_seats_task(world: dict[str, Any], new_agent: Any) -> None:
-    from aifred.lib.debate_seats import seat_prompt
+    from aifred.lib.debate_seats import round_rules, seat_prompt
 
     new_agent("kritikus", "Kritikus")
     _mode("critical_review", debate_seats={"critic": "kritikus"})
@@ -323,7 +335,9 @@ def test_the_sessions_critic_critiques_with_the_seats_task(world: dict[str, Any]
     assert _speakers() == ["[AIFRED]", "[KRITIKUS]"]
     system = _system_prompt(world, "Kritikus")
     seats = {"main": "aifred", "critic": "kritikus", "judge": "salomo"}
-    assert "KRITIKUS-PERSONA" in system and seat_prompt("critic", seats, "de", round_num=1) in system
+    task = seat_prompt("critic", seats, "de", round_rules=round_rules("critic", True, seats, "de"), voting="")
+    assert "KRITIKUS-PERSONA" in system and task in system
+    assert "[LGTM]" not in task and "Salomo" not in task        # no vote and no judge in a single critique
 
 
 def test_the_author_of_the_answer_defends_it_not_aifred(world: dict[str, Any], new_agent: Any) -> None:
@@ -403,11 +417,11 @@ def test_a_cancelled_debate_keeps_the_streamed_critique(world: dict[str, Any]) -
     assert _events("turn_finished")[0]["status"] == "cancelled"
 
 
-# ── code_review ──────────────────────────────────────────────────────────
+# ── recensio ────────────────────────────────────────────────────────────
 
 
-def test_code_review_ends_when_the_reviewer_gives_lgtm(world: dict[str, Any]) -> None:
-    _mode("code_review")
+def test_recensio_ends_when_the_censor_gives_lgtm(world: dict[str, Any]) -> None:
+    _mode("recensio")
     world["replies"] = {
         "Sokrates": ["Befund: Zeile 12 rechnet falsch. [WEITER]", "Alles behoben. [LGTM]"],
         "AIfred Fix": ["Zeile 12 korrigiert."],
@@ -416,38 +430,39 @@ def test_code_review_ends_when_the_reviewer_gives_lgtm(world: dict[str, Any]) ->
     # A round is a fix and its review; the first review, of the answer, belongs to no round.
     assert _bubbles() == [
         ("aifred", "direct", None),
-        ("sokrates", "code_review", None),
-        ("aifred", "review_fix", 1),
-        ("sokrates", "code_review", 1),
+        ("sokrates", "recensio", None),
+        ("aifred", "correctura", 1),
+        ("sokrates", "recensio", 1),
     ]
     chat = _data()["chat_history"]
-    assert "[Code-Prüfung]" in chat[2]["content"]                     # the mode is the step: no prefix
-    assert "[Code-Prüfung: Korrektur R1]" in chat[3]["content"]
-    assert "[Code-Prüfung R1]" in chat[4]["content"]
-    assert any("Code review passed after 1 fixes" in event["line"] for event in _events("debug"))
+    assert "[Recensio]" in chat[2]["content"]                     # the mode is the step: no prefix
+    assert "[Recensio: Correctura R1]" in chat[3]["content"]
+    assert "[Recensio R1]" in chat[4]["content"]
+    assert any("Recensio passed after 1 fixes" in event["line"] for event in _events("debug"))
     # The author fixes, not the reviewer: the review is its task, after the history.
     fix = next(messages for label, messages in world["calls"] if label == "AIfred Fix")
-    assert fix[-1]["role"] == "user" and "Zeile 12 rechnet falsch." in fix[-1]["content"]
+    assert fix[-1]["role"] == "user" and "KORREKTUR 1" in fix[-1]["content"]
+    assert any("Zeile 12 rechnet falsch." in message["content"] for message in fix[:-1])   # the review: in the history
     review = _system_prompt(world, "Sokrates")
-    assert "CODE-PRÜFUNG" in review and "KORREKTUREN BISHER: 0" in review and "Neu: —" in review
+    assert "CODE-PRÜFUNG" in review and "DIESE PRÜFUNG: die erste" in review and "Neu: —" in review
     # The two roles of the review, not the dialectic of three; the review in place of the everyday task.
-    assert "Code-Prüfung mit zwei Rollen" in review and "Antithese" not in review
+    assert "Recensio, einer Code-Prüfung mit zwei Rollen" in review and "Antithese" not in review
     assert "Du bist Sokrates" in review                                # identity and personality stay
     fix_system = fix[0]["content"]
-    assert "Code-Prüfung mit zwei Rollen" in fix_system and "Antithese" not in fix_system
+    assert "Recensio, einer Code-Prüfung mit zwei Rollen" in fix_system and "Antithese" not in fix_system
 
 
-def test_without_lgtm_the_code_review_stops_after_max_debate_rounds(world: dict[str, Any]) -> None:
-    _mode("code_review")
+def test_without_lgtm_the_recensio_stops_after_max_debate_rounds(world: dict[str, Any]) -> None:
+    _mode("recensio")
     world["view"].max_debate_rounds = 2
     _turn("Bau mir einen Rechner.")
     assert _bubbles() == [
         ("aifred", "direct", None),
-        ("sokrates", "code_review", None),
-        ("aifred", "review_fix", 1), ("sokrates", "code_review", 1),
-        ("aifred", "review_fix", 2), ("sokrates", "code_review", 2),
+        ("sokrates", "recensio", None),
+        ("aifred", "correctura", 1), ("sokrates", "recensio", 1),
+        ("aifred", "correctura", 2), ("sokrates", "recensio", 2),
     ]                                                                  # two rounds: two fixes, each re-checked
-    assert any("Code review still open after 2 rounds" in event["line"] for event in _events("debug"))
+    assert any("Recensio still open after 2 rounds" in event["line"] for event in _events("debug"))
 
 
 def test_the_reviewer_gets_the_files_the_author_changed(
@@ -470,9 +485,11 @@ def test_the_reviewer_gets_the_files_the_author_changed(
         return "", ToolKit(tools=tools, _source="browser", _max_tier=4)
 
     scripted = llm_pipeline.run_llm_stream
+    tools_of: dict[str, list[str]] = {}
 
     async def stream(client: Any, model: str, messages: list[dict[str, Any]], options: Any, label: str,
                      **kwargs: Any) -> AsyncIterator[dict[str, Any]]:
+        tools_of[label] = [tool.name for tool in kwargs["toolkit"].tools]
         if label == "AIfred":
             await kwargs["toolkit"].execute("execute_code_write", {"path": "rechner.html"})
         async for event in scripted(client, model, messages, options, label, **kwargs):
@@ -480,7 +497,9 @@ def test_the_reviewer_gets_the_files_the_author_changed(
 
     monkeypatch.setattr(agent_memory, "prepare_agent_toolkit", toolkit)
     monkeypatch.setattr(llm_pipeline, "run_llm_stream", stream)
-    _mode("code_review")
+    _mode("recensio")
     world["replies"] = {"Sokrates": ["Geprüft. [LGTM]"]}
     _turn("Bau mir einen Rechner.")
     assert "Neu: rechner.html" in _system_prompt(world, "Sokrates")
+    # The censor reads and tests, it writes nothing (RECENSIO_CENSOR_TOOLS); the auctor keeps its tools.
+    assert tools_of == {"AIfred": ["execute_code_write"], "Sokrates": []}

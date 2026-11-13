@@ -1,14 +1,13 @@
-CURRENT ROUND: {round_num}
+FIX {round_num}
 
-{critic_agent} has checked your work (code review):
-
-{review}
+{critic_agent} has checked your work; the review is the latest contribution in the history.
 
 Your task: fix the findings, in the files themselves (patch_file, write_file or in the sandbox), not only in your answer.
 The files you created or changed so far: New: {new_files}; Changed: {changed_files}; Deleted: {deleted_files}
 
 - Fix every finding you can follow, and check yourself afterwards that it runs.
 - If you consider a finding wrong, do not fix it, but give your reason with proof.
+- Decide yourself, without asking the user back: the review goes on without the user, who reads along at the end.
 - At the end, sum up briefly: which finding fixed how, which not and why.
 
 Start DIRECTLY with the work, without a header like "{main_agent}:"

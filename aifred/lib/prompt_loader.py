@@ -11,6 +11,7 @@ Personality System (v2.15.3+):
 - When enabled, personality is appended after identity + task prompts
 """
 
+from collections.abc import Collection
 from pathlib import Path
 
 from .settings import persisted_settings
@@ -230,9 +231,10 @@ def _build_standard_placeholders(lang: str) -> dict:
         weekday = now.strftime("%A")
         current_date = f"{weekday}, {now.strftime('%Y-%m-%d')}"
 
-    # Build upcoming days reference (helps LLMs with date arithmetic)
+    # Build upcoming days reference (helps LLMs with date arithmetic): today and the 7 days after it, so
+    # "morgen" and "nächsten <Wochentag>" (each weekday once after today) both resolve from the list
     upcoming_days: list[str] = []
-    for offset in range(1, 8):
+    for offset in range(8):
         d = now + timedelta(days=offset)
         if lang == "de":
             wd = weekday_map.get(d.strftime("%A"), d.strftime("%A"))
@@ -424,11 +426,13 @@ def get_agent_system_prompt(
 
 def get_seat_system_prompt(
     agent_id: str, task_prompt: str, lang: str, seats: dict[str, str], roles: str, memory: bool = True,
+    tools: Collection[str] | None = None,
 ) -> str:
     """An agent's prompt with the task of its seat AS its task layer, in place of its everyday task:
     the reviewer's task is the whole job, the agent's own ("better short than long") would pull against
-    it. Identity and personality stay."""
-    return _merge_prompt_layers(agent_id, task_prompt, lang, seats=seats, memory=memory, roles=roles)
+    it. Identity and personality stay. ``tools``: the seat keeps only these of its agent's tools, and
+    only their instructions come in."""
+    return _merge_prompt_layers(agent_id, task_prompt, lang, seats=seats, memory=memory, roles=roles, tools=tools)
 
 
 # ============================================================
@@ -492,6 +496,7 @@ def _merge_prompt_layers(
     memory: bool = True,
     source: str = "browser",
     roles: str = DEBATE_ROLES,
+    tools: Collection[str] | None = None,
 ) -> str:
     """
     Merge prompt layers in correct order.
@@ -522,14 +527,12 @@ def _merge_prompt_layers(
     if lang is None:
         lang = get_language()
 
-    name = get_user_name()
-    gender = get_user_gender()
-
     parts = []
 
-    # Layer 0: User prefix (once, at the top — NOT per-layer)
-    if name:
-        user_prefix = load_prompt('shared/user_prefix', lang=lang, user_name=name, user_gender=gender)
+    # Layer 0: User prefix (once, at the top — NOT per-layer). Name and gender (translated for the language)
+    # come from the standard placeholders.
+    if get_user_name():
+        user_prefix = load_prompt('shared/user_prefix', lang=lang)
         if user_prefix:
             parts.append(user_prefix)
 
@@ -586,6 +589,8 @@ def _merge_prompt_layers(
     from .plugin_registry import discover_tools
     _cfg = get_agent_config(agent)
     allowed = set(_cfg.tools) if (_cfg and _cfg.tools is not None) else None
+    if tools is not None:   # a seat with fewer tools (the recensio's censor): only theirs
+        allowed = set(tools) if allowed is None else allowed & set(tools)
     for p in discover_tools():
         if not p.is_available():
             continue

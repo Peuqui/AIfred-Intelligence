@@ -19,7 +19,6 @@
         "direct": "aifred/direct.txt",
         "refinement": "aifred/refinement.txt",
         "defense": "aifred/defense.txt",
-        "rag": "aifred/system_rag.txt",
         "memory_context": "aifred/memory_context.txt"
       },
       "toggles": {

@@ -19,7 +19,7 @@ import json
 import logging
 import re
 import time
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Collection
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
@@ -155,6 +155,13 @@ class ToolKit:
         # Files in the documents the writing calls changed, path → new/changed/deleted
         # (lib/document_changes.py); kept for the whole turn, the code review reads it.
         self._changed_documents: dict[str, str] = {}
+
+    def restricted(self, names: Collection[str]) -> "ToolKit":
+        """The same toolkit with only the tools named in ``names`` (the recensio's censor reads and tests)."""
+        return ToolKit(
+            tools=[tool for tool in self.tools if tool.name in names],
+            _session_id=self._session_id, _agent_id=self._agent_id, _source=self._source, _max_tier=self._max_tier,
+        )
 
     @property
     def changed_documents(self) -> dict[str, str]:

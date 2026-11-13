@@ -104,7 +104,6 @@ def _default_agents() -> dict[str, dict]:
                 "reminder": "aifred/reminder.txt",
                 "task": "aifred/system_minimal.txt",
                 "direct": "aifred/direct.txt",
-                "rag": "aifred/system_rag.txt",
             },
             "toggles": {
                 "personality": True,

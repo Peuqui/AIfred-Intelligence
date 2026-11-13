@@ -55,7 +55,7 @@ def test_a_new_agent_takes_any_seat_with_the_seats_task(prompts: Path) -> None:
         path.name for path in (prompts / "de" / agent_config.AGENT_TEMPLATE_DIR).iterdir()
     )                                                              # no copy of any seat's task
     seats = {SEAT_MAIN: "aifred", SEAT_CRITIC: "neu", SEAT_JUDGE: "salomo"}
-    assert "Neu" in seat_prompt("refinement", seats, "de", critique="Die Kritik.", user_interjection="", round_num=2)
+    assert "Neu" in seat_prompt("refinement", seats, "de", round_num=2)
 
 
 @pytest.mark.parametrize("agent_id", ["../draussen", "agent-template", "Groß", ""])

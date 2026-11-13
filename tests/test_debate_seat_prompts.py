@@ -14,8 +14,11 @@ from aifred.lib.debate_seats import SEAT_CRITIC, SEAT_JUDGE, SEAT_MAIN, seat_nam
 
 PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
 SEAT_TASKS = ("critic", "tribunal", "refinement", "defense", "mediator", "judge", "review", "review_fix")
+# What the code puts into a task per round (debate_seats.round_rules) or per mode (the vote of auto_consensus).
+ROUND_PARTS = tuple(f"{key}_{when}" for key in ("critic", "tribunal", "mediator", "review") for when in ("first", "later"))
+PROMPT_FILES = (*SEAT_TASKS, *ROUND_PARTS, "critic_voting")
 VARIABLES = {
-    "round_num": 2, "critique": "Die Kritik.", "user_interjection": "", "review": "Das Review.",
+    "round_num": 2, "round_rules": "Die Runde.", "voting": "",
     "new_files": "v8.html", "changed_files": "—", "deleted_files": "—",
 }
 DEFAULT_SEATS = {SEAT_MAIN: "aifred", SEAT_CRITIC: "sokrates", SEAT_JUDGE: "salomo"}
@@ -35,7 +38,7 @@ def agents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
 
 @pytest.mark.parametrize("lang", ["de", "en"])
 def test_every_seat_task_loads_with_the_names_of_the_seats(lang: str) -> None:
-    for key in SEAT_TASKS:
+    for key in PROMPT_FILES:
         assert "{" not in seat_prompt(key, DEFAULT_SEATS, lang, **VARIABLES), key
     roles = prompt_loader.load_multi_agent_roles(DEFAULT_SEATS, lang)
     assert all(f"[{name}]:" in roles for name in ("AIfred", "Sokrates", "Salomo"))
@@ -53,7 +56,7 @@ def test_the_agents_in_the_seats_are_named_by_the_tasks() -> None:
 
 @pytest.mark.parametrize("lang", ["de", "en"])
 def test_no_seat_task_names_an_agent_itself(lang: str) -> None:
-    files = [PROMPTS / lang / "debate" / f"{key}.txt" for key in SEAT_TASKS]
+    files = [PROMPTS / lang / "debate" / f"{key}.txt" for key in PROMPT_FILES]
     assert sorted(path.name for path in (PROMPTS / lang / "debate").iterdir()) == sorted(path.name for path in files)
     for path in [*files, *(PROMPTS / lang / "shared" / name for name in ("multi_agent_roles.txt", "multi_agent_roles_review.txt"))]:
         text = path.read_text(encoding="utf-8")

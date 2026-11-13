@@ -66,7 +66,7 @@ The current date and time are part of every prompt, so temporal questions work.
 |---|---|---|
 | **Standard** | One agent answers (selected via the agent pills) | — |
 | **Critical Review** | AIfred → Sokrates (critique + pro/contra) → stop | You |
-| **Code Review** | Author → reviewer reads and tests the changed files → author fixes → review again, up to N rounds | Reviewer (`[LGTM]`) |
+| **Recensio** (code review) | Auctor → censor reads and tests the changed files → per round the auctor's correctura and a new review, up to N rounds | Censor (`[LGTM]`) |
 | **Auto-Consensus** | AIfred → Sokrates → Salomo, up to N rounds | Salomo (votes) |
 | **Tribunal** | AIfred ↔ Sokrates for N rounds → Salomo | Salomo (verdict) |
 | **Symposion** | 2+ freely chosen agents discuss for N rounds, reflection layer from round 2 | Nobody — multiple perspectives |
@@ -97,18 +97,24 @@ with an overview of all modes.
      └────────────────┘              └─────────────────┘
 ```
 
-Consensus type (settings): **majority** (2 of 3 vote `[LGTM]`) or
-**unanimous** (all 3). Sokrates only criticises — deciding consensus is
-Salomo's job.
+Consensus type (settings): **majority** (more than half vote `[LGTM]`) or
+**unanimous** (all). In round 1 only critic and judge vote: the author's first answer
+was never asked to vote; from its first refinement on it votes too. With two votes, a
+majority needs both.
 
-### Code Review
+### Recensio (code review)
 
-The author answers, then the reviewer (the critic's seat) checks the work: it gets the list of files the
-author created, changed or deleted in the documents during this turn, reads them, tests them in the sandbox
-and reports every finding with its place and proof, without a maximum and without a version of its own. On
-`[WEITER]` a round follows: the author fixes the findings in the files and the reviewer checks again.
-`[LGTM]` ends the loop, otherwise it ends after N rounds (fixes) with the last review; the first review, of
-the answer, belongs to no round.
+The auctor (author) answers, then the censor (reviewer, the critic's seat) checks the work: it gets the list
+of files the auctor created, changed or deleted in the documents during this turn, reads them, tests them in
+the sandbox and reports every finding with its place and proof, without a maximum and without a version of its
+own. On `[WEITER]` a round follows: the auctor fixes the findings in the files (correctura) and the censor
+checks again. `[LGTM]` ends the loop, otherwise it ends after N rounds with the last review; the first review,
+of the answer, belongs to no round.
+
+The censor changes nothing: of its agent's tools it keeps only those for reading and testing
+(`RECENSIO_CENSOR_TOOLS` in `config.py`), and only their instructions are in its prompt. Its review task takes
+the place of its agent's everyday task there, `shared/multi_agent_roles_review` describes the roles instead of
+the dialectic; identity and personality stay.
 
 Which files an agent changed, its toolkit knows: every writing tool call is bracketed by a look at the
 documents folder before and after it (`lib/document_changes.py`, `ToolKit.changed_documents`). So what
@@ -144,19 +150,20 @@ a replacement of the discussion prompt (`shared/symposion.txt`).
 |---|---|---|
 | Standard | any | `<agent>/system_minimal` (task layer) |
 | Direct addressing | addressed agent | `<agent>/direct` |
-| Critical Review, Auto-Consensus — critique | critic | `debate/critic` |
-| Code Review — review | critic (reviewer) | `debate/review` |
-| Code Review — fix | author | `debate/review_fix` |
+| Critical Review, Auto-Consensus — critique | critic | `debate/critic` (+ `critic_first`/`critic_later`, vote `critic_voting` only in Auto-Consensus) |
+| Recensio — review | censor (critic's seat) | `debate/review` (+ `review_first`/`review_later`) |
+| Recensio — correctura | auctor | `debate/review_fix` |
 | Auto-Consensus — refinement | author | `debate/refinement` |
-| Auto-Consensus — synthesis | judge | `debate/mediator` |
-| Tribunal — attack | critic | `debate/tribunal` |
+| Auto-Consensus — synthesis | judge | `debate/mediator` (+ `mediator_first`/`mediator_later`) |
+| Tribunal — attack | critic | `debate/tribunal` (+ `tribunal_first`/`tribunal_later`) |
 | Tribunal — defense | author | `debate/defense` |
 | Tribunal — verdict | judge | `debate/judge` |
 | Symposion | every participant | `shared/symposion` (+ `shared/symposion_reflection` from round 2) |
 
-`{round_num}` is filled in so the critic knows which round it is; critics are
-told to raise at most one or two points per round (not the code review: it reports everything it can
-prove).
+What a seat's task says about its round, the code picks (`debate_seats.round_rules`: the `_first` block for
+the first round, the `_later` block for every further one), so the model never weighs "IF round = 1" itself.
+Critics are told to raise at most one or two points per round (not the recensio: it reports everything it
+can prove).
 
 ---
 
@@ -224,9 +231,9 @@ carry a label `[<mode>: <step> R<round>]` (built in `_chat_mixin.py`):
 |---|---|
 | 🎩 AIfred | Standard answer or directly addressed agent (no label) |
 | 🏛️ Sokrates [Critical Review] | Critique in Critical Review |
-| 🔴 HAL 9000 [Code Review] | Review of the answer |
-| 🤖 Codine [Code Review: Fix R1] | Fix, round 1 |
-| 🔴 HAL 9000 [Code Review R1] | Re-check, round 1 |
+| 🔴 HAL 9000 [Recensio] | Review of the answer |
+| 🤖 Codine [Recensio: Correctura R1] | Fix, round 1 |
+| 🔴 HAL 9000 [Recensio R1] | Re-check, round 1 |
 | 🎩 AIfred [Auto-Consensus: Refinement R2] | Refinement, round 2 |
 | 👑 Salomo [Auto-Consensus: Synthesis R2] | Synthesis, round 2 |
 | 🏛️ Sokrates [Tribunal R1] | Tribunal exchange, round 1 |

@@ -1,0 +1,8 @@
+═══════════════════════════════════════════════════════════════
+DIESE RUNDE: {main_agent} hat überarbeitet
+═══════════════════════════════════════════════════════════════
+→ Beginne mit „FORTSCHRITT“: Vergleiche die NEUESTE Antwort von {main_agent} mit deiner LETZTEN Kritik.
+→ In der History stehen auch die Empfehlungen von {judge_agent} aus der vorherigen Runde.
+→ Hat {main_agent} deinen Punkt oder die Empfehlung von {judge_agent} umgesetzt? → Kurz anerkennen, NICHT erneut kritisieren.
+→ Hat {main_agent} deinen Punkt NICHT umgesetzt? → Darfst du erneut erwähnen.
+→ Länge der alternativen Lösung: fokussiert (150-250 Wörter), ergänze nur, was noch fehlt; ist das meiste umgesetzt, noch kürzer (100-150 Wörter).

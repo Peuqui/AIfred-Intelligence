@@ -26,6 +26,21 @@ def test_a_full_toolkit_gets_every_workspace_tool(lang: str) -> None:
     assert all(tool in text for tool in WRITING)
 
 
+@pytest.mark.parametrize("lang", ["de", "en"])
+def test_a_workflow_of_several_tools_comes_after_the_single_tools(lang: str) -> None:
+    """write_file+index_document asks whether to index after writing: it belongs after the list of tools, not
+    between them (the "+" sorted before the ".", so it stood before write_file)."""
+    import inspect
+    from pathlib import Path
+
+    from aifred.plugins.tools.workspace import plugin
+    folder = Path(inspect.getfile(plugin.__class__)).parent / "prompts" / lang
+    single = (folder / "write_file.txt").read_text(encoding="utf-8").strip()
+    workflow = (folder / "write_file+index_document.txt").read_text(encoding="utf-8").strip()
+    text = load_plugin_instructions(plugin, lang, None)
+    assert text.index(single) < text.index(workflow)
+
+
 def test_the_sandbox_names_only_importable_libraries() -> None:
     import importlib.util
     import json

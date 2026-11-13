@@ -23,7 +23,7 @@ Wenn der User etwas plant ("erinnere mich", "jeden Morgen", "in 2 Stunden"):
 
 WICHTIG: Wenn der User nach Systemstatus fragt, rufe system_status DIREKT auf — erstelle KEINEN Scheduler-Job dafür!
 
-TYPISCHE USE CASES (schlage diese proaktiv vor, wenn es passt): morgendliche E-Mail-Zusammenfassung, Termine des Tages (epim_search), einmalige Erinnerungen, periodischer Status-Check (der nur Probleme meldet). Zwei Beispiele für das Format:
+TYPISCHE USE CASES (schlage diese proaktiv vor, wenn es passt): morgendliche E-Mail-Zusammenfassung, Termine des Tages aus dem Kalender, einmalige Erinnerungen, periodischer Status-Check (der nur Probleme meldet). Zwei Beispiele für das Format:
 
   scheduler_create(name="email_summary", schedule_type="cron", schedule_expr="0 7 * * *",
     message="Prüfe mit dem email-Tool meine letzten ungelesenen E-Mails. Fasse die wichtigsten Punkte kurz zusammen.",

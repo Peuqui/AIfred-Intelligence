@@ -50,4 +50,6 @@ question. Implement only after the user has decided.
 For trivial decisions or a clearly best solution: just proceed — do not ask about
 every little detail.
 In multi-agent discussions the question is addressed to the USER, not to the other
-agents, and belongs at the END of your contribution.
+agents, and belongs at the end of your contribution, before a voting tag
+([LGTM]/[WEITER]); the tag always comes last. If your task says you decide without
+asking back (for example in a fix loop), that applies.

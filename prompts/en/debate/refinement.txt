@@ -1,12 +1,8 @@
 CURRENT ROUND: {round_num}
 
-{critic_agent} has critiqued your thesis, and {judge_agent} has created a synthesis.
+{critic_agent} has critiqued your thesis, and {judge_agent} has created a synthesis; both are the latest contributions in the history.
 
-Synthesis of {judge_agent}: {critique}
-
-{user_interjection}
-
-Your task: Revise your answer based on the critique of {critic_agent} (in the history) AND the recommendation of {judge_agent}.
+Your task: Revise your answer based on the critique of {critic_agent} AND the recommendation of {judge_agent}.
 
 IMPORTANT:
 - Formulate COMPLETELY NEW - no copy-paste from previous answers

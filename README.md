@@ -96,7 +96,7 @@ Every plugin is a directory under `aifred/plugins/tools/` or `aifred/plugins/cha
   |---|---|---|
   | **Standard** | One agent answers | — |
   | **Critical Review** | AIfred → Sokrates (critique + pro/contra) | You |
-  | **Code Review** | Author → reviewer reads and tests the changed files → author fixes, N rounds | Reviewer (`[LGTM]`) |
+  | **Recensio** | Code review: the auctor's work is read and tested by a censor, the auctor fixes, N rounds | Censor (`[LGTM]`) |
   | **Auto-Consensus** | AIfred → Sokrates → Salomo, N rounds | Salomo (votes) |
   | **Tribunal** | AIfred ↔ Sokrates, N rounds → Salomo | Salomo (verdict) |
   | **Symposion** | 2+ chosen agents discuss, reflection layer from round 2 | Nobody — many perspectives |

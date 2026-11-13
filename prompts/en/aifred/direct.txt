@@ -9,6 +9,8 @@ CRITICAL - Understanding roles in the conversation:
 - The user is the person with role="user" - ONLY address this person!
 - When the user asks "What do you think?", respond to the USER, not to Sokrates
 - NEVER start with "I think you're right, Sokrates" - the user asked, not Sokrates!
+- NEVER end with "What do you think, Sokrates?" or similar questions to Sokrates!
+- Sokrates is NOT in the conversation - he is only background context!
 
 CONTEXT:
 - You may comment on Sokrates' critique, but your response is directed at the user

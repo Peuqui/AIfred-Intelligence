@@ -1,0 +1,6 @@
+═══════════════════════════════════════════════════════════════
+THIS ROUND: the first attack
+═══════════════════════════════════════════════════════════════
+→ You see ONLY the FIRST answer of {main_agent}
+→ Attack the CORE THESIS, not minor details
+→ Start directly with "ATTACK"

@@ -6,8 +6,8 @@ its own persona and the seat's task prompt. A seat whose agent is gone rejects t
 anyone speaks.
 
 - critical_review: the direct answer, then one critique.
-- code_review: the direct answer, then per round a review of the files the author changed and the
-  author's fixes, until the reviewer gives [LGTM] or the rounds reach ``max_debate_rounds``.
+- recensio (code review): the direct answer, the censor reviews the files the auctor changed; per round the
+  auctor's correctura and a new review, until the censor gives [LGTM] or the rounds reach ``max_debate_rounds``.
 - auto_consensus: the direct answer, then per round critique, synthesis, vote and refinement, until
   the votes reach ``consensus_type`` or the rounds ``max_debate_rounds``.
 - tribunal: the direct answer, then ``max_debate_rounds`` of attack and defense, the verdict last.
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from .agent_config import (
@@ -33,6 +33,7 @@ from .agent_config import (
     get_agent_config,
     selectable_agents,
 )
+from .config import RECENSIO_CENSOR_TOOLS
 from .debate_seats import (
     CHOSEN_SEATS,
     SEAT_CRITIC,
@@ -40,6 +41,7 @@ from .debate_seats import (
     SEAT_MAIN,
     SeatError,
     check_seat_agent,
+    round_rules,
     seat_prompt,
 )
 from .debug_bus import debug
@@ -73,7 +75,7 @@ _BASE_PROMPT = "task"
 # The seats that speak after the direct answer, per mode.
 _DEBATE_SEATS: dict[str, tuple[str, ...]] = {
     "critical_review": (SEAT_CRITIC,),
-    "code_review": (SEAT_MAIN, SEAT_CRITIC),
+    "recensio": (SEAT_MAIN, SEAT_CRITIC),
     "auto_consensus": (SEAT_MAIN, SEAT_CRITIC, SEAT_JUDGE),
     "tribunal": (SEAT_MAIN, SEAT_CRITIC, SEAT_JUDGE),
 }
@@ -296,9 +298,9 @@ async def run_debate(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
     if ctx.mode == "tribunal":
         debug("⚖️ Multi-Agent: Tribunal starting...")
         await _tribunal(ctx, plan)
-    elif ctx.mode == "code_review":
-        debug(f"🔎 Multi-Agent: code review by {agent_display_name(plan.debate[SEAT_CRITIC])} starting...")
-        await _code_review(ctx, plan)
+    elif ctx.mode == "recensio":
+        debug(f"🔎 Multi-Agent: recensio by {agent_display_name(plan.debate[SEAT_CRITIC])} starting...")
+        await _recensio(ctx, plan)
     else:
         debug(f"🏛️ Multi-Agent: {agent_display_name(plan.debate[SEAT_CRITIC])} analysis starting...")
         await _critique(ctx, plan, answer)
@@ -307,7 +309,6 @@ async def run_debate(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
 
 async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
     """critical_review (one critique, the user decides) and auto_consensus (rounds until consensus)."""
-    from .context_manager import strip_thinking_blocks
     from .logging_utils import log_raw_messages
 
     lang, auto = ctx.intent.language, ctx.mode == "auto_consensus"
@@ -321,8 +322,12 @@ async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
     consensus_round = 0
     round_num = 0
     for round_num in range(1, max_rounds + 1):
-        # The round number keeps the critic from inventing "progress" in round 1.
-        system_prompt = _seat_system(critic, "critic", lang, plan.seats, round_num=round_num)
+        # The round's block keeps the critic from inventing "progress" in round 1; the vote only where it counts.
+        system_prompt = _seat_system(
+            critic, "critic", lang, plan.seats,
+            round_rules=round_rules("critic", round_num == 1, plan.seats, lang),
+            voting=seat_prompt("critic_voting", plan.seats, lang) if auto else "",
+        )
         await _compress_before(ctx, plan, critic, _prompt_tokens(system_prompt))
         call = _call(ctx, critic, system_prompt, memory_before_question=True)
         debug(_prompt_line(call, f"R{round_num}", critic.num_ctx))
@@ -338,7 +343,9 @@ async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
         judge = members[SEAT_JUDGE]
         if round_num == 1:
             debug(f"{judge.emoji} {judge.label}-LLM: {judge.model}")
-        system_prompt = _with_memory(_seat_system(judge, "mediator", lang, plan.seats, round_num=round_num), judge)
+        system_prompt = _with_memory(_seat_system(
+            judge, "mediator", lang, plan.seats, round_rules=round_rules("mediator", round_num == 1, plan.seats, lang),
+        ), judge)
         await _compress_before(ctx, plan, judge, _prompt_tokens(system_prompt))
         call = _call(ctx, judge, system_prompt, observer=True)
         debug(_prompt_line(call, f"R{round_num}", judge.num_ctx))
@@ -349,14 +356,18 @@ async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
         finish_call(ctx, call, result, mode="synthesis", round_num=round_num)
         synthesis = result.text
 
-        votes = {seat: _agrees(text) for seat, text in
-                 ((SEAT_MAIN, current_answer), (SEAT_CRITIC, critique), (SEAT_JUDGE, synthesis))}
+        # The author votes from its first refinement on: its direct answer was never asked to vote, so
+        # in round 1 only critic and judge count (an unasked vote would always be a no).
+        voters = [(SEAT_CRITIC, critique), (SEAT_JUDGE, synthesis)]
+        if round_num > 1:
+            voters.insert(0, (SEAT_MAIN, current_answer))
+        votes = {seat: _agrees(text) for seat, text in voters}
         debug(_votes_line(members, votes, round_num))
         if _consensus(votes, ctx.view.consensus_type):
             kind = "unanimous" if ctx.view.consensus_type == "unanimous" else "majority"
             debug(
                 f"✅ Consensus reached in round {format_number(round_num)} "
-                f"({format_number(sum(votes.values()))}/3 votes, {kind})"
+                f"({format_number(sum(votes.values()))}/{format_number(len(votes))} votes, {kind})"
             )
             consensus_round = round_num
             break
@@ -366,7 +377,7 @@ async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
         main = members[SEAT_MAIN]
         question = seat_prompt(
             "refinement", plan.seats, lang,
-            critique=strip_thinking_blocks(synthesis), user_interjection="", round_num=round_num + 1,
+            round_num=round_num + 1,
         )
         system_prompt = _with_memory(_base_system(main, lang, plan.seats), main)
         await _compress_before(ctx, plan, main, _prompt_tokens(system_prompt, question))
@@ -388,28 +399,30 @@ async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
                 debug(_votes_line(members, votes, round_num))
 
 
-async def _code_review(ctx: TurnContext, plan: TurnPlan) -> None:
-    """The reviewer reads and tests the files the author changed in this turn and reports every fault.
-    On [WEITER] a round follows: the author fixes the findings in the files, the reviewer checks again;
-    until [LGTM] or ``max_debate_rounds`` rounds (fixes). The first review, of the answer, belongs to
-    no round (Peuqui 14.11.2026: a round is fix and review)."""
-    from .context_manager import strip_thinking_blocks
-
+async def _recensio(ctx: TurnContext, plan: TurnPlan) -> None:
+    """The censor (critic's seat) reads and tests the files the auctor (the author) changed in this turn
+    and reports every fault. On [WEITER] a round follows: the auctor fixes the findings in the files
+    (correctura), the censor checks again; until [LGTM] or ``max_debate_rounds`` rounds. The first
+    review, of the answer, belongs to no round (Peuqui 14.11.2026: a round is fix and review)."""
     lang = ctx.intent.language
     debug(_llm_line(ctx.view, plan.debate[SEAT_CRITIC]))
     members = await _cast(ctx, plan.debate)
-    reviewer, author = members[SEAT_CRITIC], members[SEAT_MAIN]
+    author = members[SEAT_MAIN]
+    # The censor reads and tests; it changes nothing (the author fixes): only those tools.
+    censor = members[SEAT_CRITIC]
+    if censor.toolkit is not None:
+        censor = replace(censor, toolkit=censor.toolkit.restricted(RECENSIO_CENSOR_TOOLS))
     max_rounds = ctx.view.max_debate_rounds
-    review = await _review(ctx, plan, reviewer, author, 0)
+    review = await _review(ctx, plan, censor, author, 0)
     for round_num in range(1, max_rounds + 1):
         if review is None:
             return
         if _agrees(review):
-            debug(f"✅ Code review passed after {format_number(round_num - 1)} fixes")
+            debug(f"✅ Recensio passed after {format_number(round_num - 1)} fixes")
             return
         question = seat_prompt(
             "review_fix", plan.seats, lang,
-            review=strip_thinking_blocks(review), round_num=round_num, **_file_lists(_author_files(ctx, author.agent)),
+            round_num=round_num, **_file_lists(_author_files(ctx, author.agent)),
         )
         system_prompt = _with_memory(_base_system(author, lang, plan.seats, REVIEW_ROLES), author)
         await _compress_before(ctx, plan, author, _prompt_tokens(system_prompt, question))
@@ -418,15 +431,15 @@ async def _code_review(ctx: TurnContext, plan: TurnPlan) -> None:
         result = await _speak(ctx, call)
         if result is None:
             return
-        finish_call(ctx, call, result, mode="review_fix", round_num=round_num)
-        review = await _review(ctx, plan, reviewer, author, round_num)
+        finish_call(ctx, call, result, mode="correctura", round_num=round_num)
+        review = await _review(ctx, plan, censor, author, round_num)
     if review is not None and _agrees(review):
-        debug(f"✅ Code review passed after {format_number(max_rounds)} fixes")
+        debug(f"✅ Recensio passed after {format_number(max_rounds)} fixes")
     elif review is not None:
-        debug(f"⚠️ Code review still open after {format_number(max_rounds)} rounds")
+        debug(f"⚠️ Recensio still open after {format_number(max_rounds)} rounds")
 
 
-async def _review(ctx: TurnContext, plan: TurnPlan, reviewer: _Member, author: _Member, fixes: int) -> str | None:
+async def _review(ctx: TurnContext, plan: TurnPlan, censor: _Member, author: _Member, fixes: int) -> str | None:
     """One review of the author's files; ``fixes`` the corrections so far (0: the review of the answer,
     without a round number). Its text, None when the stream gave nothing."""
     from .logging_utils import log_raw_messages
@@ -434,21 +447,24 @@ async def _review(ctx: TurnContext, plan: TurnPlan, reviewer: _Member, author: _
     files = _author_files(ctx, author.agent)
     step = f"R{fixes}" if fixes else "answer"
     debug(f"🔎 Review ({step}): {format_number(len(files))} files of {author.label}")
-    # The review is the reviewer's whole task: it takes the place of the agent's everyday task, under the
+    # The review is the censor's whole task: it takes the place of the agent's everyday task, under the
     # description of the two roles; identity and personality stay.
     lang = ctx.intent.language
-    task = seat_prompt("review", plan.seats, lang, round_num=fixes, **_file_lists(files))
-    system_prompt = get_seat_system_prompt(
-        reviewer.agent, task, lang, plan.seats, REVIEW_ROLES, memory=reviewer.memory_enabled,
+    task = seat_prompt(
+        "review", plan.seats, lang,
+        round_rules=round_rules("review", fixes == 0, plan.seats, lang, round_num=fixes), **_file_lists(files),
     )
-    await _compress_before(ctx, plan, reviewer, _prompt_tokens(system_prompt))
-    call = _call(ctx, reviewer, system_prompt, memory_before_question=True)
-    debug(_prompt_line(call, step, reviewer.num_ctx))
-    log_raw_messages(f"{reviewer.label} {step}", call.messages)
+    system_prompt = get_seat_system_prompt(
+        censor.agent, task, lang, plan.seats, REVIEW_ROLES, memory=censor.memory_enabled, tools=RECENSIO_CENSOR_TOOLS,
+    )
+    await _compress_before(ctx, plan, censor, _prompt_tokens(system_prompt))
+    call = _call(ctx, censor, system_prompt, memory_before_question=True)
+    debug(_prompt_line(call, step, censor.num_ctx))
+    log_raw_messages(f"{censor.label} {step}", call.messages)
     result = await _speak(ctx, call)
     if result is None:
         return None
-    finish_call(ctx, call, result, mode="code_review", round_num=fixes or None)
+    finish_call(ctx, call, result, mode="recensio", round_num=fixes or None)
     return result.text
 
 
@@ -493,15 +509,15 @@ def _consensus(votes: dict[str, bool], consensus_type: str) -> bool:
 
 
 def _votes_line(members: dict[str, _Member], votes: dict[str, bool], round_num: int) -> str:
-    marks = ", ".join(
-        f"{members[seat].label} {'✅' if votes[seat] else '❌'}" for seat in (SEAT_MAIN, SEAT_CRITIC, SEAT_JUDGE)
+    marks = ", ".join(f"{members[seat].label} {'✅' if agreed else '❌'}" for seat, agreed in votes.items())
+    return (
+        f"🗳️ Votes R{format_number(round_num)}: {marks} "
+        f"({format_number(sum(votes.values()))}/{format_number(len(votes))})"
     )
-    return f"🗳️ Votes R{format_number(round_num)}: {marks} ({format_number(sum(votes.values()))}/3)"
 
 
 async def _tribunal(ctx: TurnContext, plan: TurnPlan) -> None:
     """The critic attacks, the main agent defends, round by round; the judge speaks only at the end."""
-    from .context_manager import strip_thinking_blocks
 
     lang = ctx.intent.language
     debug("⚖️ Tribunal mode started")
@@ -512,7 +528,9 @@ async def _tribunal(ctx: TurnContext, plan: TurnPlan) -> None:
     max_rounds = ctx.view.max_debate_rounds
 
     for round_num in range(1, max_rounds + 1):
-        system_prompt = _seat_system(critic, "tribunal", lang, plan.seats, round_num=round_num)
+        system_prompt = _seat_system(
+            critic, "tribunal", lang, plan.seats, round_rules=round_rules("tribunal", round_num == 1, plan.seats, lang),
+        )
         await _compress_before(ctx, plan, critic, _prompt_tokens(system_prompt))
         call = _call(ctx, critic, system_prompt, memory_before_question=True)
         result = await _speak(ctx, call)
@@ -525,7 +543,7 @@ async def _tribunal(ctx: TurnContext, plan: TurnPlan) -> None:
         # The defense may hold its position or revise it (unlike the refinement of auto_consensus).
         question = seat_prompt(
             "defense", plan.seats, lang,
-            critique=strip_thinking_blocks(result.text), user_interjection="", round_num=round_num + 1,
+            round_num=round_num + 1,
         )
         system_prompt = _base_system(main, lang, plan.seats)
         await _compress_before(ctx, plan, main, _prompt_tokens(system_prompt, question))

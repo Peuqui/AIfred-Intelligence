@@ -1,10 +1,6 @@
 AKTUELLE RUNDE: {round_num}
 
-{critic_agent} hat deine These angegriffen.
-
-Kritik von {critic_agent}: {critique}
-
-{user_interjection}
+{critic_agent} hat deine These angegriffen; der Angriff ist der letzte Beitrag in der History.
 
 ═══════════════════════════════════════════════════════════════
 TRIBUNAL-MODUS: DU DARFST DICH VERTEIDIGEN!

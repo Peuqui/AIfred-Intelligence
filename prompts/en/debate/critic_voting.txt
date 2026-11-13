@@ -1,0 +1,7 @@
+
+═══════════════════════════════════════════════════════════════
+CONSENSUS VOTING (REQUIRED!)
+═══════════════════════════════════════════════════════════════
+End your critique with ONE of these tags, at the very end:
+- [LGTM] if the answer of {main_agent} is now good enough and no further critique is needed
+- [WEITER] if there is still room for improvement

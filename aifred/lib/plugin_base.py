@@ -37,7 +37,7 @@ def load_plugin_instructions(
     ``.txt`` wie im globalen ``prompts/``-Baum — Markdown im INHALT ist ok):
       * Der Dateiname kodiert die benötigten Tools, mit ``+`` verknüpft (UND):
           ``vision_capture.txt``                  → nur wenn vision_capture erlaubt
-          ``vision_capture+vision_analyze.txt``   → nur wenn BEIDE erlaubt (Workflow-Layer)
+          ``vision_capture+vision_analyze.txt``   → nur wenn BEIDE erlaubt (Workflow-Layer), nach den einzelnen
       * ``_intro.txt`` → Plugin-Übergreifendes, wird vorangestellt, sobald
         mindestens ein Tool-Fragment greift.
       * ``granted_tools=None`` → keine Whitelist → alle Fragmente.
@@ -55,7 +55,9 @@ def load_plugin_instructions(
         return ""
     intro_text = ""
     fragments: list[str] = []
-    for f in sorted(per_tool_dir.glob("*.txt")):
+    # The single tools first, then the workflows of several ("a+b"): a workflow line belongs after the
+    # list of the tools it combines, not between them (until 14.11.2026 "+" sorted before ".").
+    for f in sorted(per_tool_dir.glob("*.txt"), key=lambda path: ("+" in path.stem, path.stem)):
         if f.stem == "_intro":
             intro_text = f.read_text(encoding="utf-8").strip()
             continue

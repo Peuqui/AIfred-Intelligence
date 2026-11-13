@@ -1,12 +1,8 @@
 AKTUELLE RUNDE: {round_num}
 
-{critic_agent} hat deine These kritisiert, und {judge_agent} hat eine Synthese erstellt.
+{critic_agent} hat deine These kritisiert, und {judge_agent} hat eine Synthese erstellt; beide stehen als letzte Beiträge in der History.
 
-Synthese von {judge_agent}: {critique}
-
-{user_interjection}
-
-Deine Aufgabe: Überarbeite deine Antwort auf Grundlage der Kritik von {critic_agent} (in der History) UND der Empfehlung von {judge_agent}.
+Deine Aufgabe: Überarbeite deine Antwort auf Grundlage der Kritik von {critic_agent} UND der Empfehlung von {judge_agent}.
 
 WICHTIG:
 - Formuliere KOMPLETT NEU - kein Copy-Paste aus vorherigen Antworten

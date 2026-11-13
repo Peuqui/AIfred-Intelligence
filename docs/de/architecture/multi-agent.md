@@ -68,7 +68,7 @@ funktionieren.
 |---|---|---|
 | **Standard** | Ein Agent antwortet (ausgewählt über die Agenten-Pills) | — |
 | **Kritische Prüfung** | AIfred → Sokrates (Kritik + Pro/Contra) → Stopp | Du |
-| **Code-Prüfung** | Verfasser → Prüfer liest und testet die geänderten Dateien → Verfasser behebt → erneutes Review, bis zu N Runden | Prüfer (`[LGTM]`) |
+| **Recensio** (Code-Prüfung) | Auctor → Censor liest und testet die geänderten Dateien → je Runde Correctura des Auctors und erneute Prüfung, bis zu N Runden | Censor (`[LGTM]`) |
 | **Auto-Konsens** | AIfred → Sokrates → Salomo, bis zu N Runden | Salomo (Abstimmung) |
 | **Tribunal** | AIfred ↔ Sokrates für N Runden → Salomo | Salomo (Urteil) |
 | **Symposion** | 2+ frei gewählte Agenten diskutieren N Runden, Reflection-Layer ab Runde 2 | Niemand — mehrere Perspektiven |
@@ -99,18 +99,24 @@ ein Modal mit einer Übersicht aller Modi.
      └────────────────┘              └─────────────────┘
 ```
 
-Konsens-Art (Einstellungen): **Mehrheit** (2 von 3 stimmen mit `[LGTM]`) oder
-**einstimmig** (alle 3). Sokrates kritisiert nur — über den Konsens zu
-entscheiden ist Salomos Aufgabe.
+Konsens-Art (Einstellungen): **Mehrheit** (mehr als die Hälfte stimmt mit `[LGTM]`) oder
+**einstimmig** (alle). In Runde 1 stimmen nur Kritiker und Richter ab: Die erste Antwort
+des Verfassers wurde nie zur Abstimmung aufgefordert; ab seiner ersten Überarbeitung stimmt
+er mit. Bei zwei Stimmen braucht auch die Mehrheit beide.
 
-### Code-Prüfung
+### Recensio (Code-Prüfung)
 
-Der Verfasser antwortet, der Prüfer (der Kritiker-Platz) prüft danach seine Arbeit: Er bekommt die Liste
-der Dateien, die der Verfasser in diesem Zug in den Dokumenten angelegt, geändert oder gelöscht hat, liest
-sie, testet sie in der Sandbox und meldet jeden Befund mit Stelle und Beleg, ohne Höchstzahl und ohne eigene
-Gegenfassung. Bei `[WEITER]` folgt eine Runde: Der Verfasser behebt die Befunde in den Dateien, dann prüft der
-Prüfer erneut. `[LGTM]` beendet die Schleife, sonst endet sie nach N Runden (Korrekturen) mit dem letzten
-Review; das erste Review der Antwort gehört zu keiner Runde.
+Der Auctor (Verfasser) antwortet, der Censor (Prüfer, der Kritiker-Platz) prüft danach seine Arbeit: Er
+bekommt die Liste der Dateien, die der Auctor in diesem Zug in den Dokumenten angelegt, geändert oder gelöscht
+hat, liest sie, testet sie in der Sandbox und meldet jeden Befund mit Stelle und Beleg, ohne Höchstzahl und
+ohne eigene Gegenfassung. Bei `[WEITER]` folgt eine Runde: Der Auctor behebt die Befunde in den Dateien
+(Correctura), dann prüft der Censor erneut. `[LGTM]` beendet die Schleife, sonst endet sie nach N Runden mit
+der letzten Prüfung; die erste Prüfung der Antwort gehört zu keiner Runde.
+
+Der Censor ändert nichts: Von den Werkzeugen seines Agenten behält er nur die zum Lesen und Testen
+(`RECENSIO_CENSOR_TOOLS` in `config.py`), und nur deren Anleitungen stehen in seinem Prompt. Seine Prüfaufgabe
+ersetzt dort die allgemeine Aufgabe seines Agenten, die Rollen beschreibt `shared/multi_agent_roles_review`
+statt der Dialektik; Identität und Persönlichkeit bleiben.
 
 Welche Dateien ein Agent geändert hat, weiß sein Werkzeugkasten: Jeder schreibende Werkzeugaufruf wird von
 einem Blick auf den Dokumentenordner vorher und nachher umklammert (`lib/document_changes.py`,
@@ -147,19 +153,20 @@ Diskussions-Prompt (`shared/symposion.txt`).
 |---|---|---|
 | Standard | beliebig | `<agent>/system_minimal` (Aufgaben-Schicht) |
 | Direkte Ansprache | angesprochener Agent | `<agent>/direct` |
-| Kritische Prüfung, Auto-Konsens — Kritik | Kritiker | `debate/critic` |
-| Code-Prüfung — Prüfung | Prüfer (Kritiker-Platz) | `debate/review` |
-| Code-Prüfung — Korrektur | Verfasser | `debate/review_fix` |
+| Kritische Prüfung, Auto-Konsens — Kritik | Kritiker | `debate/critic` (+ `critic_first`/`critic_later`, Abstimmung `critic_voting` nur im Auto-Konsens) |
+| Recensio — Prüfung | Censor (Kritiker-Platz) | `debate/review` (+ `review_first`/`review_later`) |
+| Recensio — Correctura | Auctor | `debate/review_fix` |
 | Auto-Konsens — Überarbeitung | Verfasser | `debate/refinement` |
-| Auto-Konsens — Synthese | Richter | `debate/mediator` |
-| Tribunal — Angriff | Kritiker | `debate/tribunal` |
+| Auto-Konsens — Synthese | Richter | `debate/mediator` (+ `mediator_first`/`mediator_later`) |
+| Tribunal — Angriff | Kritiker | `debate/tribunal` (+ `tribunal_first`/`tribunal_later`) |
 | Tribunal — Verteidigung | Verfasser | `debate/defense` |
 | Tribunal — Urteil | Richter | `debate/judge` |
 | Symposion | jeder Teilnehmer | `shared/symposion` (+ `shared/symposion_reflection` ab Runde 2) |
 
-`{round_num}` wird eingesetzt, damit der Kritiker weiß, welche Runde es ist;
-Kritiker sind angewiesen, pro Runde höchstens ein oder zwei Punkte anzubringen (die Code-Prüfung nicht:
-es meldet alles, was es belegen kann).
+Was die Aufgabe eines Platzes zu seiner Runde sagt, wählt der Code (`debate_seats.round_rules`: der Baustein
+`_first` für die erste Runde, `_later` für jede weitere), damit das Modell nie selbst „WENN Runde = 1“ abwägt.
+Kritiker sind angewiesen, pro Runde höchstens ein oder zwei Punkte anzubringen (die Recensio nicht: sie
+meldet alles, was sie belegen kann).
 
 ---
 
@@ -230,9 +237,9 @@ Multi-Agent-Schritte tragen ein Label `[<Modus>: <Schritt> R<Runde>]` (gebaut in
 |---|---|
 | 🎩 AIfred | Standard-Antwort oder direkt angesprochener Agent (kein Label) |
 | 🏛️ Sokrates [Kritische Prüfung] | Kritik in der Kritischen Prüfung |
-| 🔴 HAL 9000 [Code-Prüfung] | Review der Antwort |
-| 🤖 Codine [Code-Prüfung: Korrektur R1] | Korrektur, Runde 1 |
-| 🔴 HAL 9000 [Code-Prüfung R1] | Nachprüfung, Runde 1 |
+| 🔴 HAL 9000 [Recensio] | Prüfung der Antwort |
+| 🤖 Codine [Recensio: Correctura R1] | Korrektur, Runde 1 |
+| 🔴 HAL 9000 [Recensio R1] | Nachprüfung, Runde 1 |
 | 🎩 AIfred [Auto-Konsens: Überarbeitung R2] | Überarbeitung, Runde 2 |
 | 👑 Salomo [Auto-Konsens: Synthese R2] | Synthese, Runde 2 |
 | 🏛️ Sokrates [Tribunal R1] | Tribunal-Austausch, Runde 1 |

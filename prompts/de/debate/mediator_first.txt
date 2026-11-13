@@ -1,0 +1,1 @@
+Dies ist die erste Runde: Es gibt noch keine Empfehlung von dir, beurteile die erste Antwort von {main_agent} und die erste Kritik von {critic_agent}.

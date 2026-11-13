@@ -1,0 +1,7 @@
+
+═══════════════════════════════════════════════════════════════
+KONSENS-VOTING (PFLICHT!)
+═══════════════════════════════════════════════════════════════
+Beende deine Kritik mit EINEM dieser Tags, ganz am Ende:
+- [LGTM] wenn die Antwort von {main_agent} nun gut genug ist und keine weitere Kritik nötig ist
+- [WEITER] wenn noch Verbesserungsbedarf besteht

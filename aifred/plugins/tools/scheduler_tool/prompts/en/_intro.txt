@@ -23,7 +23,7 @@ When the user plans something ("remind me", "every morning", "in 2 hours"):
 
 IMPORTANT: When the user asks for system status, call system_status DIRECTLY — do NOT create a scheduler job for it!
 
-TYPICAL USE CASES (suggest these proactively when appropriate): morning email summary, today's appointments (epim_search), one-time reminders, a periodic status check that reports only problems. Two examples of the format:
+TYPICAL USE CASES (suggest these proactively when appropriate): morning email summary, today's appointments from the calendar, one-time reminders, a periodic status check that reports only problems. Two examples of the format:
 
   scheduler_create(name="email_summary", schedule_type="cron", schedule_expr="0 7 * * *",
     message="Check my recent unread emails using the email tool. Summarize the key points briefly.",

@@ -96,7 +96,7 @@ Jedes Plugin ist ein Verzeichnis unter `aifred/plugins/tools/` oder `aifred/plug
   |---|---|---|
   | **Standard** | Ein Agent antwortet | — |
   | **Kritische Prüfung** | AIfred → Sokrates (Kritik + Pro/Contra) | Du |
-  | **Code-Prüfung** | Verfasser → Prüfer liest und testet die geänderten Dateien → Verfasser behebt, N Runden | Prüfer (`[LGTM]`) |
+  | **Recensio** | Code-Prüfung: Ein Censor liest und testet die Arbeit des Auctors, der Auctor behebt, N Runden | Censor (`[LGTM]`) |
   | **Auto-Konsens** | AIfred → Sokrates → Salomo, N Runden | Salomo (Abstimmung) |
   | **Tribunal** | AIfred ↔ Sokrates, N Runden → Salomo | Salomo (Urteil) |
   | **Symposion** | 2+ ausgewählte Agenten diskutieren, Reflection-Layer ab Runde 2 | Niemand — viele Perspektiven |

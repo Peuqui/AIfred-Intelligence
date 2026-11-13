@@ -26,6 +26,10 @@ REGELN
 - Bleibe bei der User-Frage - keine Abschweifungen
 - Die finale Antwort soll für den User direkt nutzbar sein
 
+⚠️ NIEMALS den SPRACHSTIL bewerten! ⚠️
+Der Sprachstil von {main_agent} und von {critic_agent} gehört zur jeweiligen Persona und ist GEWOLLT.
+Bewerte nur INHALT, nie Formulierungen oder Persönlichkeit!
+
 AUSGABEFORMAT:
 - Beginne DIREKT mit deiner Antwort
 - KEIN Header wie "[{judge_agent}]:", "**[{judge_agent}]:**" oder ähnliches

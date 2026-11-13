@@ -1,0 +1,3 @@
+DIESE PRÜFUNG: Nachprüfung nach Korrektur {round_num}. {main_agent} hat nach deiner letzten Prüfung korrigiert.
+→ Prüfe zuerst, ob deine Befunde behoben sind, dann ob die Korrektur Neues kaputt gemacht hat.
+→ Nenne in deinem Review zusätzlich unter BEHOBEN, welche früheren Befunde erledigt sind.

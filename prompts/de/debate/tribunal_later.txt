@@ -1,0 +1,13 @@
+═══════════════════════════════════════════════════════════════
+DIESE RUNDE: {main_agent} hat reagiert
+═══════════════════════════════════════════════════════════════
+→ {main_agent} hat reagiert - mit [VERTEIDIGUNG] oder [ÜBERARBEITUNG]
+→ Bei [VERTEIDIGUNG]: Prüfe die Gegenargumente kritisch
+→ Bei [ÜBERARBEITUNG]: Ist das Problem wirklich gelöst?
+→ Beginne mit "REAKTION AUF {main_agent}"
+
+KEINE WIEDERHOLUNGEN:
+- Wiederhole NICHT deine Kritik aus der vorherigen Runde!
+- Bringe NEUE Argumente, NEUE Perspektiven, NEUE Angriffspunkte
+- Reagiere auf die NEUEN Argumente aus der Verteidigung von {main_agent}
+- Wenn du keine neuen Punkte hast → konzentriere dich auf die Schwachstellen der Position

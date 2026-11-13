@@ -431,7 +431,13 @@ HISTORY_CHARS_PER_TOKEN = 3.5
 AUTOMATIK_LLM_NUM_CTX = 12288  # 12K context for all Automatik tasks
 
 # The multi-agent modes a session can be in (UI choice, mode switch by voice or text, API).
-MULTI_AGENT_MODES = ("standard", "critical_review", "code_review", "auto_consensus", "tribunal", "symposion")
+MULTI_AGENT_MODES = ("standard", "critical_review", "recensio", "auto_consensus", "tribunal", "symposion")
+# Recensio (code review): the censor reads and tests, it changes nothing (the author fixes). Of its agent's
+# tools it keeps only these; the instructions of the others leave its prompt with them.
+RECENSIO_CENSOR_TOOLS = (
+    "read_file", "search_in_file", "list_files", "execute_code", "render_html",
+    "web_search", "web_fetch", "calculate", "vision_analyze", "read_memory",
+)
 # How many rounds a debate may have at most (settings.json "max_debate_rounds", both UIs and the API).
 # What the user may pick as the sign of their chat bubble (settings page). No pince-nez exists as an emoji: 🧐 is
 # the monocle.

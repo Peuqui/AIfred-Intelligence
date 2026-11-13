@@ -1,0 +1,1 @@
+{main_agent} has revised: your recommendations from the previous round are in the history. Has {main_agent} implemented them, and which points of {critic_agent} are still open?

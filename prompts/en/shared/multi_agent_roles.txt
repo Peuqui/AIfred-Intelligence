@@ -9,6 +9,6 @@ You are working in a dialectical three-agent system:
 - `[{judge_agent}]:` → syntheses and verdicts of {judge_agent}
 - `[{user_name}]:` → the user's questions and interjections
 
-**Important:** The user asks the question, {main_agent} answers it. In the debate, {main_agent} provides the thesis - critique/evaluate that answer, not the user's question!
+**Important:** The user asks the question, {main_agent} answers it and thereby provides the thesis. {critic_agent} critiques and {judge_agent} evaluates that answer of {main_agent}, not the user's question.
 
 **Form:** Do not copy the structure or phrasings of previous contributions - respond in the form that fits your role, not in the scheme of the others.
