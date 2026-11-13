@@ -9,7 +9,7 @@ Handles token estimation and history compression for LLMs:
 
 import json
 import re
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -40,72 +40,6 @@ _tokenizer_cache: dict[str, "Tokenizer"] = {}
 SUMMARY_PREFIX = "[Summary]"
 # A summary shorter than this counts as failed: the messages stay as they are.
 _MIN_SUMMARY_CHARS = 10
-
-
-def parse_model_size_from_name(model_name: str) -> float:
-    """
-    Extract model size (in billions of parameters) from model name.
-
-    Supports common naming patterns:
-    - "qwen3:8b" → 8.0
-    - "gemma2:2b" → 2.0
-    - "llama3.1:70b-instruct-q4_K_M" → 70.0
-    - "phi3:3.8b" → 3.8
-    - "mistral:7b" → 7.0
-    - "qwen2.5-coder:32b" → 32.0
-
-    Args:
-        model_name: Model identifier (e.g., "qwen3:8b", "gemma2:2b-instruct")
-
-    Returns:
-        float: Size in billions (e.g., 8.0 for 8B), or 0.0 if not parseable
-    """
-    if not model_name:
-        return 0.0
-
-    # Convert to lowercase for matching
-    name_lower = model_name.lower()
-
-    # Pattern: look for number followed by 'b' (billions)
-    # Matches: 8b, 70b, 3.8b, 0.5b, etc.
-    pattern = r'[:\-_]?(\d+(?:\.\d+)?)\s*b(?:[^a-z]|$)'
-    match = re.search(pattern, name_lower)
-
-    if match:
-        try:
-            return float(match.group(1))
-        except ValueError:
-            pass
-
-    # Fallback: check for size in the tag after colon
-    if ':' in model_name:
-        tag = model_name.split(':')[1].lower()
-        # Try to find number followed by 'b' in tag
-        simple_match = re.search(r'^(\d+(?:\.\d+)?)\s*b', tag)
-        if simple_match:
-            try:
-                return float(simple_match.group(1))
-            except ValueError:
-                pass
-
-    return 0.0
-
-
-def largest_compression_model(models: Iterable[str]) -> str:
-    """The largest of the given models (by parameter count in the name) for history compression.
-
-    Compression quality is critical, so the most capable model of the turn's agents compresses.
-    A model whose size the name does not tell counts only when no size is known at all; then
-    the first given model compresses. Empty ids are skipped.
-    """
-    named = [model for model in models if model]
-    sized = [(model, parse_model_size_from_name(model)) for model in named]
-    known = [(model, size) for model, size in sized if size > 0]
-    if not known:
-        return named[0] if named else ""
-    largest, size = max(known, key=lambda entry: entry[1])
-    log_message(f"🗜️ Compression model: {largest} ({size}B) - largest of the turn's agents")
-    return largest
 
 
 def count_tokens_with_tokenizer(text: str) -> int:

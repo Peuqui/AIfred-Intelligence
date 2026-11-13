@@ -95,7 +95,8 @@ Die History-Kompression verwendet folgende Schwellenwerte (konfigurierbar in `co
 **Im Zug (Werkzeugschleife, `context_manager.compress_tool_loop`):** Erreicht die Schleife den Trigger,
 wird zuerst der frühere Verlauf, dann bei Bedarf die ältesten Werkzeugrunden dieses Zuges zusammengefasst
 (bis zum Ziel); System-Nachricht, Nutzerfrage und die letzten `TOOL_LOOP_KEPT_ROUNDS` (2) Runden bleiben.
-Dieselbe Zusammenfassungsfunktion (`summarize_messages`), dasselbe Modell (`TurnContext.compression_model`).
+Dieselbe Zusammenfassungsfunktion (`summarize_messages`). Zusammenfassen tut immer das Modell, das gerade läuft
+(in der Schleife) bzw. als Nächstes spricht (vor der Nachricht, zwischen den Rednern einer Debatte); kein zweites Modell.
 Wirkt nur auf die Nachrichten der Anfrage, nicht auf die gespeicherte History. Erst was danach noch über dem
 Trigger liegt, beendet die Werkzeugphase (Prompt `utility/context_guard`).
 

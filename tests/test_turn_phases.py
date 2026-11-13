@@ -104,7 +104,7 @@ def test_a_message_without_an_automatik_call_reports_no_phase(session: None) -> 
 def _context() -> turn_service.TurnContext:
     return turn_service.TurnContext(
         SESSION, _view(), None, "Frage", "Frage", turn_service._Intent(None, "de", {}, False, 0.0), "browser",
-        "standard", True, "", None, [], "qwen3:8b",
+        "standard", True, "", None, [],
     )
 
 
@@ -125,7 +125,7 @@ def test_a_compression_is_a_phase_until_the_history_is_replaced(session: None, m
         {"type": "progress", "phase": "compress"},
         {"type": "history_update", "chat_history": summary, "llm_history": summary},
     ], seen)
-    _in_session(turn_service.compress_history(_context(), 32768, 1000, 0, "Test"))
+    _in_session(turn_service.compress_history(_context(), "qwen3:8b", 32768, 1000, 0, "Test"))
     assert seen == ["compress", "compress"]
     assert _phase() == ""
     stored = session_storage.load_session(SESSION)
@@ -135,14 +135,14 @@ def test_a_compression_is_a_phase_until_the_history_is_replaced(session: None, m
 def test_a_compression_whose_summary_fails_still_ends_its_phase(session: None, monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[str | None] = []
     _summaries(monkeypatch, [{"type": "progress", "phase": "compress"}, {"type": "debug", "message": "❌ Summary error"}], seen)
-    _in_session(turn_service.compress_history(_context(), 32768, 1000, 0, "Test"))
+    _in_session(turn_service.compress_history(_context(), "qwen3:8b", 32768, 1000, 0, "Test"))
     assert seen == ["compress", "compress"]
     assert _phase() == ""
 
 
 def test_a_history_that_fits_reports_no_phase(session: None, monkeypatch: pytest.MonkeyPatch) -> None:
     _summaries(monkeypatch, [{"type": "debug", "message": "📊 History: 100 / 32.768 tok (0%)"}], [])
-    _in_session(turn_service.compress_history(_context(), 32768, 1000, 0, "Test"))
+    _in_session(turn_service.compress_history(_context(), "qwen3:8b", 32768, 1000, 0, "Test"))
     assert _phase() is None
 
 
