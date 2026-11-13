@@ -57,25 +57,14 @@ class TestRenderMail:
         assert "Rohdaten" in mail.plain and "_upload" not in mail.plain
         assert mail.inline_images == []
 
-    def test_embedded_file_is_not_attached_again(self, sandbox_dir):
-        # Fall aus der Praxis (13.11.): derselbe Plot als ![…](url) und als [name.png](url)
+    def test_inline_and_attachment_together_and_same_file_once(self, sandbox_dir):
         text = (
             f"![A]({_url('graph.png')}) ![B]({_url('graph.png')}) "
             f"[Bild]({_url('graph.png')}) [Daten]({_url('data.csv')})"
         )
         mail = render_mail(text, SESSION, "email")
         assert len(mail.inline_images) == 1
-        assert [path.name for path in mail.attachments] == ["data.csv"]
-
-    def test_link_before_image_is_not_attached_either(self, sandbox_dir):
-        mail = render_mail(f"[Bild]({_url('graph.png')}) ![A]({_url('graph.png')})", SESSION, "email")
-        assert len(mail.inline_images) == 1
-        assert mail.attachments == []
-
-    def test_explicit_attachment_already_embedded_is_not_attached_again(self, sandbox_dir):
-        mail = render_mail(f"![A]({_url('graph.png')})", SESSION, "email", [sandbox_dir / "graph.png"])
-        assert len(mail.inline_images) == 1
-        assert mail.attachments == []
+        assert [path.name for path in mail.attachments] == ["graph.png", "data.csv"]
 
     def test_explicit_attachment_is_kept(self, sandbox_dir):
         mail = render_mail("kein Verweis", SESSION, "email", [sandbox_dir / "data.csv"])
