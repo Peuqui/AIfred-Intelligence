@@ -8,6 +8,8 @@ boundary: they may fill it but not delete or move it. The document manager
 """
 
 import mimetypes
+import os
+from pathlib import Path
 from typing import Any
 
 from ....lib.line_window import LineWindow
@@ -16,6 +18,7 @@ from .errors import NextcloudRefused
 
 _NOT_FOUND = 404
 _TEXT = "text/plain"
+_BINARY = "application/octet-stream"
 
 
 def clean_path(value: str) -> str:
@@ -33,8 +36,8 @@ def _row(entry: DavFile, path: str) -> dict[str, Any]:
             "modified": entry.modified, "mime": entry.mime}
 
 
-def _content_type(path: str) -> str:
-    return mimetypes.guess_type(path)[0] or _TEXT
+def _content_type(path: str, unknown: str = _TEXT) -> str:
+    return mimetypes.guess_type(path)[0] or unknown
 
 
 class AgentFiles:
@@ -122,6 +125,42 @@ class AgentFiles:
                 raise NextcloudRefused(f"{cleaned} was changed elsewhere in the meantime; read it again") from exc
             raise NextcloudRefused(f"{cleaned} exists already; read it and pass its etag to overwrite it") from exc
         return {"path": cleaned, "etag": new_etag}
+
+    def upload(self, source: Path, path: str, etag: str | None) -> dict[str, Any]:
+        """A local file as ``path``, streamed byte for byte (any type, any size): a new file, or with the
+        ``etag`` from listing or reading it an overwrite if it is unchanged."""
+        cleaned = clean_path(path)
+        target = self._item(cleaned)
+        if not etag:
+            self._make_folders(target.rsplit("/", 1)[0])
+        size = source.stat().st_size
+        try:
+            with source.open("rb") as content:
+                new_etag = self._client.upload_file(target, content, size, _content_type(target, _BINARY), etag)
+        except DavConflict as exc:
+            if etag:
+                raise NextcloudRefused(f"{cleaned} was changed elsewhere in the meantime; read it again") from exc
+            raise NextcloudRefused(f"{cleaned} exists already; pass its etag to overwrite it") from exc
+        return {"path": cleaned, "etag": new_etag, "bytes": size}
+
+    def download(self, path: str, target: Path) -> int:
+        """The file at ``path`` into the local ``target``, streamed byte for byte (any type, any size).
+        Written next to it first and then put in place, so a broken transfer leaves no half file."""
+        cleaned = clean_path(path)
+        remote = self._item(cleaned)  # refused before anything is created here
+        target.parent.mkdir(parents=True, exist_ok=True)
+        partial = target.with_name(f".{target.name}.part")
+        try:
+            with partial.open("wb") as out:
+                self._client.read_file(remote, out.write)
+            os.replace(partial, target)
+        except DavError as exc:
+            if exc.status != _NOT_FOUND:
+                raise
+            raise NextcloudRefused(f"no file {cleaned!r}") from exc
+        finally:
+            partial.unlink(missing_ok=True)  # only still there when the transfer broke off
+        return target.stat().st_size
 
     def move(self, path: str, target: str) -> dict[str, Any]:
         """Move or rename inside the agent folder; an existing target stays."""

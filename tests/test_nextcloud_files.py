@@ -95,8 +95,9 @@ def _store(level: str, agent_files: object = None) -> SimpleNamespace:
 
 @pytest.mark.parametrize("level, names", [
     ("off", []),
-    ("read", ["nextcloud_file_list", "nextcloud_file_read"]),
-    ("write", ["nextcloud_file_list", "nextcloud_file_read", "nextcloud_file_write", "nextcloud_file_move", "nextcloud_file_delete"]),
+    ("read", ["nextcloud_file_list", "nextcloud_file_read", "nextcloud_file_download"]),
+    ("write", ["nextcloud_file_list", "nextcloud_file_read", "nextcloud_file_download", "nextcloud_file_write",
+               "nextcloud_file_upload", "nextcloud_file_move", "nextcloud_file_delete"]),
 ])
 def test_the_level_decides_which_tools_exist(level: str, names: list[str]) -> None:
     assert [tool.name for tool in get_nextcloud_file_tools(_store(level))] == names
@@ -106,6 +107,45 @@ def test_files_stay_away_from_external_channels_like_drive() -> None:
     tiers = {tool.name: tool.tier for tool in get_nextcloud_file_tools(_store("write"))}
     assert tiers.pop("nextcloud_file_delete") == TIER_WRITE_SYSTEM
     assert set(tiers.values()) == {TIER_WRITE_DATA}
+
+
+def test_only_list_and_read_count_as_read_only() -> None:
+    """The download writes the local workspace, though it only reads Nextcloud."""
+    read_only = {tool.name for tool in get_nextcloud_file_tools(_store("write")) if tool.read_only}
+    assert read_only == {"nextcloud_file_list", "nextcloud_file_read"}
+
+
+@pytest.fixture
+def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The local workspace (DOCUMENTS_DIR) in a throwaway folder."""
+    monkeypatch.setattr("aifred.lib.file_manager.DOCUMENTS_DIR", tmp_path)
+    return tmp_path
+
+
+@pytest.mark.parametrize("call", [
+    lambda f, ws: f.upload(ws / "bild.png", "../bild.png", None),
+    lambda f, ws: f.upload(ws / "bild.png", "", None),
+    lambda f, ws: f.download("../geheim.png", ws / "geheim.png"),
+    lambda f, ws: f.download("", ws / "x"),
+])
+def test_copies_cannot_leave_the_agent_folder(workspace: Path, call) -> None:
+    (workspace / "bild.png").write_bytes(b"\x89PNG")
+    with pytest.raises(NextcloudRefused):
+        call(AgentFiles(NoServer(), "Agent"), workspace)
+
+
+@pytest.mark.parametrize("tool, args", [
+    ("nextcloud_file_upload", {"source": "../aussen.png", "path": "a.png"}),
+    ("nextcloud_file_upload", {"source": "fehlt.png", "path": "a.png"}),
+    ("nextcloud_file_download", {"path": "a.png", "target": "../aussen.png"}),
+    ("nextcloud_file_download", {"path": "a.png", "target": "da.png"}),
+])
+def test_copies_cannot_leave_the_workspace_or_replace_unasked(workspace: Path, tool: str, args: dict) -> None:
+    """Outside the workspace, a missing source and an existing target are refused before Nextcloud is asked."""
+    (workspace / "da.png").write_bytes(b"alt")
+    tools = {t.name: t for t in get_nextcloud_file_tools(_store("write", AgentFiles(NoServer(), "Agent")))}
+    assert "error" in json.loads(asyncio.run(tools[tool].executor(**args)))
+    assert (workspace / "da.png").read_bytes() == b"alt"
 
 
 def test_the_parameters_name_the_agent_folder() -> None:
@@ -218,6 +258,41 @@ def test_a_binary_file_is_refused_with_the_reason(client, folder) -> None:
     client.write_file(f"{folder}/bild.png", b"\x89PNG\xff\xfe", "image/png", None)
     with pytest.raises(NextcloudRefused, match="no text file"):
         AgentFiles(client, folder).read("bild.png")
+
+
+@live
+def test_a_binary_file_goes_to_nextcloud_and_back_unchanged(client, folder, workspace) -> None:
+    """Upload and download copy byte for byte, a binary file of several MB too, through the tools."""
+    data = bytes(range(256)) * (12 * 1024)  # 3 MiB, every byte value
+    (workspace / "jobs").mkdir()
+    (workspace / "jobs" / "chart.png").write_bytes(data)
+    store = _store("write", AgentFiles(client, folder))
+    tools = {t.name: t for t in get_nextcloud_file_tools(store)}
+
+    sent = json.loads(asyncio.run(tools["nextcloud_file_upload"].executor(source="jobs/chart.png", path="berichte/chart.png")))
+    assert sent["success"] and sent["bytes"] == len(data) and sent["etag"]
+    again = json.loads(asyncio.run(tools["nextcloud_file_upload"].executor(source="jobs/chart.png", path="berichte/chart.png")))
+    assert "exists already" in again["error"]
+
+    got = json.loads(asyncio.run(tools["nextcloud_file_download"].executor(path="berichte/chart.png", target="jobs/")))
+    assert "exists already" in got["error"]  # the folder keeps the name, and that file is the source
+    got = json.loads(asyncio.run(tools["nextcloud_file_download"].executor(path="berichte/chart.png", target="zurueck/")))
+    # a target ending in "/" is a folder, created when missing, and the file keeps its name
+    assert got == {"success": True, "path": "berichte/chart.png", "target": "zurueck/chart.png", "bytes": len(data)}
+    assert (workspace / "zurueck" / "chart.png").read_bytes() == data
+    assert not list(workspace.rglob("*.part"))
+
+    changed = bytes(reversed(data))
+    (workspace / "jobs" / "chart.png").write_bytes(changed)
+    replaced = json.loads(asyncio.run(tools["nextcloud_file_upload"].executor(
+        source="jobs/chart.png", path="berichte/chart.png", etag=sent["etag"])))
+    assert replaced["success"]
+    got = json.loads(asyncio.run(tools["nextcloud_file_download"].executor(
+        path="berichte/chart.png", target="zurueck/chart.png", overwrite=True)))
+    assert got["success"] and (workspace / "zurueck" / "chart.png").read_bytes() == changed
+
+    missing = json.loads(asyncio.run(tools["nextcloud_file_download"].executor(path="fehlt.png", target="neu.png")))
+    assert "no file" in missing["error"] and not (workspace / "neu.png").exists()
 
 
 @live

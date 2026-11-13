@@ -30,9 +30,10 @@ from .settings import (
 )
 
 _TOOLS = ("nextcloud_search", "nextcloud_get", "nextcloud_create", "nextcloud_update", "nextcloud_delete")
-_FILE_TOOLS = ("nextcloud_file_list", "nextcloud_file_read", "nextcloud_file_write", "nextcloud_file_move",
-               "nextcloud_file_delete")
-_WRITE_TOOLS = frozenset({*_TOOLS[2:], *_FILE_TOOLS[2:]})
+_FILE_TOOLS = ("nextcloud_file_list", "nextcloud_file_read", "nextcloud_file_download", "nextcloud_file_write",
+               "nextcloud_file_upload", "nextcloud_file_move", "nextcloud_file_delete")
+# What changes Nextcloud: the download only reads there (it writes the local workspace).
+_WRITE_TOOLS = frozenset({*_TOOLS[2:], *_FILE_TOOLS[3:]})
 
 
 @dataclass

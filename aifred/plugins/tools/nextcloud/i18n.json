@@ -115,6 +115,14 @@
     "de": "☁️ Lösche {path}...",
     "en": "☁️ Deleting {path}..."
   },
+  "tool_nextcloud_file_upload": {
+    "de": "☁️ Kopiere nach Nextcloud: {path}...",
+    "en": "☁️ Copying to Nextcloud: {path}..."
+  },
+  "tool_nextcloud_file_download": {
+    "de": "☁️ Kopiere aus Nextcloud: {path}...",
+    "en": "☁️ Copying from Nextcloud: {path}..."
+  },
   "nextcloud_cred_module_notes": {
     "de": "Notizen",
     "en": "Notes"

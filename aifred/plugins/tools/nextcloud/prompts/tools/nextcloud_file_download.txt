@@ -1,0 +1,1 @@
+Copy a file from the agent folder in the user's Nextcloud into the local workspace, byte for byte: any type (images, PDFs, spreadsheets) and any size, without the content passing through you. Missing folders are created. A file there already is kept unless overwrite is set. The Nextcloud file stays; to move it, delete it afterwards.

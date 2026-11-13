@@ -1,1 +1,1 @@
-DATEIEN ÄNDERN: Eine neue Datei braucht kein etag. Zum Überschreiben erst nextcloud_file_read, dann nextcloud_file_write mit dessen etag. Löschen legt die Datei in den Papierkorb.
+DATEIEN ÄNDERN: Eine neue Datei braucht kein etag. Zum Überschreiben erst nextcloud_file_read, dann nextcloud_file_write mit dessen etag. Löschen legt die Datei in den Papierkorb. Eine Datei aus dem lokalen Arbeitsbereich in den Agentenordner kopiert nextcloud_file_upload unverändert, auch Bilder und andere Binärdateien.

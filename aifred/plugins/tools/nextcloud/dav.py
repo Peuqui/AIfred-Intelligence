@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
+from typing import BinaryIO
 from urllib.parse import quote, unquote, urlsplit
 from xml.sax.saxutils import escape
 
@@ -110,7 +111,7 @@ class DavClient:
 
     # ── transport ─────────────────────────────────────────────────
 
-    def _request(self, method: str, href: str, *, expect: tuple[int, ...], body: str | bytes | None = None,
+    def _request(self, method: str, href: str, *, expect: tuple[int, ...], body: str | bytes | BinaryIO | None = None,
                  headers: dict[str, str] | None = None) -> httpx.Response:
         response = self._client.request(method, self._origin + href, content=body, headers=headers)
         if response.status_code == 412:
@@ -286,7 +287,7 @@ class DavClient:
                 '</d:basicsearch></d:searchrequest>')
         return [self._file(href, prop) for href, prop in self._multistatus("SEARCH", self._root, "0", body)]
 
-    def read_file(self, path: str, receive: Callable[[bytes], None]) -> str:
+    def read_file(self, path: str, receive: Callable[[bytes], object]) -> str:
         """Stream the file into ``receive``, which ends it by raising; nothing stays
         here, so the file may be any size. Returns its ETag."""
         href = self._file_href(path)
@@ -299,9 +300,17 @@ class DavClient:
 
     def write_file(self, path: str, data: bytes, content_type: str, etag: str | None) -> str:
         """Create ``path``, or with ``etag`` overwrite it if it is unchanged. Returns the new ETag."""
+        return self._put(path, data, len(data), content_type, etag)
+
+    def upload_file(self, path: str, source: BinaryIO, size: int, content_type: str, etag: str | None) -> str:
+        """Like :meth:`write_file`, the content streamed from an open file of ``size`` bytes: nothing
+        is held in memory, so the file may be any size."""
+        return self._put(path, source, size, content_type, etag)
+
+    def _put(self, path: str, body: bytes | BinaryIO, size: int, content_type: str, etag: str | None) -> str:
         condition = {"If-Match": etag} if etag else {"If-None-Match": "*"}
-        response = self._request("PUT", self._file_href(path), expect=(201, 204), body=data,
-                                 headers={"Content-Type": content_type, **condition})
+        response = self._request("PUT", self._file_href(path), expect=(201, 204), body=body,
+                                 headers={"Content-Type": content_type, "Content-Length": str(size), **condition})
         return str(response.headers.get("ETag", ""))
 
     def make_folder(self, path: str) -> None:

@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "source": {
+      "type": "string",
+      "description": "Path of the file in the local workspace, e.g. jobs/heating-oil/chart.png"
+    },
+    "path": {
+      "type": "string",
+      "description": "Target path relative to the agent folder '{agent_folder}', e.g. reports/chart.png"
+    },
+    "etag": {
+      "type": "string",
+      "description": "Only to overwrite an existing file: its etag from nextcloud_file_list or nextcloud_file_read"
+    }
+  },
+  "required": [
+    "source",
+    "path"
+  ]
+}

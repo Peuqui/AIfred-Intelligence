@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "description": "Path relative to the agent folder '{agent_folder}', e.g. reports/chart.png"
+    },
+    "target": {
+      "type": "string",
+      "description": "Path in the local workspace; a folder (an existing one, or any path ending in /, which is created) keeps the file's name, e.g. jobs/heating-oil/ or jobs/heating-oil/chart.png"
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Replace a file of that name in the workspace (default false)"
+    }
+  },
+  "required": [
+    "path",
+    "target"
+  ]
+}
