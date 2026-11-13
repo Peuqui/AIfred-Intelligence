@@ -3,7 +3,7 @@
 // dot (green loaded and breathing, yellow loading and faster, grey nothing loaded, red not reachable); open, a line
 // per loaded thing with the time until it unloads and its button (unload, load, hold a machine's card free). The
 // refresh button reads STT and TTS anew. The page counts down from the moment the snapshot arrived.
-import { Power, RefreshCw } from "lucide-vue-next";
+import { Power, RefreshCw, TriangleAlert } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { language, t } from "../i18n";
 import { type Action, type Color, type Row, SERVICES, type Service, formatRemaining, hostRows, serviceRows, summaryColor } from "../lib/serviceStatus";
@@ -115,7 +115,7 @@ onBeforeUnmount(() => {
         </span>
         <span v-if="host.detail" class="detail" :title="host.detail">{{ host.detail }}</span>
       </div>
-      <p v-if="status.notice" class="notice">⚠️ {{ status.notice }}</p>
+      <p v-if="status.notice" class="notice"><TriangleAlert :size="16" /> {{ status.notice }}</p>
       <p class="lifecycle"><HelpButton topic="lifecycle" /> {{ t("model_lifecycle_help_tooltip") }}</p>
     </div>
   </details>

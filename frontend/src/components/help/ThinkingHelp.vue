@@ -1,16 +1,17 @@
 <script setup lang="ts">
-// 💭 reasoning (a prompt) against 🤔 thinking (the model's own chain of thought), and what the two give together.
+// Reasoning (a prompt) against thinking (the model's own chain of thought), and what the two give together.
+import { Brain, MessageCircleMore } from "lucide-vue-next";
 import { t } from "../../i18n";
 </script>
 
 <template>
   <section class="reasoning">
-    <h3>{{ t("reasoning_thinking_help_reasoning_title") }}</h3>
+    <h3><MessageCircleMore :size="14" /> {{ t("reasoning_thinking_help_reasoning_title") }}</h3>
     <p>{{ t("reasoning_thinking_help_reasoning_desc") }}</p>
     <p class="effect">{{ t("reasoning_thinking_help_reasoning_effect") }}</p>
   </section>
   <section class="thinking">
-    <h3>{{ t("reasoning_thinking_help_thinking_title") }}</h3>
+    <h3><Brain :size="14" /> {{ t("reasoning_thinking_help_thinking_title") }}</h3>
     <p>{{ t("reasoning_thinking_help_thinking_desc") }}</p>
     <p>{{ t("reasoning_thinking_help_thinking_levels") }}</p>
     <p class="effect">{{ t("reasoning_thinking_help_thinking_effect") }}</p>
@@ -18,9 +19,9 @@ import { t } from "../../i18n";
   <section>
     <h3>{{ t("reasoning_thinking_help_combinations_title") }}</h3>
     <dl>
-      <dt>💭+🤔</dt><dd>{{ t("reasoning_thinking_help_both_on") }}</dd>
-      <dt>💭</dt><dd>{{ t("reasoning_thinking_help_reasoning_only") }}</dd>
-      <dt>🤔</dt><dd>{{ t("reasoning_thinking_help_thinking_only") }}</dd>
+      <dt><MessageCircleMore :size="14" />+<Brain :size="14" /></dt><dd>{{ t("reasoning_thinking_help_both_on") }}</dd>
+      <dt><MessageCircleMore :size="14" /></dt><dd>{{ t("reasoning_thinking_help_reasoning_only") }}</dd>
+      <dt><Brain :size="14" /></dt><dd>{{ t("reasoning_thinking_help_thinking_only") }}</dd>
       <dt>—</dt><dd>{{ t("reasoning_thinking_help_both_off") }}</dd>
     </dl>
   </section>

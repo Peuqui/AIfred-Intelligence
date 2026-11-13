@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // The vision page: one tab per task, each its own address (#/vision/<tab>), so the live view also opens in a
 // window of its own (a second screen) without code of its own.
+import { ScrollText, Settings, User, Video } from "lucide-vue-next";
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import VisionEvents from "../components/VisionEvents.vue";
@@ -13,17 +14,17 @@ import { t } from "../i18n";
 const route = useRoute();
 const tab = computed(() => String(route.params.tab ?? "live"));
 const tabs = [
-  { id: "live", label: "vision_tab_live" },
-  { id: "events", label: "vision_tab_events" },
-  { id: "persons", label: "vision_tab_persons" },
-  { id: "settings", label: "vision_tab_settings" },
+  { id: "live", icon: Video, label: "vision_tab_live" },
+  { id: "events", icon: ScrollText, label: "vision_tab_events" },
+  { id: "persons", icon: User, label: "vision_tab_persons" },
+  { id: "settings", icon: Settings, label: "vision_tab_settings" },
 ];
 </script>
 
 <template>
   <main class="vision">
     <nav class="tabs">
-      <RouterLink v-for="entry in tabs" :key="entry.id" :to="`/vision/${entry.id}`" :class="{ on: tab === entry.id }">{{ t(entry.label) }}</RouterLink>
+      <RouterLink v-for="entry in tabs" :key="entry.id" :to="`/vision/${entry.id}`" :class="{ on: tab === entry.id }"><component :is="entry.icon" :size="16" /> {{ t(entry.label) }}</RouterLink>
       <HelpButton topic="vigilantia" />
     </nav>
     <VisionLive v-if="tab === 'live'" />

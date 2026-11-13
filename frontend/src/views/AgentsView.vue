@@ -5,7 +5,7 @@
 // its quick choices (model, persona, reasoning, thinking, speed: the row of the quick-choice modal). ✏️ opens
 // the editor (persona, prompt texts, rights); ＋ makes a new agent from the template.
 import { computed, onMounted, ref } from "vue";
-import { NotebookPen } from "lucide-vue-next";
+import { Bot, Cloud, Import, NotebookPen, Package, Pencil, Trash2, TriangleAlert } from "lucide-vue-next";
 import { RouterLink } from "vue-router";
 import type { AgentCard, SystemAgentCard } from "../api/types";
 import AgentBundles from "../components/AgentBundles.vue";
@@ -54,10 +54,10 @@ async function confirmDelete(): Promise<void> {
 <template>
   <main class="agents">
     <header class="bar">
-      <h2>{{ t("nav_agents") }}</h2>
+      <h2><Bot :size="16" /> {{ t("nav_agents") }}</h2>
       <HelpButton topic="thinking" />
-      <button :title="t('agent_editor_export_tooltip')" @click="bundles = 'export'">📦</button>
-      <button :title="t('agent_editor_import_tooltip')" @click="bundles = 'import'">📥</button>
+      <button :title="t('agent_editor_export_tooltip')" @click="bundles = 'export'"><Package :size="16" /></button>
+      <button :title="t('agent_editor_import_tooltip')" @click="bundles = 'import'"><Import :size="16" /></button>
       <button v-if="settings.current" @click="creating = { id: '', display_name: '', emoji: '🤖', description: '', color: settings.current.agent_default_color }">＋ {{ t("agent_editor_new") }}</button>
     </header>
     <form v-if="creating" class="creating" @submit.prevent="create">
@@ -69,8 +69,8 @@ async function confirmDelete(): Promise<void> {
       <button type="submit">{{ t("doc_create") }}</button>
       <button type="button" @click="creating = null">{{ t("agent_editor_cancel") }}</button>
     </form>
-    <p v-if="agents.notice" class="notice">⚠️ {{ agents.notice }}</p>
-    <p v-if="choices.notice" class="notice">⚠️ {{ choices.notice }}</p>
+    <p v-if="agents.notice" class="notice"><TriangleAlert :size="16" /> {{ agents.notice }}</p>
+    <p v-if="choices.notice" class="notice"><TriangleAlert :size="16" /> {{ choices.notice }}</p>
     <section class="cards">
       <article v-for="card in agents.cards" :key="card.id" class="card" :class="{ off: !card.enabled }">
         <header>
@@ -101,13 +101,13 @@ async function confirmDelete(): Promise<void> {
         <p v-else-if="!card.enabled" class="off-hint">{{ t("agents_switched_off") }}</p>
         <footer>
           <RouterLink class="button" :to="{ path: '/memory', query: { agent: card.id } }"><NotebookPen :size="16" /> {{ t("agent_open_memory") }}</RouterLink>
-          <button :title="t('agent_editor_edit')" @click="editing = card.id">✏️ {{ t("agent_editor_edit") }}</button>
+          <button :title="t('agent_editor_edit')" @click="editing = card.id"><Pencil :size="16" /> {{ t("agent_editor_edit") }}</button>
           <button
             class="danger"
             :disabled="card.delete_refusal !== null || agents.busy"
             :title="card.delete_refusal ?? t('agent_editor_delete_agent')"
             @click="deleting = card"
-          >🗑️ {{ t("agent_editor_delete_agent") }}</button>
+          ><Trash2 :size="16" /> {{ t("agent_editor_delete_agent") }}</button>
         </footer>
       </article>
     </section>
@@ -116,9 +116,9 @@ async function confirmDelete(): Promise<void> {
     <p class="system-hint">{{ t("agents_system_hint") }}</p>
     <section class="cards">
       <article v-for="card in agents.system" :key="card.id" class="card">
-        <header><div class="who"><strong>{{ card.label }}</strong><span v-if="card.cloud" class="description">☁️ {{ card.cloud.model }}</span></div></header>
+        <header><div class="who"><strong>{{ card.label }}</strong><span v-if="card.cloud" class="description"><Cloud :size="16" /> {{ card.cloud.model }}</span></div></header>
         <footer>
-          <button :title="t('agent_editor_edit')" @click="editingSystem = card">✏️ {{ t("agent_editor_edit") }}</button>
+          <button :title="t('agent_editor_edit')" @click="editingSystem = card"><Pencil :size="16" /> {{ t("agent_editor_edit") }}</button>
         </footer>
       </article>
     </section>

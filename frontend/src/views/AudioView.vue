@@ -3,6 +3,7 @@
 // that can speaks), each chat agent's voice on an engine and the narrator's, whether speech recognition
 // answers, and the audio player's sources (AudioSources.vue). What exists (engines, places, voices) is the TTS service's catalog; when it does not answer the
 // list shows from the settings and says why.
+import { BookOpen, ChevronDown, ChevronUp, CircleCheck, FolderOpen, Mic, RefreshCw, TriangleAlert } from "lucide-vue-next";
 import { defineAsyncComponent, onMounted, ref, watch } from "vue";
 import { ApiError, api } from "../api/client";
 import type { AgentSpeech, NarratorVoice, SpeechChoices, SpeechList, SpeechRecognition } from "../api/types";
@@ -96,7 +97,7 @@ const picked = (event: Event): string => (event.target as HTMLSelectElement).val
 
 <template>
   <main class="speech">
-    <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
+    <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
 
     <section v-if="settings.current">
       <label class="line">
@@ -112,18 +113,18 @@ const picked = (event: Event): string => (event.target as HTMLSelectElement).val
     <section v-if="list" class="engines">
       <div class="head">
         <strong :title="t('tts_list_tooltip')">{{ t("tts_list_heading") }}</strong>
-        <button :disabled="checking" @click="refresh">🔄 {{ t("tts_check_status") }}</button>
+        <button :disabled="checking" @click="refresh"><RefreshCw :size="16" /> {{ t("tts_check_status") }}</button>
       </div>
       <p v-if="list.service_error" class="error">{{ list.service_error }}</p>
       <div v-for="row in list.rows" :key="`${row.index}-${row.engine}`" class="entry" :class="{ off: !row.enabled, gone: row.unavailable }">
         <span class="order">
-          <button :title="t('tts_entry_up')" :disabled="row.index === 0" @click="changeList('speech/list/move', 'POST', { index: row.index, delta: -1 })">▲</button>
-          <button :title="t('tts_entry_down')" :disabled="row.index === list.rows.length - 1" @click="changeList('speech/list/move', 'POST', { index: row.index, delta: 1 })">▼</button>
+          <button :title="t('tts_entry_up')" :disabled="row.index === 0" @click="changeList('speech/list/move', 'POST', { index: row.index, delta: -1 })"><ChevronUp :size="14" /></button>
+          <button :title="t('tts_entry_down')" :disabled="row.index === list.rows.length - 1" @click="changeList('speech/list/move', 'POST', { index: row.index, delta: 1 })"><ChevronDown :size="14" /></button>
         </span>
         <input type="checkbox" :checked="row.enabled" :disabled="row.unavailable" @change="changeList('speech/list/switch', 'POST', { index: row.index, enabled: !row.enabled })" />
         <span class="label">{{ row.label }}</span>
         <span v-if="row.reserved" class="badge" :title="t('tts_entry_reserved_tooltip')">{{ t("tts_entry_reserved") }}</span>
-        <span v-if="row.warn" class="warn" :title="t('tts_entry_unreachable_warning')">⚠️</span>
+        <span v-if="row.warn" class="warn" :title="t('tts_entry_unreachable_warning')"><TriangleAlert :size="16" /></span>
         <span class="status">{{ row.status }}</span>
         <select v-if="choices && row.unit" :value="row.unit" @change="changeList(`speech/units/${encodeURIComponent(row.engine)}`, 'PUT', { unit: picked($event) })">
           <option v-for="unit in choices.units" :key="unit.id" :value="unit.id">{{ unit.label }}</option>
@@ -136,7 +137,7 @@ const picked = (event: Event): string => (event.target as HTMLSelectElement).val
     <section v-if="choices" class="voices">
       <div class="head">
         <strong>{{ t("speech_voices_title") }}</strong>
-        <button :title="t('speech_voices_folder_tooltip')" @click="voicesOpen = true">📁 {{ t("speech_voices_folder") }}</button>
+        <button :title="t('speech_voices_folder_tooltip')" @click="voicesOpen = true"><FolderOpen :size="16" /> {{ t("speech_voices_folder") }}</button>
         <select v-if="choices.engines.length" v-model="engine">
           <option v-for="offered in choices.engines" :key="offered.id" :value="offered.id">{{ offered.label }}</option>
         </select>
@@ -181,7 +182,7 @@ const picked = (event: Event): string => (event.target as HTMLSelectElement).val
             </td>
           </tr>
           <tr v-if="narrator" class="narrator">
-            <td class="who" :title="t('narrator_settings_subtitle')">📖 {{ t("speech_narrator") }}</td>
+            <td class="who" :title="t('narrator_settings_subtitle')"><BookOpen :size="16" /> {{ t("speech_narrator") }}</td>
             <td></td>
             <td></td>
             <td>
@@ -199,8 +200,9 @@ const picked = (event: Event): string => (event.target as HTMLSelectElement).val
 
     <section v-if="recognition">
       <div class="line">
-        <span class="name">🎤 {{ t("service_status_stt") }}</span>
-        <span :class="recognition.available ? 'ok' : 'error'">{{ recognition.available ? `✅ ${t("speech_recognition_answers")}` : t("stt_unavailable") }}</span>
+        <span class="name"><Mic :size="16" /> {{ t("service_status_stt") }}</span>
+        <span v-if="recognition.available" class="ok"><CircleCheck :size="16" /> {{ t("speech_recognition_answers") }}</span>
+        <span v-else class="error">{{ t("stt_unavailable") }}</span>
       </div>
       <p class="hint">{{ t("stt_suite_hint") }}</p>
     </section>

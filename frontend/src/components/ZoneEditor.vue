@@ -3,6 +3,7 @@
 // blacks out, where alone it looks. The stream burns the live motion in blue; the page measures how much of the
 // watched picture moves, against the mask as painted, next to the camera's trigger threshold. Saving takes effect in
 // a running watch at once (POST vision/zone-mask; the threshold is a camera setting, PATCH vision/cameras/{id}).
+import { Lightbulb, MapIcon, TriangleAlert } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { ApiError, api, apiUrl } from "../api/client";
 import type { CameraRow, ZoneMask } from "../api/types";
@@ -228,9 +229,9 @@ function switchMask(event: Event): void {
 <template>
   <ModalDialog @close="requestClose">
     <header class="head">
-      <strong>🗺️ {{ t("zone_editor_title") }}</strong>
+      <strong><MapIcon :size="16" /> {{ t("zone_editor_title") }}</strong>
       <span class="camera">{{ camera.label }}</span>
-      <button class="icon" :title="t('zone_editor_help_title')" :class="{ on: help }" @click="help = !help">💡</button>
+      <button class="icon help" :title="t('zone_editor_help_title')" :class="{ on: help }" @click="help = !help"><Lightbulb :size="14" /></button>
       <button class="icon" :title="t('dialog_close')" @click="requestClose">×</button>
     </header>
 
@@ -245,7 +246,7 @@ function switchMask(event: Event): void {
       <p>{{ t("zone_editor_help_controls") }}</p>
     </section>
 
-    <p v-if="camera.detects_itself" class="warning">{{ t("zone_editor_ai_cam_hint") }}</p>
+    <p v-if="camera.detects_itself" class="warning"><TriangleAlert :size="16" /> {{ t("zone_editor_ai_cam_hint") }}</p>
 
     <div class="controls">
       <span class="muted">{{ t("zone_editor_paint_with") }}</span>
@@ -300,6 +301,9 @@ function switchMask(event: Event): void {
 .camera { flex: 1; font-size: 0.85rem; color: var(--aifred-text-secondary); }
 .icon { background: none; border: none; color: inherit; font-size: 1.2rem; cursor: pointer; padding: 0 4px; }
 .icon.on { filter: drop-shadow(0 0 4px var(--aifred-accent-gold)); }
+/* The help bulb looks like HelpButton's. */
+.icon.help { padding: 0; color: var(--aifred-accent-amber); transition: transform 0.2s ease; }
+.icon.help:hover { transform: scale(1.15); }
 .help { display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; padding: 10px 12px; background: var(--aifred-input-bg); border-radius: 8px; max-width: 760px; }
 .help p { margin: 0; line-height: 1.45; }
 .kind-help { display: flex; gap: 8px; align-items: baseline; }

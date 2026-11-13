@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // A help over the page: the text of its topic. A topic can lead to another (OPEN_HELP), the dialog then shows that one.
+import { Lightbulb } from "lucide-vue-next";
 import { type Component, provide, ref } from "vue";
 import { t } from "../../i18n";
 import ModalDialog from "../ModalDialog.vue";
@@ -25,7 +26,7 @@ const BODIES: Record<HelpTopic, Component> = {
   <ModalDialog @close="emit('close')">
     <div class="help">
       <header class="head">
-        <strong>💡 {{ HELP_TOPICS[current].title() }}</strong>
+        <strong><Lightbulb :size="16" /> {{ HELP_TOPICS[current].title() }}</strong>
         <button class="close" :title="t('dialog_close')" @click="emit('close')">×</button>
       </header>
       <component :is="BODIES[current]" />

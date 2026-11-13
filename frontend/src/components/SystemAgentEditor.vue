@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // A system agent's or the Automatik LLM's editor on the agents page: 📝 its prompt layers and, for a cloud workflow
 // (calibration), ☁️ provider, model (listed live by the provider) and reasoning. Each tab saves on its own.
+import { CircleCheck, Cloud, FileText, MessageCircleMore, TriangleAlert } from "lucide-vue-next";
 import { onMounted, ref, watch } from "vue";
 import { ApiError } from "../api/client";
 import type { SystemAgentCard } from "../api/types";
@@ -55,8 +56,8 @@ async function saveCloud(): Promise<void> {
       <header class="head">
         <strong>{{ card.label }}</strong>
         <nav class="tabs">
-          <button :class="{ active: tab === 'prompts' }" @click="tab = 'prompts'">📝 {{ t("agent_editor_prompts") }}</button>
-          <button v-if="card.cloud" :class="{ active: tab === 'cloud' }" @click="tab = 'cloud'">{{ t("agent_editor_cloud_tab") }}</button>
+          <button :class="{ active: tab === 'prompts' }" @click="tab = 'prompts'"><FileText :size="16" /> {{ t("agent_editor_prompts") }}</button>
+          <button v-if="card.cloud" :class="{ active: tab === 'cloud' }" @click="tab = 'cloud'"><Cloud :size="16" /> {{ t("agent_editor_cloud_tab") }}</button>
         </nav>
         <button class="close" :title="t('dialog_close')" @click="emit('close')">×</button>
       </header>
@@ -64,8 +65,8 @@ async function saveCloud(): Promise<void> {
       <PromptLayers v-if="tab === 'prompts'" :agent-id="card.id" :keys="card.prompt_keys" :languages="card.languages" />
 
       <section v-if="tab === 'cloud' && card.cloud" class="cloud">
-        <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
-        <p v-else-if="saved" class="saved">✅ {{ saved }}</p>
+        <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
+        <p v-else-if="saved" class="saved"><CircleCheck :size="16" /> {{ saved }}</p>
         <label>{{ t("agent_editor_cloud_provider") }}
           <select v-model="provider">
             <option v-for="choice in card.cloud.providers" :key="choice.id" :value="choice.id">
@@ -81,7 +82,7 @@ async function saveCloud(): Promise<void> {
         </label>
         <p v-for="note in notes" :key="note" class="hint">{{ note }}</p>
         <label class="switch" :title="t('agent_editor_reasoning_tooltip')">
-          <input v-model="reasoning" type="checkbox" /> 💭 {{ t("agent_editor_reasoning_toggle") }}
+          <input v-model="reasoning" type="checkbox" /> <MessageCircleMore :size="16" /> {{ t("agent_editor_reasoning_toggle") }}
         </label>
         <p class="hint">{{ t("agent_editor_cloud_model_hint") }}</p>
         <div class="actions"><button :disabled="!model" @click="saveCloud">{{ t("agent_editor_save") }}</button></div>

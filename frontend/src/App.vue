@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The shell: the login, then the top bar (the pages behind ☰, as under Reflex) and the page itself. The chat
 // page stays alive while another page shows (its session and event stream go on).
-import { LogOut, Menu, MessageSquare } from "lucide-vue-next";
+import { Bot, Clock, Eye, Folder, LogOut, Menu, MessageSquare, NotebookPen, Settings, Wrench } from "lucide-vue-next";
 import { computed, onMounted, ref, watch, watchEffect } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
 import { UPDATE_CHECK_MS, api, checkForUpdate } from "./api/client";
@@ -107,14 +107,14 @@ onMounted(async () => {
           <label class="pin" :title="t('pin_question_hint')"><input v-model="pinQuestion" type="checkbox" /> {{ t("pin_question") }}</label>
         </div>
         <RouterLink to="/"><MessageSquare :size="16" /> {{ t("nav_chat") }}</RouterLink>
-        <RouterLink to="/agents">{{ t("nav_agents") }}</RouterLink>
-        <RouterLink to="/documents">{{ t("doc_manager_title") }}</RouterLink>
-        <RouterLink to="/vision">{{ t("nav_vision") }}</RouterLink>
-        <RouterLink to="/memory">{{ t("nav_memory") }}</RouterLink>
-        <RouterLink to="/jobs">{{ t("nav_jobs") }}</RouterLink>
+        <RouterLink to="/agents"><Bot :size="16" /> {{ t("nav_agents") }}</RouterLink>
+        <RouterLink to="/documents"><Folder :size="16" /> {{ t("doc_manager_title") }}</RouterLink>
+        <RouterLink to="/vision"><Eye :size="16" /> {{ t("nav_vision") }}</RouterLink>
+        <RouterLink to="/memory"><NotebookPen :size="16" /> {{ t("nav_memory") }}</RouterLink>
+        <RouterLink to="/jobs"><Clock :size="16" /> {{ t("nav_jobs") }}</RouterLink>
         <RouterLink to="/audio"><TtsIcon /> {{ t("nav_audio") }}</RouterLink>
-        <RouterLink to="/maintenance">{{ t("nav_maintenance") }}</RouterLink>
-        <RouterLink to="/settings">{{ t("settings") }}</RouterLink>
+        <RouterLink to="/maintenance"><Wrench :size="16" /> {{ t("nav_maintenance") }}</RouterLink>
+        <RouterLink to="/settings"><Settings :size="16" /> {{ t("settings") }}</RouterLink>
       </nav>
       <button class="logout" :title="t('logout')" :aria-label="t('logout')" @click="logout"><LogOut :size="18" /></button>
     </header>

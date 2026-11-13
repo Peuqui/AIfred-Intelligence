@@ -3,6 +3,7 @@
 // machine's image model, the main model when it sees itself, and the models of other machines, each with what holds
 // it back or what it needs as measured. A describer of another machine can be burnt in there; the run is the
 // server's (one at a time, for every page), this list follows it until it ends.
+import { ChevronDown, ChevronUp, Flame, TriangleAlert } from "lucide-vue-next";
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { ApiError, PROGRESS_POLL_MS, api } from "../api/client";
 import type { Describers } from "../api/types";
@@ -43,12 +44,12 @@ onBeforeUnmount(() => {
   <article class="describers">
     <strong>{{ t("vision_settings_describers_label") }}</strong>
     <p class="hint">{{ t("vision_settings_remote_help") }}</p>
-    <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
+    <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
     <template v-if="list">
       <div v-for="row in list.rows" :key="`${row.index}-${row.source}`" class="entry" :class="{ off: !row.enabled }">
         <span class="order">
-          <button :title="t('tts_entry_up')" :disabled="row.index === 0" @click="call(() => post('/move', { index: row.index, delta: -1 }))">▲</button>
-          <button :title="t('tts_entry_down')" :disabled="row.index === list.rows.length - 1" @click="call(() => post('/move', { index: row.index, delta: 1 }))">▼</button>
+          <button :title="t('tts_entry_up')" :disabled="row.index === 0" @click="call(() => post('/move', { index: row.index, delta: -1 }))"><ChevronUp :size="14" /></button>
+          <button :title="t('tts_entry_down')" :disabled="row.index === list.rows.length - 1" @click="call(() => post('/move', { index: row.index, delta: 1 }))"><ChevronDown :size="14" /></button>
         </span>
         <input type="checkbox" :checked="row.enabled" @change="call(() => post('/switch', { index: row.index, enabled: !row.enabled }))" />
         <span class="label" :title="row.label">{{ row.label }}</span>
@@ -57,7 +58,7 @@ onBeforeUnmount(() => {
           :disabled="list.measuring !== ''"
           :title="t('vision_settings_remote_measure_tooltip')"
           @click="call(() => post('/burn-in', { source: row.source }))"
-        >🔥 {{ t(list.measuring === row.source ? "vision_settings_remote_measuring" : "vision_settings_remote_measure") }}</button>
+        ><Flame :size="16" /> {{ t(list.measuring === row.source ? "vision_settings_remote_measuring" : "vision_settings_remote_measure") }}</button>
         <span v-if="row.note" class="note" :class="{ warn: row.warn }">{{ row.note }}</span>
       </div>
     </template>

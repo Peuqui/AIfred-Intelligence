@@ -4,7 +4,8 @@
 // hybrid for llama.cpp; for vLLM re-measuring the persisted topology only and a dry run), the start after a question
 // (a run stops llama-swap and takes every card), its console while it runs (read again every 2 s from the line seen
 // last), the cancel, and dropping the measured VLM peaks. The ticks belong to this page; the server keeps the run.
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { CircleCheck, CircleStop, CircleX, Hourglass, Play, Square, Trash2, TriangleAlert } from "lucide-vue-next";
+import { type Component, computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { ApiError, api } from "../api/client";
 import type { CalibrationOverview, CalibrationRunState, MatrixCell } from "../api/types";
 import { t } from "../i18n";
@@ -79,13 +80,15 @@ async function clearVlmCache(): Promise<void> {
   if (answer) done.value = t("calibration_vlm_cache_cleared", { count: answer.cleared });
 }
 
+// The state of the run with its sign: waiting while it runs, then how it ended.
+const OUTCOME_ICONS: Record<string, Component> = { done: CircleCheck, cancelled: CircleStop, failed: CircleX };
 const runLine = computed(() => {
   const state = run.value;
-  if (!state) return "";
-  if (state.running) return t("calibration_running_since", { model: state.model_id, time: state.started_at });
-  if (state.active) return t("calibration_active_elsewhere");
-  if (!state.outcome) return "";
-  return t(`calibration_outcome_${state.outcome}`, { model: state.model_id, time: state.started_at });
+  if (!state) return null;
+  if (state.running) return { icon: Hourglass, text: t("calibration_running_since", { model: state.model_id, time: state.started_at }) };
+  if (state.active) return { icon: Hourglass, text: t("calibration_active_elsewhere") };
+  if (!state.outcome) return null;
+  return { icon: OUTCOME_ICONS[state.outcome], text: t(`calibration_outcome_${state.outcome}`, { model: state.model_id, time: state.started_at }) };
 });
 // What a cell's dot says: llama.cpp a profile, vLLM the operating point (base cell) or a describer/TTS pair.
 function cellTitle(cell: MatrixCell): string {
@@ -122,7 +125,7 @@ function cellTitle(cell: MatrixCell): string {
           </tr>
         </tbody>
       </table>
-      <p v-if="matrix.tts_problem" class="notice">⚠️ {{ matrix.tts_problem }}</p>
+      <p v-if="matrix.tts_problem" class="notice"><TriangleAlert :size="16" /> {{ matrix.tts_problem }}</p>
     </template>
 
     <div v-if="backend === 'llamacpp'" class="line">
@@ -155,15 +158,15 @@ function cellTitle(cell: MatrixCell): string {
         <button class="danger" @click="start">{{ t("confirm_yes") }}</button>
         <button @click="confirming = false">{{ t("db_cancel") }}</button>
       </template>
-      <button v-else :disabled="!canStart" @click="confirming = true">▶️ {{ t("calibration_start") }}</button>
-      <button v-if="run?.active" class="danger" @click="cancel">⏹️ {{ t("calibration_cancel") }}</button>
+      <button v-else :disabled="!canStart" @click="confirming = true"><Play :size="16" /> {{ t("calibration_start") }}</button>
+      <button v-if="run?.active" class="danger" @click="cancel"><Square :size="16" /> {{ t("calibration_cancel") }}</button>
       <button v-if="backend !== 'ollama'" :disabled="run?.active" :title="t('calibration_reset_vlm_cache_tooltip')" @click="clearVlmCache">
-        🗑️ {{ t("calibration_reset_vlm_cache_button") }}
+        <Trash2 :size="16" /> {{ t("calibration_reset_vlm_cache_button") }}
       </button>
     </div>
-    <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
+    <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
     <p v-if="done" class="done">{{ done }}</p>
-    <p v-if="runLine" class="run">{{ runLine }}</p>
+    <p v-if="runLine" class="run"><component :is="runLine.icon" :size="16" /> {{ runLine.text }}</p>
     <pre v-if="lines.length" class="console">{{ lines.join("\n") }}</pre>
   </div>
 </template>

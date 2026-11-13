@@ -2,6 +2,7 @@
 // Agent bundles on the agents page (lib/agent_bundle.py): export the agents chosen as one ZIP (configuration,
 // prompts, sampling, voices), or import agents from one — first what the bundle holds and which exist here
 // already, then the choice and what a name already taken does (rename, overwrite, abort).
+import { CircleCheck, Import, Package, TriangleAlert } from "lucide-vue-next";
 import { computed, ref } from "vue";
 import { ApiError, api, apiUrl } from "../api/client";
 import type { AgentCard, BundleImported, BundlePeek } from "../api/types";
@@ -60,7 +61,7 @@ async function runImport(): Promise<void> {
   <ModalDialog @close="emit('close')">
     <div class="bundles">
       <template v-if="mode === 'export'">
-        <strong>📦 {{ t("bundle_export_title") }}</strong>
+        <strong><Package :size="16" /> {{ t("bundle_export_title") }}</strong>
         <p class="hint">{{ t("bundle_export_desc") }}</p>
         <label v-for="card in props.cards" :key="card.id" class="choice">
           <input v-model="chosen" type="checkbox" :value="card.id" /> {{ card.emoji }} {{ card.display_name }}
@@ -73,9 +74,9 @@ async function runImport(): Promise<void> {
       </template>
 
       <template v-else>
-        <strong>📥 {{ t("bundle_import_title") }}</strong>
+        <strong><Import :size="16" /> {{ t("bundle_import_title") }}</strong>
         <label class="file">{{ t("bundle_import_drop") }}<input type="file" accept=".zip" @change="picked" /></label>
-        <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
+        <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
         <template v-if="peek && !result">
           <p class="hint">{{ t("bundle_import_desc") }}</p>
           <label v-for="agent in peek.agents" :key="agent.agent_id" class="choice">
@@ -95,8 +96,8 @@ async function runImport(): Promise<void> {
           </div>
         </template>
         <template v-if="result">
-          <p class="done">✅ {{ result.agent_ids.join(", ") }}</p>
-          <p v-for="warning in result.warnings" :key="warning" class="notice">⚠️ {{ warning }}</p>
+          <p class="done"><CircleCheck :size="16" /> {{ result.agent_ids.join(", ") }}</p>
+          <p v-for="warning in result.warnings" :key="warning" class="notice"><TriangleAlert :size="16" /> {{ warning }}</p>
           <div class="actions"><button @click="emit('close')">{{ t("dialog_close") }}</button></div>
         </template>
       </template>

@@ -3,7 +3,10 @@
 // key, the GPUs, restarting the backend's service or AIfred, loading the default settings; and, when opened, the
 // calibration: what the agents' models start with (context, layer split over the cards, speed profile) and the matrix
 // of AIfred's model with its run (CalibrationPanel.vue).
-import { computed, onMounted, ref } from "vue";
+import {
+  CircleCheck, Cloud, Cpu, Hourglass, Lightbulb, Monitor, RefreshCw, RotateCcw, Target, TriangleAlert, Zap,
+} from "lucide-vue-next";
+import { type Component, computed, onMounted, ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { BackendOverview, CalibrationOverview, GpuCard, LayerSplit, ModelInUse } from "../api/types";
 import CalibrationPanel from "./CalibrationPanel.vue";
@@ -16,13 +19,14 @@ const overview = ref<BackendOverview | null>(null);
 const calibration = ref<CalibrationOverview | null>(null);
 const calibrationOpen = ref(false);
 const notice = ref("");
-const done = ref("");
+// What went well, with the sign of its state (a restarted backend may still be starting).
+const done = ref<{ icon: Component | null; text: string } | null>(null);
 const busy = ref(false);              // a switch or a restart runs: the controls wait
 const confirming = ref<"" | "defaults" | "aifred">("");
 
 async function call<T>(work: () => Promise<T>): Promise<T | null> {
   notice.value = "";
-  done.value = "";
+  done.value = null;
   busy.value = true;
   try {
     return await work();
@@ -64,19 +68,19 @@ async function restartBackend(): Promise<void> {
   const answer = await call(() => api<{ backend_type: string; ready_after_s: number | null }>("system/restart-backend", { method: "POST" }));
   if (!answer) return;
   done.value = answer.ready_after_s === null
-    ? t("backend_not_ready_yet", { backend: backendLabel.value })
-    : t("backend_ready_after", { backend: backendLabel.value, seconds: formatNumber(answer.ready_after_s, 1) });
+    ? { icon: Hourglass, text: t("backend_not_ready_yet", { backend: backendLabel.value }) }
+    : { icon: CircleCheck, text: t("backend_ready_after", { backend: backendLabel.value, seconds: formatNumber(answer.ready_after_s, 1) }) };
   if (calibrationOpen.value) await loadCalibration();
 }
 async function restartAifred(): Promise<void> {
   confirming.value = "";
-  if (await call(() => api("system/restart-aifred", { method: "POST" }))) done.value = t("aifred_restarting");
+  if (await call(() => api("system/restart-aifred", { method: "POST" }))) done.value = { icon: null, text: t("aifred_restarting") };
 }
 async function loadDefaults(): Promise<void> {
   confirming.value = "";
   if (!(await call(() => api("system/reset-defaults", { method: "POST" })))) return;
   await changed(await call(() => api<BackendOverview>("backend")));
-  if (!notice.value) done.value = t("default_settings_loaded");
+  if (!notice.value) done.value = { icon: null, text: t("default_settings_loaded") };
 }
 
 const backendLabel = computed(() =>
@@ -99,21 +103,24 @@ const cardKinds = computed(() => {
 function splitText(split: LayerSplit): string {
   return split.layers.map((layers) => String(layers)).join(":");
 }
-function contextLines(model: ModelInUse): string[] {
+// Each line with its sign: the speed profile carries the one of the speed switch.
+function contextLines(model: ModelInUse): { text: string; speed: boolean }[] {
   const info = model.calibration;
   if (!info) return [];
   if (info.rope_contexts.length) {
-    return [info.rope_contexts.map((rope) => rope.factor === 1
+    return [{ text: info.rope_contexts.map((rope) => rope.factor === 1
       ? t("calibration_rope_native", { context: formatNumber(rope.context) })
-      : t("calibration_rope_factor", { factor: formatNumber(rope.factor, 1), context: formatNumber(rope.context) })).join(" · ")];
+      : t("calibration_rope_factor", { factor: formatNumber(rope.factor, 1), context: formatNumber(rope.context) })).join(" · "), speed: false }];
   }
-  if (!info.context) return [t("calibration_not_calibrated")];
-  const lines = [t("calibration_context", { context: formatNumber(info.context) })];
-  if (info.cache_context) lines.push(t("calibration_context_cache", { context: formatNumber(info.cache_context) }));
-  if (info.split) lines.push(t("calibration_layer_split", { split: splitText(info.split), active: info.split.active_cards, total: info.split.total_cards }));
+  if (!info.context) return [{ text: t("calibration_not_calibrated"), speed: false }];
+  const lines = [{ text: t("calibration_context", { context: formatNumber(info.context) }), speed: false }];
+  if (info.cache_context) lines.push({ text: t("calibration_context_cache", { context: formatNumber(info.cache_context) }), speed: false });
+  if (info.split) {
+    lines.push({ text: t("calibration_layer_split", { split: splitText(info.split), active: info.split.active_cards, total: info.split.total_cards }), speed: false });
+  }
   if (info.speed) {
     const speed = t("calibration_speed_split", { split: splitText(info.speed), active: info.speed.active_cards, total: info.speed.total_cards });
-    lines.push(info.speed.context ? `${speed} · ${t("calibration_context", { context: formatNumber(info.speed.context) })}` : speed);
+    lines.push({ text: info.speed.context ? `${speed} · ${t("calibration_context", { context: formatNumber(info.speed.context) })}` : speed, speed: true });
   }
   return lines;
 }
@@ -121,58 +128,59 @@ function contextLines(model: ModelInUse): string[] {
 
 <template>
   <section v-if="overview" class="backend">
-    <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
-    <p v-if="done" class="done">{{ done }}</p>
+    <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
+    <p v-if="done" class="done"><component :is="done.icon" v-if="done.icon" :size="16" /> {{ done.text }}</p>
     <label class="line">
       <span class="name">{{ t("backend") }}</span>
       <select :value="overview.backend_type" :disabled="busy" @change="switchTo">
         <option v-for="choice in overview.backends" :key="choice.id" :value="choice.id">{{ choice.label }}</option>
       </select>
-      <span v-if="busy" class="hint">⏳ {{ t("backend_switching") }}</span>
+      <span v-if="busy" class="hint"><Hourglass :size="16" /> {{ t("backend_switching") }}</span>
     </label>
     <div v-if="cloud" class="line">
-      <span class="name">{{ t("cloud_api_provider") }}</span>
+      <span class="name"><Cloud :size="16" /> {{ t("cloud_api_provider") }}</span>
       <select :value="cloud.id" :disabled="busy" @change="chooseProvider">
         <option v-for="provider in overview.cloud_providers" :key="provider.id" :value="provider.id">{{ provider.label }}</option>
       </select>
-      <span :class="cloud.key_configured ? 'ok' : 'missing'">{{ t(cloud.key_configured ? "cloud_api_key_configured" : "cloud_api_key_missing") }}</span>
+      <span v-if="cloud.key_configured" class="ok"><CircleCheck :size="16" /> {{ t("cloud_api_key_configured") }}</span>
+      <span v-else class="missing"><TriangleAlert :size="16" /> {{ t("cloud_api_key_missing") }}</span>
     </div>
     <div class="line buttons">
       <button v-if="overview.backend_type !== 'cloud_api'" :disabled="busy" :title="t('backend_restart_info')" @click="restartBackend">
-        {{ t("backend_restart", { backend: backendLabel }) }}
+        <RefreshCw :size="16" /> {{ t("backend_restart", { backend: backendLabel }) }}
       </button>
       <template v-if="confirming === 'aifred'">
         <span>{{ t("restart_aifred_confirm") }}</span>
         <button class="danger" @click="restartAifred">{{ t("confirm_yes") }}</button>
         <button @click="confirming = ''">{{ t("db_cancel") }}</button>
       </template>
-      <button v-else :disabled="busy" :title="t('aifred_restart_info')" @click="confirming = 'aifred'">{{ t("restart_aifred") }}</button>
+      <button v-else :disabled="busy" :title="t('aifred_restart_info')" @click="confirming = 'aifred'"><RefreshCw :size="16" /> {{ t("restart_aifred") }}</button>
       <template v-if="confirming === 'defaults'">
         <span>{{ t("load_default_settings_confirm") }}</span>
         <button class="danger" @click="loadDefaults">{{ t("confirm_yes") }}</button>
         <button @click="confirming = ''">{{ t("db_cancel") }}</button>
       </template>
-      <button v-else :disabled="busy" @click="confirming = 'defaults'">{{ t("load_default_settings") }}</button>
+      <button v-else :disabled="busy" @click="confirming = 'defaults'"><RotateCcw :size="16" /> {{ t("load_default_settings") }}</button>
     </div>
     <details v-if="overview.gpu">
-      <summary>{{ t("gpu_details") }}</summary>
+      <summary><Monitor :size="16" /> {{ t("gpu_details") }}</summary>
       <p v-for="kind in cardKinds" :key="kind.card.name" class="card">
-        🎮 {{ t("gpu_card_line", { count: kind.count, name: kind.card.name, vram: formatNumber(kind.card.vram_mb / 1024), compute: formatNumber(kind.card.compute_capability, 1) }) }}
+        <Cpu :size="16" /> {{ t("gpu_card_line", { count: kind.count, name: kind.card.name, vram: formatNumber(kind.card.vram_mb / 1024), compute: formatNumber(kind.card.compute_capability, 1) }) }}
       </p>
       <p class="card">{{ t("gpu_total", { vram: formatNumber(overview.gpu.total_vram_gb) }) }}</p>
       <template v-if="overview.gpu.unsupported_backends.includes('vllm')">
         <p class="hint">{{ t("gpu_vllm_requires_compute") }}</p>
-        <p class="hint">💡 {{ t("gpu_gguf_hint") }}</p>
+        <p class="hint"><Lightbulb :size="16" /> {{ t("gpu_gguf_hint") }}</p>
       </template>
     </details>
     <details @toggle="openCalibration">
-      <summary>{{ t("calibration_title") }}</summary>
+      <summary><Target :size="16" /> {{ t("calibration_title") }}</summary>
       <template v-if="calibration">
         <p class="lifecycle"><HelpButton topic="lifecycle" /> {{ t("model_lifecycle_help_tooltip") }}</p>
         <p class="subtitle">{{ t("calibration_models_title") }}</p>
         <div v-for="model in calibration.models" :key="model.model_id" class="model">
           <div class="model-name">{{ model.model_id }} <span class="hint">{{ model.agents.join(", ") }}</span></div>
-          <div v-for="line in contextLines(model)" :key="line" class="hint">{{ line }}</div>
+          <div v-for="line in contextLines(model)" :key="line.text" class="hint"><Zap v-if="line.speed" :size="16" /> {{ line.text }}</div>
         </div>
         <CalibrationPanel v-if="calibration.backend_type !== 'cloud_api'" :calibration="calibration" @changed="loadCalibration" />
       </template>

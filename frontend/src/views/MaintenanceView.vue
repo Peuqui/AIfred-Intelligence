@@ -2,6 +2,7 @@
 // The maintenance page: the local files nothing deletes by itself (chat exports and sandbox output: open, take an
 // export into the GitHub showcase, delete one, several or all after asking) and the audit log of the tools' last
 // runs. Both load when their section is opened.
+import { HardDrive, RefreshCw, ShieldCheck, Trash2, Tv } from "lucide-vue-next";
 import { ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { AuditEntry, ManagedFile } from "../api/types";
@@ -52,10 +53,10 @@ async function openAudit(event: Event): Promise<void> {
   <main class="maintenance">
     <p v-if="notice" class="notice">{{ notice }}</p>
     <details @toggle="openFiles">
-      <summary>💾 {{ t("tab_storage") }}</summary>
+      <summary><HardDrive :size="16" /> {{ t("tab_storage") }}</summary>
       <p class="hint">{{ t("storage_intro") }}</p>
       <div class="bar">
-        <button @click="loadFiles">🔄 {{ t("storage_refresh") }}</button>
+        <button @click="loadFiles"><RefreshCw :size="16" /> {{ t("storage_refresh") }}</button>
         <button v-if="files?.length" @click="chosen = files.map((file) => file.id)">{{ t("select_all") }}</button>
         <button v-if="chosen.length" @click="chosen = []">{{ t("clear_selection") }}</button>
         <template v-if="chosen.length">
@@ -73,8 +74,8 @@ async function openAudit(event: Event): Promise<void> {
         <span class="kind">{{ t(`storage_kind_${file.kind}`) }}</span>
         <a class="name" :href="file.url" target="_blank" rel="noopener" :title="t('storage_open')">{{ file.name }}</a>
         <span class="meta">{{ formatNumber(file.size_kb) }} KB · {{ file.mtime }}</span>
-        <button v-if="file.is_html && file.kind === 'export'" @click="showcase(file)">📺 {{ t("storage_to_showcase") }}</button>
-        <button v-if="confirming !== file.id" class="danger" @click="confirming = file.id">🗑️</button>
+        <button v-if="file.is_html && file.kind === 'export'" @click="showcase(file)"><Tv :size="16" /> {{ t("storage_to_showcase") }}</button>
+        <button v-if="confirming !== file.id" class="danger" @click="confirming = file.id"><Trash2 :size="16" /></button>
         <template v-else>
           <span>{{ t("storage_delete_confirm") }}</span>
           <button class="danger" @click="remove([file.id])">{{ t("storage_delete") }}</button>
@@ -84,7 +85,7 @@ async function openAudit(event: Event): Promise<void> {
     </details>
 
     <details @toggle="openAudit">
-      <summary>🛡️ {{ t("tab_audit") }}</summary>
+      <summary><ShieldCheck :size="16" /> {{ t("tab_audit") }}</summary>
       <p class="hint">{{ t("audit_log_subtitle") }}</p>
       <table v-if="audit?.length">
         <thead>

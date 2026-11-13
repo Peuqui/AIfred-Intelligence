@@ -2,7 +2,7 @@
 // The user's sessions, the last used first: open, start a new one, delete one, or select several (or all) and delete
 // them. On a wide window a column at the left of the chat, always open (lib/sessionsColumn.ts), else an accordion
 // above it; the switch between both shows only where the column is possible.
-import { ChevronDown, ChevronRight, ListChecks, PanelLeft, PanelTop, RefreshCw, Trash2 } from "lucide-vue-next";
+import { ChevronDown, ChevronRight, ListChecks, MessagesSquare, PanelLeft, PanelTop, RefreshCw, Trash2 } from "lucide-vue-next";
 import { computed, ref } from "vue";
 import { t } from "../i18n";
 import { useSessionsColumn } from "../lib/sessionsColumn";
@@ -42,9 +42,9 @@ function removeAll(): void {
 <template>
   <nav class="sessions" :class="{ column: column.shown.value }">
     <header>
-      <span v-if="column.shown.value" class="toggle">{{ t("saved_chats") }} <span class="count">{{ sessions.list.length }}</span></span>
+      <span v-if="column.shown.value" class="toggle"><MessagesSquare :size="16" /> {{ t("saved_chats") }} <span class="count">{{ sessions.list.length }}</span></span>
       <button v-else class="toggle" @click="opened = !opened">
-        <ChevronDown v-if="opened" :size="16" /><ChevronRight v-else :size="16" /> {{ t("saved_chats") }} <span class="count">{{ sessions.list.length }}</span>
+        <ChevronDown v-if="opened" :size="16" /><ChevronRight v-else :size="16" /> <MessagesSquare :size="16" /> {{ t("saved_chats") }} <span class="count">{{ sessions.list.length }}</span>
       </button>
       <button
         v-if="column.possible.value"

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-// One row of the agents' quick choices: the model and, for an agent (not the Automatik), 🎩 persona
-// (the agent's own emoji), 💭 reasoning, 🤔 thinking as its model offers it and ⚡ speed where the
-// model has a -speed variant, and under 🎲 the sampling with "the model's values". Below, the context window the
+// One row of the agents' quick choices: the model and, for an agent (not the Automatik), persona
+// (the agent's own emoji), reasoning, thinking as its model offers it and speed where the
+// model has a -speed variant, and under the sampling section "the model's values". Below, the context window the
 // agent's calls get and where it comes from; on Ollama a value by hand (a chat agent's holds until the server
 // restarts, Vision's is saved — Peuqui 08.11.2026: it is for trying out, the calibration decides). The same row serves
 // the quick-choice modal and the agent's card.
+import { Brain, Dices, MessageCircleMore, RotateCcw, Ruler, Zap } from "lucide-vue-next";
 import { computed } from "vue";
 import type { AgentChoices, ChoicesChange, ModelOption, SamplingRange } from "../api/types";
 import { formatNumber, t } from "../i18n";
@@ -86,22 +87,22 @@ function manualValue(event: Event): void {
         </label>
         <label :title="t('reasoning_tooltip')">
           <input type="checkbox" :checked="row.reasoning" :disabled="busy" @change="emit('change', { reasoning: !row.reasoning })" />
-          💭
+          <MessageCircleMore :size="16" />
         </label>
         <label :title="t('thinking_tooltip')">
-          🤔
+          <Brain :size="16" />
           <select :value="row.thinking" :disabled="busy || row.thinking_options.length < 2" @change="emit('change', { thinking: picked($event) })">
             <option v-for="option in row.thinking_options" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
         </label>
         <label v-if="row.speed_available" :title="t('speed_switch_tooltip')">
           <input type="checkbox" :checked="row.speed" :disabled="busy" @change="emit('change', { speed: !row.speed })" />
-          ⚡
+          <Zap :size="16" />
         </label>
       </div>
       <div v-if="row" class="context">
         <span :title="manualOffered ? t('context_window_persist_hint') : t('context_window_fixed_hint')">
-          {{ t("context_window") }}: {{ formatNumber(row.context) }} <span class="source">({{ row.context_source }})</span>
+          <Ruler :size="16" /> {{ t("context_window") }}: {{ formatNumber(row.context) }} <span class="source">({{ row.context_source }})</span>
         </span>
         <template v-if="manualOffered">
           <label :title="t('context_window_persist_hint')">
@@ -117,7 +118,7 @@ function manualValue(event: Event): void {
         </template>
       </div>
       <details v-if="row && ranges" class="sampling">
-        <summary>{{ t("sampling_section_label") }}</summary>
+        <summary><Dices :size="16" /> {{ t("sampling_section_label") }}</summary>
         <div class="values">
           <label v-for="(range, field) in ranges" :key="field">
             {{ t(SAMPLING_LABELS[field] ?? field) }}
@@ -131,7 +132,7 @@ function manualValue(event: Event): void {
               @change="sampled(String(field), $event)"
             />
           </label>
-          <button class="reset" :title="t('sampling_reset_tooltip')" :disabled="busy" @click="emit('change', { reset_sampling: true })">↺</button>
+          <button class="reset" :title="t('sampling_reset_tooltip')" :disabled="busy" @click="emit('change', { reset_sampling: true })"><RotateCcw :size="16" /></button>
         </div>
       </details>
     </div>

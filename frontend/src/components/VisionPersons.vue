@@ -5,6 +5,7 @@
 // recognition guesses a person) and the unknown ones. A card is assigned to a person, an existing or a new one (the
 // face model learns it from the picture), or dismissed (several at once too, all after asking). Every open face can be
 // recognised again against what was learned; that is a run of the server, this page follows it.
+import { Camera, Dna, Hourglass, ListVideo, Pencil, RefreshCw, Trash2, User, UserPlus, X } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { ApiError, PROGRESS_POLL_MS, api } from "../api/client";
@@ -141,13 +142,13 @@ const value = (event: Event): string => (event.target as HTMLInputElement | HTML
     <p v-if="notice" class="notice">{{ notice }}</p>
     <div class="line">
       <p class="hint grow">{{ t("personarium_subtitle") }}</p>
-      <button @click="enrolling = { faceId: 0, name: '' }">📸 {{ t("multipose_new_person") }}</button>
+      <button @click="enrolling = { faceId: 0, name: '' }"><Camera :size="16" /> {{ t("multipose_new_person") }}</button>
     </div>
     <p v-if="!persons.length" class="hint">{{ t("personarium_empty") }}</p>
     <article v-for="person in persons" :key="person.id" class="person">
       <div class="line">
         <img v-if="person.crop_url" class="avatar" :src="person.crop_url" alt="" />
-        <span v-else class="avatar none">👤</span>
+        <span v-else class="avatar none"><User :size="28" /></span>
         <template v-if="renaming.id === person.id">
           <input class="name-input" :value="renaming.name" @input="renaming.name = value($event)" @keydown.enter="saveRename" />
           <button @click="saveRename">{{ t("personarium_save") }}</button>
@@ -157,11 +158,11 @@ const value = (event: Event): string => (event.target as HTMLInputElement | HTML
         <span class="meta">{{ formatNumber(person.embedding_count) }} {{ t("personarium_embeddings_suffix") }}</span>
         <span v-if="person.last_seen_display" class="meta">{{ t("personarium_seen_last", { when: person.last_seen_display }) }}</span>
         <span class="grow"></span>
-        <RouterLink class="button" :to="{ path: '/vision/events', query: { face: String(person.id) } }" :title="t('personarium_events_link')">🗂️</RouterLink>
-        <button :class="{ on: shown === person.id }" :title="t('personarium_manage_embeddings')" @click="toggleEmbeddings(person)">🧬</button>
-        <button :title="t('personarium_multipose_add')" @click="enrolling = { faceId: person.id, name: person.name }">📸</button>
-        <button :title="t('personarium_rename')" @click="Object.assign(renaming, { id: person.id, name: person.name })">✏️</button>
-        <button v-if="deleting !== person.id" class="danger" :title="t('personarium_delete')" @click="deleting = person.id">🗑️</button>
+        <RouterLink class="button" :to="{ path: '/vision/events', query: { face: String(person.id) } }" :title="t('personarium_events_link')"><ListVideo :size="16" /></RouterLink>
+        <button :class="{ on: shown === person.id }" :title="t('personarium_manage_embeddings')" @click="toggleEmbeddings(person)"><Dna :size="16" /></button>
+        <button :title="t('personarium_multipose_add')" @click="enrolling = { faceId: person.id, name: person.name }"><Camera :size="16" /></button>
+        <button :title="t('personarium_rename')" @click="Object.assign(renaming, { id: person.id, name: person.name })"><Pencil :size="16" /></button>
+        <button v-if="deleting !== person.id" class="danger" :title="t('personarium_delete')" @click="deleting = person.id"><Trash2 :size="16" /></button>
         <template v-else>
           <span class="confirm">{{ t("personarium_delete_confirm", { name: person.name }) }}</span>
           <button class="danger" @click="remove(person)">{{ t("personarium_delete") }}</button>
@@ -174,14 +175,14 @@ const value = (event: Event): string => (event.target as HTMLInputElement | HTML
           <img v-if="embedding.crop_url" :src="embedding.crop_url" alt="" loading="lazy" />
           <span v-else class="none">∅</span>
           <figcaption>{{ formatNumber(embedding.quality, 2) }} · {{ embedding.created_at }}</figcaption>
-          <button class="danger" :title="t('personarium_delete_embedding')" @click="removeEmbedding(embedding)">🗑️</button>
+          <button class="danger" :title="t('personarium_delete_embedding')" @click="removeEmbedding(embedding)"><Trash2 :size="16" /></button>
         </figure>
       </div>
     </article>
 
     <div class="open-head">
       <h3 :title="t('personarium_untagged_help')">{{ t("personarium_untagged_title") }} ({{ formatNumber(open.length) }})</h3>
-      <button :disabled="rematch?.running" :title="t('personarium_rematch_hint')" @click="startRematch">🔄 {{ t("personarium_rematch_button") }}</button>
+      <button :disabled="rematch?.running" :title="t('personarium_rematch_hint')" @click="startRematch"><RefreshCw :size="16" /> {{ t("personarium_rematch_button") }}</button>
       <span v-if="rematch?.message" class="hint">{{ rematch.message }}</span>
       <span class="grow"></span>
       <template v-if="open.length">
@@ -213,13 +214,13 @@ const value = (event: Event): string => (event.target as HTMLInputElement | HTML
               </select>
               <input v-if="assigning.choice === 'new'" :placeholder="t('personarium_tag_new_name_placeholder')" :value="assigning.name" @input="assigning.name = value($event)" />
               <span class="actions">
-                <button :disabled="busy === card.id" @click="saveAssign">{{ busy === card.id ? "⏳" : t("personarium_tag_save") }}</button>
+                <button :disabled="busy === card.id" @click="saveAssign"><Hourglass v-if="busy === card.id" :size="16" /><template v-else>{{ t("personarium_tag_save") }}</template></button>
                 <button :disabled="busy === card.id" @click="assigning.card = 0">{{ t("personarium_tag_cancel") }}</button>
               </span>
             </template>
             <span v-else class="actions">
-              <button :disabled="busy !== 0" :title="t('personarium_tag_button')" @click="startAssign(card)">👤＋</button>
-              <button class="danger" :title="t('personarium_untagged_dismiss')" @click="dismiss([card.id])">✕</button>
+              <button :disabled="busy !== 0" :title="t('personarium_tag_button')" @click="startAssign(card)"><UserPlus :size="16" /></button>
+              <button class="danger" :title="t('personarium_untagged_dismiss')" @click="dismiss([card.id])"><X :size="16" /></button>
             </span>
           </article>
         </div>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // An image of the next message, turned or cut before it is sent (as the crop dialog of the Reflex UI):
 // the box with its grips lies over the image, its position goes to the server in percent of the image.
+import { Check, Crop, RotateCcw, RotateCw } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
 import type { UploadedImage } from "../api/types";
 import { t } from "../i18n";
@@ -52,7 +53,7 @@ function release(): void {
 <template>
   <ModalDialog @close="emit('close')">
     <div class="editor">
-      <header>✂️ {{ t("crop_modal_title") }}</header>
+      <header><Crop :size="16" /> {{ t("crop_modal_title") }}</header>
       <div ref="frame" class="frame" @pointermove="move" @pointerup="release" @pointercancel="release">
         <img :src="image.url" :alt="image.name" draggable="false" />
         <div class="box" :style="boxStyle" @pointerdown="grab($event, '')">
@@ -62,9 +63,9 @@ function release(): void {
       <p class="hint">{{ t("crop_modal_hint") }}</p>
       <div class="buttons">
         <button @click="emit('close')">{{ t("crop_cancel") }}</button>
-        <button :disabled="busy" :title="t('crop_rotate_left')" @click="emit('rotate', false)">↺</button>
-        <button :disabled="busy" :title="t('crop_rotate_right')" @click="emit('rotate', true)">↻</button>
-        <button class="apply" :disabled="busy" @click="emit('crop', box)">✓ {{ t("crop_apply") }}</button>
+        <button :disabled="busy" :title="t('crop_rotate_left')" @click="emit('rotate', false)"><RotateCcw :size="16" /></button>
+        <button :disabled="busy" :title="t('crop_rotate_right')" @click="emit('rotate', true)"><RotateCw :size="16" /></button>
+        <button class="apply" :disabled="busy" @click="emit('crop', box)"><Check :size="16" /> {{ t("crop_apply") }}</button>
       </div>
     </div>
   </ModalDialog>

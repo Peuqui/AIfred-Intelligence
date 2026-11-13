@@ -249,7 +249,7 @@ onMounted(() => void start());
         </article>
         <TurnProgress v-else-if="progress" class="waiting" :line="progress" />
         <p v-if="chat.notice" class="notice"><TriangleAlert :size="16" /> {{ chat.notice }}</p>
-        <p v-if="chat.info" class="info">{{ chat.info }}</p>
+        <p v-if="chat.info" class="info"><Pin :size="16" /> {{ chat.info }}</p>
         <p v-if="settings.notice" class="notice"><TriangleAlert :size="16" /> {{ settings.notice }}</p>
         </div>
       </div>

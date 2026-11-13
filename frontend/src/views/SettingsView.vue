@@ -3,6 +3,7 @@
 // (channels and tools with their settings).
 // Speech output has its own page (Audio), the agents' models and switches are their quick choices (🎛️ in the chat);
 // switching the backend, starting a calibration and the restarts follow.
+import { Languages, Mars, TriangleAlert, User, Venus } from "lucide-vue-next";
 import BackendSettings from "../components/BackendSettings.vue";
 import InputSettings from "../components/InputSettings.vue";
 import PluginSettings from "../components/PluginSettings.vue";
@@ -19,22 +20,22 @@ function named(event: Event): void {
 
 <template>
   <main v-if="settings.current" class="settings">
-    <p v-if="settings.notice" class="notice">⚠️ {{ settings.notice }}</p>
+    <p v-if="settings.notice" class="notice"><TriangleAlert :size="16" /> {{ settings.notice }}</p>
 
     <section>
       <label class="line">
-        <span class="name">{{ t("ui_language") }}</span>
+        <span class="name"><Languages :size="16" /> {{ t("ui_language") }}</span>
         <select :value="settings.current.ui_language" @change="settings.change({ ui_language: ($event.target as HTMLSelectElement).value as 'de' | 'en' })">
           <option value="de">de</option>
           <option value="en">en</option>
         </select>
       </label>
       <div class="line">
-        <span class="name">👤</span>
+        <span class="name"><User :size="16" /></span>
         <input class="user-name" :value="settings.current.user_name" :placeholder="t('your_name')" @blur="named" @keydown.enter="named" />
         <span class="gender" role="radiogroup">
-          <button :class="{ on: settings.current.user_gender === 'male' }" :aria-pressed="settings.current.user_gender === 'male'" @click="settings.change({ user_gender: 'male' })">♂</button>
-          <button :class="{ on: settings.current.user_gender === 'female' }" :aria-pressed="settings.current.user_gender === 'female'" @click="settings.change({ user_gender: 'female' })">♀</button>
+          <button :class="{ on: settings.current.user_gender === 'male' }" :aria-pressed="settings.current.user_gender === 'male'" @click="settings.change({ user_gender: 'male' })"><Mars :size="16" /></button>
+          <button :class="{ on: settings.current.user_gender === 'female' }" :aria-pressed="settings.current.user_gender === 'female'" @click="settings.change({ user_gender: 'female' })"><Venus :size="16" /></button>
         </span>
       </div>
       <!-- The sign beside the user's chat bubble. -->

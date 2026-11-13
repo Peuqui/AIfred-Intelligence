@@ -2,6 +2,7 @@
 // A network camera's connection: new (with its name) or changed (the name stays, it is the base of the source id).
 // User and password are never shown; left empty when changing, the stored ones stay. Fields the form does not
 // show stay in the camera's entry (the server merges).
+import { Trash2, TriangleAlert } from "lucide-vue-next";
 import { reactive, ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { RtspCamera, RtspCameras } from "../api/types";
@@ -81,10 +82,10 @@ const optional = (event: Event): number | null => ((event.target as HTMLInputEle
       <label class="check"><input v-model="form.ptz" type="checkbox" /> {{ t("vision_rtsp_field_ptz") }}</label>
     </div>
     <p class="hint">{{ t("vision_rtsp_cred_hint") }}</p>
-    <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
+    <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
     <div class="actions">
       <template v-if="camera">
-        <button v-if="!deleting" type="button" class="danger" @click="deleting = true">🗑️ {{ t("vision_rtsp_delete") }}</button>
+        <button v-if="!deleting" type="button" class="danger" @click="deleting = true"><Trash2 :size="16" /> {{ t("vision_rtsp_delete") }}</button>
         <template v-else>
           <span class="confirm">{{ t("vision_rtsp_delete_confirm") }}</span>
           <button type="button" @click="deleting = false">{{ t("vision_rtsp_cancel") }}</button>

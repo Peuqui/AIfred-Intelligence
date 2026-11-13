@@ -1,16 +1,17 @@
 <script setup lang="ts">
 // Vigilantia in the chat, as on the Reflex page (vigilantia_feed.py): a one-line card with the newest event (or the
 // eye's state while there is none), a click shows the newest events above the card (it sits at the page's foot), the step into Casus last, next to the card; the 💡 explains it,
-// the eye arms the background watch or disarms it (open and orange: armed, crossed out and grey: off). New events
+// the eye arms the background watch or disarms it (VigilantiaEye.vue). New events
 // arrive over the events' stream; once a minute it asks again after the time the server names, so older events leave
 // the window. Away while the vision plugin is off.
-import { Eye, EyeOff, ScrollText } from "lucide-vue-next";
+import { ScrollText } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { ApiError, api, apiUrl } from "../api/client";
 import type { CasusRecent } from "../api/types";
 import { formatNumber, t, tCount } from "../i18n";
 import { closeWhenBeside } from "../lib/dismiss";
+import VigilantiaEye from "./VigilantiaEye.vue";
 import HelpButton from "./help/HelpButton.vue";
 
 const state = ref<CasusRecent | null>(null);
@@ -75,16 +76,12 @@ onBeforeUnmount(() => {
       <span v-else class="idle" :class="{ warn: state.armed && !state.has_watched_camera }">{{ idle }}</span>
     </button>
     <HelpButton topic="vigilantia" />
-    <button
-      class="eye"
-      :class="{ armed: state.armed }"
+    <VigilantiaEye
+      :armed="state.armed"
       :disabled="arming"
-      :aria-pressed="state.armed"
       :title="t(state.armed ? 'vigilantia_disarm_tooltip' : 'vigilantia_arm_tooltip')"
-      @click="arm"
-    >
-      <Eye v-if="state.armed" :size="16" /><EyeOff v-else :size="16" />
-    </button>
+      @toggle="arm"
+    />
     <div v-if="open" class="popover">
       <p v-if="!state.events.length" class="hint">{{ t("vision_badge_empty") }}</p>
       <RouterLink
@@ -123,13 +120,6 @@ onBeforeUnmount(() => {
 .idle { white-space: nowrap; color: var(--aifred-text-muted); }
 .idle.warn { color: var(--aifred-accent-amber); }
 .count { flex: none; font-size: 0.75rem; min-width: 1.2em; padding: 0 5px; border-radius: 999px; background: var(--aifred-accent-amber); color: var(--aifred-text-on-accent); }
-/* The eye: open and orange armed, crossed out and grey off (Reflex's solid / soft). */
-.eye {
-  display: inline-flex; align-items: center; padding: 4px 6px; border-radius: 6px; cursor: pointer;
-  background: var(--aifred-input-bg); color: var(--aifred-text-muted); border: 1px solid var(--aifred-border);
-}
-.eye.armed { background: var(--aifred-primary); color: var(--aifred-text-on-accent); border-color: var(--aifred-primary); }
-.eye:disabled { opacity: 0.6; cursor: progress; }
 .popover { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 30; width: 320px; max-height: calc(60 * var(--dvh)); overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 8px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border-light); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
 .event, .all { display: flex; align-items: center; gap: 8px; padding: 4px; border-radius: 6px; color: inherit; text-decoration: none; }
 .event:hover, .all:hover { background: var(--aifred-input-bg); }

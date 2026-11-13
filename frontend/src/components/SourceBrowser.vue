@@ -2,6 +2,7 @@
 // A further document source (Nextcloud …) on the documents page: its folders as a trail, a search over the
 // whole source, download, upload into a writable one (not indexed: the user decides per file), and
 // indexing files, a selection or the open folder into the search, or taking a file out of it again.
+import { BookMinus, BookPlus, Download, FileText, Folder, FolderUp, RefreshCw, Upload } from "lucide-vue-next";
 import { computed, ref } from "vue";
 import type { SourceRow } from "../api/types";
 import { t, tCount } from "../i18n";
@@ -67,9 +68,9 @@ async function picked(): Promise<void> {
         <button type="submit">{{ t("doc_remote_search") }}</button>
       </form>
       <div class="actions">
-        <button v-if="docs.trail.length" :title="t('doc_up_one_level')" @click="back(docs.trail.length - 1)">⬆</button>
+        <button v-if="docs.trail.length" :title="t('doc_up_one_level')" @click="back(docs.trail.length - 1)"><FolderUp :size="16" /></button>
         <template v-if="docs.remote?.writable">
-          <button :title="t('doc_hint')" @click="picker?.click()">⬆️ {{ t("upload_document") }}</button>
+          <button :title="t('doc_hint')" @click="picker?.click()"><Upload :size="16" /> {{ t("upload_document") }}</button>
           <input ref="picker" type="file" multiple hidden @change="picked" />
         </template>
         <button
@@ -77,10 +78,10 @@ async function picked(): Promise<void> {
           :title="t('doc_index_folder_recursive')"
           :disabled="running"
           @click="indexRows(rows)"
-        >📚</button>
-        <button :title="t('doc_refresh')" @click="back(docs.trail.length)">🔄</button>
+        ><BookPlus :size="16" /></button>
+        <button :title="t('doc_refresh')" @click="back(docs.trail.length)"><RefreshCw :size="16" /></button>
         <button v-if="selected.length" :disabled="running" @click="indexSelected">
-          📚 {{ t("doc_index") }} ({{ selected.length }})
+          <BookPlus :size="16" /> {{ t("doc_index") }} ({{ selected.length }})
         </button>
       </div>
     </div>
@@ -100,22 +101,22 @@ async function picked(): Promise<void> {
         <tr v-for="row in rows" :key="row.id">
           <td><input type="checkbox" :checked="selected.includes(row.id)" @change="toggle(row.id)" /></td>
           <td class="name">
-            <button v-if="row.type === 'folder'" class="link" @click="enter(row)">📁 {{ row.name }}</button>
-            <span v-else>📄 {{ row.name }}</span>
+            <button v-if="row.type === 'folder'" class="link" @click="enter(row)"><Folder :size="16" /> {{ row.name }}</button>
+            <span v-else><FileText :size="16" /> {{ row.name }}</span>
             <span class="size">{{ row.size }}</span>
             <span v-if="docs.query" class="where">{{ row.id }}</span>
           </td>
           <td class="dates">{{ row.modified }}</td>
           <td><span v-if="row.indexed" class="indexed">{{ tCount("doc_chunk_count", row.chunks) }}</span></td>
           <td class="row-actions">
-            <a v-if="row.type === 'file'" :href="row.download_url" :title="t('doc_download')" download>⬇</a>
-            <button v-if="row.indexed" :title="t('doc_deindex')" @click="docs.deindexRemote([row.id])">📤</button>
+            <a v-if="row.type === 'file'" :href="row.download_url" :title="t('doc_download')" download><Download :size="16" /></a>
+            <button v-if="row.indexed" :title="t('doc_deindex')" @click="docs.deindexRemote([row.id])"><BookMinus :size="16" /></button>
             <button
               v-else-if="row.type === 'file' && row.indexable"
               :title="t('doc_index')"
               :disabled="running"
               @click="indexRows([row])"
-            >📚</button>
+            ><BookPlus :size="16" /></button>
           </td>
         </tr>
       </tbody>

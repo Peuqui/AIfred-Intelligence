@@ -3,6 +3,7 @@
 // area allows — browse, folders, rename, delete, copy, move, upload, download, preview, search — and in the context
 // menu of a folder "create link" (VueFinder has none). With ``pick`` it returns a folder: the one selected, else the
 // one open. Any place that needs files opens it with its area.
+import { FolderOpen, Link, TriangleAlert } from "lucide-vue-next";
 import { computed, getCurrentInstance, onMounted, ref } from "vue";
 import {
   type DirEntry, type FeaturesConfig, type Item, RemoteDriver, VueFinder, VueFinderPlugin, contextMenuItems, useVueFinder,
@@ -94,11 +95,11 @@ onMounted(async () => {
   <ModalDialog @close="emit('close')">
     <div class="requester">
       <header class="head">
-        <strong>📁 {{ title }}</strong>
+        <strong><FolderOpen :size="16" /> {{ title }}</strong>
         <code v-if="info" class="root">{{ info.root }}</code>
         <button class="close" :title="t('dialog_close')" @click="emit('close')">×</button>
       </header>
-      <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
+      <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
       <div v-if="info" class="finder">
         <VueFinder
           :id="finderId"
@@ -120,11 +121,11 @@ onMounted(async () => {
 
   <ModalDialog v-if="linking" @close="linking = null">
     <form class="link" @submit.prevent="makeLink">
-      <strong>🔗 {{ t("files_make_link") }}</strong>
+      <strong><Link :size="16" /> {{ t("files_make_link") }}</strong>
       <span>{{ t("files_link_target") }} <code>{{ linking.path.slice(prefix.length) }}</code></span>
       <span>{{ t("files_link_place") }} <code>{{ current.slice(prefix.length) || "/" }}</code></span>
       <label>{{ t("files_link_name") }}<input v-model="linkName" required /></label>
-      <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
+      <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
       <div class="actions">
         <button type="button" @click="linking = null">{{ t("doc_cancel") }}</button>
         <button type="submit" class="primary">{{ t("files_make_link") }}</button>

@@ -1,16 +1,17 @@
 <script setup lang="ts">
-// The vision's settings: the eye (armed: every camera with its background switch watched, inside its window), the
+// The vision's settings: the eye in the mode line (armed: every camera with its background switch watched, inside its window), the
 // image model (on demand or live, which one, loaded or not), who describes images in which order, face and person
 // detection, how long events are kept, the alert rules, and per camera everything that belongs to it: name,
 // background, alerts with their types, quiet hours, active window, event interval, zones, its connection. A change
 // of the background or the window takes effect at once.
-import { Power } from "lucide-vue-next";
+import { Bell, MapIcon, Plug, Power, TriangleAlert } from "lucide-vue-next";
 import { onMounted, ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { AlertRules, CameraRow, LiveView, RtspCameras, VigilantiaRow } from "../api/types";
 import { t } from "../i18n";
 import DescriberList from "./DescriberList.vue";
 import RtspForm from "./RtspForm.vue";
+import VigilantiaEye from "./VigilantiaEye.vue";
 import ZoneEditor from "./ZoneEditor.vue";
 
 const settings = ref<VigilantiaRow | null>(null);
@@ -85,20 +86,7 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
 
 <template>
   <section v-if="settings" class="vision-settings">
-    <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
-
-    <article class="eye" :class="{ armed: settings.armed }">
-      <button
-        class="eye-button"
-        :disabled="busy || (!settings.plugin_enabled && !settings.armed)"
-        :title="settings.plugin_enabled ? t(settings.armed ? 'vigilantia_disarm_tooltip' : 'vigilantia_arm_tooltip') : t('vigilantia_plugin_disabled_tooltip')"
-        @click="arm(!settings.armed)"
-      >{{ settings.armed ? "👁️" : "🙈" }}</button>
-      <div>
-        <strong>{{ t(settings.armed ? "vigilantia_help_eye_open_label" : "vigilantia_help_eye_closed_label") }}</strong>
-        <p class="hint">{{ t(settings.armed ? "vigilantia_help_eye_open_body" : "vigilantia_help_eye_closed_body") }}</p>
-      </div>
-    </article>
+    <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
 
     <article>
       <div class="line">
@@ -106,6 +94,12 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
         <select :value="settings.mode" :title="t('vision_settings_mode_help')" @change="change({ mode: value($event) })">
           <option v-for="mode in settings.modes" :key="mode.id" :value="mode.id">{{ mode.label }}</option>
         </select>
+        <VigilantiaEye
+          :armed="settings.armed"
+          :disabled="busy || (!settings.plugin_enabled && !settings.armed)"
+          :title="settings.plugin_enabled ? t(settings.armed ? 'vigilantia_disarm_tooltip' : 'vigilantia_arm_tooltip') : t('vigilantia_plugin_disabled_tooltip')"
+          @toggle="arm(!settings.armed)"
+        />
       </div>
       <div class="line">
         <span class="name">{{ t("vision_settings_model_label") }}</span>
@@ -140,7 +134,7 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
     </article>
 
     <article v-if="rules" class="rules">
-      <strong :title="t('alert_rules_help')">{{ t("alert_rules_title") }}</strong>
+      <strong :title="t('alert_rules_help')"><Bell :size="16" /> {{ t("alert_rules_title") }}</strong>
       <div class="table-scroll">
       <table>
         <thead>
@@ -174,8 +168,8 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
       <header>
         <input class="alias" :value="camera.alias" :placeholder="camera.hardware_name" @change="keep(camera, { alias: value($event) })" />
         <span class="hardware">{{ camera.hardware_name }} · {{ camera.id }}</span>
-        <button v-if="rtspOf(camera)" :title="t('vision_rtsp_edit_connection')" @click="connecting = connecting === camera.id ? '' : camera.id">🔌</button>
-        <button :title="t('vision_settings_zone_mask_button')" @click="zoning = camera">🗺️</button>
+        <button v-if="rtspOf(camera)" :title="t('vision_rtsp_edit_connection')" @click="connecting = connecting === camera.id ? '' : camera.id"><Plug :size="16" /></button>
+        <button :title="t('vision_settings_zone_mask_button')" @click="zoning = camera"><MapIcon :size="16" /></button>
       </header>
       <RtspForm v-if="rtsp && connecting === camera.id" :camera="rtspOf(camera)" :profiles="rtsp.profiles" @saved="connected" @cancel="connecting = ''" />
       <label class="line" :title="t('vision_settings_source_background_help')">
@@ -220,9 +214,6 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
 .table-scroll { overflow-x: auto; }
 .vision-settings { display: flex; flex-direction: column; gap: 12px; max-width: 960px; }
 article { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 10px; }
-.eye { flex-direction: row; align-items: center; gap: 14px; }
-.eye.armed { border-color: var(--aifred-primary); }
-.eye-button { font-size: 2rem; padding: 4px 12px; }
 .line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .name { min-width: 210px; font-weight: 600; font-size: 0.9rem; display: inline-flex; align-items: center; gap: 6px; }
 .kind { font-size: 0.85rem; display: inline-flex; align-items: center; gap: 4px; }

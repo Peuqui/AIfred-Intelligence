@@ -2,6 +2,7 @@
 // A scheduled job, new or changed: name, agent, what it says, when (a cron template or the five fields, an
 // interval, a point in time; the server says when it fires next before saving) and where the result goes
 // (review, sent through a channel, possibly as a fixed text without a model, or a webhook) with its tier.
+import { Bell, Clock, TriangleAlert } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
 import type { JobOptions, JobRow, JobWrite } from "../api/types";
 import { t } from "../i18n";
@@ -64,8 +65,8 @@ async function save(): Promise<void> {
 <template>
   <ModalDialog @close="emit('close')">
     <form class="job" @submit.prevent="save">
-      <strong class="title">⏰ {{ job ? job.name : t("scheduler_new_job") }}</strong>
-      <p v-if="jobs.notice" class="notice">⚠️ {{ jobs.notice }}</p>
+      <strong class="title"><Clock :size="16" /> {{ job ? job.name : t("scheduler_new_job") }}</strong>
+      <p v-if="jobs.notice" class="notice"><TriangleAlert :size="16" /> {{ jobs.notice }}</p>
       <label>{{ t("agent_editor_name") }}<input v-model="form.name" required /></label>
       <label>{{ t("jobs_agent") }}
         <select v-model="form.agent">
@@ -112,7 +113,7 @@ async function save(): Promise<void> {
           <label class="cron">{{ t("sched_end_date") }}<input v-model="endDate" type="date" /></label>
           <label class="cron">{{ t("sched_end_time") }}<input v-model="endTime" type="time" :disabled="!endDate" /></label>
         </div>
-        <p v-if="problem" class="notice">⚠️ {{ problem }}</p>
+        <p v-if="problem" class="notice"><TriangleAlert :size="16" /> {{ problem }}</p>
         <p v-else-if="next" class="next">{{ t("sched_next") }}: {{ next.replace("T", " ") }}</p>
       </fieldset>
 
@@ -129,7 +130,7 @@ async function save(): Promise<void> {
               </select>
             </label>
             <label class="grow">{{ t("sched_label_recipient") }}<input v-model="form.recipient" :placeholder="t('sched_recipient_placeholder')" /></label>
-            <label v-if="inRooms" class="cron">🔔
+            <label v-if="inRooms" class="cron"><Bell :size="16" />
               <select v-model="form.audio_type">
                 <option v-for="audio in options.audio_types" :key="audio" :value="audio">{{ t(`sched_audio_${audio}`) }}</option>
               </select>

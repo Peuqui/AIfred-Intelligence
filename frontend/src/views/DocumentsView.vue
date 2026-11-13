@@ -4,6 +4,10 @@
 // upload (button or dropped files; the server indexes them) and index files, a selection or the whole
 // folder (a job of the server, its progress shown here). A further source the enabled plugins offer
 // (Nextcloud …) opens in SourceBrowser; the progress of an indexing run is shared by both.
+import {
+  BookMinus, BookPlus, BrushCleaning, Copy, Download, FileText, Folder, FolderOpen, FolderPlus, FolderUp, Library,
+  Pencil, RefreshCw, Trash2, TriangleAlert, Upload,
+} from "lucide-vue-next";
 import { computed, defineAsyncComponent, onMounted, ref } from "vue";
 import type { DocumentPreview, DocumentRow } from "../api/types";
 import IndexCare from "../components/IndexCare.vue";
@@ -145,8 +149,8 @@ const runOutcome = computed(() => {
   >
     <FileRequester v-if="exploring" area="documents" :title="t('doc_explorer_title')" @close="closeExplorer" />
     <header class="bar">
-      <h2>{{ t("doc_manager_title") }}</h2>
-      <button v-if="local" :title="t('doc_explorer_tooltip')" @click="exploring = true">📁 {{ t("doc_explorer") }}</button>
+      <h2><Folder :size="16" /> {{ t("doc_manager_title") }}</h2>
+      <button v-if="local" :title="t('doc_explorer_tooltip')" @click="exploring = true"><FolderOpen :size="16" /> {{ t("doc_explorer") }}</button>
       <select
         v-if="docs.sources.length > 1"
         class="sources"
@@ -164,36 +168,36 @@ const runOutcome = computed(() => {
           </template>
         </nav>
         <div class="actions">
-          <button v-if="folder" :title="t('doc_up_one_level')" @click="up">⬆</button>
-          <button :title="t('doc_folder_create')" @click="naming = { old: null, name: '' }">📁＋</button>
-          <button :title="t('doc_hint')" @click="picker?.click()">⬆️ {{ t("upload_document") }}</button>
+          <button v-if="folder" :title="t('doc_up_one_level')" @click="up"><FolderUp :size="16" /></button>
+          <button :title="t('doc_folder_create')" @click="naming = { old: null, name: '' }"><FolderPlus :size="16" /></button>
+          <button :title="t('doc_hint')" @click="picker?.click()"><Upload :size="16" /> {{ t("upload_document") }}</button>
           <input ref="picker" type="file" multiple hidden @change="picked" />
           <button
             v-if="docs.listing?.items.length"
             :title="t('doc_index_folder_recursive')"
             :disabled="run?.running"
             @click="indexFolder"
-          >📚</button>
-          <button :title="t('doc_refresh')" @click="go(folder)">🔄</button>
-          <button :title="t('db_index_title')" @click="caring = true">🧹</button>
+          ><BookPlus :size="16" /></button>
+          <button :title="t('doc_refresh')" @click="go(folder)"><RefreshCw :size="16" /></button>
+          <button :title="t('db_index_title')" @click="caring = true"><BrushCleaning :size="16" /></button>
           <button v-if="selected.length" :disabled="run?.running" @click="indexSelected">
-            📚 {{ t("doc_index") }} ({{ selected.length }})
+            <BookPlus :size="16" /> {{ t("doc_index") }} ({{ selected.length }})
           </button>
           <button v-if="selected.length" class="danger" @click="askDelete(selected)">
-            🗑️ {{ t("doc_delete_selected") }} ({{ selected.length }})
+            <Trash2 :size="16" /> {{ t("doc_delete_selected") }} ({{ selected.length }})
           </button>
         </div>
       </template>
     </header>
-    <p v-if="docs.notice" class="notice">⚠️ {{ docs.notice }}</p>
-    <p v-for="reason in docs.rejected" :key="reason" class="notice">⚠️ {{ reason }}</p>
+    <p v-if="docs.notice" class="notice"><TriangleAlert :size="16" /> {{ docs.notice }}</p>
+    <p v-for="reason in docs.rejected" :key="reason" class="notice"><TriangleAlert :size="16" /> {{ reason }}</p>
     <p v-if="run?.running" class="progress">
       {{ t("doc_index_folder_progress", { current: Math.min(run.done + 1, run.total), total: run.total, name: run.current }) }}
     </p>
     <div v-else-if="runOutcome" class="outcome">
-      <span>📚 {{ runOutcome }}</span>
+      <span><Library :size="16" /> {{ runOutcome }}</span>
       <button :title="t('dialog_close')" @click="docs.indexing = null">×</button>
-      <p v-for="failure in run?.failed" :key="failure.path" class="failure">⚠️ {{ failure.path }}: {{ failure.reason }}</p>
+      <p v-for="failure in run?.failed" :key="failure.path" class="failure"><TriangleAlert :size="16" /> {{ failure.path }}: {{ failure.reason }}</p>
     </div>
     <p v-if="dragging" class="drop">{{ t("doc_drop_files") }}</p>
 
@@ -218,24 +222,24 @@ const runOutcome = computed(() => {
           <tr v-for="row in docs.listing.items" :key="row.name">
             <td><input type="checkbox" :checked="selected.includes(row.name)" @change="toggle(row.name)" /></td>
             <td class="name">
-              <button v-if="row.type === 'folder'" class="link" @click="go(pathOf(row))">📁 {{ row.name }}</button>
-              <button v-else class="link" :title="t('doc_preview')" @click="show(row)">📄 {{ row.name }}</button>
+              <button v-if="row.type === 'folder'" class="link" @click="go(pathOf(row))"><Folder :size="16" /> {{ row.name }}</button>
+              <button v-else class="link" :title="t('doc_preview')" @click="show(row)"><FileText :size="16" /> {{ row.name }}</button>
               <span class="size">{{ row.type === "folder" ? tCount("doc_file_count", row.file_count) : row.size }}</span>
             </td>
             <td class="dates">{{ row.created }}<br />{{ row.modified }}</td>
             <td><span v-if="row.indexed" class="indexed">{{ tCount("doc_chunk_count", row.chunks) }}</span></td>
             <td class="row-actions">
-              <a v-if="row.type === 'file'" :href="docs.listing.download_prefix + encodeURIComponent(row.name)" :title="t('doc_download')" download>⬇</a>
-              <button v-if="row.type === 'file'" :title="t('doc_copy_path')" @click="copyPath(row)">📋</button>
-              <button v-if="row.indexed" :title="t('doc_deindex')" @click="deindex(row)">📤</button>
+              <a v-if="row.type === 'file'" :href="docs.listing.download_prefix + encodeURIComponent(row.name)" :title="t('doc_download')" download><Download :size="16" /></a>
+              <button v-if="row.type === 'file'" :title="t('doc_copy_path')" @click="copyPath(row)"><Copy :size="16" /></button>
+              <button v-if="row.indexed" :title="t('doc_deindex')" @click="deindex(row)"><BookMinus :size="16" /></button>
               <button
                 v-else-if="row.type === 'file' && row.indexable"
                 :title="t('doc_index')"
                 :disabled="run?.running"
                 @click="indexRows([row])"
-              >📚</button>
-              <button :title="row.type === 'folder' ? t('doc_folder_rename') : t('doc_rename')" @click="naming = { old: row.name, name: row.name }">✏️</button>
-              <button :title="row.type === 'folder' ? t('doc_folder_delete') : t('doc_delete')" @click="askDelete([row.name])">🗑️</button>
+              ><BookPlus :size="16" /></button>
+              <button :title="row.type === 'folder' ? t('doc_folder_rename') : t('doc_rename')" @click="naming = { old: row.name, name: row.name }"><Pencil :size="16" /></button>
+              <button :title="row.type === 'folder' ? t('doc_folder_delete') : t('doc_delete')" @click="askDelete([row.name])"><Trash2 :size="16" /></button>
             </td>
           </tr>
         </tbody>
@@ -248,7 +252,10 @@ const runOutcome = computed(() => {
 
     <ModalDialog v-if="deleting" @close="deleting = null">
       <strong>{{ t("doc_delete_confirm_title") }}</strong>
-      <p class="targets">{{ [...deleting.folders.map((name) => `📁 ${name}`), ...deleting.files.map((name) => `📄 ${name}`)].join(", ") }}</p>
+      <p class="targets">
+        <span v-for="name in deleting.folders" :key="`folder-${name}`"><Folder :size="16" /> {{ name }}</span>
+        <span v-for="name in deleting.files" :key="`file-${name}`"><FileText :size="16" /> {{ name }}</span>
+      </p>
       <label><input v-model="deleting.fromDisk" type="checkbox" /> {{ t("doc_delete_from_disk") }}</label>
       <label><input v-model="deleting.fromIndex" type="checkbox" /> {{ t("doc_delete_from_index") }}</label>
       <div class="dialog-actions">
@@ -259,7 +266,7 @@ const runOutcome = computed(() => {
 
     <ModalDialog v-if="preview" @close="preview = null">
       <header class="preview-head">
-        <strong>📄 {{ preview.name }}</strong>
+        <strong><FileText :size="16" /> {{ preview.name }}</strong>
         <button :title="t('dialog_close')" @click="preview = null">×</button>
       </header>
       <pre class="preview">{{ preview.text }}</pre>
@@ -298,7 +305,7 @@ input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .row-actions { white-space: nowrap; text-align: right; }
 .row-actions a { text-decoration: none; padding: 2px 4px; color: inherit; }
 .empty { color: var(--aifred-text-muted); }
-.targets { margin: 0; max-width: 60ch; overflow-wrap: anywhere; color: var(--aifred-text-secondary); }
+.targets { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; max-width: 60ch; overflow-wrap: anywhere; color: var(--aifred-text-secondary); }
 .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; }
 .preview-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
 .preview-head button { background: none; border: none; font-size: 1.2rem; }

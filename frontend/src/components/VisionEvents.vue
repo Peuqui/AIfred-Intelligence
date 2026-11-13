@@ -6,6 +6,7 @@
 // lists can be deleted at once (asked first); every event without a description can be described (by occurrence,
 // with progress, cancelled at will). Both analyses are runs of the server, one at a time; this page follows them. A click on a picture opens the slideshow over every page (grouped: the occurrence's film). New events
 // arrive over a stream; the list loads again then, unless a picture or an assignment is open (it waits for that).
+import { Check, Film, Hourglass, RefreshCw, Sparkles, Trash2, User, X } from "lucide-vue-next";
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { ApiError, PROGRESS_POLL_MS, api, apiUrl } from "../api/client";
@@ -216,12 +217,12 @@ const value = (event: Event): string => (event.target as HTMLSelectElement).valu
         <option v-for="face in choices.faces" :key="face.id" :value="face.id">{{ face.label }}</option>
       </select>
       <label class="switch" :title="t('casus_help_grouped_body')"><input v-model="grouped" type="checkbox" /> {{ t("casus_cluster_mode_label") }}</label>
-      <button :title="t('casus_refresh')" @click="load">🔄</button>
+      <button :title="t('casus_refresh')" @click="load"><RefreshCw :size="16" /></button>
       <button @click="clearFilters">{{ t("casus_filter_clear") }}</button>
       <HelpButton topic="casus" />
       <span class="grow"></span>
       <template v-if="list?.total">
-        <button v-if="!confirming" class="danger" @click="confirming = true">🗑️ {{ t("delete_all") }}</button>
+        <button v-if="!confirming" class="danger" @click="confirming = true"><Trash2 :size="16" /> {{ t("delete_all") }}</button>
         <template v-else>
           <button class="danger" @click="removeAll">{{ t("delete_all_confirm") }} ({{ formatNumber(list.total) }})</button>
           <button @click="confirming = false">{{ t("delete_all_cancel") }}</button>
@@ -233,7 +234,7 @@ const value = (event: Event): string => (event.target as HTMLSelectElement).valu
         v-if="!runs.describe_all.running"
         :title="`${t('casus_bulk_start_tooltip')} — ${t('casus_help_bulk_body')}`"
         @click="startRun('vision/casus/describe-all')"
-      >✨ {{ t("casus_bulk_start") }}</button>
+      ><Sparkles :size="16" /> {{ t("casus_bulk_start") }}</button>
       <template v-else>
         <progress :max="runs.describe_all.clusters || 1" :value="runs.describe_all.processed"></progress>
         <button :disabled="runs.describe_all.cancelling" @click="startRun('vision/casus/describe-all', 'DELETE')">{{ t("casus_bulk_cancel") }}</button>
@@ -277,19 +278,19 @@ const value = (event: Event): string => (event.target as HTMLSelectElement).valu
             <option value="">{{ t("casus_tag_clear") }}</option>
             <option v-for="face in choices?.faces ?? []" :key="face.id" :value="face.id">{{ face.label }}</option>
           </select>
-          <button :title="t('casus_tag_save')" @click="saveTag">✓</button>
-          <button :title="t('casus_tag_cancel')" @click="cancelTag">✕</button>
+          <button :title="t('casus_tag_save')" @click="saveTag"><Check :size="16" /></button>
+          <button :title="t('casus_tag_cancel')" @click="cancelTag"><X :size="16" /></button>
         </template>
-        <button v-else-if="taggable(event)" :title="t('casus_tag_button')" @click="startTag(event)">👤</button>
-        <button v-if="event.cluster_id" :title="t('casus_film_tooltip')" @click="openFilm(event)">🎞️</button>
+        <button v-else-if="taggable(event)" :title="t('casus_tag_button')" @click="startTag(event)"><User :size="16" /></button>
+        <button v-if="event.cluster_id" :title="t('casus_film_tooltip')" @click="openFilm(event)"><Film :size="16" /></button>
         <button
           v-if="event.has_frame && runs"
           :class="{ done: event.description }"
           :disabled="runs.analysis.running !== 0"
           :title="`${t(event.description ? 'casus_analyze_again' : 'casus_analyze')} — ${t('casus_help_sparkles_body')}`"
           @click="startRun(`vision/casus/events/${event.id}/analyze`)"
-        >{{ runs.analysis.running === event.id ? "⏳" : "✨" }}</button>
-        <button class="danger" :title="t('casus_delete')" @click="remove(event)">🗑️</button>
+        ><Hourglass v-if="runs.analysis.running === event.id" :size="16" /><Sparkles v-else :size="16" /></button>
+        <button class="danger" :title="t('casus_delete')" @click="remove(event)"><Trash2 :size="16" /></button>
       </span>
     </div>
 

@@ -3,6 +3,7 @@
 // camera's live picture (its tele lens where it has one), the instruction for the pose asked for, capture, take the
 // last one back, skip; the crops taken so far; save (the person made if new, the recognition knows the poses at once)
 // or cancel. The session, its crops and embeddings live in the server; this dialog shows them.
+import { Camera, Hourglass, TriangleAlert } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { ApiError, api, apiUrl } from "../api/client";
 import type { CameraRow, EnrollSession, LiveView } from "../api/types";
@@ -101,13 +102,13 @@ const canSave = computed(() => Boolean(session.value?.captures.length) && (props
       <img v-if="preview" class="live" :src="preview" alt="" @load="arrived" @error="arrived" />
       <p v-else class="hint">{{ t("multipose_no_preview") }}</p>
       <p v-if="session" class="pose"><span class="step">{{ progress }}</span> {{ instruction }}</p>
-      <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
+      <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
       <div v-if="session?.captures.length" class="captures">
         <span class="hint">{{ t("multipose_captures_label") }}</span>
         <img v-for="taken in session.captures" :key="taken.url" :src="apiUrl(taken.url)" :title="`${taken.pose} · ${formatNumber(taken.score, 2)}`" alt="" />
       </div>
       <div class="actions">
-        <button :disabled="busy || !source || !session" @click="capture">{{ busy ? "⏳" : "📸" }} {{ t("multipose_capture") }}</button>
+        <button :disabled="busy || !source || !session" @click="capture"><Hourglass v-if="busy" :size="16" /><Camera v-else :size="16" /> {{ t("multipose_capture") }}</button>
         <button :disabled="busy || !session?.captures.length" @click="undo">{{ t("multipose_retry") }}</button>
         <button :disabled="busy || !session || session.step >= session.poses.length" @click="call(() => post('/skip'))">{{ t("multipose_skip") }}</button>
         <span class="grow"></span>

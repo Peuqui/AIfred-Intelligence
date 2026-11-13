@@ -2,6 +2,7 @@
 // The plugins on the settings page (GET plugins): the channels with their switches (on, listening, answering on
 // their own) and security tier, the tool plugins with theirs; ⚙️ opens a plugin's settings form. Switching on a
 // channel that is not set up opens its form instead.
+import { Lock, Settings, TriangleAlert } from "lucide-vue-next";
 import { onMounted, ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { PluginOverview } from "../api/types";
@@ -39,7 +40,7 @@ const picked = (event: Event): number => Number((event.target as HTMLSelectEleme
 
 <template>
   <section v-if="overview" class="plugins">
-    <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
+    <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
     <h3>{{ t("plugin_channels") }}</h3>
     <div v-for="row in overview.channels" :key="row.name" class="row" :class="{ off: !row.monitor }">
       <span class="name" :title="row.description">{{ row.label }}</span>
@@ -53,7 +54,7 @@ const picked = (event: Event): number => Number((event.target as HTMLSelectEleme
         <input type="checkbox" :checked="row.auto_reply" :disabled="!row.monitor" @change="channel(row.name, row.configured, { auto_reply: checked($event) })" /> {{ t("auto_reply") }}
       </label>
       <span class="spacer" />
-      <button :title="t('cred_title_suffix')" @click="editing = row.name">⚙️</button>
+      <button :title="t('cred_title_suffix')" @click="editing = row.name"><Settings :size="16" /></button>
       <label class="switch main">
         <input type="checkbox" :checked="row.monitor" @change="channel(row.name, row.configured, { monitor: checked($event) })" />
       </label>
@@ -62,9 +63,9 @@ const picked = (event: Event): number => Number((event.target as HTMLSelectEleme
     <h3>{{ t("plugin_tools") }}</h3>
     <div v-for="row in overview.tools" :key="row.name" class="row" :class="{ off: !row.enabled }">
       <span class="name" :title="row.description">{{ row.label }}</span>
-      <span v-if="row.needs_connection" class="hint">🔐 {{ t("plugin_needs_connection") }}</span>
+      <span v-if="row.needs_connection" class="hint"><Lock :size="16" /> {{ t("plugin_needs_connection") }}</span>
       <span class="spacer" />
-      <button v-if="row.has_settings" :title="t('cred_title_suffix')" @click="editing = row.name">⚙️</button>
+      <button v-if="row.has_settings" :title="t('cred_title_suffix')" @click="editing = row.name"><Settings :size="16" /></button>
       <label class="switch main">
         <input type="checkbox" :checked="row.enabled" @change="tool(row.name, checked($event))" />
       </label>

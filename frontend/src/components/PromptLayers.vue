@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // The prompt layers of an agent, a system agent or the Automatik LLM (the same endpoints): pick layer and language,
 // edit the text, save; it takes effect from the next call on. A language without the file shows that it is missing.
+import { CircleCheck, TriangleAlert } from "lucide-vue-next";
 import { computed, onMounted, ref, watch } from "vue";
 import { ApiError } from "../api/client";
 import { language, t } from "../i18n";
@@ -55,8 +56,8 @@ onMounted(() => {
 
 <template>
   <section class="prompts">
-    <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
-    <p v-else-if="saved" class="saved">✅ {{ saved }}</p>
+    <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
+    <p v-else-if="saved" class="saved"><CircleCheck :size="16" /> {{ saved }}</p>
     <div class="pick">
       <select v-model="key">
         <option v-for="layer in keys" :key="layer" :value="layer">{{ layer }}</option>

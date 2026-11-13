@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Care of the documents' search index: how many documents and sections it holds, the entries whose file is gone
 // from the local folder (taken out one by one or all), and the whole index cleared after asking (the files stay).
+import { BookMinus, BrushCleaning, FileText, Trash2, TriangleAlert } from "lucide-vue-next";
 import { onMounted, ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { IndexOverview } from "../api/types";
@@ -43,10 +44,10 @@ async function clearAll(): Promise<void> {
   <ModalDialog @close="emit('close')">
     <div class="care">
       <header>
-        <strong>{{ t("db_index_title") }}</strong>
+        <strong><BrushCleaning :size="16" /> {{ t("db_index_title") }}</strong>
         <button class="close" :title="t('dialog_close')" @click="emit('close')">×</button>
       </header>
-      <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
+      <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
       <template v-if="overview">
         <p class="counts">{{ tCount("db_document_count", overview.documents) }} · {{ tCount("doc_chunk_count", overview.chunks) }}</p>
         <section>
@@ -56,13 +57,13 @@ async function clearAll(): Promise<void> {
           </div>
           <p v-if="!overview.orphans.length" class="empty">{{ t("db_orphans_none") }}</p>
           <div v-for="orphan in overview.orphans" :key="orphan.filename" class="orphan">
-            <span class="name">📄 {{ orphan.filename }}</span>
+            <span class="name"><FileText :size="16" /> {{ orphan.filename }}</span>
             <span class="meta">{{ tCount("doc_chunk_count", orphan.chunks) }} · {{ orphan.indexed }}</span>
-            <button :title="t('db_remove_from_index')" @click="remove([orphan.filename])">📤</button>
+            <button :title="t('db_remove_from_index')" @click="remove([orphan.filename])"><BookMinus :size="16" /></button>
           </div>
         </section>
         <div class="actions">
-          <button v-if="!clearing" class="danger" :disabled="!overview.chunks" @click="clearing = true">🗑️ {{ t("db_clear_index") }}</button>
+          <button v-if="!clearing" class="danger" :disabled="!overview.chunks" @click="clearing = true"><Trash2 :size="16" /> {{ t("db_clear_index") }}</button>
           <template v-else>
             <span class="confirm">{{ t("db_clear_confirm") }}</span>
             <button @click="clearing = false">{{ t("db_cancel") }}</button>

@@ -3,6 +3,10 @@
 // renewed by hand), its resolution and briefing, the head of a camera that can move (held keys, home), photos
 // in full resolution and its live analysis (the image model describing, faces recognised; lib/vision_live_analysis.py),
 // which lasts while a page follows it. What is shown and how often is kept by the server (data/vision_preview.json).
+import {
+  BrushCleaning, Camera, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, House, RefreshCw, ScanSearch, Sparkles, TriangleAlert, User, X, ZoomIn,
+  ZoomOut,
+} from "lucide-vue-next";
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from "vue";
 import { ApiError, api, apiUrl } from "../api/client";
 import type { CameraRow, ChoiceOption, LiveAnalysisRow, LiveView } from "../api/types";
@@ -94,12 +98,12 @@ async function photo(camera: CameraRow): Promise<void> {
 }
 
 const pad = [
-  { direction: "up", label: "▲", tip: "vision_preview_ptz_up" },
-  { direction: "left", label: "◀", tip: "vision_preview_ptz_left" },
-  { direction: "right", label: "▶", tip: "vision_preview_ptz_right" },
-  { direction: "down", label: "▼", tip: "vision_preview_ptz_down" },
-  { direction: "zoom_in", label: "＋", tip: "vision_preview_ptz_zoom_in" },
-  { direction: "zoom_out", label: "－", tip: "vision_preview_ptz_zoom_out" },
+  { direction: "up", icon: ChevronUp, tip: "vision_preview_ptz_up" },
+  { direction: "left", icon: ChevronLeft, tip: "vision_preview_ptz_left" },
+  { direction: "right", icon: ChevronRight, tip: "vision_preview_ptz_right" },
+  { direction: "down", icon: ChevronDown, tip: "vision_preview_ptz_down" },
+  { direction: "zoom_in", icon: ZoomIn, tip: "vision_preview_ptz_zoom_in" },
+  { direction: "zoom_out", icon: ZoomOut, tip: "vision_preview_ptz_zoom_out" },
 ];
 const picked = (event: Event): string => (event.target as HTMLSelectElement).value;
 
@@ -169,7 +173,7 @@ const similarity = (value: number | null): string => (value === null ? "" : ` ·
   <section v-if="live" class="live">
     <div class="bar">
       <button v-for="camera in live.cameras" :key="camera.id" class="chip" :class="{ on: live.visible.includes(camera.id), away: !camera.available }" @click="toggle(camera.id)">
-        {{ camera.label }}{{ camera.available ? "" : " ✗" }}
+        {{ camera.label }}<template v-if="!camera.available"> <X :size="16" /></template>
       </button>
       <label class="fps">
         {{ t("vision_preview_fps_label") }}
@@ -198,10 +202,10 @@ const similarity = (value: number | null): string => (value === null ? "" : ` ·
           </select>
         </label>
       </template>
-      <button v-if="live.settings.fps === 0" :title="t('vision_preview_refresh_tooltip')" @click="renewed++">🔄</button>
-      <button :title="t('vision_preview_rescan_tooltip')" @click="call(() => send<LiveView>('vision/cameras/rescan', 'POST')).then(show)">🔍</button>
+      <button v-if="live.settings.fps === 0" :title="t('vision_preview_refresh_tooltip')" @click="renewed++"><RefreshCw :size="16" /></button>
+      <button :title="t('vision_preview_rescan_tooltip')" @click="call(() => send<LiveView>('vision/cameras/rescan', 'POST')).then(show)"><ScanSearch :size="16" /></button>
     </div>
-    <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
+    <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
     <p v-if="!live.cameras.length" class="empty">{{ t("vision_preview_no_source") }}</p>
 
     <div class="grid" :class="{ single: focus || shown.length === 1 }">
@@ -232,21 +236,21 @@ const similarity = (value: number | null): string => (value === null ? "" : ` ·
               @pointerup="release"
               @pointerleave="release"
               @pointercancel="release"
-            >{{ key.label }}</button>
-            <button :title="t('vision_preview_ptz_home')" @click="home(camera)">⌂</button>
+            ><component :is="key.icon" :size="16" /></button>
+            <button :title="t('vision_preview_ptz_home')" @click="home(camera)"><House :size="16" /></button>
             <select v-model="speed">
               <option v-for="choice in live.ptz_speeds" :key="choice.id" :value="choice.id">{{ choice.label }}</option>
             </select>
           </span>
-          <button :title="t('vision_preview_photo')" :disabled="busy === camera.id" @click="photo(camera)">📸</button>
-          <button :class="{ on: analysisOf(camera).vlm }" :title="t('vision_preview_watch_start')" :disabled="busy === camera.id" @click="analyse(camera, { vlm: !analysisOf(camera).vlm })">✨</button>
-          <button :class="{ on: analysisOf(camera).faces }" :title="t('vision_preview_face_button')" :disabled="busy === camera.id" @click="analyse(camera, { faces: !analysisOf(camera).faces })">👤</button>
-          <button v-if="feedOf(camera).descriptions.length || feedOf(camera).faces.length" :title="t('vision_preview_teleprompter_clear')" @click="feeds[camera.id] = emptyFeed()">🧹</button>
+          <button :title="t('vision_preview_photo')" :disabled="busy === camera.id" @click="photo(camera)"><Camera :size="16" /></button>
+          <button :class="{ on: analysisOf(camera).vlm }" :title="t('vision_preview_watch_start')" :disabled="busy === camera.id" @click="analyse(camera, { vlm: !analysisOf(camera).vlm })"><Sparkles :size="16" /></button>
+          <button :class="{ on: analysisOf(camera).faces }" :title="t('vision_preview_face_button')" :disabled="busy === camera.id" @click="analyse(camera, { faces: !analysisOf(camera).faces })"><User :size="16" /></button>
+          <button v-if="feedOf(camera).descriptions.length || feedOf(camera).faces.length" :title="t('vision_preview_teleprompter_clear')" @click="feeds[camera.id] = emptyFeed()"><BrushCleaning :size="16" /></button>
           <select v-if="(resolutions[camera.id] ?? []).length > 1" :value="camera.resolution" @change="keep(camera, { resolution: picked($event) })">
             <option v-for="choice in resolutions[camera.id]" :key="choice.id" :value="choice.id">{{ choice.label }}</option>
           </select>
         </div>
-        <!-- What was recognised stays after the analysis is switched off, until 🧹 clears it (Peuqui 09.11.2026). -->
+        <!-- What was recognised stays after the analysis is switched off, until the clear button empties it (Peuqui 09.11.2026). -->
         <section v-if="live.settings.teleprompter_mode === 'below' && (analysisOf(camera).vlm || feedOf(camera).descriptions.length)" class="prompter">
           <strong>{{ t("vision_preview_teleprompter_label") }}</strong>
           <ol>

@@ -3,6 +3,7 @@
 // collection of an agent deleted since), right the entries of the one open, newest first, filtered by type:
 // read, edit (summary and content; the summary is one line, the index's limit), delete one or all. An agent's
 // card opens the page with that agent (#/memory?agent=<id>).
+import { NotebookPen, Pencil, Trash2, TriangleAlert } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import type { MemoryEntry } from "../api/types";
@@ -44,8 +45,8 @@ watch(() => route.query.agent, (agent) => void (typeof agent === "string" && age
 
 <template>
   <main class="memory">
-    <h2>{{ t("nav_memory") }}</h2>
-    <p v-if="memory.notice" class="notice">⚠️ {{ memory.notice }}</p>
+    <h2><NotebookPen :size="16" /> {{ t("nav_memory") }}</h2>
+    <p v-if="memory.notice" class="notice"><TriangleAlert :size="16" /> {{ memory.notice }}</p>
     <div class="split">
       <nav class="agents">
         <button
@@ -65,7 +66,7 @@ watch(() => route.query.agent, (agent) => void (typeof agent === "string" && age
               <option value="">{{ t("memory_filter_all") }} ({{ memory.entries.length }})</option>
               <option v-for="type in types" :key="type" :value="type">{{ type }}</option>
             </select>
-            <button v-if="memory.entries.length" class="danger" @click="clearing = true">🗑️ {{ t("agent_editor_clear_memories") }}</button>
+            <button v-if="memory.entries.length" class="danger" @click="clearing = true"><Trash2 :size="16" /> {{ t("agent_editor_clear_memories") }}</button>
           </div>
           <p v-if="!shown.length" class="empty">{{ t("memory_no_entries") }}</p>
           <article v-for="entry in shown" :key="entry.id" class="entry">
@@ -74,8 +75,8 @@ watch(() => route.query.agent, (agent) => void (typeof agent === "string" && age
               <span class="date">{{ entry.date.slice(0, 16).replace("T", " ") }}</span>
               <code class="id">{{ entry.id.slice(0, 8) }}</code>
               <span class="actions">
-                <button :title="t('agent_editor_edit')" @click="startEdit(entry)">✏️</button>
-                <button :title="t('agent_editor_delete')" @click="memory.remove(entry.id)">🗑️</button>
+                <button :title="t('agent_editor_edit')" @click="startEdit(entry)"><Pencil :size="16" /></button>
+                <button :title="t('agent_editor_delete')" @click="memory.remove(entry.id)"><Trash2 :size="16" /></button>
               </span>
             </header>
             <form v-if="editing?.id === entry.id" class="edit" @submit.prevent="saveEdit">

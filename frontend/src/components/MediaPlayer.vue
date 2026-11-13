@@ -4,6 +4,7 @@
 // Play, pause, stop and seek of music go through the server like an agent's tool, so every tab of the session
 // follows; a reading is this device's own, like the volume. A reading that is still arriving comes piece by piece
 // and has no length to seek in; once it is over, the kept audio (one file) can be played again and sought in.
+import { FastForward, Pause, Play, Rewind, SkipBack, Square } from "lucide-vue-next";
 import { computed } from "vue";
 import { t } from "../i18n";
 import * as media from "../lib/media";
@@ -62,11 +63,11 @@ function stop(): void {
 <template>
   <div v-if="mode" class="player" :title="name">
     <div class="controls">
-      <button v-if="isSpeech" :title="t('audio_restart')" :disabled="!speech.hasReading.value" @click="speech.replayKept()">⏮</button>
-      <button :title="t('audio_back')" :disabled="!seekable" @click="seekTo(position - SKIP_SEC)">⏪</button>
-      <button :title="playing ? t('audio_pause') : t('audio_resume')" @click="playPause">{{ playing ? "⏸" : "▶" }}</button>
-      <button :title="t('audio_forward')" :disabled="!seekable" @click="seekTo(position + SKIP_SEC)">⏩</button>
-      <button :title="t('audio_stop')" :disabled="mode === 'kept'" @click="stop">⏹</button>
+      <button v-if="isSpeech" :title="t('audio_restart')" :disabled="!speech.hasReading.value" @click="speech.replayKept()"><SkipBack :size="16" /></button>
+      <button :title="t('audio_back')" :disabled="!seekable" @click="seekTo(position - SKIP_SEC)"><Rewind :size="16" /></button>
+      <button :title="playing ? t('audio_pause') : t('audio_resume')" @click="playPause"><Pause v-if="playing" :size="16" /><Play v-else :size="16" /></button>
+      <button :title="t('audio_forward')" :disabled="!seekable" @click="seekTo(position + SKIP_SEC)"><FastForward :size="16" /></button>
+      <button :title="t('audio_stop')" :disabled="mode === 'kept'" @click="stop"><Square :size="16" /></button>
       <input v-model.number="volume" class="slider volume" type="range" min="0" max="1" step="0.05" :title="t('audio_volume')" />
     </div>
     <div class="progress">

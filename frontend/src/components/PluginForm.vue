@@ -2,6 +2,7 @@
 // A plugin's settings form (GET/PUT plugins/{name}/form): the fields in the plugin's own words, grouped in rows, a
 // password only as "stored" (an empty field keeps it), and for an OAuth plugin the connection: the provider's
 // sign-in page opens in a new tab, the form then asks every few seconds whether the connection has come.
+import { CircleCheck, Lightbulb, TriangleAlert } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { PluginForm } from "../api/types";
@@ -92,11 +93,11 @@ async function disconnect(): Promise<void> {
       <strong>{{ form?.title ?? plugin }}</strong>
       <button class="icon" :title="t('dialog_close')" @click="emit('close')">×</button>
     </header>
-    <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
+    <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
     <template v-if="form">
       <div v-for="(row, index) in rows" :key="index" class="row">
         <label v-for="field in row" :key="field.key" class="field" :style="{ flex: field.width }" :title="field.tooltip">
-          <span class="label">{{ field.label }}{{ field.tooltip ? " 💡" : "" }}</span>
+          <span class="label">{{ field.label }}<template v-if="field.tooltip"> <Lightbulb :size="14" /></template></span>
           <select v-if="field.options.length" v-model="values[field.key]">
             <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
@@ -111,7 +112,7 @@ async function disconnect(): Promise<void> {
       </div>
       <div v-if="form.oauth_provider" class="oauth">
         <template v-if="form.connected">
-          <span class="ok">{{ t("oauth_connect_connected") }}</span>
+          <span class="ok"><CircleCheck :size="16" /> {{ t("oauth_connect_connected") }}</span>
           <button @click="disconnect">{{ t("oauth_connect_disconnect") }}</button>
         </template>
         <template v-else>

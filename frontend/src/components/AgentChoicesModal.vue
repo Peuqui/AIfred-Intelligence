@@ -2,6 +2,7 @@
 // The agents' quick choices behind a button of the main screen (Peuqui 07.11.2026): every agent with
 // its model and switches, the Automatik's model, the Vision agent's. A change takes effect at once,
 // from the next turn on; it is a setting of AIfred, not of the open chat.
+import { SlidersHorizontal, TriangleAlert } from "lucide-vue-next";
 import { computed, onMounted } from "vue";
 import { t } from "../i18n";
 import { useAgentChoices } from "../stores/agentChoices";
@@ -20,11 +21,11 @@ const vision = computed(() => store.choices?.agents.find((row) => row.id === "vi
 <template>
   <ModalDialog @close="emit('close')">
     <header class="head">
-      <strong>🎛️ {{ t("agent_choices_title") }}</strong>
+      <strong><SlidersHorizontal :size="16" /> {{ t("agent_choices_title") }}</strong>
       <HelpButton topic="thinking" />
       <button class="close" :title="t('dialog_close')" @click="emit('close')">×</button>
     </header>
-    <p v-if="store.notice" class="notice">⚠️ {{ store.notice }}</p>
+    <p v-if="store.notice" class="notice"><TriangleAlert :size="16" /> {{ store.notice }}</p>
     <div v-if="store.choices" class="rows">
       <AgentChoicesRow
         v-for="row in chatAgents"

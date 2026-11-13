@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // The jobs page: every scheduled job with its switch, agent, schedule, next and last run; new, change, its
 // recent runs, delete. A job of an agent switched off fails at its time (the scheduler says why).
+import { Clock, Pencil, ScrollText, Trash2, TriangleAlert } from "lucide-vue-next";
 import { computed, onMounted, ref } from "vue";
 import type { JobRow, JobRun } from "../api/types";
 import JobForm from "../components/JobForm.vue";
@@ -33,10 +34,10 @@ async function showRuns(job: JobRow): Promise<void> {
 <template>
   <main class="jobs">
     <header class="bar">
-      <h2>{{ t("nav_jobs") }}</h2>
+      <h2><Clock :size="16" /> {{ t("nav_jobs") }}</h2>
       <button v-if="jobs.options" @click="editing = { job: null }">＋ {{ t("scheduler_new_job") }}</button>
     </header>
-    <p v-if="jobs.notice && !editing" class="notice">⚠️ {{ jobs.notice }}</p>
+    <p v-if="jobs.notice && !editing" class="notice"><TriangleAlert :size="16" /> {{ jobs.notice }}</p>
     <p v-if="jobs.options && !jobs.jobs.length" class="empty">{{ t("scheduler_no_jobs") }}</p>
     <table v-else-if="jobs.jobs.length" class="list">
       <thead>
@@ -59,9 +60,9 @@ async function showRuns(job: JobRow): Promise<void> {
           <td class="stamp">{{ job.enabled ? when(job.next_run) : "–" }}</td>
           <td class="stamp">{{ when(job.last_run) }}</td>
           <td class="row-actions">
-            <button :title="t('jobs_runs')" @click="showRuns(job)">📜</button>
-            <button :title="t('agent_editor_edit')" @click="editing = { job }">✏️</button>
-            <button :title="t('agent_editor_delete')" @click="deleting = job">🗑️</button>
+            <button :title="t('jobs_runs')" @click="showRuns(job)"><ScrollText :size="16" /></button>
+            <button :title="t('agent_editor_edit')" @click="editing = { job }"><Pencil :size="16" /></button>
+            <button :title="t('agent_editor_delete')" @click="deleting = job"><Trash2 :size="16" /></button>
           </td>
         </tr>
       </tbody>
@@ -70,7 +71,7 @@ async function showRuns(job: JobRow): Promise<void> {
     <JobForm v-if="editing && jobs.options" :job="editing.job" :options="jobs.options" @close="editing = null" />
 
     <ModalDialog v-if="deleting" @close="deleting = null">
-      <strong>⏰ {{ deleting.name }}: {{ t("scheduler_delete_confirm") }}</strong>
+      <strong><Clock :size="16" /> {{ deleting.name }}: {{ t("scheduler_delete_confirm") }}</strong>
       <div class="dialog-actions">
         <button @click="deleting = null">{{ t("agent_editor_cancel") }}</button>
         <button class="danger" @click="confirmDelete">{{ t("agent_editor_delete") }}</button>
@@ -79,7 +80,7 @@ async function showRuns(job: JobRow): Promise<void> {
 
     <ModalDialog v-if="runs" @close="runs = null">
       <div class="runs">
-        <strong>📜 {{ runs.job.name }}: {{ t("jobs_runs") }}</strong>
+        <strong><ScrollText :size="16" /> {{ runs.job.name }}: {{ t("jobs_runs") }}</strong>
         <p v-if="!runs.runs.length" class="empty">–</p>
         <article v-for="run in runs.runs" :key="run.ran_at">
           <span class="stamp">{{ when(run.ran_at) }}</span>

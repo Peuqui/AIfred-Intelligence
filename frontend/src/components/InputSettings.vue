@@ -2,6 +2,7 @@
 // The input's settings, a section of the settings page: who recognizes a dictation (the STT-Suite on this machine
 // or the browser's own recognition, which sends the speech out of the house in Chrome and Edge) and whether it goes
 // into the field first (both in settings.json, lib/dictation.py), and whether Enter sends (this device only).
+import { CornerDownLeft } from "lucide-vue-next";
 import type { Settings, SettingsUpdate } from "../api/types";
 import { t } from "../i18n";
 import { enterSends } from "../lib/devicePrefs";
@@ -43,7 +44,7 @@ const emit = defineEmits<{ change: [changes: SettingsUpdate] }>();
     </label>
     <label class="edit" :title="t('enter_sends_hint')">
       <input v-model="enterSends" type="checkbox" />
-      {{ t("enter_sends") }}
+      <CornerDownLeft :size="16" /> {{ t("enter_sends") }}
     </label>
     <p class="hint">{{ t("enter_sends_hint") }} · {{ t("input_settings_device_only") }}</p>
   </section>

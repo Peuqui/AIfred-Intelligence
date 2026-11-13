@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronRight } from "lucide-vue-next";
+import { Bug, ChevronDown, ChevronRight } from "lucide-vue-next";
 import { computed, nextTick, ref, watch } from "vue";
 import { t } from "../i18n";
 import { consoleHeight } from "../lib/devicePrefs";
@@ -36,7 +36,7 @@ watch(
 
 <template>
   <section class="debug">
-    <button class="toggle" @click="open = !open"><ChevronDown v-if="open" :size="16" /><ChevronRight v-else :size="16" /> {{ t("debug_console") }} ({{ lines.length }})</button>
+    <button class="toggle" @click="open = !open"><ChevronDown v-if="open" :size="16" /><ChevronRight v-else :size="16" /> <Bug :size="16" /> {{ t("debug_console") }} ({{ lines.length }})</button>
     <div v-if="open" ref="list" class="lines" :style="heightStyle">
       <div class="text">
         <div v-for="(line, index) in lines" :key="index" :class="{ error: line.includes('✗') || line.includes('❌') }">{{ line }}</div>

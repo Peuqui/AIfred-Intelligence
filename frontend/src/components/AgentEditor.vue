@@ -2,6 +2,7 @@
 // An agent's editor on the agents page: 🎭 persona (name, emoji, colour, description, further names for the speech
 // recognition), the prompt layers per language, and 🔐 rights (the tools it may use, grouped by plugin as
 // they are on offer now; "every tool" includes plugins switched on later). Each tab saves on its own.
+import { CircleCheck, FileText, Lock, TriangleAlert, VenetianMask } from "lucide-vue-next";
 import { onMounted, ref } from "vue";
 import { ApiError } from "../api/client";
 import type { AgentPersona, AgentRights } from "../api/types";
@@ -90,14 +91,14 @@ onMounted(() =>
       <header class="head">
         <strong>{{ persona?.emoji }} {{ persona?.display_name }}</strong>
         <nav class="tabs">
-          <button :class="{ active: tab === 'persona' }" @click="tab = 'persona'">{{ t("agents_tab_persona") }}</button>
-          <button :class="{ active: tab === 'prompts' }" @click="tab = 'prompts'">📝 {{ t("agent_editor_prompts") }}</button>
-          <button :class="{ active: tab === 'rights' }" @click="tab = 'rights'">{{ t("agents_tab_rights") }}</button>
+          <button :class="{ active: tab === 'persona' }" @click="tab = 'persona'"><VenetianMask :size="16" /> {{ t("agents_tab_persona") }}</button>
+          <button :class="{ active: tab === 'prompts' }" @click="tab = 'prompts'"><FileText :size="16" /> {{ t("agent_editor_prompts") }}</button>
+          <button :class="{ active: tab === 'rights' }" @click="tab = 'rights'"><Lock :size="16" /> {{ t("agents_tab_rights") }}</button>
         </nav>
         <button class="close" :title="t('dialog_close')" @click="emit('close')">×</button>
       </header>
-      <p v-if="notice" class="notice">⚠️ {{ notice }}</p>
-      <p v-else-if="saved" class="saved">✅ {{ saved }}</p>
+      <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
+      <p v-else-if="saved" class="saved"><CircleCheck :size="16" /> {{ saved }}</p>
 
       <form v-if="tab === 'persona' && persona" class="persona" @submit.prevent="savePersona">
         <label>{{ t("agent_editor_name") }}<input v-model="form.display_name" required /></label>
