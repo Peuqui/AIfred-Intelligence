@@ -4,7 +4,8 @@ One place turns an agent's Markdown into everything ``send_email`` needs, for
 every sending path (channel reply / scheduler announce, ``email`` tool):
 
 * ``![alt](/_upload/…)``  → image embedded in the HTML (``cid:``),
-* ``[name](/_upload/…)``  → file attached, the link text stays in the body.
+* ``[name](/_upload/…)``  → file attached, the link text stays in the body
+  (a file that is also embedded is not attached a second time).
 
 Only ``/_upload/…`` references are touched — they resolve through
 ``resolve_outbound_attachment`` (session-scoped, path-traversal safe, size
@@ -87,5 +88,8 @@ def render_mail(
         plain=md_to_plain(plain_markdown),
         html=html,
         inline_images=[(cid, path) for path, cid in inline_images.items()],
-        attachments=attachments,
+        # Eine Datei, die schon im Text eingebettet ist, nicht noch einmal anhängen:
+        # Mailprogramme zeigen eingebettete Bilder zusätzlich in der Anhangsleiste,
+        # sie stünde sonst doppelt dort.
+        attachments=[path for path in attachments if path not in inline_images],
     )
