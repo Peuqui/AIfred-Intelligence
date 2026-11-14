@@ -147,6 +147,14 @@ RUNTIME = {
     "reasoning_parser_by_template_marker": [["<think>", "qwen3"]],
 }
 
+
+@pytest.fixture(autouse=True)
+def runtime_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Jeder Test bringt seine eigene vllm_runtime.yaml mit, unabhängig von data/ des Ordners."""
+    path = tmp_path / "vllm_runtime.yaml"
+    path.write_text(yaml.safe_dump(RUNTIME))
+    monkeypatch.setattr(vllm_probe, "VLLM_RUNTIME_PATH", path)
+
 # Die Stellen der echten Templates, auf die template_parsers schaut:
 # Qwen3.8 (RadixArk, Flash-Next) schreibt XML-Aufrufe und denkt in <think>,
 # Qwen2.5 schreibt JSON in <tool_call> und denkt nicht.

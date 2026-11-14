@@ -18,8 +18,18 @@ import pytest
 
 from aifred.lib import plugin_registry, prompt_loader
 from aifred.lib.prompt_loader import agent_system_prompt, conversation_situation, load_prompt
+from aifred.plugins.tools.nextcloud import store as nextcloud_store
+from aifred.plugins.tools.nextcloud.settings import NextcloudSettings
 
 LANG = "de"
+
+
+@pytest.fixture(autouse=True)
+def nextcloud_is_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Das Nextcloud-Plugin gilt nur mit Zugangsdaten als verfügbar; die Tests hängen nicht an der .env des Rechners.
+    Der Store macht beim Bauen keine Netzanfrage."""
+    store = nextcloud_store.NextcloudStore(NextcloudSettings("https://cloud.invalid", "test"), "test")
+    monkeypatch.setattr(nextcloud_store, "get_store", lambda: store)
 
 
 def _prompt(**overrides: Any) -> str:
