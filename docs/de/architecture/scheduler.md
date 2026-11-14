@@ -4,6 +4,8 @@
 
 **Stand:** 2026-03-29
 
+Das Plugin heißt im Code `scheduler_tool`; in der Oberfläche heißt es **Horarium** (de und en gleich).
+
 AIfred kann zeitgesteuert eigenständig handeln — ohne dass ein User eine Nachricht schickt.
 Jobs laufen in isolierten Sessions mit Security-Tier-Enforcement.
 
@@ -220,6 +222,26 @@ POST-Body:
     "timestamp": "2026-03-30T08:00:05"
 }
 ```
+
+---
+
+## Jetzt ausführen (Sofort-Lauf)
+
+Die Horarium-Seite kann einen Auftrag sofort starten, auch außerhalb seiner Zeit: `POST /api/jobs/{job_id}/run`
+(`api/jobs.py`, Knopf „Jetzt ausführen“). Der Lauf nimmt denselben Weg wie die Schleife (`_execute_job`), aber
+`run_job_now` ruft `mark_executed`/`mark_failed` NICHT auf: Die Termine sind starr — `next_run`, `last_run` und der
+Ein-/Aus-Zustand des Plans bleiben, wie sie sind (der nächste reguläre Lauf kommt zu seinem eingetragenen Termin, ein
+einmaliger Auftrag wird vom Probelauf nicht verbraucht). Der Lauf erscheint im Protokoll (`add_run`) und im Log; Erfolg
+und Fehler werden nur geloggt. Antwort sofort (202 mit `job_id` und `name`), der Lauf geht als FastAPI-BackgroundTask
+im Server-Loop weiter — nicht in den Hub-Loop (dasselbe Muster wie `/api/agent/trigger`, dessen Ausführung auch
+dort läuft). Abgelehnt (409), wenn das Plugin aus ist (`require_plugin_enabled`) oder der Auftrag gerade läuft; 404 für
+einen unbekannten Auftrag; ausgeschaltete Aufträge laufen, weil der Knopf die explizite Absicht ist.
+
+Die Doppelstart-Sperre über Thread-Grenzen (Hub-Loop und Server-Loop): `_running_job_ids` ist ein dict
+(job_id → Marker des Halters). `claim_job` prüft und belegt in EINEM Schritt über `dict.setdefault` (unter dem GIL
+atomar: True nur, wenn der eigene Marker zurückkommt), `release_job` gibt frei. Die Schleife belegt BEVOR sie den Task
+plant (skip bei Fehlschlag), der Endpunkt belegt im Endpunkt-Turn (kein await dazwischen); `_run_due_job` und
+`run_job_now` geben im finally frei.
 
 ---
 

@@ -5,13 +5,13 @@ before it is saved. The page composes the expression; the server takes nothing i
 
 from typing import Literal
 
-from fastapi import Query, Response
+from fastapi import BackgroundTasks, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_message
 from ..scheduler import Job
 from ..security import JOB_DEFAULT_TIER, TIER_ADMIN, TIER_READONLY
-from ..user_error import Invalid, Missing
+from ..user_error import Conflict, Invalid, Missing
 from .app import api_app
 from .schemas import ChoiceOption
 
@@ -78,6 +78,11 @@ class JobWrite(BaseModel):
 class JobSwitch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool
+
+
+class JobStarted(BaseModel):
+    job_id: int
+    name: str
 
 
 class JobRun(BaseModel):
@@ -202,6 +207,25 @@ async def jobs_switch(job_id: int, switch: JobSwitch) -> JobRow:
     get_job_store().enable(job_id, switch.enabled)
     log_message(f"Scheduler: job {job_id} switched {'on' if switch.enabled else 'off'}")
     return _row(_job(job_id))
+
+
+@api_app.post("/jobs/{job_id}/run", response_model=JobStarted, status_code=202, tags=["Jobs"])
+async def jobs_run_now(job_id: int, background_tasks: BackgroundTasks) -> JobStarted:
+    """Run a job now, outside its schedule: the same execution path as the scheduler loop's
+    (run_job_now, no second logic), but the plan keeps its times and its on/off state — no
+    mark_executed / mark_failed, so a recurring job's next appointment stays where it is and a
+    one-shot job is not consumed by the trial run. The run continues in the background; the
+    answer comes at once (202). 409 when Horarium is off or the job is already running, 404 for
+    an unknown job. A switched-off job still runs: the button is the explicit wish."""
+    from ..plugin_registry import require_plugin_enabled
+    from ..scheduler import claim_job, run_job_now
+
+    require_plugin_enabled("scheduler_tool")
+    job = _job(job_id)
+    if not claim_job(job.job_id):
+        raise Conflict("job_already_running", job=job.name)
+    background_tasks.add_task(run_job_now, job)
+    return JobStarted(job_id=job.job_id, name=job.name)
 
 
 @api_app.delete("/jobs/{job_id}", status_code=204, tags=["Jobs"])

@@ -2,7 +2,7 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import { ApiError, api } from "../api/client";
-import type { JobOptions, JobRow, JobRun, JobWrite } from "../api/types";
+import type { JobOptions, JobRow, JobRun, JobStarted, JobWrite } from "../api/types";
 import { t } from "../i18n";
 import { onResourceChanged } from "../lib/resourceChanges";
 
@@ -33,6 +33,9 @@ export const useJobs = defineStore("jobs", () => {
     call(() => api(`jobs/${id}`, { method: "PATCH", body: JSON.stringify({ enabled }) }));
   const remove = (id: number): Promise<boolean> => call(() => api(`jobs/${id}`, { method: "DELETE" }));
   const runs = (id: number): Promise<JobRun[]> => api<JobRun[]>(`jobs/${id}/runs`);
+  // Run a job now, outside its schedule; its plan keeps its times (the server answers 202 at once).
+  const runNow = (id: number): Promise<boolean> =>
+    call(() => api<JobStarted>(`jobs/${id}/run`, { method: "POST" }));
 
   // A job changed or ran (an agent's tool, another tab, the scheduler): the list is read anew, where it stands.
   onResourceChanged("jobs", async () => {
@@ -66,5 +69,5 @@ export const useJobs = defineStore("jobs", () => {
     }
   }
 
-  return { jobs, options, notice, channelOff, channelLabel, load, save, switchJob, remove, runs, preview };
+  return { jobs, options, notice, channelOff, channelLabel, load, save, switchJob, remove, runs, runNow, preview };
 });

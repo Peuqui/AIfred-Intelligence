@@ -176,7 +176,7 @@ Audio-Wiedergabe auf dem Server.
 
 ---
 
-### Scheduler
+### Horarium
 
 **Datei:** `plugins/tools/scheduler_tool/`
 
@@ -194,7 +194,7 @@ Geplante Aufgaben für AIfred.
 - Delivery-Modi: `review`, `announce`, `webhook`
 - Isolierte Sessions pro Job
 
-> **Details:** [Scheduler Plugin](plugins/scheduler.md)
+> **Details:** [Horarium Plugin](plugins/scheduler.md)
 
 ---
 
@@ -344,7 +344,7 @@ Zugriff auf den jüdischen Quellkorpus (Tanach, Talmud, Mischna, Midrasch, Halac
 
 Channel Plugins verbinden AIfred mit externen Kommunikationskanälen. Eingehende Nachrichten werden automatisch verarbeitet und optional beantwortet.
 
-> **Sprachsteuerung:** Die Sprachbedienung läuft über „FreeEcho.2" — Custom-Firmware für den Amazon Echo Dot 2, die das Gerät vom Cloud-Zwang befreit und als lokales Sprach-Interface nutzbar macht. Die Geräte-Firmware lebt in einem separaten Projekt, aber die AIfred-seitige Integration ist ein vollwertiges Channel-Plugin in diesem Repository (`plugins/channels/freeecho2_channel/`, siehe unten).
+> **Sprachsteuerung:** Die Sprachbedienung läuft über „FreeEcho.2“ — Custom-Firmware für den Amazon Echo Dot 2, die das Gerät vom Cloud-Zwang befreit und als lokales Sprach-Interface nutzbar macht. Die Geräte-Firmware lebt in einem separaten Projekt, aber die AIfred-seitige Integration ist ein vollwertiges Channel-Plugin in diesem Repository (`plugins/channels/freeecho2_channel/`, siehe unten).
 
 **Outbound Markdown:** Agenten antworten in Markdown. Jeder Channel wandelt das via `BaseChannel.format_outbound()` in ein Format, das der Empfänger darstellen kann: Email bekommt HTML mit Plaintext-Fallback (multipart/alternative), Telegram bekommt gestripptes Plain, Discord bleibt Markdown (rendert es nativ). Gemeinsame Konverter liegen in `aifred/lib/markdown_render.py` (`md_to_html`, `md_to_plain`). Vollständiges Pattern für neue Channels siehe [Plugin Development → Outbound Markdown Conversion](../../en/guides/plugin-development.md#outbound-markdown-conversion) (englisch).
 
@@ -413,7 +413,7 @@ Voice-Channel für das FreeEcho.2-Gerät (siehe Sprachsteuerungs-Hinweis oben). 
 - Always-Reply-Channel (Sprach-Terminal)
 - i18n + agentenspezifische Prompts
 
-**Auth-Token (empfohlen):** Das Plugin betreibt einen WebSocket-Server, mit dem sich das Gerät verbindet. Setze ein Shared Secret in den Channel-Settings (Zahnrad → *Auth token*) **und** denselben Wert in der Web-UI des Pucks (Server → *Auth token*): Registrierungen ohne passendes Token werden abgelehnt, bevor sie einen Device-Slot belegen oder die STT→LLM→TTS-Pipeline steuern können. Ohne Token akzeptiert der Server jeden Host, der den Port erreicht (beim Start wird eine Warnung geloggt). Der explizite *Authentication*-Schalter neben dem Token-Feld kann die Prüfung deaktivieren; nur das wörtliche „Off" tut das — fail-safe Richtung an.
+**Auth-Token (empfohlen):** Das Plugin betreibt einen WebSocket-Server, mit dem sich das Gerät verbindet. Setze ein Shared Secret in den Channel-Settings (Zahnrad → *Auth token*) **und** denselben Wert in der Web-UI des Pucks (Server → *Auth token*): Registrierungen ohne passendes Token werden abgelehnt, bevor sie einen Device-Slot belegen oder die STT→LLM→TTS-Pipeline steuern können. Ohne Token akzeptiert der Server jeden Host, der den Port erreicht (beim Start wird eine Warnung geloggt). Der explizite *Authentication*-Schalter neben dem Token-Feld kann die Prüfung deaktivieren; nur das wörtliche „Off“ tut das — fail-safe Richtung an.
 
 ---
 

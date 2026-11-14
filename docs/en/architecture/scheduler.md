@@ -4,6 +4,8 @@
 
 **Date:** 2026-03-29
 
+The plugin is `scheduler_tool` in the code; in the interface it is called **Horarium** (the same in de and en).
+
 AIfred can act autonomously on a schedule — without a user sending a message.
 Jobs run in isolated sessions with security tier enforcement.
 
@@ -217,6 +219,26 @@ POST body:
     "timestamp": "2026-03-30T08:00:05"
 }
 ```
+
+---
+
+## Run now (immediate run)
+
+The Horarium page can start a job immediately, outside its schedule: `POST /api/jobs/{job_id}/run`
+(`api/jobs.py`, the "Run now" button). The run takes the same path as the loop's (`_execute_job`), but `run_job_now`
+does NOT call `mark_executed`/`mark_failed`: the appointments are fixed — the plan's `next_run`, `last_run` and
+on/off state stay as they are (the next regular run comes at its own appointment, a one-shot job is not consumed by
+the trial run). The run appears in the run log (`add_run`) and in the log; success and failure are logged only. The
+answer comes at once (202 with `job_id` and `name`), the run continues as a FastAPI BackgroundTask on the server's
+loop — not on the hub's (the same pattern as `/api/agent/trigger`, whose execution runs there too). Refused (409)
+while the plugin is off (`require_plugin_enabled`) or the job is already running; 404 for an unknown job;
+switched-off jobs run, because the button is the explicit wish.
+
+The double-start lock across threads (hub loop and server loop): `_running_job_ids` is a dict (job_id → marker of
+its holder). `claim_job` checks and takes the claim in ONE step through `dict.setdefault` (atomic under the GIL:
+True only when one's own marker comes back), `release_job` gives it back. The loop claims BEFORE it schedules the
+task (skips on failure), the endpoint claims within its own turn (no await in between); `_run_due_job` and
+`run_job_now` release in the finally.
 
 ---
 

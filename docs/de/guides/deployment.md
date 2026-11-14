@@ -274,7 +274,7 @@ Manager), die sie nach `.env` zurückschreibt.
 
 | Variable | Zweck |
 |---|---|
-| `MESSAGE_HUB_OWNER` | **Pflicht.** AIfred-Konto, dem die Message-Hub-Sessions gehören (Kanäle, Scheduler, Webhook); schreibt `install-all.sh` mit dem ersten Benutzer — ohne den Wert startet AIfred nicht |
+| `MESSAGE_HUB_OWNER` | **Pflicht.** AIfred-Konto, dem die Message-Hub-Sessions gehören (Kanäle, Horarium, Webhook); schreibt `install-all.sh` mit dem ersten Benutzer — ohne den Wert startet AIfred nicht |
 | `AIFRED_SERVER_HOST`, `AIFRED_SERVER_PORT` | Wo der Server lauscht (Standard `0.0.0.0`, `8002`) |
 | `INJECT_API_TOKEN` | Token für `/api/chat/inject` (siehe [REST API](rest-api.md)) |
 | `WEBHOOK_API_TOKEN` | Token für `/api/agent/trigger` |
@@ -838,7 +838,7 @@ Einstellungen → Vision → Vigilantia:
 - `motion.warmup_frames` – Anzahl der Frames, um den Hintergrund zu erfassen, bevor
   das Ereignis ausgelöst wird (Standard 10)
 - `min_event_interval_sec` – Entprellzeit zwischen den Ereignissen (Standard 1 s).
-  **Pro Kamera** im Kamera-Editor einstellbar („Min. Event-Abstand"); die
+  **Pro Kamera** im Kamera-Editor einstellbar („Min. Event-Abstand“); die
   Live-Vorschau hat im Kopfbereich ihre eigene, unabhängige Drossel
 - `save_event_frames` — Speichert bei jedem Ereignis den Frame als JPEG
 - `face_detect.threshold_known` — Kosinus-Ähnlichkeit, ab der ein Gesicht

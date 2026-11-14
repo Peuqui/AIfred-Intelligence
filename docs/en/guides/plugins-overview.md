@@ -176,7 +176,7 @@ Audio playback on the server.
 
 ---
 
-### Scheduler
+### Horarium
 
 **File:** `plugins/tools/scheduler_tool/`
 
@@ -194,7 +194,7 @@ Scheduled tasks for AIfred.
 - Delivery modes: `review`, `announce`, `webhook`
 - Isolated sessions per job
 
-> **Details:** [Scheduler Plugin](plugins/scheduler.md)
+> **Details:** [Horarium Plugin](plugins/scheduler.md)
 
 ---
 

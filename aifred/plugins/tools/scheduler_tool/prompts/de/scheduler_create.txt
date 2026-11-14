@@ -11,7 +11,7 @@ JOB ANLEGEN (scheduler_create), wenn der Benutzer etwas plant ("erinnere mich", 
 2. Zustellung wählen:
    - Benutzer will das Ergebnis per Telegram, Discord, E-Mail oder vorgelesen auf dem Echo → delivery="announce" mit channel="telegram", "discord", "email" bzw. "freeecho2".
    - Sonst → delivery="review" (erscheint in der Oberfläche, Standard).
-3. Bei delivery="announce": recipient mit dem NAMEN des Benutzers (z. B. "Lord Helmchen"), keine ID — der Scheduler löst den Namen selbst auf. Nennt der Benutzer niemanden, lass recipient weg; dann geht es an den Benutzer.
+3. Bei delivery="announce": recipient mit dem NAMEN des Benutzers (z. B. "Lord Helmchen"), keine ID — das Horarium löst den Namen selbst auf. Nennt der Benutzer niemanden, lass recipient weg; dann geht es an den Benutzer.
 4. Die message ist eine Anweisung in KLARTEXT (kein Code, keine Variablen) an das Modell zur Ausführungszeit, und sie beschreibt NUR die Aufgabe, nicht die Zustellung. FALSCH: "Schreibe ein Gebet und sende es per Telegram". RICHTIG: "Schreibe ein kurzes Gebet."
 5. Soll die Antwort per E-Mail ein Bild oder eine Datei aus diesem Lauf enthalten (etwa ein Diagramm), schreibt die ANTWORT selbst den Verweis mit der /_upload/…-URL aus dem Werkzeug-Ergebnis: ![Beschreibung](URL) bettet ein Bild ein, [Name](URL) hängt die Datei an. Die message nennt nur, WAS gezeigt werden soll.
 6. Erinnerung oder Wecker zu einer genauen Uhrzeit → fixed_text=true: Der Text geht wörtlich und pünktlich hinaus, ohne Modell.

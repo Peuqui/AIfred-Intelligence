@@ -139,7 +139,7 @@ Der Mail-Text ist Markdown und geht als HTML plus Klartext-Alternative raus. Dat
 | `[Rohdaten](/_upload/sandbox_output/<Session>/daten.csv)` | Datei angehängt, der Linktext bleibt im Text |
 | Tool-Argument `attachment` | Datei angehängt (nur beim `email`-Tool) |
 
-Beides lässt sich kombinieren, auch für dieselbe Datei. Gilt für den `email`-Tool-Versand und für Antworten des Kanals (Scheduler-Announce, Auto-Reply). Aufgelöst wird über `resolve_outbound_attachment`: nur Dateien der eigenen Session, Pfad-Traversal und Größenlimit gesperrt. Eine `/_upload/`-Referenz, die sich nicht auflösen lässt, bricht den Versand mit Fehler ab (kein stilles Weglassen). Externe Bild-URLs und `cid:`-Ziele aus dem Modelltext blockt `sanitize_outbound` vorher.
+Beides lässt sich kombinieren, auch für dieselbe Datei. Gilt für den `email`-Tool-Versand und für Antworten des Kanals (Horarium-Announce, Auto-Reply). Aufgelöst wird über `resolve_outbound_attachment`: nur Dateien der eigenen Session, Pfad-Traversal und Größenlimit gesperrt. Eine `/_upload/`-Referenz, die sich nicht auflösen lässt, bricht den Versand mit Fehler ab (kein stilles Weglassen). Externe Bild-URLs und `cid:`-Ziele aus dem Modelltext blockt `sanitize_outbound` vorher.
 
 ## Startup-Recovery (Checkpoint)
 
@@ -243,9 +243,9 @@ Die Zuordnung wird in `data/user_mapping.json` konfiguriert:
 | Feld | Zweck | Beispiel |
 |------|-------|---------|
 | `email` | **Eingang:** Von dieser Adresse darf der User AIfred anschreiben | `empfang@gmx.net` |
-| `email_out` | **Ausgang:** Hierhin sendet AIfred Ergebnisse (Scheduler, Tool-Calls) | `versand@mail.de` |
+| `email_out` | **Ausgang:** Hierhin sendet AIfred Ergebnisse (Horarium, Tool-Calls) | `versand@mail.de` |
 
-### Auflösung bei ausgehenden E-Mails (Scheduler, Announce)
+### Auflösung bei ausgehenden E-Mails (Horarium, Announce)
 
 1. **Recipient im Job angegeben** (z.B. `"Lord Helmchen"`) → User-Mapping → `email_out` bevorzugt, Fallback auf `email`
 2. **Kein Recipient** → Erster User im Mapping → `email_out` bevorzugt

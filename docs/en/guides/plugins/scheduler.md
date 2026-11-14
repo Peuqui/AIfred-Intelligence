@@ -1,4 +1,4 @@
-# Scheduler Plugin
+# Horarium Plugin
 
 > **Deutsche Version:** [scheduler.md](../../../de/guides/plugins/scheduler.md)
 
@@ -41,6 +41,14 @@ result is handed to the configured delivery mode.
 - **Isolated execution:** Each job runs from its own stored payload
 - **Persistent:** Jobs are stored via the job store and survive service restarts; what is overdue at a restart runs afterwards
 - **Off means off:** The execution loop belongs to the plugin. While it is off no job starts; a job that is already running runs to its end. Appointments of the time off lapse: when the plugin is switched on, due jobs move to their next regular appointment without a run and without an entry in the run log (a one-shot job is switched off)
+
+## Run now
+
+On the page (the "Run now" button) a job starts immediately, outside its schedule — a switched-off job too (the button
+is the explicit wish). Its schedule stays untouched: the next regular run comes at its own appointment, the on/off
+state and the last-run stamp do not move, and a one-shot job is not consumed by the trial run. The run appears in the
+recent-runs log. Refused with a clear message while Horarium is off or the job is already running; an unknown job gives
+404.
 
 ## Usage examples
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The jobs page: every scheduled job with its switch, agent, schedule, next and last run; new, change, its
 // recent runs, delete. A job of an agent switched off fails at its time (the scheduler says why).
-import { Clock, Pencil, ScrollText, Trash2, TriangleAlert } from "lucide-vue-next";
+import { Clock, Pencil, Play, ScrollText, Trash2, TriangleAlert } from "lucide-vue-next";
 import { computed, onMounted, ref } from "vue";
 import type { JobRow, JobRun } from "../api/types";
 import JobForm from "../components/JobForm.vue";
@@ -28,6 +28,19 @@ async function confirmDelete(): Promise<void> {
 const runs = ref<{ job: JobRow; runs: JobRun[] } | null>(null);
 async function showRuns(job: JobRow): Promise<void> {
   runs.value = { job, runs: await jobs.runs(job.job_id) };
+}
+
+// Run a job now: the button of the job being called is disabled until the answer (202) is there;
+// the server's refusal (Horarium off, already running, unknown job) shows in the page's notice.
+const running = ref<number | null>(null);
+async function runNow(job: JobRow): Promise<void> {
+  if (running.value !== null) return;
+  running.value = job.job_id;
+  try {
+    await jobs.runNow(job.job_id);
+  } finally {
+    running.value = null;
+  }
 }
 </script>
 
@@ -60,6 +73,7 @@ async function showRuns(job: JobRow): Promise<void> {
           <td class="stamp">{{ job.enabled ? when(job.next_run) : "–" }}</td>
           <td class="stamp">{{ when(job.last_run) }}</td>
           <td class="row-actions">
+            <button class="run-now" :title="t('job_run_now_hint')" :disabled="running === job.job_id" @click="runNow(job)"><Play :size="16" /> {{ t("job_run_now") }}</button>
             <button :title="t('jobs_runs')" @click="showRuns(job)"><ScrollText :size="16" /></button>
             <button :title="t('agent_editor_edit')" @click="editing = { job }"><Pencil :size="16" /></button>
             <button :title="t('agent_editor_delete')" @click="deleting = job"><Trash2 :size="16" /></button>

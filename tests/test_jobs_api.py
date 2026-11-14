@@ -127,3 +127,123 @@ def test_an_ended_job_is_not_switched_on_over_the_api(client: TestClient, store:
 def test_the_preview_says_when_an_expression_fires(client: TestClient) -> None:
     assert client.post("/jobs/preview", json={"schedule_type": "cron", "schedule_expr": "30 7 * * 1-5"}).json()["next_run"]
     assert client.post("/jobs/preview", json={"schedule_type": "cron", "schedule_expr": "kein cron"}).status_code == 422
+
+
+# ── Run now ───────────────────────────────────────────────────
+
+def test_run_now_executes_outside_its_schedule(
+    client: TestClient, store: scheduler.JobStore, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The run goes through the scheduler's own path (process_inbound, run history), but the plan
+    keeps its next_run, last_run and enabled state — the next regular run comes at its own time."""
+    seen: dict[str, Any] = {}
+    answer = "Fertig für heute."
+
+    async def fake_process_inbound(msg: Any) -> Any:
+        seen["msg"] = msg
+        return SimpleNamespace(text=answer, metadata={"session_id": "sess"})
+
+    async def fake_deliver(job: Any, text: str, session_id: str) -> None:
+        seen["delivered"] = (text, session_id)
+
+    monkeypatch.setattr("aifred.lib.message_processor.process_inbound", fake_process_inbound)
+    monkeypatch.setattr(scheduler, "_deliver_result", fake_deliver)
+    monkeypatch.setattr("aifred.lib.settings.load_settings", lambda: {"ui_language": "de"})
+    job_id = client.post("/jobs", json=CRON).json()["job_id"]
+    before = store.get(job_id)
+    assert before is not None
+    started = client.post(f"/jobs/{job_id}/run")
+    assert started.status_code == 202 and started.json() == {"job_id": job_id, "name": CRON["name"]}
+    assert seen["msg"].text.startswith("[Geplanter Job: Morgengruß]")
+    assert seen["delivered"] == (answer, "sess")
+    after = store.get(job_id)
+    assert after is not None
+    assert (after.next_run, after.last_run, after.enabled) == (before.next_run, before.last_run, before.enabled)
+    assert [text for _, text in store.recent_runs(job_id, 5)] == [answer]
+    assert scheduler._running_job_ids == {}     # the claim is given back when the run is over
+
+
+def test_run_now_rejected_when_horarium_is_off(
+    client: TestClient, store: scheduler.JobStore, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aifred.lib import plugin_registry
+    from aifred.lib.prompt_loader import get_language
+
+    monkeypatch.setattr(plugin_registry, "is_plugin_enabled", lambda name: False)
+    job_id = client.post("/jobs", json=CRON).json()["job_id"]
+    path = plugin_registry._plugin_dir("scheduler_tool")
+    assert path is not None
+    name = plugin_registry.plugin_i18n_text(path, plugin_registry.PLUGIN_DISPLAY_NAME_KEY, get_language())
+    refused = client.post(f"/jobs/{job_id}/run")
+    assert refused.status_code == 409
+    assert refused.json()["detail"] == t("error_plugin_off").format(plugin=name)
+
+
+def test_run_now_unknown_job_returns_404(client: TestClient) -> None:
+    refused = client.post("/jobs/9999/run")
+    assert refused.status_code == 404 and refused.json()["detail"] == t("error_no_job").format(job=9999)
+
+
+def test_run_now_refused_while_running(client: TestClient, store: scheduler.JobStore) -> None:
+    """The endpoint refuses when the scheduler loop (or another run-now) holds the claim."""
+    job_id = client.post("/jobs", json=CRON).json()["job_id"]
+    assert scheduler.claim_job(job_id)      # as the scheduler loop holds it while its task runs
+    try:
+        refused = client.post(f"/jobs/{job_id}/run")
+        assert refused.status_code == 409
+        assert refused.json()["detail"] == t("error_job_already_running").format(job=CRON["name"])
+    finally:
+        scheduler.release_job(job_id)
+
+
+def test_run_now_works_for_a_switched_off_job(
+    client: TestClient, store: scheduler.JobStore, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The button is the explicit wish: a job that is off (a one-shot after its run, say) still runs,
+    and the run does not switch it on or move its times."""
+    async def fake_process_inbound(msg: Any) -> Any:
+        return SimpleNamespace(text="Los geht's.", metadata={"session_id": "s"})
+
+    async def fake_deliver(job: Any, text: str, session_id: str) -> None:
+        return None
+
+    monkeypatch.setattr("aifred.lib.message_processor.process_inbound", fake_process_inbound)
+    monkeypatch.setattr(scheduler, "_deliver_result", fake_deliver)
+    monkeypatch.setattr("aifred.lib.settings.load_settings", lambda: {"ui_language": "de"})
+    job_id = client.post("/jobs", json=CRON).json()["job_id"]
+    assert client.patch(f"/jobs/{job_id}", json={"enabled": False}).json()["enabled"] is False
+    before = store.get(job_id)
+    assert before is not None
+    started = client.post(f"/jobs/{job_id}/run")
+    assert started.status_code == 202
+    after = store.get(job_id)
+    assert after is not None
+    assert (after.enabled, after.next_run, after.last_run) == (False, before.next_run, before.last_run)
+    assert [text for _, text in store.recent_runs(job_id, 5)] == ["Los geht's."]
+    assert scheduler._running_job_ids == {}
+
+
+def test_run_now_fixed_text_goes_out_without_a_model(
+    client: TestClient, store: scheduler.JobStore, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent: list[tuple[Any, ...]] = []
+
+    async def refuse(msg: Any) -> Any:
+        raise AssertionError("A fixed text must not start a model run")
+
+    async def to_channel(channel: str, recipient: str, text: str, *, session_id: Any, metadata: dict) -> bool:
+        sent.append((channel, recipient, text))
+        return True
+
+    monkeypatch.setattr("aifred.lib.message_processor.process_inbound", refuse)
+    monkeypatch.setattr("aifred.lib.message_processor.announce_to_channel", to_channel)
+    monkeypatch.setattr("aifred.lib.settings.load_settings", lambda: {"ui_language": "de"})
+    job = client.post("/jobs", json={**CRON, "delivery": "announce", "channel": "telegram",
+                                     "recipient": "Peuqui", "fixed_text": True}).json()
+    started = client.post(f"/jobs/{job['job_id']}/run")
+    assert started.status_code == 202
+    assert sent == [("telegram", "Peuqui", "Guten Morgen")]
+    stored = store.get(job["job_id"])
+    assert stored is not None
+    assert (stored.next_run, stored.last_run, stored.enabled) == (job["next_run"], "", job["enabled"])
+    assert [text for _, text in store.recent_runs(job["job_id"], 5)] == ["Guten Morgen"]

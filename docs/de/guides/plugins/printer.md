@@ -55,7 +55,7 @@ Plugin-Einstellungen (im Plugin-Tab; gespeichert in
 
 ## Rechte und Grenzen
 
-- `print_file` hat den Tier **COMMUNICATE**: Kanäle auf dieser Stufe (E-Mail, Discord, Telegram, FreeEcho.2) dürfen drucken; Quellen mit READONLY (Scheduler, AI-Connect, Webhook, sofern ein Job nicht sein `max_tier` anhebt) können nur `printer_status` lesen. Siehe [Security](../../architecture/security.md).
+- `print_file` hat den Tier **COMMUNICATE**: Kanäle auf dieser Stufe (E-Mail, Discord, Telegram, FreeEcho.2) dürfen drucken; Quellen mit READONLY (Horarium, AI-Connect, Webhook, sofern ein Job nicht sein `max_tier` anhebt) können nur `printer_status` lesen. Siehe [Security](../../architecture/security.md).
 - Gedruckt werden nur Dateien **im lokalen Dokumentenbereich** (`safe_resolve`: kein Pfad außerhalb). Dateien aus anderen Dokumentenquellen (z. B. Google Drive) nicht.
 - CUPS druckt diese Typen direkt: `.pdf`, `.txt`, `.png`, `.jpg`, `.jpeg`, `.ps`. Alles andere (Office, HTML, …) wird mit dem Hinweis abgelehnt, es zuerst in PDF umzuwandeln. Für eine Testseite genügt eine kurze `.txt`-Datei.
 - Die CUPS-Aufträge laufen unter dem Benutzer, unter dem AIfred läuft; zusätzliche Rechte oder `sudo` sind nicht im Spiel.
@@ -67,4 +67,4 @@ Plugin-Einstellungen (im Plugin-Tab; gespeichert in
 3. `lp -d <Drucker> -n <Kopien> [-P <Seiten>] -o sides=… -- <Datei>` übergibt die Datei an CUPS; die CUPS-Auftrags-ID kommt zurück.
 4. Das Modell sagt kurz, was auf welchem Drucker gedruckt wurde. Zustand und Füllstände liest `printer_status` (`ipptool` gegen `ipp://localhost/printers/<Drucker>`); bei einem Problem nennt das Modell die konkrete Handlung (Papier nachlegen, Toner wechseln).
 
-Ein Scheduler-Job kann `printer_status` abfragen und auf jedem Kanal benachrichtigen, wenn Verbrauchsmaterial zur Neige geht.
+Ein Horarium-Job kann `printer_status` abfragen und auf jedem Kanal benachrichtigen, wenn Verbrauchsmaterial zur Neige geht.

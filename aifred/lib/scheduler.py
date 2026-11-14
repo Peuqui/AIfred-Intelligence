@@ -29,7 +29,7 @@ from .config import (
     SCHEDULER_CHECK_INTERVAL_SECONDS,
     SCHEDULER_WEBHOOK_TIMEOUT_SECONDS,
 )
-from .logging_utils import log_message
+from .logging_utils import log_exception, log_message
 from .security import JOB_DEFAULT_TIER
 from .user_error import Invalid
 
@@ -503,9 +503,9 @@ def _calculate_next_run(schedule_type: str, schedule_expr: str, after: str) -> s
 
 
 def _next_cron_run(cron_expr: str, after: str) -> str | None:
-    """Calculate next cron run time.
-
-    Uses croniter if available, otherwise falls back to simple interval.
+    """Calculate the next cron run time with croniter. It is a hard dependency, there is no
+    fallback (a cron job that secretly ran hourly instead of at its configured time would be a
+    hidden error); None for an expression croniter rejects.
     """
     # Fail-loud statt stillem 1h-Intervall-Fallback: croniter ist eine
     # harte Abhängigkeit — ein Cron-Job, der heimlich stündlich statt zum
@@ -537,22 +537,54 @@ def get_job_store() -> JobStore:
     return _job_store
 
 
-_running_job_ids: set[int] = set()     # jobs of this process that are being executed right now
+# Who holds a job's claim right now (the loop's task or a run-now). The claim is taken BEFORE the
+# task is scheduled, so the hub thread's loop and the server thread's run-now endpoint cannot start
+# the same job twice: claim_job is one atomic step (setdefault under the GIL, only the caller whose
+# own marker comes back is the holder) and only the holder releases it.
+_running_job_ids: dict[int, object] = {}
+
+
+def claim_job(job_id: int) -> bool:
+    """Take a job's claim in one step: True only when our own marker landed (setdefault returns
+    what was already there — a different object means someone else holds it)."""
+    marker = object()
+    return _running_job_ids.setdefault(job_id, marker) is marker
+
+
+def release_job(job_id: int) -> None:
+    """Give a claim back. Only the holder calls this."""
+    _running_job_ids.pop(job_id, None)
 
 
 async def _run_due_job(store: JobStore, job: Job) -> None:
-    """One job from its start to its mark in the store."""
+    """One job from its start to its mark in the store. The loop claimed the job before scheduling
+    this task (an earlier loop's task or a run-now may still hold it)."""
     log_message(f"Scheduler: executing job '{job.name}' (id={job.job_id})")
-    _running_job_ids.add(job.job_id)
     try:
         await _execute_job(job)
         store.mark_executed(job.job_id)
         log_message(f"Scheduler: job '{job.name}' completed")
     except Exception as exc:  # noqa: BLE001 — one failing job must not end the loop
+        log_exception(f"Scheduler: job '{job.name}' failed", exc)
         store.mark_failed(job.job_id)
-        log_message(f"Scheduler: job '{job.name}' failed: {exc}", "error")
     finally:
-        _running_job_ids.discard(job.job_id)
+        release_job(job.job_id)
+
+
+async def run_job_now(job: Job) -> None:
+    """One immediate run ("run now"): the same execution path as the loop's, but without its
+    schedule marks — the plan keeps its next_run, last_run and enabled state, so a recurring job's
+    next appointment stays where it is and a one-shot job is not consumed by the trial run. The
+    caller (the run-now endpoint) claimed the job; released in the finally. Success and failure
+    go to the log only; the run itself lands in the job's run history (add_run, by _execute_job)."""
+    log_message(f"Scheduler: running job '{job.name}' (id={job.job_id}) now")
+    try:
+        await _execute_job(job)
+        log_message(f"Scheduler: job '{job.name}' completed (run now)")
+    except Exception as exc:  # noqa: BLE001 — the failure shows in the log, nothing to mark
+        log_exception(f"Scheduler: job '{job.name}' failed (run now)", exc)
+    finally:
+        release_job(job.job_id)
 
 
 async def scheduler_loop() -> None:
@@ -568,7 +600,7 @@ async def scheduler_loop() -> None:
         try:
             now = _now_iso()
             for job in store.get_due_jobs(now):
-                if job.job_id in _running_job_ids:     # started by an earlier loop that was cancelled meanwhile
+                if not claim_job(job.job_id):     # claimed elsewhere: an earlier loop's task or a run-now is on it
                     continue
                 await asyncio.shield(asyncio.ensure_future(_run_due_job(store, job)))
 

@@ -273,7 +273,7 @@ Manager), which writes them back to `.env`.
 
 | Variable | Purpose |
 |---|---|
-| `MESSAGE_HUB_OWNER` | **Required.** AIfred account that owns Message-Hub sessions (channels, scheduler, webhook); written by `install-all.sh` with the first user — AIfred refuses to start without it |
+| `MESSAGE_HUB_OWNER` | **Required.** AIfred account that owns Message-Hub sessions (channels, Horarium, webhook); written by `install-all.sh` with the first user — AIfred refuses to start without it |
 | `AIFRED_SERVER_HOST`, `AIFRED_SERVER_PORT` | Where the server listens (default `0.0.0.0`, `8002`) |
 | `INJECT_API_TOKEN` | Token for `/api/chat/inject` (see [REST API](rest-api.md)) |
 | `WEBHOOK_API_TOKEN` | Token for `/api/agent/trigger` |

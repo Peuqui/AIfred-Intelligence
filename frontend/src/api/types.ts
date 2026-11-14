@@ -51,6 +51,7 @@ export type JobOptions = Schemas["JobOptions"];
 export type JobRow = Schemas["JobRow"];
 export type JobWrite = Schemas["JobWrite"];
 export type JobRun = Schemas["JobRun"];
+export type JobStarted = Schemas["JobStarted"];
 export type SpeechList = Schemas["SpeechList"];
 export type SpeechChoices = Schemas["SpeechChoices"];
 export type AgentSpeech = Schemas["AgentSpeech"];

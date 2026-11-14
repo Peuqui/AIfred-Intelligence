@@ -55,7 +55,7 @@ Plugin settings (in the plugin tab; stored in
 
 ## Permissions and limits
 
-- `print_file` is tier **COMMUNICATE**: channels at that level (email, Discord, Telegram, FreeEcho.2) may print; sources limited to READONLY (scheduler, AI-Connect, webhook, unless a job raises its `max_tier`) can only read `printer_status`. See [Security](../../architecture/security.md).
+- `print_file` is tier **COMMUNICATE**: channels at that level (email, Discord, Telegram, FreeEcho.2) may print; sources limited to READONLY (Horarium, AI-Connect, webhook, unless a job raises its `max_tier`) can only read `printer_status`. See [Security](../../architecture/security.md).
 - Only files **inside the local documents area** are printed (`safe_resolve`: no path outside it). Files in other document sources (e.g. Google Drive) are not.
 - CUPS prints these types directly: `.pdf`, `.txt`, `.png`, `.jpg`, `.jpeg`, `.ps`. Anything else (Office, HTML, …) is refused with a hint to convert it to PDF first. A test page needs only a short `.txt` file.
 - The CUPS jobs run as the user AIfred runs as; no extra rights and no `sudo` are involved.
@@ -67,4 +67,4 @@ Plugin settings (in the plugin tab; stored in
 3. `lp -d <printer> -n <copies> [-P <pages>] -o sides=… -- <file>` hands the file to CUPS; the CUPS job id comes back.
 4. The model says briefly what was printed on which printer. State and supplies are read with `printer_status` (`ipptool` against `ipp://localhost/printers/<printer>`); on a problem the model names the concrete action (load paper, replace toner).
 
-A scheduler job can poll `printer_status` and notify on any channel when supplies run low.
+A Horarium job can poll `printer_status` and notify on any channel when supplies run low.

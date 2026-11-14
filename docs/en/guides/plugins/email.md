@@ -139,7 +139,7 @@ The mail text is Markdown and goes out as HTML plus a plain-text alternative. Fi
 | `[Raw data](/_upload/sandbox_output/<session>/data.csv)` | file attached, the link text stays in the text |
 | tool argument `attachment` | file attached (`email` tool only) |
 
-Both can be combined, also for the same file. Applies to `email` tool sends and to channel replies (scheduler announce, auto-reply). Resolution goes through `resolve_outbound_attachment`: only files of the caller's own session, path traversal and size limit enforced. An `/_upload/` reference that does not resolve aborts the send with an error (no silent omission). External image URLs and model-written `cid:` targets are blocked earlier by `sanitize_outbound`.
+Both can be combined, also for the same file. Applies to `email` tool sends and to channel replies (Horarium announce, auto-reply). Resolution goes through `resolve_outbound_attachment`: only files of the caller's own session, path traversal and size limit enforced. An `/_upload/` reference that does not resolve aborts the send with an error (no silent omission). External image URLs and model-written `cid:` targets are blocked earlier by `sanitize_outbound`.
 
 ## Startup Recovery (Checkpoint)
 
@@ -241,9 +241,9 @@ Configuration is in `data/user_mapping.json`:
 | Field | Purpose | Example |
 |-------|---------|---------|
 | `email` | **Incoming:** user sends emails to AIfred from this address | `receive@gmx.net` |
-| `email_out` | **Outgoing:** AIfred sends results here (scheduler, tool calls) | `send@mail.de` |
+| `email_out` | **Outgoing:** AIfred sends results here (Horarium, tool calls) | `send@mail.de` |
 
-### Outbound Resolution (Scheduler, Announce)
+### Outbound Resolution (Horarium, Announce)
 
 1. **Recipient specified** (e.g. `"Lord Helmchen"`) → user mapping → `email_out` preferred, fallback to `email`
 2. **No recipient** → first user in mapping → `email_out` preferred

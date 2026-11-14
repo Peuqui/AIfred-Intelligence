@@ -11,7 +11,7 @@ CREATING A JOB (scheduler_create), when the user plans something ("remind me", "
 2. Choose the delivery:
    - The user wants the result via Telegram, Discord, email or read aloud on the Echo → delivery="announce" with channel="telegram", "discord", "email" or "freeecho2".
    - Otherwise → delivery="review" (shows in the interface, default).
-3. For delivery="announce": recipient with the user's NAME (e.g. "Lord Helmchen"), not an ID — the scheduler resolves the name itself. If the user names nobody, leave recipient out; then it goes to the user.
+3. For delivery="announce": recipient with the user's NAME (e.g. "Lord Helmchen"), not an ID — Horarium resolves the name itself. If the user names nobody, leave recipient out; then it goes to the user.
 4. The message is a PLAIN TEXT instruction (no code, no variables) to the model at execution time, and it describes ONLY the task, not the delivery. WRONG: "Write a prayer and send it via Telegram". RIGHT: "Write a short prayer."
 5. If the e-mailed answer should contain an image or file from this run (a chart, say), the ANSWER itself writes the reference with the /_upload/… URL from the tool result: ![description](URL) embeds an image, [name](URL) attaches the file. The message only says WHAT to show.
 6. A reminder or alarm at an exact time → fixed_text=true: the text goes out word for word and on time, without a model.

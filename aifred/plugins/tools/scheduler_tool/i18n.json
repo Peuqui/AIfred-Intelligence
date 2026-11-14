@@ -1,7 +1,7 @@
 {
   "plugin_display_name": {
-    "de": "Scheduler",
-    "en": "Scheduler"
+    "de": "Horarium",
+    "en": "Horarium"
   },
   "plugin_description": {
     "de": "Plant Aufgaben und Reminder zu bestimmten Uhrzeiten oder als wiederkehrende Cron-Jobs.",

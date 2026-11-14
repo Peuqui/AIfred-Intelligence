@@ -57,7 +57,7 @@ class TestSchedulerPlugin:
         # MUST equal the folder name (plugin_registry invariant) — a mismatch
         # hides the plugin from the Plugin-Manager UI.
         assert plugin.name == "scheduler_tool"
-        assert plugin_display_name(plugin, "de") == "Scheduler"
+        assert plugin_display_name(plugin, "de") == "Horarium"
 
     def test_is_available(self, plugin):
         assert plugin.is_available() is True

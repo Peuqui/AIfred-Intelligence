@@ -19,7 +19,7 @@ from aifred.lib.scheduler import JobStore, _now_iso
 def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> JobStore:
     job_store = JobStore(tmp_path / "jobs.db")
     monkeypatch.setattr(sched, "_job_store", job_store)
-    monkeypatch.setattr(sched, "_running_job_ids", set())
+    monkeypatch.setattr(sched, "_running_job_ids", {})
     return job_store
 
 
@@ -89,7 +89,7 @@ def test_a_running_job_finishes_when_the_loop_is_cancelled(store: JobStore, monk
         await started.wait()
         loop_task.cancel()
         await loop_task                                      # the loop is over, the job is not
-        assert sched._running_job_ids == {job.job_id}
+        assert set(sched._running_job_ids) == {job.job_id}
         # A new loop (the plugin switched on again) does not start the job a second time.
         second = asyncio.create_task(sched.scheduler_loop())
         await asyncio.sleep(0.05)
@@ -102,4 +102,42 @@ def test_a_running_job_finishes_when_the_loop_is_cancelled(store: JobStore, monk
     asyncio.run(scenario())
     done = store.get(job.job_id)
     assert runs == [job.job_id]
-    assert done is not None and done.last_run != "" and sched._running_job_ids == set()
+    assert done is not None and done.last_run != "" and sched._running_job_ids == {}
+
+
+def test_claim_takes_a_job_once_and_frees_it() -> None:
+    """The claim is one step: taken before the task is scheduled, so the hub thread's loop and the
+    server thread's run-now endpoint cannot both start the same job."""
+    assert sched.claim_job(1) is True
+    assert sched.claim_job(1) is False
+    assert sched.claim_job(2) is True
+    sched.release_job(1)
+    assert sched.claim_job(1) is True       # free again after the holder gave it back
+    sched.release_job(1)
+    sched.release_job(2)
+    assert sched._running_job_ids == {}
+
+
+def test_the_loop_skips_a_job_claimed_elsewhere(store: JobStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The run-now endpoint holds the claim while the job is due: the loop does not start it again."""
+    job = store.add("evening", "interval", "3600", {"message": "x"})
+    _due(store, job.job_id)
+    assert sched.claim_job(job.job_id)
+    runs: list[int] = []
+
+    async def execute(running: Any) -> None:
+        runs.append(running.job_id)
+
+    monkeypatch.setattr(sched, "_execute_job", execute)
+
+    async def scenario() -> None:
+        loop_task = asyncio.create_task(sched.scheduler_loop())
+        await asyncio.sleep(0.05)
+        loop_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await loop_task
+
+    asyncio.run(scenario())
+    assert runs == []
+    assert set(sched._running_job_ids) == {job.job_id}    # the endpoint's claim still holds
+    sched.release_job(job.job_id)
