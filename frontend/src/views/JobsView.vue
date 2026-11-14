@@ -73,7 +73,7 @@ async function runNow(job: JobRow): Promise<void> {
           <td class="stamp">{{ job.enabled ? when(job.next_run) : "–" }}</td>
           <td class="stamp">{{ when(job.last_run) }}</td>
           <td class="row-actions">
-            <button class="run-now" :title="t('job_run_now_hint')" :disabled="running === job.job_id" @click="runNow(job)"><Play :size="16" /> {{ t("job_run_now") }}</button>
+            <button class="run-now" :title="t('job_run_now_hint')" :aria-label="t('job_run_now')" :disabled="running === job.job_id" @click="runNow(job)"><Play :size="16" /></button>
             <button :title="t('jobs_runs')" @click="showRuns(job)"><ScrollText :size="16" /></button>
             <button :title="t('agent_editor_edit')" @click="editing = { job }"><Pencil :size="16" /></button>
             <button :title="t('agent_editor_delete')" @click="deleting = job"><Trash2 :size="16" /></button>

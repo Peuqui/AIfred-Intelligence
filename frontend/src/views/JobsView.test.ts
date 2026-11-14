@@ -48,7 +48,7 @@ async function answerAll(): Promise<void> {
 }
 
 function runNowButton(view: ReturnType<typeof mount>) {
-  const button = view.findAll("button").find((candidate) => candidate.text().includes("job_run_now"));
+  const button = view.findAll("button").find((candidate) => candidate.attributes("aria-label") === "job_run_now");
   if (!button) throw new Error("the run-now button is not on the page");
   return button;
 }
