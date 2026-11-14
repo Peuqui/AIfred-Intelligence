@@ -1,11 +1,12 @@
 """Which files in the agents' documents a tool call changed.
 
 The tools that write there name their file in the call (write_file, patch_file), but
-execute_code_write runs code that may write any file. So a writing call is bracketed by a
-look at the folder before and after it (path and modification time, fractions of a millisecond
-for a few hundred files): what differs is what the call changed, whoever wrote it. The ToolKit
-of an agent keeps the list for its turn (function_calling.ToolKit.changed_documents), the code
-review hands it to the reviewer (turn_debate._recensio).
+execute_code_write runs code that may write any file, and delegate_task's sub-agent writes with
+its own tools. So every call is bracketed by a look at the folder before and after it (path and
+modification time, fractions of a millisecond for a few hundred files): what differs is what the
+call changed, whoever wrote it. The ToolKit of an agent keeps the list for its turn
+(function_calling.ToolKit.changed_documents), the recensio hands it to the censor
+(turn_debate._recensio).
 """
 
 from __future__ import annotations
