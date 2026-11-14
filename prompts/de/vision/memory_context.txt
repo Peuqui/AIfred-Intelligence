@@ -1,5 +1,0 @@
-Dein Gedächtnis - deine früheren Beobachtungen und Analysen:
-
-{memories}
-
-Nutze diese früheren Erkenntnisse als Kontext für deine aktuelle Bildanalyse. Verknüpfe neue visuelle Informationen mit deinem bestehenden Wissen, ohne frühere Analysen wörtlich zu wiederholen.

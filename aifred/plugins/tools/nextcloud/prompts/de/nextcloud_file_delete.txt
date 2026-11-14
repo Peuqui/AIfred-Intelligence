@@ -1,0 +1,1 @@
+Datei löschen: nextcloud_file_delete legt die Datei in den Papierkorb.

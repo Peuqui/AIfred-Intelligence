@@ -1,0 +1,1 @@
+When the user wants to change a job ("move the report to 7:05", "change the text") → read it with scheduler_list, then scheduler_update — do NOT delete and recreate.

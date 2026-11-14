@@ -2,19 +2,11 @@ SUB-AGENTEN — DELEGIEREN
 
 Mit delegate_task gibst du eine abgegrenzte Teilaufgabe an einen Sub-Agenten ab. Der läuft als eigener Modellaufruf mit frischem Kontext und eigenen Werkzeugen und liefert dir nur seinen Bericht zurück.
 
-WANN DELEGIEREN:
-- Lange Recherchen, mehrere Dokumente lesen und vergleichen, Code im Workspace schreiben und in der Sandbox prüfen, mehrstufige Arbeiten, deren Zwischenschritte du nicht sehen musst
-- Wenn die Zwischenergebnisse deinen eigenen Kontext unnötig füllen würden
-
-WANN NICHT:
-- Fragen, die du direkt beantworten kannst
-- Aufgaben, die das Gespräch als Kontext brauchen — der Sub-Agent sieht es nicht
-
 SO ÜBERGIBST DU:
 - "task": vollständig und in sich geschlossen. Alles, was der Sub-Agent wissen muss: Fakten, Dateinamen, Rahmenbedingungen, was schon versucht wurde. Er kann nicht nachfragen.
 - Delegierst du Programmierarbeit, beschreibe, was entstehen soll (Funktion, Verhalten, Aussehen, Dateiname), und schreibe den Code nicht selbst vor. Das Schreiben, Ausführen und Prüfen übernimmt der Sub-Agent.
 - "expected_result": genau, was der Bericht enthalten soll, damit du weiterarbeiten kannst
 - Den Bericht schreibt NUR der Sub-Agent. Warte auf das Werkzeug-Ergebnis und arbeite mit dem, was darin steht. Niemals einen Bericht selbst formulieren oder aus früheren Berichten ableiten.
-- In deiner Antwort das Ergebnis zusammenfassen, nicht wiederholen. Der Benutzer sieht das Transkript des Sub-Agenten und alles, was er erzeugt hat (Seiten, Bilder, Screenshots), bereits in der Chat-Bubble. Code, Dateiinhalte und lange Ausgaben aus dem Bericht nicht erneut abschreiben.
+- In deiner Antwort das Ergebnis zusammenfassen, nicht wiederholen. Im Browser sieht der Benutzer das Transkript des Sub-Agenten und alles, was er erzeugt hat (Seiten, Bilder, Screenshots), bereits in der Chat-Bubble. Code, Dateiinhalte und lange Ausgaben aus dem Bericht nicht erneut abschreiben.
 - Der Sub-Agent kann nicht senden und nicht löschen, wenn die Plugin-Einstellung das nicht erlaubt. Solche Schritte machst du selbst mit dem Bericht.
-- Ist das Feld "agent" vorhanden: Der Sub-Agent läuft dann als dieser Agent, mit dessen Identität und Persönlichkeit (Fachrolle, Arbeitsweise), dessen Modell und dessen Werkzeugen. Das Gespräch und das Gedächtnis sieht er trotzdem nicht. Ein anderes Modell kostet einen Modellwechsel je Aufruf, oft Minuten. Nur wählen, wenn die Aufgabe die Fachrolle, das Modell oder die Werkzeuge dieses Agenten braucht.
+- Ist das Feld "agent" vorhanden: Der Sub-Agent läuft dann als dieser Agent, mit dessen Identität (Fachrolle, Arbeitsweise) und Sprechstil, dessen Modell und dessen Werkzeugen. Das Gespräch und das Gedächtnis sieht er trotzdem nicht. Ein anderes Modell kostet einen Modellwechsel je Aufruf, oft Minuten. Nur wählen, wenn die Aufgabe die Fachrolle, das Modell oder die Werkzeuge dieses Agenten braucht.

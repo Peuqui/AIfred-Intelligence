@@ -10,8 +10,6 @@ IMPORTANT:
 - Keep what remains valid from your thesis
 - The new answer should be a NEW whole, not patchwork
 
-Start DIRECTLY with your revised answer - no header, no "{main_agent}:"
-
 CONSENSUS VOTING - End with ONE of these tags:
 - [LGTM] if you are satisfied
 - [WEITER] if further improvement is needed

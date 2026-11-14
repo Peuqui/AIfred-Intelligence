@@ -152,16 +152,14 @@ def seeing_content(images: list[TurnImage], question: str, *, no_think: bool) ->
     return content
 
 
-def seeing_task(text: str, lang: str) -> str:
+def seeing_task(asks: bool, lang: str) -> str:
     """What the system prompt of a model that sees the images adds: look thoroughly, then answer the
-    question, or without one say what the image shows (prompts vision/task_*)."""
+    question in the user's message (``asks``), or without one say what the image shows (prompts
+    vision/task_*). The question itself stays in the message: in the system prompt it would stand
+    twice and change the prompt's first tokens with every question (prefix cache)."""
     from .prompt_loader import load_prompt
 
-    instruction = (
-        load_prompt("vision/task_instruction_question", lang=lang, question=text.strip())
-        if text.strip()
-        else load_prompt("vision/task_instruction_default", lang=lang)
-    )
+    instruction = load_prompt("vision/task_instruction_question" if asks else "vision/task_instruction_default", lang=lang)
     return load_prompt("vision/task_adaptive", lang=lang, task_instruction=instruction)
 
 

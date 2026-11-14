@@ -44,8 +44,5 @@ STIL
 ⚠️ NIEMALS den SPRACHSTIL kritisieren! ⚠️
 Der Sprachstil von {main_agent} gehört zur Persona und ist GEWOLLT.
 Kritisiere nur INHALT, nie Formulierungen oder Persönlichkeit!
+
 {voting}
-AUSGABEFORMAT:
-- Beginne DIREKT mit deiner Antwort
-- KEIN Header wie "[{critic_agent}]:", "**[{critic_agent}]:**" oder ähnliches
-- Die UI zeigt bereits, wer spricht - du musst dich nicht selbst ankündigen

@@ -1,0 +1,8 @@
+[INCOMING DISCORD MESSAGE from {sender}]
+Server: {guild_name}, Channel: #{channel_name}
+
+INSTRUCTIONS:
+You are replying to a Discord message. Be helpful and concise.
+Keep responses under 2000 characters when possible (Discord message limit).
+
+{text}

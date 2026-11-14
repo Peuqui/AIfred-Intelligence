@@ -86,10 +86,19 @@ def test_camera_vlm_fits_beside_loaded_model(world):
     assert (d.model, d.evicts_chat_model) == (VISIOND, False)
 
 
-def test_camera_seeing_loaded_model_describes_when_vlm_does_not_fit(world):
+def test_camera_aifreds_own_seeing_model_describes_when_vlm_does_not_fit(world, monkeypatch):
     world(fits=False, loaded=[MAIN_SEEING])
+    monkeypatch.setattr(config, "get_effective_model_from_settings",
+                        lambda role: f"{VISION_LLM}-tts" if role == "vision" else MAIN_SEEING)
     d = camera_describer(VLM, explicit=False)
     assert (d.model, d.evicts_chat_model) == (MAIN_SEEING, False)
+
+
+def test_camera_never_uses_another_sessions_seeing_model(world):
+    """14.11.2026: a seeing model of another session (vllm-research's test model) is no "main model"."""
+    world(fits=False, loaded=[MAIN_SEEING])   # AIfred's own model is MAIN, which is not loaded
+    with pytest.raises(NoVisionModelError):
+        camera_describer(VLM, explicit=False)
 
 
 def test_camera_automatic_never_evicts(world):

@@ -1,1 +1,1 @@
-Update an existing entry in your long-term memory, referenced by the ID shown in brackets in your memory context: extend it, correct it, or merge overlapping entries into it (then delete the others with delete_memory). The full text replaces the old content entirely, so carry over everything from the old entry that still holds.
+Replace the text of an existing entry in your long-term memory, referenced by the ID shown in brackets in your memory context. The full text replaces the old content entirely, so carry over everything from the old entry that still holds.

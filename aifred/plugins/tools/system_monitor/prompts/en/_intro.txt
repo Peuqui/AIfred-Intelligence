@@ -7,4 +7,4 @@ ALWAYS show utilization, not just totals:
 - CPU: load + core count
 - Model, STT, TTS: name + time until unload (remaining_s as min:s; null = stays loaded)
 No prose, no commentary, no analogies.
-IMPORTANT: Call system_status DIRECTLY. NEVER use the scheduler!
+IMPORTANT: When the user asks for the system status, call system_status right away and directly.

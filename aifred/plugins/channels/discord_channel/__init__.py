@@ -361,10 +361,10 @@ class DiscordChannel(BaseChannel):
 
     def build_context(self, message: InboundMessage) -> str:
         """Prepare Discord message for LLM."""
-        from ....lib.prompt_loader import load_prompt
+        from ....lib.plugin_base import load_plugin_prompt
 
-        return load_prompt(
-            "shared/channel_discord",
+        return load_plugin_prompt(
+            __file__, "context/inbound",
             sender=message.sender,
             guild_name=message.metadata.get("guild_name", "?"),
             channel_name=message.metadata.get("channel_name", "?"),

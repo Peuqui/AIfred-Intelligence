@@ -552,7 +552,7 @@ agent in `data/agents.json` (`cloud_provider`, default `qwen` = DashScope;
 editable in the Agent Editor). In the UI the AI option is only enabled
 with a DashScope key. It follows the same strategy via the system prompt
 ([prompts/en/calibration/system.txt](../../../prompts/en/calibration/system.txt);
-`ai_agent.py` always loads it with `lang="en"`).
+`ai_agent.py` loads it and the building blocks next to it — `start`, `ctx_reduction_*`, `projection_*`, `hybrid_disabled`, `hardware_gpu*` — always in English: `CALIBRATION_LANGUAGE`, there is no German version).
 
 Scope: BASE (`_try_ai_calibration()` in `flow.py`), the speed variant (the
 GPU set is chosen deterministically by `_find_speed_candidate()`, the AI
@@ -624,4 +624,4 @@ Evaluation of this path:
   - `resolve_gpu_id()` — `"auto"` → `pick_vlm_gpu()` (InsightFace)
 - AI variant: [`aifred/lib/calibration/ai_agent.py`](../../../aifred/lib/calibration/ai_agent.py)
   - `calibrate_with_ai()` — tool loop (`estimate_config`, `probe_config`, `finalize`)
-- Prompt: [`prompts/en/calibration/system.txt`](../../../prompts/en/calibration/system.txt)
+- Prompt: [`prompts/en/calibration/system.txt`](../../../prompts/en/calibration/system.txt) (+ the building blocks in the same folder; English only)

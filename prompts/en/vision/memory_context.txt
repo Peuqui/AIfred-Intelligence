@@ -1,5 +1,0 @@
-Your memory - your earlier observations and analyses:
-
-{memories}
-
-Use these previous findings as context for your current image analysis. Connect new visual information with your existing knowledge without repeating earlier analyses verbatim.

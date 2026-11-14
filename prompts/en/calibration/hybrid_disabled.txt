@@ -1,0 +1,1 @@
+IMPORTANT: Hybrid mode (CPU offload of layers, ngl<99) is DISABLED for this calibration. You must find a GPU-only configuration. If after several probes no GPU-only fit exists, call finalize with the best partial result and explain in the reasoning that the model exceeds available GPU VRAM — the user will then enable the Hybrid toggle if needed.

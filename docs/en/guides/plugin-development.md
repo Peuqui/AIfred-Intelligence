@@ -182,8 +182,8 @@ class MyChannel(BaseChannel):
     # ── Context (required) ───────────────────────────
     def build_context(self, message) -> str:
         """Build LLM prompt context. Use prompts/ files, not hardcoded text."""
-        from ....lib.prompt_loader import load_prompt
-        return load_prompt("shared/channel_my_channel", sender=message.sender, text=message.text)
+        from ....lib.plugin_base import load_plugin_prompt
+        return load_plugin_prompt(__file__, "context/inbound", sender=message.sender, text=message.text)
 
     # ── Outbound formatting (optional override) ──────
     def format_outbound(self, text: str) -> dict[str, str]:
@@ -227,7 +227,7 @@ MyChannel_instance = MyChannel()
 - Plugin lives in `aifred/plugins/channels/{name}_channel/` (`BaseChannel` derives the `settings.json` path from this folder name)
 - Must expose a module-level `BaseChannel` instance (the registry picks up every `BaseChannel` instance in the module)
 - `listener_loop()` must run indefinitely and handle `asyncio.CancelledError`
-- `build_context()` should load prompts from `prompts/` directory
+- `build_context()` loads the message's framing from the plugin's own folder (`prompts/<de|en>/context/inbound.txt`, `load_plugin_prompt`), not from the core tree `prompts/shared/`. If the channel does not answer the user (like AI-Connect answering another assistant), `situation(lang)` returns its own situation (`context/situation.txt`); `markdown_output = False` leaves out the formatting rules when the answer is spoken or delivered as plain text
 - **Credentials via `broker.get()`**, never via `os.environ` or `config.py` globals
 - `broker` resolves `(service, key)` to the env var `<SERVICE>_<KEY>`; add an entry to `credential_broker.py: _CREDENTIAL_MAP` only when the env var name differs from that
 - Channel tools MUST use named tier constants (typically `TIER_COMMUNICATE`) and load their description via `load_tool_description(__file__, "<tool>")`
@@ -430,7 +430,7 @@ aifred/
 │   ├── markdown_render.py     # md_to_html, md_to_plain (outbound formatting)
 │   └── i18n/                  # Central UI translations (de.json, en.json, __init__.py) — not for plugin texts
 └── plugins/
-    ├── channels/              # every channel: __init__.py, i18n.json, settings.json, prompts/tools/
+    ├── channels/              # every channel: __init__.py, i18n.json, settings.json, prompts/tools/, prompts/<lang>/context/
     │   ├── discord_channel/   # Discord bot (+ discord_send)
     │   ├── email_channel/     # IMAP IDLE + SMTP (+ email tools; client.py, config.py, tools.py)
     │   ├── freeecho2_channel/ # FreeEcho.2 speakers via WebSocket (+ freeecho2_announce)

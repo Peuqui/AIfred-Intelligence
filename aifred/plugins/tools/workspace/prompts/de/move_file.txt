@@ -1,1 +1,1 @@
-- move_file → Datei verschieben
+- move_file → Datei oder Ordner verschieben

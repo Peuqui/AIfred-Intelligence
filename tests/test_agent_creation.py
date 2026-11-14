@@ -39,11 +39,10 @@ def prompts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def test_a_new_agent_gets_the_base_prompts_with_its_name(prompts: Path) -> None:
     config = create_agent("pater", "Pater Tuck", "⛪", "Ein Mönch", "#7d8590")
-    assert set(config.prompts) == {"identity", "personality", "task", "direct", "memory_context"}
+    assert set(config.prompts) == {"identity", "personality", "reminder", "memory_context"}
     assert (prompts / "de" / "pater" / "identity.txt").read_text(encoding="utf-8").strip() == "Du bist Pater Tuck."
     assert (prompts / "en" / "pater" / "identity.txt").read_text(encoding="utf-8").strip() == "You are Pater Tuck."
     assert "{memories}" in (prompts / "de" / "pater" / "memory_context.txt").read_text(encoding="utf-8")
-    assert "präzise" in (prompts / "de" / "pater" / "system_minimal.txt").read_text(encoding="utf-8")
 
 
 def test_a_new_agent_takes_any_seat_with_the_seats_task(prompts: Path) -> None:

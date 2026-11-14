@@ -21,7 +21,6 @@ compression between the calls.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
@@ -46,7 +45,7 @@ from .debate_seats import (
 )
 from .debug_bus import debug
 from .formatting import format_number
-from .prompt_loader import DEBATE_ROLES, REVIEW_ROLES, get_seat_system_prompt
+from .prompt_loader import CRITIQUE_ROLES, DEBATE_ROLES, REVIEW_ROLES
 from .turn_service import (
     AgentCall,
     TurnContext,
@@ -68,23 +67,21 @@ if TYPE_CHECKING:
     from .llm_pipeline import PipelineResult
     from .runtime_settings import RuntimeSettings
 
-# The agent's prompt for multi-agent modes (its task prompt); every debate speaker has it in front of
-# the task of its seat.
-_BASE_PROMPT = "task"
 
-# The seats that speak after the direct answer, per mode.
-_DEBATE_SEATS: dict[str, tuple[str, ...]] = {
-    "critical_review": (SEAT_CRITIC,),
-    "recensio": (SEAT_MAIN, SEAT_CRITIC),
-    "auto_consensus": (SEAT_MAIN, SEAT_CRITIC, SEAT_JUDGE),
-    "tribunal": (SEAT_MAIN, SEAT_CRITIC, SEAT_JUDGE),
+# The debate modes: the seats that speak after the direct answer, and how the prompts describe them
+# (prompt_loader.*_ROLES).
+_DEBATE_MODES: dict[str, tuple[tuple[str, ...], str]] = {
+    "critical_review": ((SEAT_CRITIC,), CRITIQUE_ROLES),
+    "recensio": ((SEAT_MAIN, SEAT_CRITIC), REVIEW_ROLES),
+    "auto_consensus": ((SEAT_MAIN, SEAT_CRITIC, SEAT_JUDGE), DEBATE_ROLES),
+    "tribunal": ((SEAT_MAIN, SEAT_CRITIC, SEAT_JUDGE), DEBATE_ROLES),
 }
+
 
 def chosen_seats(mode: str) -> tuple[str, ...]:
     """The seats of ``mode`` a session chooses (critic, judge); standard and symposion have none."""
-    return tuple(seat for seat in _DEBATE_SEATS.get(mode, ()) if seat != SEAT_MAIN)
-
-
+    speaking = _DEBATE_MODES[mode][0] if mode in _DEBATE_MODES else ()
+    return tuple(seat for seat in speaking if seat != SEAT_MAIN)
 
 
 # ── Who speaks ───────────────────────────────────────────────────────────
@@ -98,6 +95,7 @@ class TurnPlan:
     debate: dict[str, str] = field(default_factory=dict)     # seat → agent speaking in the debate after the answer
     symposion: tuple[str, ...] = ()                          # the round table, at least two agents
     seats: dict[str, str] = field(default_factory=dict)      # every seat → its agent, as the prompts name them
+    roles: str = DEBATE_ROLES                                # the description of the seats (prompt_loader.*_ROLES)
 
     @property
     def agents(self) -> list[str]:
@@ -115,19 +113,20 @@ def plan_turn(
         return TurnPlan(_speaker(routed))
     if mode == "symposion":
         return _plan_symposion(routed, symposion_agents)
-    if mode not in _DEBATE_SEATS:
+    if mode not in _DEBATE_MODES:
         raise TurnRejected("mode", Invalid("unknown_mode", value=mode))
     _speaker(routed)
     if addressed_to == BASE_AGENT:   # addressing AIfred by name in a debate mode asks for his answer alone
         return TurnPlan(routed)
+    speaking, roles = _DEBATE_MODES[mode]
     seated = {SEAT_MAIN: routed, **{seat: seats[seat] for seat in CHOSEN_SEATS}}
     try:
-        for seat in _DEBATE_SEATS[mode]:
+        for seat in speaking:
             if seat != SEAT_MAIN:
                 check_seat_agent(seat, seated[seat])
     except SeatError as error:
         raise TurnRejected("seat", error) from error
-    return TurnPlan(routed, {seat: seated[seat] for seat in _DEBATE_SEATS[mode]}, seats=seated)
+    return TurnPlan(routed, {seat: seated[seat] for seat in speaking}, seats=seated, roles=roles)
 
 
 def _speaker(agent: str) -> str:
@@ -208,22 +207,22 @@ async def _cast(ctx: TurnContext, seats: dict[str, str]) -> dict[str, _Member]:
     return members
 
 
-def _base_system(member: _Member, lang: str, seats: dict[str, str], source: str, roles: str = DEBATE_ROLES) -> str:
-    """``source``: where the turn's message came from; a channel's adds the security boundary."""
-    from .prompt_loader import get_agent_system_prompt
+def _system(member: _Member, situation: str, lang: str, plan: TurnPlan, ctx: TurnContext) -> str:
+    """A speaker's system prompt (prompt_loader.agent_system_prompt): ``situation`` is the task of its
+    seat, which takes the place of any everyday task; empty for the author, whose task comes as the
+    question after the history. A stranger's message (``ctx.external_sender``) adds the security boundary."""
+    from .prompt_loader import agent_system_prompt
+    from .turn_service import toolkit_names
 
-    return get_agent_system_prompt(
-        member.agent, _BASE_PROMPT, lang=lang, seats=seats, memory=member.memory_enabled, roles=roles, source=source,
+    return agent_system_prompt(
+        member.agent, situation, lang, answer_channel=ctx.answer_channel, external=ctx.external_sender, tools=toolkit_names(member.toolkit),
+        memory=member.memory_enabled, seats=plan.seats, roles=plan.roles,
     )
 
 
-def _seat_system(member: _Member, key: str, lang: str, seats: dict[str, str], source: str, **variables: Any) -> str:
-    """The agent's multi-agent prompt, then the task of the seat it speaks in."""
-    return f"{_base_system(member, lang, seats, source)}\n\n{seat_prompt(key, seats, lang, **variables)}"
-
-
-def _with_memory(system_prompt: str, member: _Member) -> str:
-    return f"{system_prompt}\n\n{member.memory}" if member.memory else system_prompt
+def _seat_system(member: _Member, key: str, lang: str, plan: TurnPlan, ctx: TurnContext, **variables: Any) -> str:
+    """The system prompt of a seat whose task is the seat's prompt (``debate/<key>``)."""
+    return _system(member, seat_prompt(key, plan.seats, lang, **variables), lang, plan, ctx)
 
 
 def _prompt_tokens(*prompts: str) -> int:
@@ -239,22 +238,21 @@ def _call(
     *,
     observer: bool = False,
     question: str = "",
-    memory_before_question: bool = False,
     log_label: str = "",
 ) -> AgentCall:
     """A debate call: the system prompt, then the session's history as the member sees it (as an
-    ``observer``, the judge, every reply is someone else's), then ``question`` (the refinement or
-    defense task) when there is one."""
+    ``observer``, the judge, every reply is someone else's), the member's memories, and last its
+    style reminder and output language — with ``question`` (the author's task) when there is one."""
     from .message_builder import build_messages_from_llm_history, inject_before_question
     from .tool_output_cap import compute_budget
 
     history = build_messages_from_llm_history(
         session_llm_history(ctx.session_id), current_user_text=question, perspective=member.agent,
-        detected_language=ctx.intent.language, observer=observer,
+        detected_language=ctx.intent.language, observer=observer, close=True,
     )
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}, *history]
-    if memory_before_question and member.memory:
-        # At the end instead of the system prompt: the prefix cache keeps the history.
+    if member.memory:
+        # Right before the last message, never in the system prompt: the prefix cache keeps the history.
         inject_before_question(messages, member.memory)
     system_tokens, history_tokens, tool_tokens = measure_prompt(messages, member.toolkit, member.model)
     return AgentCall(
@@ -325,12 +323,12 @@ async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
     for round_num in range(1, max_rounds + 1):
         # The round's block keeps the critic from inventing "progress" in round 1; the vote only where it counts.
         system_prompt = _seat_system(
-            critic, "critic", lang, plan.seats, ctx.source,
+            critic, "critic", lang, plan, ctx,
             round_rules=round_rules("critic", round_num == 1, plan.seats, lang),
             voting=seat_prompt("critic_voting", plan.seats, lang) if auto else "",
         )
         await _compress_before(ctx, plan, critic, _prompt_tokens(system_prompt))
-        call = _call(ctx, critic, system_prompt, memory_before_question=True)
+        call = _call(ctx, critic, system_prompt)
         debug(_prompt_line(call, f"R{round_num}", critic.num_ctx))
         log_raw_messages(f"{critic.label} R{round_num}", call.messages)
         result = await _speak(ctx, call)
@@ -344,9 +342,9 @@ async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
         judge = members[SEAT_JUDGE]
         if round_num == 1:
             debug(f"{judge.emoji} {judge.label}-LLM: {judge.model}")
-        system_prompt = _with_memory(_seat_system(
-            judge, "mediator", lang, plan.seats, ctx.source, round_rules=round_rules("mediator", round_num == 1, plan.seats, lang),
-        ), judge)
+        system_prompt = _seat_system(
+            judge, "mediator", lang, plan, ctx, round_rules=round_rules("mediator", round_num == 1, plan.seats, lang),
+        )
         await _compress_before(ctx, plan, judge, _prompt_tokens(system_prompt))
         call = _call(ctx, judge, system_prompt, observer=True)
         debug(_prompt_line(call, f"R{round_num}", judge.num_ctx))
@@ -380,7 +378,7 @@ async def _critique(ctx: TurnContext, plan: TurnPlan, answer: str) -> None:
             "refinement", plan.seats, lang,
             round_num=round_num + 1,
         )
-        system_prompt = _with_memory(_base_system(main, lang, plan.seats, ctx.source), main)
+        system_prompt = _system(main, "", lang, plan, ctx)
         await _compress_before(ctx, plan, main, _prompt_tokens(system_prompt, question))
         call = _call(ctx, main, system_prompt, question=question, log_label=f"{main.label} Refinement")
         debug(_prompt_line(call, f"R{round_num + 1}", main.num_ctx))
@@ -425,7 +423,7 @@ async def _recensio(ctx: TurnContext, plan: TurnPlan) -> None:
             "review_fix", plan.seats, lang,
             round_num=round_num, **_file_lists(_author_files(ctx, author.agent)),
         )
-        system_prompt = _with_memory(_base_system(author, lang, plan.seats, ctx.source, REVIEW_ROLES), author)
+        system_prompt = _system(author, "", lang, plan, ctx)
         await _compress_before(ctx, plan, author, _prompt_tokens(system_prompt, question))
         call = _call(ctx, author, system_prompt, question=question, log_label=f"{author.label} Fix")
         debug(_prompt_line(call, f"R{round_num}", author.num_ctx))
@@ -448,19 +446,16 @@ async def _review(ctx: TurnContext, plan: TurnPlan, censor: _Member, author: _Me
     files = _author_files(ctx, author.agent)
     step = f"R{fixes}" if fixes else "answer"
     debug(f"🔎 Review ({step}): {format_number(len(files))} files of {author.label}")
-    # The review is the censor's whole task: it takes the place of the agent's everyday task, under the
-    # description of the two roles; identity and personality stay.
+    # The review is the censor's task, under the description of the two roles; the censor's toolkit
+    # holds only RECENSIO_CENSOR_TOOLS, so only their instructions come in.
     lang = ctx.intent.language
     task = seat_prompt(
         "review", plan.seats, lang,
         round_rules=round_rules("review", fixes == 0, plan.seats, lang, round_num=fixes), **_file_lists(files),
     )
-    system_prompt = get_seat_system_prompt(
-        censor.agent, task, lang, plan.seats, REVIEW_ROLES, memory=censor.memory_enabled, tools=RECENSIO_CENSOR_TOOLS,
-        source=ctx.source,
-    )
+    system_prompt = _system(censor, task, lang, plan, ctx)
     await _compress_before(ctx, plan, censor, _prompt_tokens(system_prompt))
-    call = _call(ctx, censor, system_prompt, memory_before_question=True)
+    call = _call(ctx, censor, system_prompt)
     debug(_prompt_line(call, step, censor.num_ctx))
     log_raw_messages(f"{censor.label} {step}", call.messages)
     result = await _speak(ctx, call)
@@ -531,10 +526,10 @@ async def _tribunal(ctx: TurnContext, plan: TurnPlan) -> None:
 
     for round_num in range(1, max_rounds + 1):
         system_prompt = _seat_system(
-            critic, "tribunal", lang, plan.seats, ctx.source, round_rules=round_rules("tribunal", round_num == 1, plan.seats, lang),
+            critic, "tribunal", lang, plan, ctx, round_rules=round_rules("tribunal", round_num == 1, plan.seats, lang),
         )
         await _compress_before(ctx, plan, critic, _prompt_tokens(system_prompt))
-        call = _call(ctx, critic, system_prompt, memory_before_question=True)
+        call = _call(ctx, critic, system_prompt)
         result = await _speak(ctx, call)
         if result is None:
             break
@@ -547,7 +542,7 @@ async def _tribunal(ctx: TurnContext, plan: TurnPlan) -> None:
             "defense", plan.seats, lang,
             round_num=round_num + 1,
         )
-        system_prompt = _base_system(main, lang, plan.seats, ctx.source)
+        system_prompt = _system(main, "", lang, plan, ctx)
         await _compress_before(ctx, plan, main, _prompt_tokens(system_prompt, question))
         call = _call(ctx, main, system_prompt, question=question, log_label=f"{main.label} Defense")
         result = await _speak(ctx, call)
@@ -556,7 +551,7 @@ async def _tribunal(ctx: TurnContext, plan: TurnPlan) -> None:
         finish_call(ctx, call, result, mode="tribunal", round_num=round_num + 1)
 
     debug(f"{judge.emoji} {judge.label} rendering verdict...")
-    system_prompt = _with_memory(_seat_system(judge, "judge", lang, plan.seats, ctx.source), judge)
+    system_prompt = _seat_system(judge, "judge", lang, plan, ctx)
     await _compress_before(ctx, plan, judge, _prompt_tokens(system_prompt))
     call = _call(ctx, judge, system_prompt, observer=True)
     debug(_prompt_line(call, "Verdict", judge.num_ctx))
@@ -579,7 +574,6 @@ def _round_table(agents: Sequence[str]) -> list[tuple[str, AgentConfig]]:
 async def run_symposion(ctx: TurnContext, plan: TurnPlan) -> None:
     """The round table: every agent speaks in turn, round by round, and sees all contributions so
     far. No winner, no vote: a discussion from several perspectives."""
-    from .context_manager import strip_thinking_blocks
     from .prompt_loader import load_prompt
     from .session_storage import get_session_config
 
@@ -592,7 +586,6 @@ async def run_symposion(ctx: TurnContext, plan: TurnPlan) -> None:
     debug(f"🏛️ Symposion: {names} ({format_number(max_rounds)} rounds)")
     # From round 2 on: each speaker looks for what the earlier contributions left open.
     reflection = load_prompt("shared/symposion_reflection", lang=lang)
-    conversation = _conversation(session_llm_history(ctx.session_id), lineup)
 
     for round_num in range(1, max_rounds + 1):
         # The lineup is read again every round: the user can change the selection meanwhile (or switch
@@ -609,42 +602,15 @@ async def run_symposion(ctx: TurnContext, plan: TurnPlan) -> None:
 
         for agent, config in lineup:
             debug(f"{config.emoji} {config.display_name} (R{round_num})")
-            call = await _symposion_call(
-                ctx, agent, config, rules, reflection if round_num >= 2 else "", conversation, round_num,
-            )
+            call = await _symposion_call(ctx, agent, config, rules, reflection if round_num >= 2 else "", round_num)
             result = await stream_call(ctx, call)
             if result is None:
                 debug(f"❌ {config.display_name} returned no result")
                 continue
             finish_call(ctx, call, result, mode="symposion", round_num=round_num)
-            conversation.append({
-                "role": "assistant", "agent": agent,
-                "content": f"[{config.display_name}]: {strip_thinking_blocks(result.text)}",
-            })
 
     debug(f"🏛️ Symposion done ({format_number(max_rounds)} rounds, {format_number(len(lineup))} agents)")
     debug("────────────────────")
-
-
-def _conversation(
-    llm_history: list[dict[str, Any]], lineup: list[tuple[str, AgentConfig]],
-) -> list[dict[str, str]]:
-    """The session so far as the round table sees it; an assistant entry knows its agent by the
-    speaker label (the agent's id in capitals, or its display name)."""
-    by_label: dict[str, str] = {}
-    for agent, config in lineup:
-        by_label[agent.strip().upper()] = agent
-        by_label[config.display_name.strip().upper()] = agent
-    conversation: list[dict[str, str]] = []
-    for entry in llm_history:
-        content = entry.get("content", "")
-        if entry.get("role") == "user":
-            conversation.append({"role": "user", "content": content})
-        elif entry.get("role") == "assistant":
-            label = re.match(r"^\[([^\]]+)\]:\s*", content)
-            speaker = by_label.get(label.group(1).strip().upper(), "") if label else ""
-            conversation.append({"role": "assistant", "agent": speaker, "content": content})
-    return conversation
 
 
 async def _symposion_call(
@@ -653,30 +619,31 @@ async def _symposion_call(
     config: AgentConfig,
     rules: str,
     reflection: str,
-    conversation: list[dict[str, str]],
     round_num: int,
 ) -> AgentCall:
-    """A speaker's call: its identity, the symposion's rules, the conversation with its own
-    contributions as its own; memories only in round 1, before the last contribution."""
+    """A speaker's call: the symposion's rules as its situation, the session's history as it sees it
+    (its own contributions as its own, the others' and the user's under their names), and last its
+    style reminder and output language — from round 2 on with the reflection. Memories only in round 1,
+    before the last message (the cache carries over to round 2)."""
     from .agent_settings import resolve_agent_temperature
     from .llm_client import build_llm_options
-    from .message_builder import inject_before_question
-    from .prompt_loader import get_agent_system_prompt
+    from .message_builder import build_messages_from_llm_history, inject_before_question
+    from .prompt_loader import agent_system_prompt
     from .tool_output_cap import compute_budget
+    from .turn_service import toolkit_names
 
     view, lang = ctx.view, ctx.intent.language
     model = agent_model(view, agent)
     num_ctx, _ = agent_context(view, agent)
-    system_prompt = f"{get_agent_system_prompt(agent, prompt_key='direct', lang=lang, memory=ctx.memory_enabled, source=ctx.source)}\n\n{rules}"
-    if reflection:
-        system_prompt = f"{system_prompt}\n\n{reflection}"
     memory, toolkit = await agent_toolkit(ctx, agent)
-    messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
-    for entry in conversation:
-        own = entry["role"] == "assistant" and entry.get("agent") == agent
-        messages.append({"role": "assistant" if own else "user", "content": entry["content"]})
-    # Round 1 only, and at the end: round 1 stays a prefix of round 2 (which has the reflection
-    # instead), the cache carries over.
+    system_prompt = agent_system_prompt(
+        agent, rules, lang, answer_channel=ctx.answer_channel, external=ctx.external_sender, tools=toolkit_names(toolkit),
+        memory=ctx.memory_enabled,
+    )
+    messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}, *build_messages_from_llm_history(
+        session_llm_history(ctx.session_id), current_user_text=reflection, perspective=agent,
+        detected_language=lang, close=True,
+    )]
     if round_num == 1 and memory:
         inject_before_question(messages, memory)
     options = build_llm_options(view, agent, model, resolve_agent_temperature(view, agent), num_ctx)

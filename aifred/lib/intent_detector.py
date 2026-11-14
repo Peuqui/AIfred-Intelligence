@@ -27,7 +27,7 @@ def _parse_mode_switch(mode_field: str) -> dict[str, Any]:
 
     ``symposion_agents`` takes a comma-separated agent list — its values
     therefore look like bare tokens to the pair-splitter
-    ("multi=symposion,symposion_agents=codi,hal,rabbi"). Bare tokens
+    ("multi=symposion,symposion_agents=codine,hal,rabbi"). Bare tokens
     directly following a ``symposion_agents=`` key are treated as
     continuation of that list; anywhere else they are ignored as before.
 
@@ -76,7 +76,7 @@ def _parse_mode_switch(mode_field: str) -> dict[str, Any]:
                 updates["active_agent"] = resolved
         elif key == "symposion_agents":
             # Ad-hoc participant list for symposion mode ("Starte Symposion
-            # mit Codi, HAL und Rabbi"). Same resolver as agent= — IDs,
+            # mit Codine, HAL und Rabbi"). Same resolver as agent= — IDs,
             # display names and STT aliases all work; invalid names are
             # dropped silently (defensive parsing, consistent with agent=).
             collecting_agents = []

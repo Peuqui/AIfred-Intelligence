@@ -19,7 +19,7 @@ For delegating self-contained tasks to a fresh model run, see the
 | 🎩 **AIfred** | Main agent — butler & scholar, answers questions (British butler style) |
 | 🏛️ **Sokrates** | Critic — questions and challenges with the Socratic method |
 | 👑 **Salomo** | Judge — weighs arguments, synthesises, delivers the verdict |
-| 📷 **Vision** | Image analyst — OCR and visual Q&A, inherits AIfred's personality |
+| 📷 **Vision** | Image analyst — OCR and visual Q&A; system agent without a persona, its prompts are the files under `prompts/<lang>/vision/` |
 | 🔥 **Pater Tuck**, 🤖 **Codine**, 🔴 **HAL 9000**, 🕎 **Rabbi Shmuel** | Custom agents shipped as examples in `data/agents.json` (Codine: code + sandbox work) |
 | ➕ **Your own** | Created in the Agent Editor — name, emoji, role, bilingual prompts, own memory |
 
@@ -40,21 +40,32 @@ context column in the UI; no code changes, no hardcoded agent lists.
 
 ## Prompt layers
 
-`_merge_prompt_layers()` in `aifred/lib/prompt_loader.py` assembles every
-system prompt from up to ten layers, in this order:
+`agent_system_prompt()` in `aifred/lib/prompt_loader.py` is the one builder of
+every system prompt (direct path, channels, debate seats, symposion, sub-agent);
+`_merge_prompt_layers()` assembles it from up to twelve layers, in this order:
 
 | # | Layer | When |
 |---|---|---|
-| 0 | User prefix | always (once, at the top) |
-| 1 | Identity — who the agent is | always |
+| 0 | User prefix (`shared/user_prefix`) | when the answer goes to the user and a name is set (once, at the top) |
+| 1 | Identity — who the agent is | always (not for a sub-agent without a persona) |
 | 2 | Reasoning — how to think | if reasoning is on for the agent |
-| 3 | Multi-agent roles — who the others are | multi-agent modes only |
-| 4 | Task prompt | always |
-| 5 | Security boundary | external channel contexts (Message Hub) |
-| 6 | Memory instructions | when agent memory is active (not in incognito) |
-| 7 | Personality — how to speak | if personality is on |
-| 8 | Tool instructions | when tools are available (near the end so tool use is prioritised) |
-| 9 | Disciplines — date grounding, quote/currency discipline, … | always |
+| 3 | Multi-agent roles — who the others are | multi-agent modes only (with seats) |
+| 4 | Situation — what the agent does here | always |
+| 5 | Output format | when the answer goes to the user |
+| 6 | Formatting rules | when the answer goes to the user and the delivery channel shows Markdown (not FreeEcho.2, Telegram) |
+| 7 | Security boundary | only for a message that is not the owner's (strangers, a webhook's payload) |
+| 8 | Memory instructions | when agent memory is active (not in incognito) and the call has `store_memory` |
+| 9 | Personality — how to speak | if personality is on (not for a sub-agent without a persona) |
+| 10 | Tool instructions (+ announcing tool calls) | for the tools the call really has (near the end so tool use is prioritised); announcing only when answering the user |
+| 11 | Disciplines — date grounding, quote/currency discipline, appointments, … and asking back | always, very last; asking back only when answering the user |
+
+The situation (layer 4) is the only layer that depends on the path:
+`shared/conversation_roles` (direct path and channels), the seat's task
+(`debate/*`), `shared/symposion`, `shared/subagent_frame` or a channel's own
+situation (`BaseChannel.situation()`; AI-Connect answers another assistant, not
+the user). The output language lives only in `shared/output_language` and is
+put into the last user message together with the personality reminder at
+every seat (reminder in front, output language behind).
 
 The current date and time are part of every prompt, so temporal questions work.
 
@@ -140,16 +151,16 @@ documents folder before and after it (`lib/document_changes.py`, `ToolKit.change
 From round 2 on, each participant is additionally asked: *which aspects of the
 original question are still unanswered, which perspective has been overlooked,
 which assumption has gone unchallenged?* This adds depth without forcing
-confrontation — agents address gaps instead of restating their view. It is an
-additive prompt layer (`prompts/{de,en}/shared/symposion_reflection.txt`), not
-a replacement of the discussion prompt (`shared/symposion.txt`).
+confrontation — agents address gaps instead of restating their view. It comes
+as a question after the history (`prompts/{de,en}/shared/symposion_reflection.txt`),
+not a replacement of the symposion's rules (`shared/symposion.txt`, the situation
+in the system prompt).
 
 ### Prompt files per step
 
 | Mode / step | Agent | Prompt |
 |---|---|---|
-| Standard | any | `<agent>/system_minimal` (task layer) |
-| Direct addressing | addressed agent | `<agent>/direct` |
+| Standard, direct addressing, channel | answering agent | `shared/conversation_roles` (an agent's own files are only `identity`, `personality`, `reminder`, `memory_context`) |
 | Critical Review, Auto-Consensus — critique | critic | `debate/critic` (+ `critic_first`/`critic_later`, vote `critic_voting` only in Auto-Consensus) |
 | Recensio — review | censor (critic's seat) | `debate/review` (+ `review_first`/`review_later`) |
 | Recensio — correctura | auctor | `debate/review_fix` |
@@ -162,6 +173,7 @@ a replacement of the discussion prompt (`shared/symposion.txt`).
 
 What a seat's task says about its round, the code picks (`debate_seats.round_rules`: the `_first` block for
 the first round, the `_later` block for every further one), so the model never weighs "IF round = 1" itself.
+Each mode has its own file for the seats' roles (`turn_debate._DEBATE_MODES`): `shared/multi_agent_roles` (auto-consensus, tribunal), `shared/multi_agent_roles_critique` (critical review: two roles, no judge), `shared/multi_agent_roles_review` (recensio).
 Critics are told to raise at most one or two points per round (not the recensio: it reports everything it
 can prove).
 

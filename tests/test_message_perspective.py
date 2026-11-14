@@ -52,7 +52,7 @@ def test_a_custom_agent_sees_only_its_own_replies_as_its_own() -> None:
         {"role": "assistant", "content": "Gott weiß es."},
         {"role": "user", "content": "[AIfred]: Von einem Kanal geschrieben."},
         {"role": "user", "content": "[AUTOMATISCHE MELDUNG (scheduler)]: Es ist 12 Uhr."},
-        {"role": "user", "content": "[CONVERSATION CONTEXT]:\nBisher: ein Gespräch über Wahrheit."},
+        {"role": "user", "content": "[BISHERIGES GESPRÄCH, ZUSAMMENGEFASST]:\nBisher: ein Gespräch über Wahrheit."},
     ]
 
 

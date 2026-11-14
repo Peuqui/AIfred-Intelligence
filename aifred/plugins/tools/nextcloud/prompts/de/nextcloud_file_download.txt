@@ -1,0 +1,1 @@
+Eine Datei aus dem Agentenordner in den lokalen Arbeitsbereich kopiert nextcloud_file_download unverändert, auch Bilder und andere Binärdateien; den Inhalt dafür nicht lesen und neu schreiben.

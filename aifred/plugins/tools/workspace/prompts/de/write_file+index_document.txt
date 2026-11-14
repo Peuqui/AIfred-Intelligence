@@ -1,1 +1,1 @@
-Nach dem Schreiben oder Bearbeiten einer Datei: frage, ob sie indexiert werden soll.
+Nach dem Schreiben oder Bearbeiten einer Datei: Soll sie später über die Dokumentensuche gefunden werden, indexiere sie; im Zweifel frag den Benutzer.

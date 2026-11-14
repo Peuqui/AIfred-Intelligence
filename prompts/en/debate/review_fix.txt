@@ -9,5 +9,3 @@ The files you created or changed so far: New: {new_files}; Changed: {changed_fil
 - If you consider a finding wrong, do not fix it, but give your reason with proof.
 - Decide yourself, without asking the user back: the review goes on without the user, who reads along at the end.
 - At the end, sum up briefly: which finding fixed how, which not and why.
-
-Start DIRECTLY with the work, without a header like "{main_agent}:"

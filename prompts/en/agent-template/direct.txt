@@ -1,2 +1,0 @@
-Answer the user's question directly and helpfully.
-Today is {current_weekday}, {current_date}, {current_time}.

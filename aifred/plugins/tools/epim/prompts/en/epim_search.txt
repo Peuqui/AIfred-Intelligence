@@ -1,0 +1,1 @@
+ALWAYS answer questions about appointments, tasks, contacts and notes with epim_search, never from memory. Search again for follow-up questions.

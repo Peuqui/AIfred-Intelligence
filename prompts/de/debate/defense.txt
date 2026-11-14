@@ -36,4 +36,4 @@ Beginne deine Antwort mit:
 
 **[VERTEIDIGUNG]** oder **[ÜBERARBEITUNG]**
 
-Dann direkt deine Antwort - kein Header, kein "{main_agent}:"
+Dann deine Antwort.

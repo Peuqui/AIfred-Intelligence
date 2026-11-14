@@ -61,7 +61,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     async def intent(_view: Any, _client: Any, _text: str) -> turn_service._Intent:
         return world.get("intent") or turn_service._Intent(None, "de", {}, False, 0.0)
 
-    async def compression(_ctx: Any, agents: list[str]) -> None:
+    async def compression(_ctx: Any, agents: list[str], _symposion: bool) -> None:
         world["compressed_for"].append(agents)
 
     async def toolkit(*_args: Any, **kwargs: Any) -> tuple[str, None]:
@@ -132,9 +132,12 @@ def _events(kind: str) -> list[dict[str, Any]]:
     return [event.data for event in session_events.replay_after(SESSION, 0) if event.kind == kind]
 
 
-def _turn(text: str = "Ist Kaffee gesund?", source: str = "browser") -> None:
+def _turn(text: str = "Ist Kaffee gesund?", source: str = "browser", trust: str | None = None) -> None:
+    """``trust``: a channel's message from that sender (security.resolve_trust_label); None: the chat."""
+    origin = None if trust is None else turn_service.TurnOrigin({"role": "user", "content": text}, text, 2, trust, {})
+
     async def scenario() -> None:
-        await turn_service.run_turn(turn_service.TurnRequest(SESSION, text, source=source))
+        await turn_service.run_turn(turn_service.TurnRequest(SESSION, text, source=source, origin=origin))
         await asyncio.sleep(0)   # the title task
 
     asyncio.run(scenario())
@@ -304,7 +307,7 @@ def test_an_agent_switched_off_leaves_the_round_table(world: dict[str, Any]) -> 
 
 @pytest.fixture
 def new_agent(world: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Adds an agent with nothing but its persona (identity, task, direct): it takes a seat with the seat's task."""
+    """Adds an agent with nothing but its persona (identity, personality): it takes a seat with the seat's task."""
     from aifred.lib import prompt_loader
 
     prompts = tmp_path / "prompts"
@@ -315,11 +318,10 @@ def new_agent(world: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyP
         for lang in ("de", "en"):
             (prompts / lang / agent).mkdir()
             (prompts / lang / agent / "identity.txt").write_text(f"Du bist {name}.", encoding="utf-8")
-            (prompts / lang / agent / "task.txt").write_text(f"{name.upper()}-PERSONA", encoding="utf-8")
-            (prompts / lang / agent / "direct.txt").write_text(f"{name} antwortet direkt.", encoding="utf-8")
+            (prompts / lang / agent / "personality.txt").write_text(f"{name.upper()}-PERSONA", encoding="utf-8")
         _edit_agents(world, lambda agents: agents.update({agent: {
             "display_name": name, "emoji": "🧐", "description": name, "role": "agent", "color": "#7d8590",
-            "prompts": {"identity": f"{agent}/identity.txt", "task": f"{agent}/task.txt", "direct": f"{agent}/direct.txt"},
+            "prompts": {"identity": f"{agent}/identity.txt", "personality": f"{agent}/personality.txt"},
         }}))
 
     return add
@@ -382,10 +384,16 @@ def test_symposion_lets_the_selected_agents_speak_in_turn_each_round(world: dict
     assert _speakers() == ["[SOKRATES]", "[SALOMO]", "[SOKRATES]", "[SALOMO]"]
     assert world["compressed_for"] == [["sokrates", "salomo"]]
     assert "[Symposion R2]" in _data()["chat_history"][-1]["content"]
+    # The round table reads the session's history like every speaker (message_builder): the others under
+    # their names, its own contributions as its own without a label (it would imitate it), the user's
+    # question under the user's name, and last its style reminder and output language.
     salomo_r1 = world["calls"][1][1]
-    assert salomo_r1[-1] == {"role": "user", "content": "[Sokrates]: Erst die Frage klären."}
+    assert salomo_r1[-2] == {"role": "user", "content": "[Sokrates]: Erst die Frage klären."}
+    assert salomo_r1[-1]["content"].endswith("[AUSGABESPRACHE: DEUTSCH]")
+    assert salomo_r1[1]["role"] == "user" and salomo_r1[1]["content"].startswith("[")      # the user, named
     sokrates_r2 = world["calls"][2][1]
-    assert {"role": "assistant", "content": "[Sokrates]: Erst die Frage klären."} in sokrates_r2
+    assert {"role": "assistant", "content": "Erst die Frage klären."} in sokrates_r2
+    assert "Lücken" in sokrates_r2[-1]["content"]                # the reflection: in the last message, not the system
 
 
 def test_symposion_with_one_agent_is_its_direct_answer(world: dict[str, Any]) -> None:
@@ -512,19 +520,66 @@ SECURITY = "SICHERHEITSHINWEIS"   # prompts/de/shared/security_boundary.txt
 
 
 @pytest.mark.parametrize("mode", ["critical_review", "auto_consensus", "tribunal", "recensio"])
-def test_a_channels_message_gives_every_speaker_the_security_boundary(world: dict[str, Any], mode: str) -> None:
-    """A channel's message may come from a stranger (<external_message>): every system prompt of the turn explains
-    it. From 07.11.2026 (turn_service) until 14.11.2026 no prompt builder got the source, none had it."""
+def test_a_strangers_message_gives_every_speaker_the_security_boundary(world: dict[str, Any], mode: str) -> None:
+    """A stranger's message (<external_message>): every system prompt of the turn explains it. From 07.11.2026
+    (turn_service) until 14.11.2026 no prompt builder got the source, none had it."""
     _mode(mode)
     world["view"].max_debate_rounds = 1
-    _turn(source="email")
+    _turn(source="email", trust="external")
     systems = {label: messages[0]["content"] for label, messages in world["calls"]}
     assert systems and all(SECURITY in system for system in systems.values()), [
         label for label, system in systems.items() if SECURITY not in system
     ]
 
 
-def test_a_chat_message_has_no_security_boundary(world: dict[str, Any]) -> None:
+def test_the_owners_message_has_no_security_boundary(world: dict[str, Any]) -> None:
+    """The chat and the owner on a channel (Peuqui 14.11.2026: the restrictions are for strangers only)."""
     _mode("critical_review")
     _turn()
-    assert all(SECURITY not in messages[0]["content"] for _, messages in world["calls"])
+    _turn(source="telegram", trust="owner")
+    assert world["calls"] and all(SECURITY not in messages[0]["content"] for _, messages in world["calls"])
+
+
+# ── what every speaker gets ──────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("mode", ["critical_review", "auto_consensus", "tribunal", "recensio"])
+def test_every_speaker_ends_with_its_reminder_and_the_output_language(world: dict[str, Any], mode: str) -> None:
+    """Critic, judge, censor and author alike: the last message carries the style reminder and the output
+    language (until 14.11.2026 only a speaker with a question of its own got them)."""
+    _mode(mode)
+    world["view"].max_debate_rounds = 2
+    _turn()
+    for label, messages in world["calls"]:
+        assert messages[-1]["role"] == "user" and messages[-1]["content"].endswith("[AUSGABESPRACHE: DEUTSCH]"), label
+
+
+def test_memories_never_go_into_a_system_prompt(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    """A memory block changes with every question: in the system prompt it would void the prefix cache of the
+    whole history behind it (message_builder.inject_before_question). Until 14.11.2026 the judge, the
+    refinement and the correctura had it there."""
+    from aifred.lib import agent_memory
+
+    async def toolkit(*_args: Any, **_kwargs: Any) -> tuple[str, None]:
+        return "ERINNERUNG-X", None
+
+    monkeypatch.setattr(agent_memory, "prepare_agent_toolkit", toolkit)
+    _mode("auto_consensus")
+    world["view"].max_debate_rounds = 2
+    _turn()
+    for label, messages in world["calls"]:
+        assert "ERINNERUNG-X" not in messages[0]["content"], label
+        assert messages[-2]["content"] == "ERINNERUNG-X", label          # right before the last message
+
+
+def test_each_mode_describes_only_the_seats_that_speak() -> None:
+    from aifred.lib import turn_debate
+    from aifred.lib.prompt_loader import CRITIQUE_ROLES, DEBATE_ROLES, REVIEW_ROLES, load_prompt
+
+    seats = {"critic": "sokrates", "judge": "salomo"}
+    expected = {"critical_review": CRITIQUE_ROLES, "recensio": REVIEW_ROLES, "auto_consensus": DEBATE_ROLES,
+                "tribunal": DEBATE_ROLES}
+    for mode, roles in expected.items():
+        assert turn_debate.plan_turn(mode, "aifred", None, [], seats).roles == roles, mode
+    critique = load_prompt(CRITIQUE_ROLES, lang="de", main_agent="AIfred", critic_agent="Sokrates", user_name="USER")
+    assert "Salomo" not in critique and "{judge_agent}" not in critique

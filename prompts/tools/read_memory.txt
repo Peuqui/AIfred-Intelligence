@@ -1,1 +1,1 @@
-Read the full text of an entry in your long-term memory, referenced by the ID shown in brackets, when your memory context lists it without content — in particular before you extend or merge it with update_memory.
+Read the full text of an entry in your long-term memory, referenced by the ID shown in brackets in your memory context; the context lists most entries without their content.

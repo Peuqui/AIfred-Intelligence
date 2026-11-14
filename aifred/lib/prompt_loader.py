@@ -12,7 +12,9 @@ Personality System (v2.15.3+):
 """
 
 from collections.abc import Collection
+from contextvars import ContextVar
 from pathlib import Path
+from typing import Any
 
 from .settings import persisted_settings
 
@@ -63,7 +65,7 @@ def _resolve_prompt_file(agent: str, prompt_key: str, lang: str | None = None) -
     using "aifred/personality.txt" for AIfred's personality.
 
     Args:
-        agent: Agent identifier (e.g. "aifred", "vision", or any custom agent)
+        agent: Agent identifier (e.g. "aifred", "sokrates", or any custom agent)
         prompt_key: Key into the agent's prompts dict
         lang: Language code, defaults to current language
 
@@ -71,7 +73,7 @@ def _resolve_prompt_file(agent: str, prompt_key: str, lang: str | None = None) -
         Resolved Path if the file exists, None otherwise
     """
     if lang is None:
-        lang = get_language()
+        lang = prompt_language()
 
     from .agent_config import get_agent_config
     config = get_agent_config(agent)
@@ -106,7 +108,7 @@ def load_reasoning(agent: str, lang: str | None = None) -> str:
         return ""
 
     if lang is None:
-        lang = get_language()
+        lang = prompt_language()
 
     reasoning_file = PROMPTS_DIR / lang / "utility" / "reasoning.txt"
 
@@ -121,7 +123,7 @@ def load_identity(agent: str, lang: str | None = None) -> str:
     Load identity prompt for an agent (always loaded).
 
     Identity defines WHO the agent is - resolved via agent_config,
-    so agents can use custom paths (e.g. "vision/identity.txt").
+    so agents can use custom paths (e.g. a new agent's "<id>/identity.txt").
 
     Args:
         agent: Agent identifier
@@ -143,7 +145,7 @@ def load_personality(agent: str, lang: str | None = None) -> str:
 
     Personality defines HOW the agent speaks (style) - resolved via
     agent_config, so agents can reference other agents' personalities
-    (e.g. Vision using "aifred/personality.txt").
+    (e.g. an agent using another agent's "aifred/personality.txt").
 
     Args:
         agent: Agent identifier
@@ -203,8 +205,18 @@ def prompt_path(lang: str, relative: str) -> Path | None:
 
 
 def get_language() -> str:
-    """UI/prompt language ("de"/"en") from the persisted settings."""
+    """UI language ("de"/"en") from the persisted settings."""
     return str(persisted_settings()["ui_language"])
+
+
+# The language of the turn being answered (set by turn_service after the intent detection): every prompt a model
+# reads in it, tool results and notices too, speaks it. Task-local like tool_output_cap.budget_var.
+turn_language: ContextVar[str | None] = ContextVar("turn_language", default=None)
+
+
+def prompt_language() -> str:
+    """The language of a prompt loaded without one: the turn's, outside a turn the interface's."""
+    return turn_language.get() or get_language()
 
 
 def _build_standard_placeholders(lang: str) -> dict:
@@ -286,7 +298,7 @@ def load_prompt(
 
     Args:
         prompt_name: Name of the prompt file (without .txt extension)
-        lang: Language override ("de" or "en", or None for current setting)
+        lang: Language ("de" or "en"); None: the turn's language (prompt_language)
         user_text: User text (passed through to kwargs for template formatting)
         **kwargs: Keyword arguments for string formatting
 
@@ -299,7 +311,7 @@ def load_prompt(
     """
     # Determine language
     if lang is None:
-        lang = get_language()
+        lang = prompt_language()
 
     # Load from language-specific directory only (no fallback)
     prompt_file = PROMPTS_DIR / lang / f"{prompt_name}.txt"
@@ -310,35 +322,33 @@ def load_prompt(
             f"Expected language: {lang}\n"
             f"Available prompts: {list_available_prompts()}"
         )
+    if user_text and 'user_text' not in kwargs:
+        kwargs['user_text'] = user_text
+    return fill_prompt(prompt_file, lang, **kwargs)
 
-    # Load prompt file
-    with open(prompt_file, 'r', encoding='utf-8') as f:
-        prompt_template = f.read()
 
-    # ============================================================
-    # BUILD STANDARD PLACEHOLDERS (date/time/user)
-    # ============================================================
+def fill_prompt(prompt_file: Path, lang: str, **kwargs: Any) -> str:
+    """The prompt file with its placeholders filled: the standard ones (date, time, user; kwargs override them)
+    and ``kwargs``. One place for every prompt file, the tree's (load_prompt) and a plugin's
+    (plugin_base.load_plugin_prompt).
+
+    Raises:
+        KeyError: a placeholder of the file is given nowhere
+    """
+    prompt_template = prompt_file.read_text(encoding="utf-8")
     standard_placeholders = _build_standard_placeholders(lang)
-
-    # Merge standard placeholders with kwargs (kwargs override standard)
     all_placeholders = {**standard_placeholders, **kwargs}
-
-    # Merge user_text into placeholders if not already there
-    if user_text and 'user_text' not in all_placeholders:
-        all_placeholders['user_text'] = user_text
 
     # NOTE: User name/gender prefix is injected in _merge_prompt_layers() (Layer 0),
     # NOT here. This prevents the prefix from appearing once per layer (5-6x).
-
-    # Format prompt with all placeholders
     try:
         return prompt_template.format(**all_placeholders)
     except KeyError as e:
         raise KeyError(
-            f"Missing placeholder in prompt '{prompt_name}': {e}\n"
+            f"Missing placeholder in prompt '{prompt_file}': {e}\n"
             f"Provided kwargs: {list(kwargs.keys())}\n"
             f"Standard placeholders: {list(standard_placeholders.keys())}"
-        )
+        ) from e
 
 
 def list_available_prompts() -> list:
@@ -363,78 +373,53 @@ def list_available_prompts() -> list:
 
 
 # ============================================================
-# Generic Agent Prompt Loader (dynamic agents)
+# The system prompt of an agent (one builder for every path)
 # ============================================================
 
-# The descriptions of the seats: the dialectic of three (critic, judge) and the code review of two
-# (author and reviewer, no antithesis).
+# The descriptions of the seats: the dialectic of three (critic, judge), the critical review of two (author,
+# critic) and the code review of two (auctor and censor, no antithesis).
 DEBATE_ROLES = "shared/multi_agent_roles"
+CRITIQUE_ROLES = "shared/multi_agent_roles_critique"
 REVIEW_ROLES = "shared/multi_agent_roles_review"
 
 
-def get_agent_system_prompt(
-    agent_id: str,
-    prompt_key: str = "task",
-    lang: str | None = None,
+def agent_system_prompt(
+    agent_id: str | None,
+    situation: str,
+    lang: str,
+    *,
+    answer_channel: str,
+    external: bool,
+    tools: Collection[str] | None,
+    memory: bool,
     seats: dict[str, str] | None = None,
-    memory: bool = True,
     roles: str = DEBATE_ROLES,
-    **kwargs,
+    answers_user: bool = True,
 ) -> str:
+    """The system prompt of an agent, on every path: the direct answer and every channel
+    (``situation`` = shared/conversation_roles), a seat of a debate (its task), the symposion (its
+    rules), a sub-agent (shared/subagent_frame). The agent's own files are only identity, personality
+    and reminder; what it is to do comes from the situation.
+
+    ``answer_channel``: where the answer arrives (a job's delivery channel, else the message's): the
+    formatting rules come where it is shown, not spoken or plain text. ``external``: the message is not the owner's (security.in_owner_context: a
+    stranger, a webhook's payload): it adds the security boundary. ``tools``: the names of the
+    tools the call really has — only theirs get instructions; None while the toolkit is not built
+    yet (measuring the prompt before a turn: the agent's whitelist). ``memory``: the session is not
+    incognito. ``seats``: a debate's seats, described by ``roles``. ``agent_id`` None: a sub-agent
+    without a persona (no identity, reasoning, personality). ``answers_user`` False: the answer goes
+    to someone else than the user (a sub-agent's caller, a peer on AI-Connect) — no user prefix, output
+    format, formatting rules, announcing or asking back.
     """
-    Load system prompt for any configured agent.
-
-    Uses agent_config.json to resolve prompt file paths, then merges
-    through the layer system of _merge_prompt_layers (identity, reasoning, multi-agent, task, memory, personality, tools, …).
-
-    Args:
-        agent_id: Agent identifier (e.g. "aifred", "sokrates", or any custom agent)
-        prompt_key: Key into the agent's prompts dict (default "task" = system_minimal)
-        lang: Language code (de/en), defaults to current language
-        seats: The debate's seats (lib/debate_seats.py): with them, the description of the seats and
-            of who sits in them (shared/multi_agent_roles)
-        memory: If True, include memory instructions (False in incognito mode)
-        roles: The prompt that describes the seats (DEBATE_ROLES or REVIEW_ROLES)
-        **kwargs: Extra placeholders for the prompt template
-
-    Returns:
-        Merged system prompt string
-    """
-    from .agent_config import get_agent_config
-
-    config = get_agent_config(agent_id)
-    if config is None:
-        raise ValueError(f"Unknown agent: {agent_id}")
-
-    prompt_path = config.prompts.get(prompt_key)
-    if prompt_path is None:
-        raise ValueError(
-            f"Agent '{agent_id}' has no prompt for key '{prompt_key}'. "
-            f"Available: {list(config.prompts.keys())}"
-        )
-
-    # Strip .txt suffix if present (load_prompt adds it)
-    prompt_name = prompt_path.removesuffix(".txt")
-
-    task_prompt = load_prompt(prompt_name, lang=lang, **kwargs)
     return _merge_prompt_layers(
-        agent_id, task_prompt, lang,
-        seats=seats, memory=memory, roles=roles,
-        source=kwargs.get('source', 'browser'),
+        agent_id, situation, lang, seats=seats, memory=memory, answer_channel=answer_channel, external=external, roles=roles,
+        tools=tools, answers_user=answers_user,
     )
 
 
-def get_seat_system_prompt(
-    agent_id: str, task_prompt: str, lang: str, seats: dict[str, str], roles: str, memory: bool = True,
-    tools: Collection[str] | None = None, source: str = "browser",
-) -> str:
-    """An agent's prompt with the task of its seat AS its task layer, in place of its everyday task:
-    the reviewer's task is the whole job, the agent's own ("better short than long") would pull against
-    it. Identity and personality stay. ``tools``: the seat keeps only these of its agent's tools, and
-    only their instructions come in."""
-    return _merge_prompt_layers(
-        agent_id, task_prompt, lang, seats=seats, memory=memory, roles=roles, tools=tools, source=source,
-    )
+def conversation_situation(lang: str) -> str:
+    """The situation of an agent that answers the user (directly, addressed by name, in a channel)."""
+    return load_prompt("shared/conversation_roles", lang=lang)
 
 
 # ============================================================
@@ -482,7 +467,27 @@ def load_multi_agent_roles(seats: dict[str, str], lang: str | None = None, roles
     """Who sits in which seat and the history labels (``roles``: DEBATE_ROLES or REVIEW_ROLES).
     Used in all multi-agent modes (not in direct modes)."""
     from .debate_seats import seat_names
-    return load_prompt(roles, lang=lang, **seat_names(seats))
+    from .message_builder import history_user_label
+    return load_prompt(roles, lang=lang, user_name=history_user_label(), **seat_names(seats))
+
+
+def _renders_markdown(answer_channel: str) -> bool:
+    """The answer, arriving on ``answer_channel``, is shown as Markdown (browser, text channels, a job's review) — not
+    spoken or shown as plain text (a channel with ``markdown_output = False``: the Echo puck, Telegram)."""
+    from .plugin_registry import get_channel
+
+    channel = get_channel(answer_channel)
+    return channel is None or channel.markdown_output
+
+
+def answer_situation(source: str, lang: str) -> tuple[str, bool]:
+    """The situation of the agent answering a turn from ``source`` and whether it answers the user: the
+    channel's own (AI-Connect: another assistant, not the user), else the user's conversation."""
+    from .plugin_registry import get_channel
+
+    channel = get_channel(source)
+    own = channel.situation(lang) if channel is not None else None
+    return (own, False) if own is not None else (conversation_situation(lang), True)
 
 
 def load_memory_instructions(lang: str | None = None) -> str:
@@ -491,33 +496,36 @@ def load_memory_instructions(lang: str | None = None) -> str:
 
 
 def _merge_prompt_layers(
-    agent: str,
+    agent: str | None,
     task_prompt: str,
     lang: str | None = None,
     seats: dict[str, str] | None = None,
     memory: bool = True,
-    source: str = "browser",
+    answer_channel: str = "browser",
+    external: bool = False,
     roles: str = DEBATE_ROLES,
     tools: Collection[str] | None = None,
+    answers_user: bool = True,
 ) -> str:
     """
     Merge prompt layers in correct order.
 
-    Layer system:
+    Layer system (agent None: no layers 1, 2, 9; answers_user False: no layers 0, 5, 6, no announcing and no asking back):
     0. User prefix (WHO is the user) - if user_name is set
-    1. Identity (WHO am I) - always loaded
-    2. Reasoning (HOW do I think) - toggleable via settings
-    3. Multi-Agent Roles (WHO are the others) - only in multi-agent modes
-    4. Task prompt (WHAT should I do) - situational
-    5. Security boundary - only for external channels (source != "browser")
-    6. Memory instructions (REMEMBER) - when memory active (not incognito)
-    7. Personality (HOW do I speak) - toggleable via settings
-    8. Tool instructions (USE TOOLS) - always, near the end so the LLM
-       prioritizes tool use
-    9. Disciplines (date grounding, quote/currency discipline) - always, LAST
+    1. Identity (WHO am I, with the agent's role) - always loaded
+    2. Reasoning (HOW do I think) - toggleable per agent
+    3. Multi-Agent Roles (WHO are the others) - only with seats
+    4. Situation (WHAT should I do here) - answer the user, a seat's task, the symposion, the sub-agent's frame
+    5. Output format - always
+    6. Formatting rules - where the answer is shown, not spoken
+    7. Security boundary - only for a message from a sender who is not the owner (external)
+    8. Memory instructions - session not incognito and memory tools at hand
+    9. Personality (HOW do I speak) - toggleable per agent
+    10. Tool and plugin instructions - for the tools the call has (announcing them: answering the user only)
+    11. Disciplines and asking back - always, LAST
 
     Args:
-        agent: Agent name ("aifred", "sokrates", "salomo", or custom agent ID)
+        agent: Agent name ("aifred", "sokrates", "salomo", or custom agent ID); None for a sub-agent without persona
         task_prompt: The task-specific prompt (already loaded with timestamp)
         lang: Language code (de/en), defaults to current language
         seats: The debate's seats: with them, shared/multi_agent_roles.txt names who sits where
@@ -527,24 +535,24 @@ def _merge_prompt_layers(
         Merged prompt string with all applicable layers
     """
     if lang is None:
-        lang = get_language()
+        lang = prompt_language()
 
     parts = []
 
     # Layer 0: User prefix (once, at the top — NOT per-layer). Name and gender (translated for the language)
     # come from the standard placeholders.
-    if get_user_name():
+    if answers_user and get_user_name():
         user_prefix = load_prompt('shared/user_prefix', lang=lang)
         if user_prefix:
             parts.append(user_prefix)
 
     # Layer 1: Identity (always)
-    identity = load_identity(agent, lang)
+    identity = load_identity(agent, lang) if agent else ""
     if identity:
         parts.append(identity)
 
     # Layer 2: Reasoning (if enabled) - before task prompt
-    reasoning = load_reasoning(agent, lang)
+    reasoning = load_reasoning(agent, lang) if agent else ""
     if reasoning:
         parts.append(reasoning)
 
@@ -554,57 +562,59 @@ def _merge_prompt_layers(
         if roles_prompt:
             parts.append(roles_prompt)
 
-    # Layer 4: Task prompt (always)
-    parts.append(task_prompt)
+    # Layer 4: The situation (what the agent is to do here: answer the user, a seat's task, the symposion)
+    if task_prompt:
+        parts.append(task_prompt)
 
-    # Layer 5: Security boundary (only for external channel contexts)
-    if source != "browser":
-        sec_boundary = load_prompt('shared/security_boundary', lang=lang)
-        if sec_boundary:
-            parts.append(sec_boundary)
+    # Layer 5: Output format (no name header) — on every path to the user
+    if answers_user:
+        parts.append(load_prompt('shared/output_format', lang=lang))
 
-    # Layer 6: Memory instructions (when memory active)
-    if memory:
-        mem_instructions = load_memory_instructions(lang)
-        if mem_instructions:
-            parts.append(mem_instructions)
+    # Layer 6: Formatting rules where the answer is shown (browser, text channels), not where it is spoken
+    if answers_user and _renders_markdown(answer_channel):
+        parts.append(load_prompt('shared/formatting', lang=lang))
 
-    # Layer 7: Personality (if enabled)
-    personality = load_personality(agent, lang)
+    # Layer 7: Security boundary — a stranger's message; the owner's own (any channel, a job) needs none
+    if external:
+        parts.append(load_prompt('shared/security_boundary', lang=lang))
+
+    # Layer 8: Memory instructions — when the session keeps memory and the call has the memory tools
+    if memory and (tools is None or "store_memory" in tools):
+        parts.append(load_memory_instructions(lang))
+
+    # Layer 9: Personality (if enabled)
+    personality = load_personality(agent, lang) if agent else ""
     if personality:
         parts.append(personality)
 
-    # Layer 8: Tool instructions — near the end so LLM prioritizes tool use
-    tool_instructions = load_prompt('shared/tool_instructions', lang=lang)
-    if tool_instructions:
-        parts.append(tool_instructions)
-
-    # Plugin-spezifische Anleitungen (dynamisch). Der Loader reicht die
-    # freigeschalteten Tool-Namen (Whitelist aus agents.json, dieselbe
-    # Quelle wie das Toolkit-Gate in prepare_agent_toolkit) an JEDES Plugin
-    # rein — das PLUGIN entscheidet selbst, welche (Per-Tool-)Fragmente es
-    # liefert, und gibt "" zurück, wenn der Agent kein Tool davon hat
-    # (siehe load_plugin_instructions). So bekommt ein Agent nie die
-    # Anleitung eines Tools, das er nicht aufrufen kann.
-    # allowed=None (keine Whitelist) = alle Tools erlaubt.
+    # Layer 10: Tool instructions — near the end so the model prioritizes tool use. The plugins'
+    # instructions only for the tools the call really has (``tools``); before the toolkit is built
+    # (None) for the agent's whitelist. Every plugin decides itself which fragments it gives
+    # (load_plugin_instructions) and gives "" when none of its tools is there.
     from .agent_config import get_agent_config
     from .plugin_registry import discover_tools
-    _cfg = get_agent_config(agent)
-    allowed = set(_cfg.tools) if (_cfg and _cfg.tools is not None) else None
-    if tools is not None:   # a seat with fewer tools (the recensio's censor): only theirs
-        allowed = set(tools) if allowed is None else allowed & set(tools)
-    for p in discover_tools():
-        if not p.is_available():
-            continue
-        instr = p.get_prompt_instructions(lang, allowed)
-        if instr:
-            parts.append(instr)
+    if tools is None:
+        assert agent is not None, "a sub-agent's prompt is built with its granted tools"
+        config = get_agent_config(agent)
+        allowed = set(config.tools) if (config and config.tools is not None) else None
+    else:
+        allowed = set(tools)
+    if allowed is None or allowed:
+        parts.append(load_prompt('shared/tool_instructions', lang=lang))
+        if answers_user:   # announcing a tool call is said to the user; a sub-agent speaks to nobody
+            parts.append(load_prompt('shared/tool_announce', lang=lang))
+        for plugin in discover_tools():
+            if not plugin.is_available():
+                continue
+            instructions = plugin.get_prompt_instructions(lang, allowed)
+            if instructions:
+                parts.append(instructions)
 
-    # Layer 9: Disciplines — date grounding, quote/currency discipline,
-    # decision clarification (always, LAST — recency bias for date grounding)
-    disciplines = load_prompt('shared/disciplines', lang=lang)
-    if disciplines:
-        parts.append(disciplines)
+    # Layer 11: Disciplines (date grounding, quotes, currency) and asking back on decisions — LAST
+    # (recency bias for the date grounding)
+    parts.append(load_prompt('shared/disciplines', lang=lang))
+    if answers_user:
+        parts.append(load_prompt('shared/ask_back', lang=lang))
 
     return "\n\n".join(parts)
 
@@ -614,7 +624,7 @@ def get_vision_ir_context_prompt(lang: str | None = None) -> str:
     das VLM IR-Helligkeiten als reale Farben beschreibt ("helles T-Shirt").
     In ``prompts/{lang}/vision/vision_ir_context.txt``."""
     if lang is None:
-        lang = get_language()
+        lang = prompt_language()
     prompt_file = PROMPTS_DIR / lang / "vision" / "vision_ir_context.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip()
@@ -628,7 +638,7 @@ def get_vision_identity_context_prompt(
     SSoT für Alert-Beschreibung UND Live-Teleprompter. In
     ``prompts/{lang}/vision/vision_identity_context.txt`` ({names})."""
     if lang is None:
-        lang = get_language()
+        lang = prompt_language()
     prompt_file = PROMPTS_DIR / lang / "vision" / "vision_identity_context.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip().replace("{names}", ", ".join(names))
@@ -642,7 +652,7 @@ def get_vision_headcount_context_prompt(
     Personen im Hintergrund beschreibt statt nur die vorderste. In
     ``prompts/{lang}/vision/vision_headcount_context.txt`` ({count})."""
     if lang is None:
-        lang = get_language()
+        lang = prompt_language()
     prompt_file = PROMPTS_DIR / lang / "vision" / "vision_headcount_context.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip().replace("{count}", str(count))
@@ -652,7 +662,7 @@ def get_vision_continuous_prompt(lang: str | None = None) -> str:
     """Prompt für die Dauer-Beschreibung des Live-Teleprompters. In
     ``prompts/{lang}/vision/vision_continuous.txt``."""
     if lang is None:
-        lang = get_language()
+        lang = prompt_language()
     prompt_file = PROMPTS_DIR / lang / "vision" / "vision_continuous.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip()
@@ -662,7 +672,7 @@ def get_vision_event_single_prompt(lang: str | None = None) -> str:
     """Prompt für die Einzelbild-Analyse eines gespeicherten Vision-Events
     (Casus-Button). In ``prompts/{lang}/vision/vision_event_single.txt``."""
     if lang is None:
-        lang = get_language()
+        lang = prompt_language()
     prompt_file = PROMPTS_DIR / lang / "vision" / "vision_event_single.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip()
@@ -673,7 +683,7 @@ def get_vision_event_sequence_prompt(lang: str | None = None) -> str:
     in Zeitreihenfolge — Szene + was sich verändert). Genutzt vom Cluster-/
     Bulk-Describe. In ``prompts/{lang}/vision/vision_event_sequence.txt``."""
     if lang is None:
-        lang = get_language()
+        lang = prompt_language()
     prompt_file = PROMPTS_DIR / lang / "vision" / "vision_event_sequence.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip()
@@ -684,28 +694,10 @@ def get_vision_event_summary_prompt(lang: str | None = None) -> str:
     (kurzer Ablauf ohne Bildnummern — die Bilder zeigt der Film). In
     ``prompts/{lang}/vision/vision_event_summary.txt``."""
     if lang is None:
-        lang = get_language()
+        lang = prompt_language()
     prompt_file = PROMPTS_DIR / lang / "vision" / "vision_event_summary.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip()
-
-
-# ============================================================
-# Agent Direct & System Prompts (generic, works for all agents)
-# ============================================================
-
-def get_agent_direct_prompt(
-    agent_id: str, lang: str | None = None, memory: bool = True, source: str = "browser",
-) -> str:
-    """Load direct response prompt for any agent via layer merging.
-
-    Works for both default agents (aifred, sokrates, salomo) and custom agents.
-    Loads {agent_id}/direct.txt as task prompt, merges with all applicable layers.
-    """
-    task_prompt = load_prompt(f'{agent_id}/direct', lang=lang)
-    return _merge_prompt_layers(
-        agent_id, task_prompt, lang, memory=memory, source=source,
-    )
 
 
 # ============================================================
@@ -717,71 +709,14 @@ def get_direct_prompt_tokens(
     lang: str = "de",
     *,
     memory: bool = True,
+    situation: str | None = None,
 ) -> int:
-    """Tokens des System-Prompts, den dieser Agent im naechsten Turn abschickt.
-
-    Gemessen mit dem Tokenizer am Ergebnis von :func:`get_agent_direct_prompt`
-    — also an genau dem Text, den ``turn_service._direct_call`` baut (die
-    Tools-Schicht allein wiegt rund 8.000 Tokens, bei 16k Kontext knapp die
-    Haelfte des Fensters).
-    """
+    """Tokens des System-Prompts, den dieser Agent im nächsten Zug abschickt, bevor sein Werkzeugkasten
+    gebaut ist (Anleitungen nach seiner Whitelist, also die Obergrenze). ``situation``: die des ersten
+    Sprechers (das Symposion hat seine Regeln), sonst die Antwort an den Benutzer."""
     from .context_manager import count_tokens_with_tokenizer
-    prompt = get_agent_direct_prompt(agent, lang=lang, memory=memory)
+    prompt = agent_system_prompt(
+        agent, situation if situation is not None else conversation_situation(lang), lang,
+        answer_channel="browser", external=False, tools=None, memory=memory,
+    )
     return count_tokens_with_tokenizer(prompt)
-
-
-def get_subagent_system_prompt(
-    lang: str | None = None,
-    granted_tools: set | None = None,
-    source: str = "browser",
-    persona_agent: str | None = None,
-) -> str:
-    """System prompt for a sub-agent run by the ``subagent`` plugin.
-
-    Deliberately lean — no reminder or memory layer: a sub-agent is a worker
-    with a task, not a conversation partner. Same layer order as
-    ``merge_prompt_layers``, with the frame in the task slot: identity →
-    frame (``shared/subagent_frame``) → security boundary (external sources
-    only) → personality → tool instructions → plugin instructions for exactly
-    the tools the sub-agent holds → disciplines (always last).
-
-    ``persona_agent`` is set when the caller delegates to ANOTHER main agent:
-    that agent's identity and personality are loaded, because its value may
-    sit in the prompt (e.g. a review methodology) rather than in model or
-    tools. Without it the sub-agent has no persona.
-
-    ``granted_tools`` is the sub-agent's actual tool set (after tier and
-    depth filtering), not the agent whitelist — a sub-agent must never read
-    instructions for a tool it cannot call.
-    """
-    if lang is None:
-        lang = get_language()
-    parts = []
-    if persona_agent:
-        identity = load_identity(persona_agent, lang)
-        if identity:
-            parts.append(identity)
-    parts.append(load_prompt('shared/subagent_frame', lang=lang))
-    if source != "browser":
-        sec_boundary = load_prompt('shared/security_boundary', lang=lang)
-        if sec_boundary:
-            parts.append(sec_boundary)
-    if persona_agent:
-        personality = load_personality(persona_agent, lang)
-        if personality:
-            parts.append(personality)
-    if granted_tools:
-        tool_instructions = load_prompt('shared/tool_instructions', lang=lang)
-        if tool_instructions:
-            parts.append(tool_instructions)
-        from .plugin_registry import discover_tools
-        for p in discover_tools():
-            if not p.is_available():
-                continue
-            instr = p.get_prompt_instructions(lang, granted_tools)
-            if instr:
-                parts.append(instr)
-    disciplines = load_prompt('shared/disciplines', lang=lang)
-    if disciplines:
-        parts.append(disciplines)
-    return "\n\n".join(parts)

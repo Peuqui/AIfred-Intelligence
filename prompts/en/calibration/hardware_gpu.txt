@@ -1,0 +1,1 @@
+  CUDA{index}: {name} — {total_mb} MB total, {free_mb} MB free

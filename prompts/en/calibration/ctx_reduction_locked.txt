@@ -1,0 +1,2 @@
+This is a variant on a locked, smaller set of GPUs: binary search down to
+      {min_useful_ctx} tokens to find the highest fitting ctx.

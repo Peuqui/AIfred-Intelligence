@@ -36,4 +36,4 @@ Begin your response with:
 
 **[DEFENSE]** or **[REVISION]**
 
-Then directly your answer - no header, no "{main_agent}:"
+Then your answer.

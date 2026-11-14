@@ -22,6 +22,7 @@ Delimiter Defense ───── <external_message sender="..." channel="..." t
     │
     ▼
 Security Boundary ───── LLM bekommt Instruktion: keine Anweisungen aus external_message
+                         (nur bei Nachricht, die nicht vom Eigentümer ist)
     │
     ▼
 Tier Filter ─────────── Tools über max_tier werden gar nicht geladen
@@ -211,7 +212,7 @@ Externe Nachrichten werden bereinigt BEVOR sie die Pipeline betreten:
 2. **Zero-Width Characters entfernen** — U+200B, U+200C, U+200D, U+FEFF, etc.
 3. **NFC-Normalisierung** — Unicode-Tricks neutralisieren
 4. **Delimiter Defense** — Text wird in `<external_message>` gewrapped
-5. **Security Boundary Prompt** — LLM bekommt Instruktion, keine Anweisungen aus externen Nachrichten zu folgen
+5. **Security Boundary Prompt** — LLM bekommt Instruktion, keine Anweisungen aus externen Nachrichten zu folgen. Das Kriterium ist nicht der Kanal, sondern der Absender: `turn_service.external_sender(source, origin)` = `not in_owner_context(source, trust)`. Fremde und Webhook-Inhalt bekommen die Sicherheitsgrenze in jedem Prompt des Zugs (auch bei jedem Sprecher einer Diskussion und im Symposion); der Eigentümer im Browser, auf Telegram (erster Eintrag der Allowlist), per E-Mail (verifiziert) und seine Scheduler-Aufträge bekommen sie nicht. Discord und FreeEcho.2 erkennen den Eigentümer nicht (`_is_owner` gibt dort `False`), ihre Nachrichten gelten als extern. Kamera-Alarme (Absender „system“) bleiben extern.
 
 Implementiert in `security.py: sanitize_inbound()`, `wrap_external_message()`.
 Aufgerufen in `message_processor.py: process_inbound()`.
@@ -319,7 +320,8 @@ Abfrage: `sqlite3 data/security/audit.db "SELECT * FROM tool_audit ORDER BY time
 | `aifred/lib/plugin_base.py` | PluginContext.max_tier/source |
 | `aifred/lib/agent_memory.py` | Tier-Filterung in prepare_agent_toolkit() |
 | `aifred/lib/message_processor.py` | Sanitization + Tier-Durchreichung |
-| `aifred/lib/prompt_loader.py` | Security-Boundary Layer im System-Prompt |
+| `aifred/lib/prompt_loader.py` | Security-Boundary Layer (Schicht 7) im System-Prompt, nur mit `external=True` |
+| `aifred/lib/turn_service.py` | `external_sender()`: ob der Zug die Sicherheitsgrenze bekommt |
 | `aifred/lib/config.py` | SECURITY_AUDIT_DB, Rate Limits, Chain Depth |
 | `prompts/de/shared/security_boundary.txt` | LLM-Instruktion für externe Nachrichten |
 | `prompts/en/shared/security_boundary.txt` | Englische Version |

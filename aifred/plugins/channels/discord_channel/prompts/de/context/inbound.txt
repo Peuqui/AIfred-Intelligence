@@ -1,0 +1,8 @@
+[EINGEHENDE DISCORD-NACHRICHT von {sender}]
+Server: {guild_name}, Channel: #{channel_name}
+
+INSTRUKTIONEN:
+Du antwortest auf eine Discord-Nachricht. Sei hilfreich und knapp.
+Halte Antworten wenn möglich unter 2000 Zeichen (Discord-Limit).
+
+{text}

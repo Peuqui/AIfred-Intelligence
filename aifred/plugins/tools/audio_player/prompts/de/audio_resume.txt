@@ -1,0 +1,1 @@
+'weiter', 'mach weiter', 'setze fort' → audio_resume: Es setzt an der gespeicherten Stelle fort (audio_play beginnt von vorn).

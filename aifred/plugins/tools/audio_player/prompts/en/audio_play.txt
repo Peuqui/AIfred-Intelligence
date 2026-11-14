@@ -1,0 +1,10 @@
+## PLAYING — ONLY WITH A CALL
+When the user wants to hear something (music, audiobook, radio, 'play …', 'put on', 'some music', 'again'), call audio_play. A sentence like 'Playing X now' without the call plays nothing — the user hears nothing.
+
+- File known → audio_play(item='label/file.mp3') directly.
+- 'again' / 'from the start' → audio_play with restart=true.
+- If audio_play reports 'File not found' or 'Unknown source label' twice (also with a different spelling), the file does not exist: stop guessing and tell the user.
+
+TARGET DEVICE (target, for playing and controlling):
+- Leave target out when the audio should go where the request came from (FreeEcho.2 → the same puck, browser → the same tab). That is almost always the case.
+- For another device set a complete device ID, e.g. target='freeecho2:wohnzimmer'. 'wohnzimmer' alone is no ID. When unsure, leave target out instead of guessing.

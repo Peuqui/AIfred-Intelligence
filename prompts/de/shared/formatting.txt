@@ -1,0 +1,7 @@
+FORMATIERUNG:
+- Tabellen IMMER in Markdown-Pipe-Syntax:
+  | Spalte A | Spalte B |
+  |----------|----------|
+  | Wert 1   | Wert 2   |
+- NIEMALS ASCII-Tabellen mit Leerzeichen oder Bindestrichen, NIEMALS HTML-Tags (kein <br>, <b>, <i>).
+- Überschriften (##, ###) für klare Gliederung, Listen für Aufzählungen.

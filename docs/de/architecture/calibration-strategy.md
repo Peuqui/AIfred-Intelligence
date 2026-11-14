@@ -557,7 +557,7 @@ Provider, Modell und Reasoning-Toggle kommen aus dem System-Agenten
 DashScope; im Agent-Editor änderbar). In der UI ist die KI-Option nur mit
 DashScope-Key aktiv. Folgt der gleichen Strategie via System-Prompt
 ([prompts/en/calibration/system.txt](../../../prompts/en/calibration/system.txt);
-`ai_agent.py` lädt ihn immer mit `lang="en"`).
+`ai_agent.py` lädt ihn und die Bausteine daneben — `start`, `ctx_reduction_*`, `projection_*`, `hybrid_disabled`, `hardware_gpu*` — immer auf Englisch: `CALIBRATION_LANGUAGE`, eine deutsche Fassung gibt es nicht).
 
 Umfang: BASE (`_try_ai_calibration()` in `flow.py`), die Speed-Variante
 (das GPU-Set wählt `_find_speed_candidate()` deterministisch, die KI
@@ -630,4 +630,4 @@ handhaben als der deterministische Algorithmus. Bewertung dieses Pfads:
   - `resolve_gpu_id()` — `"auto"` → `pick_vlm_gpu()` (InsightFace)
 - KI-Variante: [`aifred/lib/calibration/ai_agent.py`](../../../aifred/lib/calibration/ai_agent.py)
   - `calibrate_with_ai()` — Tool-Loop (`estimate_config`, `probe_config`, `finalize`)
-- Prompt: [`prompts/en/calibration/system.txt`](../../../prompts/en/calibration/system.txt)
+- Prompt: [`prompts/en/calibration/system.txt`](../../../prompts/en/calibration/system.txt) (+ die Bausteine im selben Ordner; nur Englisch)

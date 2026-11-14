@@ -1,0 +1,7 @@
+FORMATTING:
+- Tables ALWAYS in Markdown pipe syntax:
+  | Column A | Column B |
+  |----------|----------|
+  | Value 1  | Value 2  |
+- NEVER ASCII tables with spaces or dashes, NEVER HTML tags (no <br>, <b>, <i>).
+- Headings (##, ###) for a clear structure, lists for enumerations.

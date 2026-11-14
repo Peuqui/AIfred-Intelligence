@@ -90,11 +90,13 @@ hat.
 
 - **System-Prompt**, bewusst schlank: der Rahmen aus `prompts/<lang>/shared/subagent_frame.txt`,
   die Werkzeug-Anleitungen genau der Plugins, deren Werkzeuge er hält, die
-  Sicherheitsgrenze bei externen Kanälen und die geteilte Schicht `disciplines`.
-  Kein Reminder, kein Memory-Kontext. Ohne `agent` auch keine Identity und keine
-  Personality. Mit `agent` kommen Identity und Personality des gewählten Agenten
-  dazu, in derselben Schichten-Reihenfolge wie im normalen Turn: Identity,
-  Rahmen, Sicherheitsgrenze, Personality, Werkzeug-Anleitungen, `disciplines`.
+  Sicherheitsgrenze, wenn die Nachricht nicht vom Eigentümer ist, und die geteilte
+  Schicht `disciplines`. Er antwortet dem Aufrufer, nicht dem Benutzer: kein
+  Ausgabeformat, keine Formatregeln, keine Rückfrage. Kein Reminder, kein
+  Memory-Kontext. Ohne `agent` auch keine Identity, kein Reasoning und keine
+  Personality. Mit `agent` kommen Identity, Reasoning-Schalter und Personality des
+  gewählten Agenten dazu, in derselben Schichten-Reihenfolge wie im normalen Turn:
+  Identity, Reasoning, Rahmen, Sicherheitsgrenze, Personality, Werkzeug-Anleitungen, `disciplines`.
   Ist der Persönlichkeits-Schalter dieses Agenten in den Einstellungen aus,
   fehlt die Personality auch hier.
 - **User-Nachricht**: `task` und `expected_result` aus `prompts/<lang>/shared/subagent_task.txt`. History: leer.

@@ -44,8 +44,5 @@ STYLE
 ⚠️ NEVER critique SPEECH STYLE! ⚠️
 The speech style of {main_agent} belongs to its persona and is INTENTIONAL.
 Critique CONTENT only, never phrasing or personality!
+
 {voting}
-OUTPUT FORMAT:
-- Start DIRECTLY with your response
-- NO header like "[{critic_agent}]:", "**[{critic_agent}]:**" or similar
-- The UI already shows who is speaking - you don't need to announce yourself

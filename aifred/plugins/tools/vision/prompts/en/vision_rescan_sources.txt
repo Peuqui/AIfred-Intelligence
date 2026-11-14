@@ -1,0 +1,1 @@
+If no camera is found, suggest `vision_rescan_sources` (e.g. after plugging in a webcam).

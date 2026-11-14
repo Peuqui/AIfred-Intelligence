@@ -32,11 +32,19 @@ def history_speaker(content: str) -> tuple[str | None, str]:
     return agent, content[match.end():]
 
 
-def context_message(content: str) -> dict[str, str]:
+def context_message(content: str, lang: str | None = None) -> dict[str, str]:
     """A summary of compressed history as the model sees it: a user message with a context prefix
-    (many models allow one system message only, at the start). The history builder and the
-    compression inside the tool loop (context_manager.compress_tool_loop) both use it."""
-    return {"role": "user", "content": f"[CONVERSATION CONTEXT]:\n{content}"}
+    (shared/context_summary; many models allow one system message only, at the start). The history
+    builder and the compression inside the tool loop (context_manager.compress_tool_loop) both use it."""
+    from .prompt_loader import load_prompt
+
+    return {"role": "user", "content": load_prompt("shared/context_summary", lang=lang, content=content).strip()}
+
+
+def history_user_label() -> str:
+    """The label of the user's messages in the history the agents read (their name, else USER): one
+    place for the history and the description of the debate's roles."""
+    return get_user_name() or "USER"
 
 
 def build_messages_from_llm_history(
@@ -46,6 +54,7 @@ def build_messages_from_llm_history(
     detected_language: str | None = None,
     *,
     observer: bool = False,
+    close: bool = False,
 ) -> list[dict[str, str]]:
     """The model's messages from llm_history, as the agent ``perspective`` sees the conversation.
 
@@ -56,18 +65,20 @@ def build_messages_from_llm_history(
     user message with a context prefix (many models allow one system message only, at the start).
 
     ``current_user_text`` is the question that ends the messages, with the agent's style reminder in
-    front and the output language behind it.
+    front and the output language behind it. ``close``: a call without a question of its own (a
+    debate seat, the symposion) ends with the reminder and the output language alone, so every
+    speaker gets them right before it answers.
     """
     from .agent_config import load_agents
 
     agents = load_agents()
-    user_label = get_user_name() or "USER"
+    user_label = history_user_label()
     messages: list[dict[str, str]] = []
     for msg in llm_history:
         role = msg.get("role", "user")
         content = msg.get("content", "")
         if role == "system":
-            messages.append(context_message(content))
+            messages.append(context_message(content, detected_language))
             continue
         speaker, text = history_speaker(content)
         if speaker == perspective and not observer:
@@ -81,31 +92,21 @@ def build_messages_from_llm_history(
             # from someone else, never the agent's own words or the user's.
             messages.append({"role": "user", "content": content})
 
-    # Add current user message if provided
-    if current_user_text:
-        # Add personality reminder as prefix (v2.15.15+)
-        # Reinforces agent's speech style in long conversations
-        from .prompt_loader import get_language, load_personality_reminder
-
-        # Use detected_language if provided, otherwise fall back to UI language
-        reminder_lang = detected_language if detected_language else get_language()
-        reminder = load_personality_reminder(perspective, lang=reminder_lang)
-        if reminder:
-            current_user_text = f"{reminder}\n\n{current_user_text}"
-
-        # Language enforcement suffix (Recency Bias: last tokens before generation
-        # have strongest influence → overrides language drift from English content)
-        lang_suffixes = {
-            "de": "\n\n[AUSGABESPRACHE: DEUTSCH]",
-            "en": "\n\n[OUTPUT LANGUAGE: ENGLISH]",
-        }
-        lang_suffix = lang_suffixes.get(reminder_lang, "")
-        if lang_suffix:
-            current_user_text = f"{current_user_text}{lang_suffix}"
-
-        messages.append({"role": "user", "content": current_user_text})
+    if current_user_text or close:
+        messages.append({"role": "user", "content": _closing(current_user_text, perspective, detected_language)})
 
     return messages
+
+
+def _closing(text: str, perspective: str, detected_language: str | None) -> str:
+    """The last user message: the agent's style reminder in front (it keeps the speech style over a long
+    conversation), the text, then the output language (shared/output_language; the last tokens before
+    the answer weigh most and stop drifting into the language of the history)."""
+    from .prompt_loader import get_language, load_personality_reminder, load_prompt
+
+    lang = detected_language if detected_language else get_language()
+    parts = [load_personality_reminder(perspective, lang=lang), text, load_prompt("shared/output_language", lang=lang).strip()]
+    return "\n\n".join(part for part in parts if part)
 
 
 def inject_before_question(

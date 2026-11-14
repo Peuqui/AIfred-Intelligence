@@ -16,18 +16,18 @@ import asyncio
 
 from aifred.lib import context_manager
 from aifred.lib.config import HISTORY_COMPRESSION_TARGET, HISTORY_COMPRESSION_TRIGGER
-from aifred.lib.prompt_loader import get_agent_direct_prompt, get_direct_prompt_tokens
+from aifred.lib.prompt_loader import agent_system_prompt, conversation_situation, get_direct_prompt_tokens
 
 
 class TestPromptSizeFollowsTurnFlags:
     """Gemessen wird der Prompt, den der Turn wirklich baut."""
 
     def test_measures_the_direct_prompt_builder(self):
-        # Gegen den alten Fehler: gemessen wird get_agent_direct_prompt mit
-        # dem Tokenizer, nicht irgendein anderer Bauer mit einer Heuristik.
-        expected = context_manager.count_tokens_with_tokenizer(
-            get_agent_direct_prompt("aifred", lang="de", memory=True)
-        )
+        # Gegen den alten Fehler: gemessen wird der Prompt des gemeinsamen Bauers mit dem
+        # Tokenizer, nicht irgendein anderer Bauer mit einer Heuristik.
+        expected = context_manager.count_tokens_with_tokenizer(agent_system_prompt(
+            "aifred", conversation_situation("de"), "de", answer_channel="browser", external=False, tools=None, memory=True,
+        ))
         assert get_direct_prompt_tokens("aifred", "de", memory=True) == expected
 
 

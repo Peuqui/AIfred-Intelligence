@@ -261,12 +261,18 @@ class AIConnectChannel(BaseChannel):
 
     def build_context(self, message: InboundMessage) -> str:
         """Prepare a peer message for the LLM with sender context."""
-        from ....lib.prompt_loader import load_prompt
-        return load_prompt(
-            "shared/channel_ai_connect",
+        from ....lib.plugin_base import load_plugin_prompt
+        return load_plugin_prompt(
+            __file__, "context/inbound",
             sender=message.sender,
             text=message.text,
         )
+
+    def situation(self, lang: str) -> str | None:
+        """Another assistant asks, not the user: the agent answers it without the layers addressed to the user."""
+        from ....lib.plugin_base import load_plugin_prompt
+
+        return load_plugin_prompt(__file__, "context/situation", lang)
 
     # ── Tools ─────────────────────────────────────────────────
 

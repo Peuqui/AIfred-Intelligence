@@ -535,11 +535,11 @@ class EmailChannel(BaseChannel):
 
     def build_context(self, message: InboundMessage) -> str:
         """Prepare email for LLM with sender/subject context."""
-        from ....lib.prompt_loader import load_prompt
+        from ....lib.plugin_base import load_plugin_prompt
 
         subject = message.metadata.get("subject", "?")
-        return load_prompt(
-            "shared/channel_email",
+        return load_plugin_prompt(
+            __file__, "context/inbound",
             sender=message.sender,
             subject=subject,
             text=message.text,

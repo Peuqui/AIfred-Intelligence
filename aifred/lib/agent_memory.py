@@ -464,10 +464,8 @@ async def prepare_agent_toolkit(
             memory context and tools together with source (in_owner_context)
 
     Returns:
-        (memory_context_str, toolkit) — context for system prompt, combined toolkit.
+        (memory_context_str, toolkit) — the memories (a message before the question), combined toolkit.
     """
-    import time as _pat_time
-    _pat_t0 = _pat_time.monotonic()
     all_tools: list[Tool] = []
     memory_tools: list[Tool] = []
     memory_ctx = ""
@@ -483,7 +481,6 @@ async def prepare_agent_toolkit(
                 memory_ctx = format_memory_context(memories, agent_id=agent_id, lang=lang)
             memory_tools = memory.make_toolkit(agent_id, session_id=session_id or "").tools
 
-    print(f"⏱️ prepare_toolkit: post-memory {_pat_time.monotonic()-_pat_t0:.2f}s", flush=True)
     # All other tools via plugin system
     if research_tools_enabled:
         from .plugin_base import PluginContext
@@ -504,7 +501,6 @@ async def prepare_agent_toolkit(
         # Tool plugins and channel plugin tools (e.g. discord_send)
         for _owner, plugin_tools in collect_plugin_tools(ctx):
             all_tools.extend(plugin_tools)
-        print(f"⏱️ prepare_toolkit: post-plugin-tools {_pat_time.monotonic()-_pat_t0:.2f}s", flush=True)
 
         # Document-RAG-Auto-Inject wurde bewusst entfernt: Agenten suchen
         # selbst via search_documents (mit Folder-Filter). Das vermeidet

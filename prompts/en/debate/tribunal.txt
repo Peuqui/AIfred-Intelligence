@@ -57,7 +57,3 @@ NO [LGTM] IN TRIBUNAL!
 In Tribunal there is no [LGTM] or [WEITER].
 {judge_agent} will judge at the end.
 Your task: Attack and provide counter-position.
-
-OUTPUT FORMAT:
-- Start DIRECTLY with your response
-- NO header like "[{critic_agent}]:" or similar

@@ -1,0 +1,1 @@
+Will der Benutzer einen Job ändern ("verschieb den Bericht auf 7:05", "ändere den Text") → mit scheduler_list lesen, dann scheduler_update — NICHT löschen und neu anlegen.

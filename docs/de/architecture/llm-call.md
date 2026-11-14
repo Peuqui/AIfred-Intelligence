@@ -126,13 +126,17 @@ turn_service.py: _respond()
   |     |     -> Memory-Tools + alle Plugin-Tools; abgerufene Erinnerungen kommen
   |     |        als Kontext direkt vor die Frage (inject_before_question)
   |     |-- Denkwahl des Agenten für dieses Modell (thinking_mode, thinking_fields)
-  |     |-- System-Prompt: prompt_loader.get_agent_direct_prompt(agent, lang, memory)
+  |     |-- System-Prompt: prompt_loader.agent_system_prompt(agent, Situation, lang, ...)
+  |     |     Situation aus answer_situation(): die des Kanals (BaseChannel.situation) oder
+  |     |     shared/conversation_roles; dazu die Sehanweisung, wenn der Agent Bilder selbst sieht
   |     |-- Messages: build_messages_from_llm_history(..., perspective=agent)
   |     |-- Temperatur des Agenten (resolve_agent_temperature, eigene je Agent)
   |     |-- LLM-Optionen: build_llm_options(view, agent, model, temperature, num_ctx)
   |-- stream_call(): run_llm_stream()  <-- PIPELINE
   |-- finish_call(mode="direct")
 ```
+
+**Der System-Prompt** entsteht auf jedem Weg im selben Bauer, `prompt_loader.agent_system_prompt(agent_id, situation, lang, *, answer_channel, external, tools, memory, seats, roles, answers_user)`; `_merge_prompt_layers` setzt die Schichten 0–11 zusammen (Reihenfolge im Docstring): Nutzer-Kennung, Identität, Reasoning (Schalter je Agent), Rollen der Plätze (nur mit `seats`), die **Situation** (was der Agent hier tut), Ausgabeformat, Formatregeln, Sicherheitsgrenze, Gedächtnis-Anleitung, Persönlichkeit, Werkzeug-Anleitungen (nur für die Werkzeuge, die der Aufruf wirklich hat), Disziplinen und Rückfrage. Die Dateien eines Agenten sind nur `identity`, `personality`, `reminder` und `memory_context`; was er tun soll, kommt aus der Situation: `shared/conversation_roles` (Direktweg und Kanal), die Aufgabe des Platzes (`debate/*`), `shared/symposion`, `shared/subagent_frame`, oder die eigene Situation eines Kanals (`BaseChannel.situation(lang)`, Standard `None`; AI-Connect antwortet damit einem anderen Assistenten und nicht dem Benutzer: `answers_user=False`, ohne Nutzer-Kennung, Ausgabeformat, Formatregeln, Ankündigung und Rückfrage). Die **Sicherheitsgrenze** (Schicht 7) bekommt nur eine Nachricht, die nicht vom Eigentümer ist (`turn_service.external_sender` = `not security.in_owner_context(source, trust)`: Fremde, Inhalt eines Webhooks; der als Eigentümer erkannte Absender im Browser, auf Telegram und per E-Mail (verifiziert) und seine Scheduler-Aufträge nicht; Discord und FreeEcho.2 erkennen ihn nicht). **Formatregeln** gelten dort, wo die Antwort als Markdown erscheint: `answer_channel` ist der Zustellkanal eines Auftrags, sonst der Kanal der Nachricht (`turn_service.answer_channel`), und ein Kanal mit `markdown_output = False` (FreeEcho2, Telegram) bekommt sie nicht. Die Sprache gilt für den ganzen Zug (`prompt_loader.turn_language`, gesetzt nach der Absichtserkennung); Prompts ohne `lang` folgen ihr, außerhalb eines Zuges der Sprache der Oberfläche.
 
 Sprechen mehrere Agenten, sorgt die **Perspektiv-Transformation** in `build_messages_from_llm_history()` dafür, dass jeder die Unterhaltung aus seiner Sicht sieht: eigene Antworten sind `role: "assistant"` (ohne Namensmarke), alles andere `role: "user"`, Antworten anderer Agenten unter ihrem Anzeigenamen. Der Richter einer Debatte liest als Beobachter (`observer=True`): jede Antwort ist die eines anderen.
 
@@ -170,7 +174,7 @@ run_debate()
   |-- sonst               -> _critique()   (critical_review und auto_consensus)
 ```
 
-Jeder Sprecher baut seinen Call mit `_call()` (System-Prompt, History aus seiner Sicht, bei Verfasser-Aufgaben die Frage der Runde) und läuft über `stream_call` → `run_llm_stream()` und `finish_call`. Der System-Prompt ist der Aufgaben-Prompt des Agenten für Mehr-Agenten-Modi (`_base_system`, Rollenbeschreibung `DEBATE_ROLES`) plus die Aufgabe des Platzes (`_seat_system`) für Kritiker, Mediator, Ankläger und Richter. Die Aufgaben des Verfassers (Überarbeitung, Verteidigung, Correctura) stehen stattdessen als Frage hinter dem Verlauf, in der Recensio unter `REVIEW_ROLES`.
+Jeder Sprecher baut seinen Call mit `_call()` (System-Prompt, History aus seiner Sicht, bei Verfasser-Aufgaben die Frage der Runde) und läuft über `stream_call` → `run_llm_stream()` und `finish_call`. Der System-Prompt kommt aus `agent_system_prompt` (`turn_debate._system`) mit den Plätzen der Sitzung und der Rollenbeschreibung des Modus (`_DEBATE_MODES`, `TurnPlan.roles`): `shared/multi_agent_roles` im Tribunal und Auto-Konsens (Verfasser, Kritiker, Richter), `shared/multi_agent_roles_critique` in der kritischen Prüfung (zwei Rollen, kein Richter), `shared/multi_agent_roles_review` in der Recensio. Für Kritiker, Mediator, Ankläger und Richter ist die Aufgabe des Platzes (`_seat_system`) die Situation. Der Verfasser hat keine Situation (`_system(…, "", …)`): seine Aufgaben (Überarbeitung, Verteidigung, Correctura) stehen als Frage hinter dem Verlauf. Die Rollen tragen die Nutzer-Kennung des Verlaufs (`message_builder.history_user_label()`: der Name, sonst USER).
 
 #### Kritische Prüfung (critical_review)
 
@@ -220,8 +224,9 @@ Der Prüfer (Censor, Platz des Kritikers) liest und testet die Dateien, die der 
 _recensio()
   |-- Censor-Toolkit: toolkit.restricted(RECENSIO_CENSOR_TOOLS)  (nur lesen und testen)
   |-- _review(Runde 0): Prüfung der Antwort, gehört zu keiner Runde
-  |     System-Prompt: get_seat_system_prompt(..., REVIEW_ROLES, tools=RECENSIO_CENSOR_TOOLS):
-  |     die Prüfung ersetzt die Alltags-Aufgabe des Agenten, Identität und Persönlichkeit bleiben
+  |     System-Prompt: agent_system_prompt(..., Situation = Aufgabe review, roles=REVIEW_ROLES,
+  |     tools=RECENSIO_CENSOR_TOOLS): die Prüfung ersetzt die Alltags-Aufgabe des Agenten,
+  |     Identität und Persönlichkeit bleiben, Anleitungen nur für die Werkzeuge des Censors
   |
   Schleife je Runde N (höchstens max_debate_rounds):
     |-- [LGTM] der Prüfung (und kein [WEITER]) -> bestanden, Ende
@@ -235,7 +240,8 @@ _recensio()
 run_symposion()
   |
   Je Runde bis max_debate_rounds, je Agent der Tischrunde (jede Runde neu aus der Sitzung gelesen):
-    |-- System-Prompt (direct) + Regeln shared/symposion (+ shared/symposion_reflection ab Runde 2)
+    |-- System-Prompt: agent_system_prompt mit den Regeln shared/symposion als Situation
+    |     (+ shared/symposion_reflection als Frage ab Runde 2)
     |-- Messages: die ganze bisherige Unterhaltung, eigene Beiträge als assistant
     |-- Erinnerungen nur in Runde 1
     |-- stream_call() -> run_llm_stream()
@@ -258,7 +264,7 @@ message_processor.py: dispatch_inbound() -> process_inbound(InboundMessage)
   |-- 2. Session finden oder anlegen (routing_table)
   |       hub_notification_scope: Toast "received" im Browser
   |-- 3. _turn_origin(): Blase (build_inbound_chat_entry), was das Modell liest
-  |       (Kontext des Plugins, eingepackt mit wrap_external_message — der Zaun
+  |       (Kontext des Plugins, `build_context` aus dessen `prompts/<lang>/context/inbound.txt`, eingepackt mit wrap_external_message — der Zaun
   |       bleibt in der llm_history), Stufe, Vertrauen, Kanal-Metadaten,
   |       metadata["wake_agent"] als fester Agent (nur wenn konfiguriert)
   |-- 4. turn_service.run_turn(TurnRequest(origin=...)) im Task des Kanals
@@ -414,7 +420,7 @@ zu vermeiden.
 | `aifred/lib/message_processor.py` | Message-Hub-Pipeline (`process_inbound`, `outbound_text`) |
 | `aifred/lib/llm_client.py` | `LLMClient`, `build_llm_options()`, Backend-Abstraktion |
 | `aifred/lib/message_builder.py` | `build_messages_from_llm_history()` — Perspektiv-Transformation |
-| `aifred/lib/prompt_loader.py` | Prompt-Schichten: `get_agent_direct_prompt`, `get_agent_system_prompt`, `get_seat_system_prompt` |
+| `aifred/lib/prompt_loader.py` | Prompt-Schichten: `agent_system_prompt` (ein Bauer für alle Wege), `_merge_prompt_layers`, `answer_situation`, `turn_language` |
 | `aifred/lib/agent_memory.py` | `prepare_agent_toolkit()` — Memory- + Plugin-Tools |
 | `aifred/lib/agent_config.py` | Agenten-Konfiguration (Anzeigenamen, Emojis, Modelle) |
 | `aifred/lib/intent_detector.py` | Erkennung von Sprache, Adressat und Moduswechsel |

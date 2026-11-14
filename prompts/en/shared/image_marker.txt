@@ -1,1 +1,1 @@
-[Images: {urls} — re-examine with the vision_analyze tool]
+[Images: {urls} — can be re-examined with an image tool, if you have one]

@@ -15,8 +15,6 @@
         "identity": "aifred/identity.txt",
         "personality": "aifred/personality.txt",
         "reminder": "aifred/reminder.txt",
-        "task": "aifred/system_minimal.txt",
-        "direct": "aifred/direct.txt",
         "memory_context": "aifred/memory_context.txt"
       },
       "toggles": {
@@ -125,8 +123,6 @@
         "identity": "sokrates/identity.txt",
         "personality": "sokrates/personality.txt",
         "reminder": "sokrates/reminder.txt",
-        "task": "sokrates/system_minimal.txt",
-        "direct": "sokrates/direct.txt",
         "memory_context": "sokrates/memory_context.txt"
       },
       "toggles": {
@@ -196,8 +192,6 @@
         "identity": "salomo/identity.txt",
         "personality": "salomo/personality.txt",
         "reminder": "salomo/reminder.txt",
-        "task": "salomo/system_minimal.txt",
-        "direct": "salomo/direct.txt",
         "memory_context": "salomo/memory_context.txt"
       },
       "toggles": {
@@ -262,10 +256,22 @@
       "description": "Vision Language Model fuer Bildanalyse",
       "role": "system",
       "prompts": {
-        "identity": "vision/identity.txt",
-        "personality": "aifred/personality.txt",
-        "task": "vision/task_adaptive.txt",
-        "memory_context": "vision/memory_context.txt"
+        "event_single": "vision/vision_event_single.txt",
+        "event_sequence": "vision/vision_event_sequence.txt",
+        "event_summary": "vision/vision_event_summary.txt",
+        "continuous": "vision/vision_continuous.txt",
+        "ir_context": "vision/vision_ir_context.txt",
+        "identity_context": "vision/vision_identity_context.txt",
+        "headcount_context": "vision/vision_headcount_context.txt",
+        "default_question": "vision/default_question.txt",
+        "task_adaptive": "vision/task_adaptive.txt",
+        "task_instruction_default": "vision/task_instruction_default.txt",
+        "task_instruction_question": "vision/task_instruction_question.txt",
+        "task_instruction_handoff": "vision/task_instruction_handoff.txt",
+        "task_instruction_handoff_question": "vision/task_instruction_handoff_question.txt",
+        "sandbox_screenshot": "vision/sandbox_screenshot.txt",
+        "sandbox_screenshot_focus": "vision/sandbox_screenshot_focus.txt",
+        "sandbox_screenshot_sequence": "vision/sandbox_screenshot_sequence.txt"
       },
       "toggles": {
         "personality": true,
@@ -288,8 +294,7 @@
       "prompts": {
         "identity": "pater/identity.txt",
         "personality": "pater/personality.txt",
-        "task": "pater/task.txt",
-        "direct": "pater/task.txt",
+        "reminder": "pater/reminder.txt",
         "memory_context": "pater/memory_context.txt"
       },
       "toggles": {
@@ -333,8 +338,7 @@
       "prompts": {
         "identity": "codine/identity.txt",
         "personality": "codine/personality.txt",
-        "task": "codine/task.txt",
-        "direct": "codine/task.txt",
+        "reminder": "codine/reminder.txt",
         "memory_context": "codine/memory_context.txt"
       },
       "toggles": {
@@ -395,8 +399,6 @@
         "identity": "hal/identity.txt",
         "personality": "hal/personality.txt",
         "reminder": "hal/reminder.txt",
-        "task": "hal/task.txt",
-        "direct": "hal/task.txt",
         "memory_context": "hal/memory_context.txt"
       },
       "toggles": {
@@ -484,8 +486,7 @@
       "prompts": {
         "identity": "rabbi/identity.txt",
         "personality": "rabbi/personality.txt",
-        "task": "rabbi/task.txt",
-        "direct": "rabbi/task.txt",
+        "reminder": "rabbi/reminder.txt",
         "memory_context": "rabbi/memory_context.txt"
       },
       "toggles": {

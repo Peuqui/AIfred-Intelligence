@@ -1,0 +1,1 @@
+Eine Datei aus dem lokalen Arbeitsbereich in den Agentenordner kopiert nextcloud_file_upload unverändert, auch Bilder und andere Binärdateien.

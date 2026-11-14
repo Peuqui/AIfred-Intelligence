@@ -1,2 +1,0 @@
-Answer the user's question directly and helpfully.
-NEVER start your response with your name or a tag like [PATER] or "Pater Tuck:" - just answer directly.

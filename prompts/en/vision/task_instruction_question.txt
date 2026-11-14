@@ -1,3 +1,3 @@
-Answer this specific question: {question}
+Answer specifically the question the user asks about the images in their message.
 
 Quote only the relevant text passages verbatim for this — a complete extraction of the entire image is not needed.

@@ -1,1 +1,1 @@
-- move_file → Move a file
+- move_file → Move a file or folder

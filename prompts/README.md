@@ -7,28 +7,33 @@ This directory contains all AI prompts organized by language for easy maintenanc
 ```
 prompts/
 ├── de/ , en/              # one tree per language, the same files in both
-│   ├── <agent>/           # per agent: aifred, sokrates, salomo, codine, hal, pater, rabbi, vision
+│   ├── <agent>/           # per agent: aifred, sokrates, salomo, codine, hal, pater, rabbi
 │   ├── agent-template/    # base prompts of a new agent (its name filled in)
 │   ├── debate/            # tasks of the debate seats and the per-round blocks
-│   ├── shared/            # roles, channels, markers, memory, tools, disciplines, Symposion, sub-agent
+│   ├── shared/            # situation, roles, output format, formatting, markers, memory, tools, disciplines, Symposion, sub-agent
 │   ├── utility/           # history summarization, context guard, reasoning, chat title, session memory
 │   ├── scheduler/         # prompts of scheduled jobs
-│   ├── vision/            # image analysis and camera events (besides the vision agent's own files)
-│   ├── calibration/       # the calibration agent
+│   ├── vision/            # the vision agent's files: image analysis, sandbox screenshots, camera events
+│   ├── calibration/       # en/ only: the calibration agent (system prompt and building blocks)
 │   └── automatik/         # en/ only: intent detection and URL ranking (always asked in English)
 └── tools/                 # tool descriptions + parameter schemas of the toolsets in
                            # aifred/lib (memory tools), same layout as a plugin's prompts/tools/
 ```
 
-Which file belongs to which agent and role (`identity`, `personality`, `task`, `direct`, ...) is
-set in `data/agents.json` (`prompts` of each agent) — with one exception today: the direct answer
-loads `<agent>/direct.txt` by its path (`prompt_loader.get_agent_direct_prompt`), past the `direct`
-entry; that entry is read by the Symposion only.
+The plugins keep their own prompts next to their code: `aifred/plugins/<kind>/<plugin>/prompts/`
+(tool descriptions in `tools/`, instructions for the model in `<lang>/`). A channel plugin also
+holds the framing of its incoming messages in `<lang>/context/inbound.txt` and its other notes in
+`<lang>/messages/` (loaded by `plugin_base.load_plugin_prompt`).
+
+Which file belongs to which agent and role (`identity`, `personality`, `reminder`,
+`memory_context`) is set in `data/agents.json` (`prompts` of each agent). What an agent is to do
+is not in its files: it comes from the situation (see below).
 
 ## Prompt Layers
 
 An agent's system prompt is assembled by `_merge_prompt_layers()` in `aifred/lib/prompt_loader.py`
-from ten layers plus the plugins' tool instructions; the table of the layers is in
+from layers 0 to 11 including the plugins' tool instructions, on every path (`agent_system_prompt()`:
+direct answer, channels, debate seats, Symposion, sub-agent); the table of the layers is in
 [Multi-Agent System → Prompt layers](../docs/en/architecture/multi-agent.md#prompt-layers).
 The three that belong to the agent itself:
 
@@ -36,23 +41,26 @@ The three that belong to the agent itself:
 |-------|------|---------|------------|
 | Identity | `identity.txt` | WHO am I (name, role) | No (always loaded) |
 | Personality | `personality.txt` | HOW do I speak (style) | Yes (via settings) |
-| Task | `direct.txt` (direct answer) / `system_minimal.txt` or `task.txt` (debate seats) | WHAT should I do | No (situational) |
+| Situation | not the agent's: `shared/conversation_roles` (direct answer, channels), `debate/*` (a seat's task), `shared/symposion`, `shared/subagent_frame`, or a channel's own (`BaseChannel.situation()`) | WHAT should I do here | No (set by the path) |
 
-In the debate modes the task of a seat (`debate/`) follows the agent's everyday task; only for the
-censor of the Recensio it takes its place (`get_seat_system_prompt`). `shared/multi_agent_roles`
-(dialectic) or `shared/multi_agent_roles_review` (Recensio) describes the seats.
+`reminder.txt` (the short style reminder) and `memory_context.txt` (how recalled memories are
+presented) are also the agent's own files, but no layers of the system prompt: the reminder and the
+output language (`shared/output_language`) end the last user message, the memories come as a message
+of their own right before the question.
+
+In the debate modes the task of a seat (`debate/`) is the situation of the speaker; the author has
+none (its tasks come as the question after the history). The seats are described by
+`shared/multi_agent_roles` (tribunal, auto-consensus), `shared/multi_agent_roles_critique`
+(critical review: author and critic, no judge) or `shared/multi_agent_roles_review` (Recensio),
+chosen per mode in `turn_debate._DEBATE_MODES`.
 
 ## Agent Prompts
 
 | Agent | Files |
 |-------|-------|
-| `aifred` | `identity`, `personality`, `reminder` (style reminder), `system_minimal` (task), `direct` (addressed directly), `memory_context` |
-| `sokrates` | `identity`, `personality`, `reminder`, `system_minimal`, `direct`, `memory_context` |
-| `salomo` | `identity`, `personality`, `reminder`, `system_minimal`, `direct`, `memory_context` |
-| `hal` | `identity`, `personality`, `reminder`, `task` (debate seats and, via `direct` in agents.json, the Symposion), `direct.txt` (direct answer), `system_minimal` (loaded nowhere), `memory_context` |
-| `codine`, `pater`, `rabbi` | `identity`, `personality`, `task` (debate seats and, via `direct` in agents.json, the Symposion), `direct.txt` (direct answer), `system_minimal` (loaded nowhere), `memory_context` |
-| `vision` | `identity`, `memory_context`, `task_adaptive` and the files under `vision/` (the personality is AIfred's) |
-| `agent-template` | `identity`, `personality`, `system_minimal`, `direct`, `memory_context` |
+| `aifred`, `sokrates`, `salomo`, `hal`, `codine`, `pater`, `rabbi` | `identity`, `personality`, `reminder` (style reminder), `memory_context` |
+| `vision` | no agent folder: the 16 files under `vision/` that the image model really gets (listed in its entry in `agents.json`), no identity and no personality |
+| `agent-template` | `identity`, `personality`, `reminder`, `memory_context` (a new agent's base prompts, its name filled in) |
 
 ## Debate Prompts (`debate/`)
 
@@ -75,14 +83,16 @@ is chosen by the code (`debate_seats.round_rules`) and goes into `{round_rules}`
 
 | File | Purpose |
 |------|---------|
-| `shared/multi_agent_roles.txt`, `shared/multi_agent_roles_review.txt` | Description of the seats: dialectic (author, critic, judge) and Recensio (auctor, censor) |
-| `shared/symposion.txt`, `shared/symposion_reflection.txt` | Symposion discussion; reflection layer from round 2 |
-| `shared/user_prefix.txt`, `shared/disciplines.txt`, `shared/memory_instructions.txt`, `shared/tool_instructions.txt` | User name prefix, date/quote/currency disciplines, long-term memory, tool use |
-| `shared/security_boundary.txt`, `shared/retrieved_data_owner.txt`, `shared/retrieved_data_external.txt` | Trust boundary for external messages and retrieved content |
-| `shared/channel_*.txt` | Framing of an incoming message per channel (AI-Connect, Discord, e-mail, FreeEcho.2, Telegram) |
+| `shared/conversation_roles.txt` | The situation of an agent answering the user (direct answer, addressed by name, channels) |
+| `shared/multi_agent_roles.txt`, `shared/multi_agent_roles_critique.txt`, `shared/multi_agent_roles_review.txt` | Description of the seats: dialectic (author, critic, judge), critical review (author, critic) and Recensio (auctor, censor) |
+| `shared/symposion.txt`, `shared/symposion_reflection.txt` | Symposion rules (the situation); reflection as the question from round 2 |
+| `shared/user_prefix.txt`, `shared/output_format.txt`, `shared/formatting.txt`, `shared/output_language.txt`, `shared/disciplines.txt`, `shared/ask_back.txt` | User name prefix, output format, formatting rules (only where the answer is shown as Markdown), output language (end of the last user message), date/quote/currency/appointment disciplines, asking back on decisions |
+| `shared/memory_instructions.txt`, `shared/tool_instructions.txt`, `shared/tool_announce.txt` | Long-term memory, tool use, announcing a tool call |
+| `shared/security_boundary.txt`, `shared/retrieved_data_owner.txt`, `shared/retrieved_data_external.txt` | Trust boundary (only for a message that is not the owner's) and for retrieved content |
+| `shared/channel_header.txt`, `shared/channel_header_routed.txt`, `shared/channel_sender_via.txt` | Generic framing of an incoming message (the channel plugins have their own in `context/inbound.txt`) |
 | `shared/agent_message.txt`, `shared/autonomous_event.txt` | Message from another agent, automatic notification |
 | `shared/subagent_frame.txt`, `shared/subagent_task.txt` | Work order of a sub-agent |
-| `shared/*_marker.txt`, `shared/email_readonly_refused.txt` | Notes the system adds to an answer or a tool result |
+| `shared/*_marker.txt` | Notes the system adds to an answer or a tool result |
 | `utility/history_summarization.txt` | Compress conversation history (`{conversation}`, `{max_tokens}`, `{max_words}`) |
 | `utility/context_guard.txt` | Note when the context is full and no more tools are allowed |
 | `utility/reasoning.txt` | Reasoning layer |
@@ -90,17 +100,20 @@ is chosen by the code (`debate_seats.round_rules`) and goes into `{round_rules}`
 | `utility/session_memory.txt`, `utility/session_memory_user.txt` | Session summary for the agent's memory |
 | `scheduler/*.txt` | Frame, delivery notes, run history and notes of a scheduled job |
 | `vision/*.txt` | Image analysis tasks, sandbox screenshots, camera events and their context |
-| `calibration/system.txt` | The calibration agent |
+| `en/calibration/*.txt` | The calibration agent (EN only): `system.txt` and its building blocks (`start`, `ctx_reduction_*`, `projection_*`, `hybrid_disabled`, `hardware_gpu*`) |
 | `en/automatik/intent_detection.txt` | Intent, addressee, language and mode switch of a message (EN only; `{user_query}`, `{agent_list}`) |
 | `en/automatik/url_ranking.txt` | Rank search-result URLs by relevance for `web_search` (EN only; `{user_question}`, `{url_list}`, `{top_n}`, `{conversation_context}`) |
 
 ## Usage
 
 ```python
-from aifred.lib.prompt_loader import get_agent_system_prompt, load_prompt
+from aifred.lib.prompt_loader import agent_system_prompt, conversation_situation, load_prompt
 
-# An agent's system prompt, assembled from its layers (key "task" = system_minimal)
-system_prompt = get_agent_system_prompt("aifred", lang="de")
+# An agent's system prompt, assembled from its layers: the situation says what it is to do
+system_prompt = agent_system_prompt(
+    "aifred", conversation_situation("de"), "de",
+    answer_channel="browser", external=False, tools=None, memory=True,
+)
 
 # One prompt file with placeholders (prompts/<lang>/<name>.txt)
 prompt = load_prompt("utility/history_summarization", lang="de",
@@ -110,8 +123,11 @@ prompt = load_prompt("utility/history_summarization", lang="de",
 ## Language
 
 Every call takes the language as `lang` (`"de"` or `"en"`); without it `load_prompt()` uses
-`get_language()`, the `ui_language` of the persisted settings. A turn passes the language the
-intent detection found in the message (`intent_detector.py`).
+`prompt_language()`: the language of the turn being answered (`prompt_loader.turn_language`, set
+by `turn_service` after the intent detection found it in the message), outside a turn the
+`ui_language` of the persisted settings. Jobs and alarms of the system speak the interface's
+language. The output language of an answer is stated only in `shared/output_language.txt`, not in
+the personalities.
 
 ## Personality Toggle
 
@@ -130,13 +146,13 @@ user-name prefix is not added by `load_prompt()` but once at the top of a merged
 
 ## Adding New Prompts
 
-1. Create `.txt` file in both `de/` and `en/` directories
+1. Create `.txt` file in both `de/` and `en/` directories (a plugin's prompts in the plugin's own `prompts/<lang>/`)
 2. Use `{placeholder}` syntax for dynamic values
 3. Use `load_prompt('name', placeholder=value)` in code (the name is the path under `prompts/<lang>/` without `.txt`)
 
 ## Best Practices
 
-1. **Both languages required** - No fallback; prompts must exist in both `de/` and `en/`
+1. **Both languages required** - No fallback; prompts must exist in both `de/` and `en/` (exceptions: `automatik/` and `calibration/` are English only, since the model is always asked in English)
 2. **Use placeholders** - Never hardcode dynamic values (dates, user input)
 3. **Clear structure** - Use headings and formatting for LLM readability
 4. **Include examples** - Concrete examples improve LLM performance

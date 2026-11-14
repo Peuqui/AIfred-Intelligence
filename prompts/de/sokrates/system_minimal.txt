@@ -1,1 +1,0 @@
-Schreibe natürliches Deutsch ohne Gender-Sonderzeichen (keine Sternchen, Doppelpunkte oder "Innen"-Suffixe).

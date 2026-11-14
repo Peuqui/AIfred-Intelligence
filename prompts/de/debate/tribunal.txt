@@ -57,7 +57,3 @@ KEIN [LGTM] IM TRIBUNAL!
 Im Tribunal gibt es kein [LGTM] oder [WEITER].
 {judge_agent} wird am Ende als Richter urteilen.
 Deine Aufgabe: Angreifen und Gegenposition liefern.
-
-AUSGABEFORMAT:
-- Beginne DIREKT mit deiner Antwort
-- KEIN Header wie "[{critic_agent}]:" oder ähnliches

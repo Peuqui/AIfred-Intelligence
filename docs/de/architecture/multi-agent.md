@@ -19,7 +19,7 @@ Zum Delegieren abgegrenzter Aufgaben an einen frischen Modellaufruf siehe das
 | 🎩 **AIfred** | Hauptagent — Butler & Gelehrter, beantwortet Fragen (britischer Butler-Stil) |
 | 🏛️ **Sokrates** | Kritiker — hinterfragt und fordert heraus mit der sokratischen Methode |
 | 👑 **Salomo** | Richter — wägt Argumente ab, synthetisiert, fällt das Urteil |
-| 📷 **Vision** | Bildanalyst — OCR und visuelle Q&A, erbt AIfreds Persönlichkeit |
+| 📷 **Vision** | Bildanalyst — OCR und visuelle Q&A; Systemagent ohne Persona, seine Prompts sind die Dateien unter `prompts/<lang>/vision/` |
 | 🔥 **Pater Tuck**, 🤖 **Codine**, 🔴 **HAL 9000**, 🕎 **Rabbi Shmuel** | Eigene Agenten, als Beispiele in `data/agents.json` mitgeliefert (Codine: Code- + Sandbox-Arbeit) |
 | ➕ **Deine eigenen** | Im Agenten-Editor angelegt — Name, Emoji, Rolle, zweisprachige Prompts, eigenes Gedächtnis |
 
@@ -41,21 +41,32 @@ Code-Änderungen, keine hardcodierten Agenten-Listen.
 
 ## Prompt-Schichten
 
-`_merge_prompt_layers()` in `aifred/lib/prompt_loader.py` setzt jeden
-System-Prompt aus bis zu zehn Schichten zusammen, in dieser Reihenfolge:
+`agent_system_prompt()` in `aifred/lib/prompt_loader.py` ist der eine Bauer für
+jeden System-Prompt (Direktweg, Kanäle, Debattenplätze, Symposion, Sub-Agent);
+`_merge_prompt_layers()` setzt ihn aus bis zu zwölf Schichten zusammen, in dieser Reihenfolge:
 
 | # | Schicht | Wann |
 |---|---|---|
-| 0 | User-Präfix | immer (einmal, ganz oben) |
-| 1 | Identität — wer der Agent ist | immer |
+| 0 | User-Präfix (`shared/user_prefix`) | wenn die Antwort an den Benutzer geht und ein Name gesetzt ist (einmal, ganz oben) |
+| 1 | Identität — wer der Agent ist | immer (nicht beim Sub-Agenten ohne Persona) |
 | 2 | Reasoning — wie gedacht wird | wenn Reasoning für den Agenten an ist |
-| 3 | Multi-Agent-Rollen — wer die anderen sind | nur in Multi-Agent-Modi |
-| 4 | Aufgaben-Prompt | immer |
-| 5 | Security Boundary | in Kontexten externer Kanäle (Message Hub) |
-| 6 | Gedächtnis-Anweisungen | wenn das Agenten-Gedächtnis aktiv ist (nicht im Inkognito-Modus) |
-| 7 | Persönlichkeit — wie gesprochen wird | wenn Persönlichkeit an ist |
-| 8 | Tool-Anweisungen | wenn Tools verfügbar sind (nahe am Ende, damit Tool-Nutzung priorisiert wird) |
-| 9 | Disziplinen — Datums-Verankerung, Zitat-/Währungsdisziplin, … | immer |
+| 3 | Multi-Agent-Rollen — wer die anderen sind | nur in Multi-Agent-Modi (mit Plätzen) |
+| 4 | Situation — was der Agent hier tut | immer |
+| 5 | Ausgabeformat | wenn die Antwort an den Benutzer geht |
+| 6 | Formatregeln | wenn die Antwort an den Benutzer geht und der Zustellkanal Markdown zeigt (nicht FreeEcho.2, Telegram) |
+| 7 | Security Boundary | nur bei einer Nachricht, die nicht vom Eigentümer ist (Fremde, Webhook-Inhalt) |
+| 8 | Gedächtnis-Anweisungen | wenn das Agenten-Gedächtnis aktiv ist (nicht im Inkognito-Modus) und der Aufruf `store_memory` hat |
+| 9 | Persönlichkeit — wie gesprochen wird | wenn Persönlichkeit an ist (nicht beim Sub-Agenten ohne Persona) |
+| 10 | Tool-Anweisungen (+ Ankündigung der Tool-Aufrufe) | für die Werkzeuge, die der Aufruf wirklich hat (nahe am Ende, damit Tool-Nutzung priorisiert wird); die Ankündigung nur bei einer Antwort an den Benutzer |
+| 11 | Disziplinen — Datums-Verankerung, Zitat-/Währungsdisziplin, Termine, … und Rückfrage | immer, ganz zuletzt; die Rückfrage nur bei einer Antwort an den Benutzer |
+
+Die Situation (Schicht 4) ist die einzige Schicht, die vom Weg abhängt:
+`shared/conversation_roles` (Direktweg und Kanäle), die Aufgabe des Platzes
+(`debate/*`), `shared/symposion`, `shared/subagent_frame` oder die eigene
+Situation eines Kanals (`BaseChannel.situation()`; AI-Connect antwortet einem
+anderen Assistenten, nicht dem Benutzer). Die Ausgabesprache steht nur in
+`shared/output_language` und wird mit der Persönlichkeits-Erinnerung an jedem
+Platz in die letzte Nutzernachricht gesetzt (Erinnerung davor, Ausgabesprache dahinter).
 
 Aktuelles Datum und Uhrzeit sind Teil jedes Prompts, damit zeitbezogene Fragen
 funktionieren.
@@ -143,16 +154,15 @@ Ab Runde 2 wird jeder Teilnehmer zusätzlich gefragt: *Welche Aspekte der
 ursprünglichen Frage sind noch unbeantwortet, welche Perspektive wurde
 übersehen, welche Annahme ist unhinterfragt geblieben?* Das erzeugt Tiefe, ohne
 Konfrontation zu erzwingen — Agenten adressieren Lücken, statt ihre Sicht zu
-wiederholen. Es ist eine additive Prompt-Schicht
-(`prompts/{de,en}/shared/symposion_reflection.txt`), kein Ersatz für den
-Diskussions-Prompt (`shared/symposion.txt`).
+wiederholen. Sie steht als Frage hinter dem Verlauf
+(`prompts/{de,en}/shared/symposion_reflection.txt`), kein Ersatz für die Regeln
+des Symposions (`shared/symposion.txt`, die Situation im System-Prompt).
 
 ### Prompt-Dateien pro Schritt
 
 | Modus / Schritt | Agent | Prompt |
 |---|---|---|
-| Standard | beliebig | `<agent>/system_minimal` (Aufgaben-Schicht) |
-| Direkte Ansprache | angesprochener Agent | `<agent>/direct` |
+| Standard, direkte Ansprache, Kanal | antwortender Agent | `shared/conversation_roles` (die eigenen Dateien des Agenten sind nur `identity`, `personality`, `reminder`, `memory_context`) |
 | Kritische Prüfung, Auto-Konsens — Kritik | Kritiker | `debate/critic` (+ `critic_first`/`critic_later`, Abstimmung `critic_voting` nur im Auto-Konsens) |
 | Recensio — Prüfung | Censor (Kritiker-Platz) | `debate/review` (+ `review_first`/`review_later`) |
 | Recensio — Correctura | Auctor | `debate/review_fix` |
@@ -165,6 +175,7 @@ Diskussions-Prompt (`shared/symposion.txt`).
 
 Was die Aufgabe eines Platzes zu seiner Runde sagt, wählt der Code (`debate_seats.round_rules`: der Baustein
 `_first` für die erste Runde, `_later` für jede weitere), damit das Modell nie selbst „WENN Runde = 1“ abwägt.
+Die Rollen der Plätze beschreibt je Modus eine eigene Datei (`turn_debate._DEBATE_MODES`): `shared/multi_agent_roles` (Auto-Konsens, Tribunal), `shared/multi_agent_roles_critique` (Kritische Prüfung: zwei Rollen, kein Richter), `shared/multi_agent_roles_review` (Recensio).
 Kritiker sind angewiesen, pro Runde höchstens ein oder zwei Punkte anzubringen (die Recensio nicht: sie
 meldet alles, was sie belegen kann).
 

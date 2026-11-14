@@ -34,7 +34,7 @@ gemeinsames Gedächtnis über Dateien im Workspace.
 | Async-Generator-Executor mit `progress`-Ereignissen | `function_calling.py`, Präzedenz `research` | Das Delegations-Werkzeug streamt Fortschritt in die Statuszeile, ohne den Bericht zu blockieren |
 | Aufklappbare Blöcke | `aifred/lib/formatting.py`, `llm_pipeline.PipelineResult` | Der innere Ablauf wird wie die Recherche-Quellen als HTML neben dem Text in die Bubble gehängt |
 | Token-Schätzung ignoriert `<details>` | `aifred/lib/context_manager.py` | Der Ablauf-Block kostet in der History nichts und geht nie ans Modell |
-| Prompt-Schichten und Plugin-Anleitungen | `aifred/lib/prompt_loader.py`, `plugin_base.load_plugin_instructions` | Der Sub-Agent bekommt einen schlanken Prompt aus Rahmen, Werkzeug-Anleitungen und `disciplines`; der Aufrufer bekommt eine Anleitung, wann Delegieren sinnvoll ist und was in die Übergabe gehört |
+| Prompt-Schichten und Plugin-Anleitungen | `aifred/lib/prompt_loader.py`, `plugin_base.load_plugin_instructions` | Der Sub-Agent bekommt einen schlanken Prompt, gebaut von `agent_system_prompt` (`answers_user=False`) aus Rahmen, Werkzeug-Anleitungen und `disciplines`; der Aufrufer bekommt eine Anleitung, wann Delegieren sinnvoll ist und was in die Übergabe gehört |
 | Debug-Bus mit `session_scope` | `aifred/lib/debug_bus.py` | Debug-Zeilen des Sub-Agenten landen in derselben Session, ContextVar-basiert und damit verschachtelungssicher |
 
 Neu gebaut wird nur das Plugin selbst, ein generischer Rahmen-Prompt in
@@ -66,8 +66,8 @@ Vorgabe aus: Ist der Schalter aus, steht `agent` nicht im Werkzeug-Schema,
 und das Modell kann ihn gar nicht erst benutzen.
 
 Ruft AIfred so Codine, arbeitet der Sub-Agent als Codine, aber ohne
-Konversation und Gedächtnis, ohne Reminder und ohne ihre Aufgaben-Schicht
-für das Gespräch. Im Chat erscheint keine Codine-Bubble und kein Wortwechsel,
+Konversation und Gedächtnis, ohne Reminder und ohne die Situation des
+Gesprächs (`shared/conversation_roles`). Im Chat erscheint keine Codine-Bubble und kein Wortwechsel,
 AIfred bleibt das Gegenüber des Users, Codines Bericht geht als
 Werkzeug-Ergebnis an AIfred und ihr Transkript in den aufklappbaren Block
 von AIfreds Antwort. Das ist Arbeitsteilung im Hintergrund und bewusst
@@ -91,24 +91,33 @@ bekommt sie auch über einen Sub-Agenten nicht.
    ist die Rekursionstiefe strukturell 1, ohne Zähler und ohne Lock. Die
    Einstellung „Rekursionstiefe“ (Vorgabe 1) erlaubt später mehr; die
    aktuelle Tiefe wandert dann als Feld in `PluginContext.metadata`.
-2. System-Prompt des Sub-Agenten, bewusst schlank: der Rahmen aus
-   `prompts/<lang>/shared/subagent_frame.txt`, die Werkzeug-Anleitungen der
-   Plugins, die er tatsächlich bekommt, und die geteilte Schicht
-   `disciplines`. Kein Reminder, kein Memory-Kontext. Ohne `agent` auch keine
-   Identity und keine Personality: Ein Sub-Agent des Aufrufers selbst ist ein
-   Arbeiter ohne Persona. Mit `agent` kommen Identity und Personality des
-   gewählten Agenten dazu, über dieselben Helfer wie im normalen Turn
-   (`load_identity`, `load_personality`; der Persönlichkeits-Schalter des
-   Agenten gilt also auch hier) und in derselben Schichten-Reihenfolge wie
-   `merge_prompt_layers`, mit dem Rahmen an der Stelle der Aufgaben-Schicht:
-   Identity, Rahmen, Sicherheitsgrenze, Personality, Werkzeug-Anleitungen,
+2. System-Prompt des Sub-Agenten (`subagent.subagent_messages`), bewusst
+   schlank: derselbe Bauer wie überall, `prompt_loader.agent_system_prompt`,
+   mit `answers_user=False` (die Antwort geht an den Aufrufer, nicht an den
+   Benutzer: kein User-Präfix, kein Ausgabeformat, keine Formatregeln, keine
+   Ankündigung der Werkzeugaufrufe, keine Rückfrage) und `memory=False`. Er
+   besteht aus dem Rahmen `prompts/<lang>/shared/subagent_frame.txt` als
+   Situation, den Werkzeug-Anleitungen nur für die Werkzeuge, die der
+   Sub-Agent tatsächlich hat, und der geteilten Schicht `disciplines`. Die
+   Sicherheitsgrenze kommt, wenn die Nachricht des Aufrufers nicht vom
+   Eigentümer ist (`not in_owner_context(ctx.source, ctx.trust)`). Kein
+   Reminder, kein Memory-Kontext. Ohne `agent` (`agent_id=None`) auch keine
+   Identity, kein Reasoning und keine Personality: Ein Sub-Agent des
+   Aufrufers selbst ist ein Arbeiter ohne Persona. Mit `agent` kommen
+   Identity, Reasoning-Schalter und Personality des gewählten Agenten dazu
+   (der Persönlichkeits-Schalter des Agenten gilt also auch hier), in der
+   Schichten-Reihenfolge von `_merge_prompt_layers`: Identity, Reasoning,
+   Rahmen, Sicherheitsgrenze, Personality, Werkzeug-Anleitungen,
    `disciplines`. Der Rahmen sagt: du bist ein Sub-Agent,
    du hast keinen Zugriff auf Gespräch und Gedächtnis, du stellst keine
    Rückfragen, du lieferst am Ende einen Bericht mit genau dem, was
    `expected_result` verlangt, ohne ganze Dateien, Code oder lange Ausgaben
    hineinzukopieren (Datei oder URL nennen genügt), und du delegierst nur weiter, wenn du das
    Werkzeug `delegate_task` hast (also nur unterhalb der Rekursionstiefe).
-3. User-Nachricht des Sub-Agenten: `task`. History: leer. Das ist der Kern
+3. User-Nachricht des Sub-Agenten: `task` und `expected_result` aus
+   `prompts/<lang>/shared/subagent_task.txt`, mit dem Zeitstempel jeder
+   Nutzernachricht (`stamp_user_turn`; die Disziplinen versprechen Datum und
+   Uhrzeit daraus). History: leer. Das ist der Kern
    der Kontextentlastung, und es zwingt den Aufrufer zu einer vollständigen
    Übergabe. Die Anleitung an den Aufrufer (Plugin-Fragment `delegate_task.txt`) sagt genau das.
 4. Ausführung über `run_llm_stream` mit dem eigenen Werkzeugkasten; Modell,

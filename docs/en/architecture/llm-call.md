@@ -126,13 +126,17 @@ turn_service.py: _respond()
   |     |     -> memory tools + all plugin tools; recalled memories are injected
   |     |        as context right before the question (inject_before_question)
   |     |-- the agent's thinking choice for this model (thinking_mode, thinking_fields)
-  |     |-- system prompt: prompt_loader.get_agent_direct_prompt(agent, lang, memory)
+  |     |-- system prompt: prompt_loader.agent_system_prompt(agent, situation, lang, ...)
+  |     |     situation from answer_situation(): the channel's own (BaseChannel.situation) or
+  |     |     shared/conversation_roles; plus the seeing task when the agent sees images itself
   |     |-- messages: build_messages_from_llm_history(..., perspective=agent)
   |     |-- the agent's temperature (resolve_agent_temperature, its own per agent)
   |     |-- LLM options: build_llm_options(view, agent, model, temperature, num_ctx)
   |-- stream_call(): run_llm_stream()  <-- PIPELINE
   |-- finish_call(mode="direct")
 ```
+
+**The system prompt** is built the same way on every path, by `prompt_loader.agent_system_prompt(agent_id, situation, lang, *, answer_channel, external, tools, memory, seats, roles, answers_user)`; `_merge_prompt_layers` puts together layers 0–11 (order in its docstring): user label, identity, reasoning (a switch per agent), the seats' roles (only with `seats`), the **situation** (what the agent does here), output format, formatting rules, security boundary, memory instructions, personality, tool instructions (only for the tools the call really has), disciplines and asking back. An agent's own files are only `identity`, `personality`, `reminder` and `memory_context`; what it is to do comes from the situation: `shared/conversation_roles` (direct path and channels), the seat's task (`debate/*`), `shared/symposion`, `shared/subagent_frame`, or a channel's own situation (`BaseChannel.situation(lang)`, default `None`; AI-Connect answers another assistant with it, not the user: `answers_user=False`, so no user label, output format, formatting rules, announcing or asking back). The **security boundary** (layer 7) goes only to a message that is not the owner's (`turn_service.external_sender` = `not security.in_owner_context(source, trust)`: strangers, a webhook's payload; the sender recognized as the owner in the browser, on Telegram and by e-mail (verified) and his scheduler jobs do not get it; Discord and FreeEcho.2 do not recognize him). **Formatting rules** apply where the answer is shown as Markdown: `answer_channel` is a job's delivery channel, else the message's channel (`turn_service.answer_channel`), and a channel with `markdown_output = False` (FreeEcho2, Telegram) does not get them. The language holds for the whole turn (`prompt_loader.turn_language`, set after the intent detection); prompts loaded without `lang` follow it, outside a turn the interface's language.
 
 When several agents speak, the **perspective transformation** in `build_messages_from_llm_history()` ensures each sees the conversation from its own point of view: its own replies are `role: "assistant"` (without a name label), everything else is `role: "user"`, other agents' replies under their display name. The judge of a debate reads as an observer (`observer=True`): every reply is someone else's.
 
@@ -170,7 +174,7 @@ run_debate()
   |-- else                -> _critique()   (critical_review and auto_consensus)
 ```
 
-Every speaker builds its call with `_call()` (system prompt, history from its view, the round's question for author tasks) and runs through `stream_call` → `run_llm_stream()` and `finish_call`. The system prompt is the agent's multi-agent task prompt (`_base_system`, role description `DEBATE_ROLES`) plus the seat's task (`_seat_system`) for critic, mediator, prosecutor and judge. The author's tasks (refinement, defense, correctura) come as the question after the history instead, in the recensio under `REVIEW_ROLES`.
+Every speaker builds its call with `_call()` (system prompt, history from its view, the round's question for author tasks) and runs through `stream_call` → `run_llm_stream()` and `finish_call`. The system prompt comes from `agent_system_prompt` (`turn_debate._system`) with the session's seats and the mode's role description (`_DEBATE_MODES`, `TurnPlan.roles`): `shared/multi_agent_roles` in the tribunal and auto-consensus (author, critic, judge), `shared/multi_agent_roles_critique` in the critical review (two roles, no judge), `shared/multi_agent_roles_review` in the recensio. For critic, mediator, prosecutor and judge the seat's task (`_seat_system`) is the situation. The author has no situation (`_system(…, "", …)`): its tasks (refinement, defense, correctura) come as the question after the history. The roles carry the history's user label (`message_builder.history_user_label()`: the name, else USER).
 
 #### Critical Review (critical_review)
 
@@ -220,8 +224,9 @@ The censor (the critic's seat) reads and tests the files the auctor (the author)
 _recensio()
   |-- censor toolkit: toolkit.restricted(RECENSIO_CENSOR_TOOLS)  (read and test only)
   |-- _review(round 0): review of the answer, belongs to no round
-  |     system prompt: get_seat_system_prompt(..., REVIEW_ROLES, tools=RECENSIO_CENSOR_TOOLS):
-  |     the review replaces the agent's everyday task, identity and personality stay
+  |     system prompt: agent_system_prompt(..., situation = task review, roles=REVIEW_ROLES,
+  |     tools=RECENSIO_CENSOR_TOOLS): the review replaces the agent's everyday task, identity
+  |     and personality stay, instructions only for the censor's tools
   |
   Loop per round N (at most max_debate_rounds):
     |-- [LGTM] of the review (and no [WEITER]) -> passed, end
@@ -235,7 +240,8 @@ _recensio()
 run_symposion()
   |
   Per round up to max_debate_rounds, per agent of the round table (re-read from the session every round):
-    |-- system prompt (direct) + rules shared/symposion (+ shared/symposion_reflection from round 2)
+    |-- system prompt: agent_system_prompt with the rules shared/symposion as situation
+    |     (+ shared/symposion_reflection as the question from round 2)
     |-- messages: the whole conversation so far, own contributions as assistant
     |-- memories in round 1 only
     |-- stream_call() -> run_llm_stream()
@@ -258,7 +264,7 @@ message_processor.py: dispatch_inbound() -> process_inbound(InboundMessage)
   |-- 2. Find or create session (routing_table)
   |       hub_notification_scope: toast "received" in the browser
   |-- 3. _turn_origin(): the bubble (build_inbound_chat_entry), what the model
-  |       reads (the plugin's context, wrapped by wrap_external_message — the
+  |       reads (the plugin's context, `build_context` from its `prompts/<lang>/context/inbound.txt`, wrapped by wrap_external_message — the
   |       fence stays in the llm_history), tier, trust, channel metadata,
   |       metadata["wake_agent"] as the pinned agent (only when configured)
   |-- 4. turn_service.run_turn(TurnRequest(origin=...)) in the channel's task
@@ -412,7 +418,7 @@ positives.
 | `aifred/lib/message_processor.py` | Message Hub pipeline (`process_inbound`, `outbound_text`) |
 | `aifred/lib/llm_client.py` | `LLMClient`, `build_llm_options()`, backend abstraction |
 | `aifred/lib/message_builder.py` | `build_messages_from_llm_history()` — perspective transformation |
-| `aifred/lib/prompt_loader.py` | Prompt layers: `get_agent_direct_prompt`, `get_agent_system_prompt`, `get_seat_system_prompt` |
+| `aifred/lib/prompt_loader.py` | Prompt layers: `agent_system_prompt` (one builder for every path), `_merge_prompt_layers`, `answer_situation`, `turn_language` |
 | `aifred/lib/agent_memory.py` | `prepare_agent_toolkit()` — memory + plugin tools |
 | `aifred/lib/agent_config.py` | Agent configuration (display names, emojis, models) |
 | `aifred/lib/intent_detector.py` | Language, addressee and mode switch detection |

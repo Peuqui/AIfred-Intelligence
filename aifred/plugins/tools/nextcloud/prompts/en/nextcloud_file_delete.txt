@@ -1,0 +1,1 @@
+Deleting a file: nextcloud_file_delete puts the file in the trash bin.

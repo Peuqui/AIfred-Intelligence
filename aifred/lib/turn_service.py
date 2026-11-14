@@ -221,6 +221,31 @@ class TurnContext:
     seen_images: tuple[TurnImage, ...] = ()
     calls: list[AgentCall] = field(default_factory=list)   # the turn's model calls so far (stream_call)
 
+    @property
+    def external_sender(self) -> bool:
+        return external_sender(self.source, self.origin)
+
+    @property
+    def answer_channel(self) -> str:
+        return answer_channel(self.source, self.origin)
+
+
+def answer_channel(source: str, origin: TurnOrigin | None) -> str:
+    """Where the turn's answer arrives: a job's delivery channel (read aloud on the pucks, say), else the
+    message's."""
+    from .security import DELIVERY_CHANNEL_KEY
+
+    delivery: str = origin.metadata.get(DELIVERY_CHANNEL_KEY, "") if origin else ""
+    return delivery or source
+
+
+def external_sender(source: str, origin: TurnOrigin | None) -> bool:
+    """The turn's message is not the owner's (security.in_owner_context: a stranger, a webhook's payload): its
+    prompts carry the security boundary. The chat (no origin) is the owner's."""
+    from .security import in_owner_context
+
+    return not in_owner_context(source, origin.trust if origin else "owner")
+
 
 async def _run(request: TurnRequest, turn_id: str, routing: _Routing) -> None:
     from . import turn_debate
@@ -228,6 +253,7 @@ async def _run(request: TurnRequest, turn_id: str, routing: _Routing) -> None:
     from .formatting import build_user_chat_entry
     from .llm_client import LLMClient
     from .message_builder import stamp_user_turn, user_turn_stamp
+    from .prompt_loader import turn_language
     from .runtime_settings import load_runtime_settings
     from .session_storage import get_session_config
     from .turn_images import bubble_images, bubble_text, history_text, session_images
@@ -259,6 +285,7 @@ async def _run(request: TurnRequest, turn_id: str, routing: _Routing) -> None:
     debug("📨 User request received")
 
     llm_client = LLMClient(backend_type=view.backend_type, base_url=view.backend_url)
+    language_token = turn_language.set(None)   # set to the turn's language once the intent is known
     try:
         if origin is not None and origin.task:
             # The intent detection reads a person's words; a task's text is AIfred's own template, its
@@ -267,6 +294,7 @@ async def _run(request: TurnRequest, turn_id: str, routing: _Routing) -> None:
             intent = _Intent(None, view.ui_language, {}, False, 0.0)
         else:
             intent = await _detect_intent(view, llm_client, user_text)
+        turn_language.set(intent.language)
         config = get_session_config(session_id)
         if intent.mode_switch:
             config = _apply_mode_switch(session_id, config, intent)
@@ -287,7 +315,7 @@ async def _run(request: TurnRequest, turn_id: str, routing: _Routing) -> None:
             session_id, view, llm_client, user_text, llm_user_text, intent, request.source, mode, memory_enabled, stamp,
             origin, routing.replies, seen,
         )
-        await _compress(ctx, plan.agents)
+        await _compress(ctx, plan.agents, plan.responder is None)
         if plan.responder is None:
             await turn_debate.run_symposion(ctx, plan)
         else:
@@ -297,6 +325,7 @@ async def _run(request: TurnRequest, turn_id: str, routing: _Routing) -> None:
                 await turn_debate.run_debate(ctx, plan, answer.text)
         last_call = ctx.calls[-1] if ctx.calls else None
     finally:
+        turn_language.reset(language_token)
         await llm_client.close()
     if last_call is not None:
         _start_title(session_id, view, last_call)
@@ -481,13 +510,22 @@ async def _look_at_images(
 # ── History compression ──────────────────────────────────────────────────
 
 
-async def _compress(ctx: TurnContext, agents: list[str]) -> None:
+async def _compress(ctx: TurnContext, agents: list[str], symposion: bool) -> None:
     """Before the turn: compress when the history would crowd the smallest context of the turn's
-    agents, measured with the largest of their system prompts (who speaks when is open yet)."""
-    from .prompt_loader import get_direct_prompt_tokens
+    agents, measured with the largest of their system prompts (who speaks when is open yet), in the
+    situation the turn starts with (the symposion's rules, else the answer to the user)."""
+    from .agent_config import agent_display_name
+    from .prompt_loader import get_direct_prompt_tokens, load_prompt
 
+    lang = ctx.intent.language
+    situation = (
+        load_prompt("shared/symposion", lang=lang, participants=", ".join(agent_display_name(agent) for agent in agents))
+        if symposion else None
+    )
     context_limit = min(agent_context(ctx.view, agent)[0] for agent in agents)
-    prompt_tokens = max(get_direct_prompt_tokens(agent, ctx.intent.language, memory=ctx.memory_enabled) for agent in agents)
+    prompt_tokens = max(
+        get_direct_prompt_tokens(agent, lang, memory=ctx.memory_enabled, situation=situation) for agent in agents
+    )
     # The first speaker summarizes: its model is the one that runs next.
     await compress_history(ctx, agent_model(ctx.view, agents[0]), context_limit, prompt_tokens, 0, "Pre-Message Compression")
 
@@ -626,6 +664,11 @@ async def _respond(ctx: TurnContext, agent: str) -> PipelineResult | None:
     return result
 
 
+def toolkit_names(toolkit: Any) -> list[str]:
+    """The names of the tools a call really has (its prompt explains only those); none without a toolkit."""
+    return [tool.name for tool in toolkit.tools] if toolkit is not None else []
+
+
 async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
     """The direct answer's call: the agent's direct prompt, the history from its perspective, the
     memories right before the question; the turn's images in the question when the agent sees them."""
@@ -639,7 +682,7 @@ async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
     from .formatting import format_number
     from .llm_client import build_llm_options
     from .message_builder import build_messages_from_llm_history, inject_before_question
-    from .prompt_loader import get_agent_direct_prompt
+    from .prompt_loader import agent_system_prompt, answer_situation
     from .tool_output_cap import compute_budget
     from .turn_images import seeing_content, seeing_question, seeing_task
 
@@ -654,8 +697,16 @@ async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
     # The agent thinks as its own row says for the model it runs on (Peuqui 07.11.2026: AIfred's
     # choice does not apply to the other agents).
     thinking = thinking_mode(view, agent, model)
-    system_prompt = get_agent_direct_prompt(agent, lang=lang, memory=ctx.memory_enabled, source=ctx.source)
     seen = list(ctx.seen_images)
+    situation, answers_user = answer_situation(ctx.source, lang)
+    if seen:
+        # The agent sees the images itself: how to look at them is part of its situation (the question stays
+        # in the message).
+        situation = f"{situation}\n\n{seeing_task(bool(ctx.user_text.strip()), lang)}"
+    system_prompt = agent_system_prompt(
+        agent, situation, lang, answer_channel=ctx.answer_channel, external=ctx.external_sender, tools=toolkit_names(toolkit),
+        memory=ctx.memory_enabled, answers_user=answers_user,
+    )
     question = seeing_question(seen, ctx.user_text, ctx.stamp, lang) if seen else ctx.llm_user_text
     messages: list[dict[str, Any]] = [*build_messages_from_llm_history(
         session_llm_history(ctx.session_id)[:-1], question, perspective=agent, detected_language=lang,
@@ -663,7 +714,6 @@ async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
     if seen:
         # The agent sees the images itself: they go into its request (in front of the question as
         # the history builder left it, with the persona's reminder), never into the history.
-        system_prompt = f"{system_prompt}\n\n{seeing_task(ctx.user_text, lang)}"
         messages[-1] = {"role": "user", "content": seeing_content(seen, messages[-1]["content"], no_think=thinking == THINKING_OFF)}
     messages.insert(0, {"role": "system", "content": system_prompt})
     memory_tokens = 0

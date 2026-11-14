@@ -1,0 +1,1 @@
+Genre, artist or keyword vague ('something classical', 'Mozart', 'jazz')? First audio_search, then use the hit's state_key for audio_play. Example 'play lee dorsey': audio_search(query='lee dorsey') → audio_play with the hit's state_key.

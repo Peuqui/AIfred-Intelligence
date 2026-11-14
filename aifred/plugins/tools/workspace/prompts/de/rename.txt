@@ -1,1 +1,1 @@
-- rename → Datei umbenennen
+- rename → Datei oder Ordner umbenennen

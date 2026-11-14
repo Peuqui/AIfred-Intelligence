@@ -1,1 +1,1 @@
-Delete an entry from your long-term memory permanently, referenced by the ID shown in brackets in your memory context: when it is wrong without a corrected replacement, obsolete, or the user asks you to forget it. If the fact just changed, use update_memory instead.
+Delete an entry from your long-term memory permanently, referenced by the ID shown in brackets in your memory context.

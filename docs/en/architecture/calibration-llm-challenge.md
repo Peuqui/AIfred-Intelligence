@@ -164,7 +164,7 @@ between runs for a clean GPU state.
 |---|---|
 | LLM clearly wins (≥20% faster, same ctx values, deterministic) | Keep the AI path as an optional variant, split prompts per step (separate prompts for BASE + SPEED, re-projection stays algorithmic), possibly default later |
 | LLM competitive but not clearly better | Keep the AI path as a last resort for edge cases (unusual hardware, fit-params fails completely). No investment in a refactor |
-| LLM worse or non-deterministic | Throw out the AI path, delete [ai_agent.py](../../../aifred/lib/calibration/ai_agent.py) + the AI branches in [flow.py](../../../aifred/lib/calibration/flow.py) (`_try_ai_calibration`, `_ai_variant_from_base`) + `prompts/{de,en}/calibration/system.txt` + the `calibration` agent in `data/agents.json` + the `calibration_mode` switch |
+| LLM worse or non-deterministic | Throw out the AI path, delete [ai_agent.py](../../../aifred/lib/calibration/ai_agent.py) + the AI branches in [flow.py](../../../aifred/lib/calibration/flow.py) (`_try_ai_calibration`, `_ai_variant_from_base`) + the folder `prompts/en/calibration/` (English only) + the `calibration` agent in `data/agents.json` + the `calibration_mode` switch |
 
 ## Binding rules for the LLM side
 
@@ -212,7 +212,7 @@ If the AI path is expanded, new prompt layout:
 - [aifred/lib/calibration/optimizer.py](../../../aifred/lib/calibration/optimizer.py) —
   `fill_fastest_first`
 - [prompts/en/calibration/system.txt](../../../prompts/en/calibration/system.txt) —
-  current LLM system prompt (`ai_agent.py` always loads it with `lang="en"`)
+  current LLM system prompt; the building blocks next to it (`start`, `ctx_reduction_*`, `projection_*`, `hybrid_disabled`, `hardware_gpu*`) live in the same folder. Calibration is English only (`CALIBRATION_LANGUAGE` in `ai_agent.py`), there is no German version
 - [data/vlm_vram_cache.json](../../../data/vlm_vram_cache.json) — burn-in lookup
 - [data/model_vram_cache.json](../../../data/model_vram_cache.json) — calibration cache
   (clear for the test model before the comparison)

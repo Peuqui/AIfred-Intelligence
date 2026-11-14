@@ -87,10 +87,12 @@ memories would write down things nobody saw in the conversation.
 
 - **System prompt**, deliberately lean: the frame from `prompts/<lang>/shared/subagent_frame.txt`,
   the tool instructions of exactly the plugins whose tools it holds, the
-  security boundary on external channels, and the shared `disciplines` layer.
-  No reminder, no memory context. Without `agent` also no identity and no
-  personality. With `agent`, the identity and personality of the chosen agent
-  are added, in the same layer order as a normal turn: identity, frame, security
+  security boundary when the message is not the owner's, and the shared
+  `disciplines` layer. It answers the caller, not the user: no output format, no
+  formatting rules, no asking back. No reminder, no memory context. Without
+  `agent` also no identity, no reasoning and no personality. With `agent`, the
+  identity, reasoning toggle and personality of the chosen agent are added, in
+  the same layer order as a normal turn: identity, reasoning, frame, security
   boundary, personality, tool instructions, `disciplines`. If that agent's
   personality toggle is off in the settings, the personality is missing here
   too.

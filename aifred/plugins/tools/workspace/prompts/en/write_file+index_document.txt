@@ -1,1 +1,1 @@
-After writing or editing a file: ask whether it should be indexed.
+After writing or editing a file: if it is meant to be found later through the document search, index it; when in doubt, ask the user.

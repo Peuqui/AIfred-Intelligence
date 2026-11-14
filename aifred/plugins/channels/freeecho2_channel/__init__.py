@@ -81,6 +81,7 @@ class FreeEchoChannel(ConnectionMixin):
         return "🎤"
 
     speaker_is_user = True
+    markdown_output = False   # the answer is spoken: no formatting rules in the prompt
 
     @property
     def always_reply(self) -> bool:
@@ -241,10 +242,10 @@ class FreeEchoChannel(ConnectionMixin):
         worked because the pre-M3 duplication smuggled the question in via
         the raw history entry).
         """
-        from ....lib.prompt_loader import load_prompt
+        from ....lib.plugin_base import load_plugin_prompt
         from ._shared import channel_language
-        return load_prompt(
-            "shared/channel_freeecho2",
+        return load_plugin_prompt(
+            __file__, "context/inbound",
             lang=channel_language(),
             room=message.metadata.get("room", "unknown"),
             text=message.text,

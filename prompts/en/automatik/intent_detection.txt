@@ -6,7 +6,7 @@ Analyze the user request given at the very end.
 
 Detect the language of the QUOTED USER TEXT only, not these instructions.
 Agent names (AIfred, Sokrates, Salomo, …) belong to no language: judge by the other words.
-Examples: "Wie geht es dir?" → DE | "How are you?" → EN | "Was kostet das?" → DE | "Codi, please explain recursion" → EN
+Examples: "Wie geht es dir?" → DE | "How are you?" → EN | "Was kostet das?" → DE | "Codine, please explain recursion" → EN
 
 **2. Addressee (who should respond):**
 Available agents (for context only — DO NOT route based on topic):
@@ -15,13 +15,13 @@ Available agents (for context only — DO NOT route based on topic):
 **Set an addressee ONLY when the user EXPLICITLY addresses an agent by name.**
 Topic-based / expertise routing is DISABLED — the user picks their agent
 manually via UI button (browser) or wake-word (Puck). Do not infer based
-on the query subject (math → Codi, philosophy → Sokrates etc.).
+on the query subject (math → Codine, philosophy → Sokrates etc.).
 
 Rules for name detection:
-- Speaking TO someone = addressee ("Hey Sokrates, ...", "Codi, hilf mir").
-- Speaking ABOUT someone = NOT addressee ("Was meint Sokrates?" → leer).
+- Speaking TO someone = addressee ("Hey Sokrates, ...", "Codine, hilf mir").
+- Speaking ABOUT someone = NOT addressee ("Was meint Sokrates?" → "").
 - Naming a mode, a topic or the participants of a debate is NOT addressing
-  ("Start a tribunal about X", "Starte ein Symposion mit Codi und HAL" → leer).
+  ("Start a tribunal about X", "Starte ein Symposion mit Codine und HAL" → "").
 - Ignore grammar/spelling — focus on semantic intent.
 - **Phonetic variations matter**: STT transcripts are noisy (Whisper, Vosk).
   Each agent's entry above lists ``aliases`` if present — these are common
@@ -37,9 +37,9 @@ The user may request a configuration change. Detect these and encode them as
 comma-separated key=value pairs:
 
 - `multi=standard`   → single agent responds (default)
-- `multi=tribunal`   → all three agents debate (AIfred + Sokrates + Salomo)
+- `multi=tribunal`   → three seats debate (author, critic, judge; the session decides who sits where)
 - `multi=symposion`  → multiple selected agents discuss
-- `multi=critical_review` → Sokrates critically reviews AIfred's answer
+- `multi=critical_review` → the critic seat critically reviews the author's answer
 - `multi=recensio` → code review: a censor reads and tests the code the answering agent wrote, the author fixes the findings, until the review passes
 - `multi=auto_consensus`  → agents debate until consensus
 - `agent=<id>`       → set a specific agent as responder. **MUST be the
@@ -58,7 +58,7 @@ Examples of mode switch detection (works in ALL languages):
 - "I want to keep talking to HAL"           → agent=hal      (lowercase id, NOT "HAL 9000")
 - "Schalt um auf HAL 9000"                  → agent=hal      (lowercase id, NOT "hal 9000")
 - "Bleib bei Pater Tuck"                    → agent=pater    (lowercase id, NOT "Pater Tuck")
-- "Starte Symposion mit Codi, HAL und Rabbi" → multi=symposion,symposion_agents=codi,hal,rabbi
+- "Starte Symposion mit Codine, HAL und Rabbi" → multi=symposion,symposion_agents=codine,hal,rabbi
 - "Start a symposion with Sokrates and Pater Tuck" → multi=symposion,symposion_agents=sokrates,pater
 - "Starte Symposion"                        → multi=symposion (no participants named)
 - "Wie geht's?"                             → "" (no mode switch)
@@ -72,12 +72,12 @@ Detecting persistent agent switch:
 Only fill this field if the user EXPLICITLY requests a mode/configuration change.
 Questions about modes ("What is Tribunal mode?") are NOT mode switches — leave it "".
 Addressing an agent is NOT a mode switch: `multi=standard` only when the user asks for the
-standard mode or to leave a debate ("Codi, erklär mir X" → "").
+standard mode or to leave a debate ("Codine, erklär mir X" → "").
 
 **4. Pure Command Flag:**
 
 Classify whether the message is a PURE mode-switch command (no actual question
-or content alongside) or whether it ALSO contains an inhaltliche question/request.
+or content alongside) or whether it ALSO contains a substantive question/request.
 
 - TRUE  → message is ONLY a mode/configuration command, nothing else
 - FALSE → message contains a question or request beyond the mode command (or
@@ -93,7 +93,7 @@ the original user message is always preserved verbatim.
 Examples:
 - "Start tribunal"                                  → TRUE
 - "Bleib bei Pater Tuck"                            → TRUE
-- "Starte ein Symposion mit Codi und HAL"           → TRUE (the participants belong to the command)
+- "Starte ein Symposion mit Codine und HAL"           → TRUE (the participants belong to the command)
 - "Start tribunal and discuss climate change"       → FALSE (has question)
 - "Wie geht's?"                                     → FALSE (no mode command)
 - "Hey Sokrates, kritisiere das"                    → FALSE (no mode command)

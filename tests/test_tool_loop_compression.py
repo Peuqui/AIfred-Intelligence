@@ -106,7 +106,8 @@ def test_system_question_and_the_last_rounds_stay_older_ones_become_one_summary(
     system = {"role": "system", "content": "Du bist AIfred."}
     earlier = [{"role": "user", "content": "[USER]: Wetter gestern?"}, {"role": "assistant", "content": "Sonnig."}]
     question = {"role": "user", "content": "[USER]: Und morgen in Bonn?"}
-    rounds = [_round(number) for number in range(1, 5)]
+    # Results of a realistic size: a summary is worth it only when it replaces more than it adds.
+    rounds = [_round(number, f"Ergebnis {number}: " + "Regen, Wind aus West, zwölf Grad. " * 20) for number in range(1, 5)]
     messages = [system, *earlier, question, *[message for round_messages in rounds for message in round_messages]]
     original = copy.deepcopy(messages)
     client = SummaryClient()
@@ -119,7 +120,7 @@ def test_system_question_and_the_last_rounds_stay_older_ones_become_one_summary(
     kept = [message for round_messages in rounds[-TOOL_LOOP_KEPT_ROUNDS:] for message in round_messages]
     summary = compressed["messages"][1]
     assert compressed["messages"] == [system, summary, question, *kept]
-    assert summary == {"role": "user", "content": f"[CONVERSATION CONTEXT]:\n[Summary]\n{SUMMARY}"}
+    assert summary == {"role": "user", "content": f"[BISHERIGES GESPRÄCH, ZUSAMMENGEFASST]:\n[Summary]\n{SUMMARY}"}
     assert _pairs_intact(compressed["messages"])
     assert compressed["used_tokens"] < NUM_CTX
     # The summary saw the earlier conversation and the older rounds, calls and results, not the kept ones.
@@ -255,7 +256,7 @@ def test_over_the_trigger_the_loop_compresses_and_keeps_its_tools(monkeypatch: p
     second = server.requests[1]
     assert second["tools"] is not None
     assert [message["content"] for message in second["messages"][:3]] == [
-        "System", f"[CONVERSATION CONTEXT]:\n[Summary]\n{SUMMARY}", "Frage",
+        "System", f"[BISHERIGES GESPRÄCH, ZUSAMMENGEFASST]:\n[Summary]\n{SUMMARY}", "Frage",
     ]
     assert [message["role"] for message in second["messages"][3:]] == ["assistant", "tool"]
     assert len(client.prompts) == 1
@@ -283,5 +284,5 @@ def test_still_over_the_trigger_after_compressing_the_tool_phase_ends(monkeypatc
     second = server.requests[1]
     assert len(client.prompts) == 1
     assert second["tools"] is None
-    assert second["messages"][1]["content"].startswith("[CONVERSATION CONTEXT]:\n[Summary]")
+    assert second["messages"][1]["content"].startswith("[BISHERIGES GESPRÄCH, ZUSAMMENGEFASST]:\n[Summary]")
     assert second["messages"][-1]["content"] == load_prompt("utility/context_guard")

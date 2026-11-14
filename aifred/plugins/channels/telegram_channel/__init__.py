@@ -110,6 +110,8 @@ class TelegramChannel(BaseChannel):
     def emoji(self) -> str:
         return "✈️"
 
+    markdown_output = False   # format_outbound sends plain text: no formatting rules in the prompt
+
     @property
     def always_reply(self) -> bool:
         return True
@@ -454,9 +456,9 @@ class TelegramChannel(BaseChannel):
 
     def build_context(self, message: InboundMessage) -> str:
         """Prepare Telegram message for LLM with sender context."""
-        from ....lib.prompt_loader import load_prompt
-        return load_prompt(
-            "shared/channel_telegram",
+        from ....lib.plugin_base import load_plugin_prompt
+        return load_plugin_prompt(
+            __file__, "context/inbound",
             sender=message.sender,
             text=message.text,
         )

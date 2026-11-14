@@ -12,7 +12,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from ....lib.config import VENDOR_URL
+from ....lib.config import SANDBOX_TIMEOUT_SECONDS, VENDOR_URL
 from ....lib.function_calling import Tool
 from ....lib.i18n import t
 from ....lib.logging_utils import log_message
@@ -203,7 +203,8 @@ def get_sandbox_tools(session_id: str | None = None) -> list[Tool]:
             name="execute_code",
             tier=TIER_WRITE_DATA,
             description=load_tool_description(__file__, "execute_code")
-            .replace("{VENDOR_BASE}", VENDOR_URL).replace("{AVAILABLE_LIBRARIES}", _libraries),
+            .replace("{VENDOR_BASE}", VENDOR_URL).replace("{AVAILABLE_LIBRARIES}", _libraries)
+            .replace("{TIMEOUT_SECONDS}", str(SANDBOX_TIMEOUT_SECONDS)),
             parameters=load_tool_parameters(__file__, "execute_code"),
             executor=_execute_code,
         ),
@@ -211,7 +212,8 @@ def get_sandbox_tools(session_id: str | None = None) -> list[Tool]:
             name="execute_code_write",
             tier=TIER_WRITE_DATA,
             description=load_tool_description(__file__, "execute_code_write")
-            .replace("{VENDOR_BASE}", VENDOR_URL).replace("{AVAILABLE_LIBRARIES}", _libraries),
+            .replace("{VENDOR_BASE}", VENDOR_URL).replace("{AVAILABLE_LIBRARIES}", _libraries)
+            .replace("{TIMEOUT_SECONDS}", str(SANDBOX_TIMEOUT_SECONDS)),
             parameters=load_tool_parameters(__file__, "execute_code"),
             executor=_execute_code_write,
         ),

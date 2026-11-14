@@ -634,12 +634,13 @@ def build_job_prompt(job: Job, store: JobStore) -> str:
         delivery_text = load_prompt(
             "scheduler/delivery_announce_spoken", lang=lang, channel=channel_display_label(channel),
         )
-    elif delivery == "announce":
+    elif delivery == "announce" and job.payload.get("recipient"):
         delivery_text = load_prompt(
             "scheduler/delivery_announce", lang=lang,
-            channel=channel_display_label(channel),
-            recipient=job.payload.get("recipient", ""),
+            channel=channel_display_label(channel), recipient=job.payload["recipient"],
         )
+    elif delivery == "announce":   # no recipient: the channel's owner (message_processor._resolve_channel_recipient)
+        delivery_text = load_prompt("scheduler/delivery_announce_owner", lang=lang, channel=channel_display_label(channel))
     else:
         delivery_text = load_prompt(f"scheduler/delivery_{delivery}", lang=lang)
 

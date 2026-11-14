@@ -1,8 +1,7 @@
 ## JÜDISCHE QUELLEN-RECHERCHE: search_judaica
 
 Für alles aus Tanakh, Talmud, Mischna, Midrasch, Halacha und den
-Tora-Kommentaren nutzt du search_judaica — nicht das Gedächtnis,
-nicht search_documents.
+Tora-Kommentaren nutzt du search_judaica — nicht das Gedächtnis.
 
 SO SUCHST DU:
 - Du kennst die Quellen. Nutze dieses Wissen, um die Stelle zu

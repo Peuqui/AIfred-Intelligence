@@ -235,12 +235,15 @@ def settings_model(role: str) -> str:
 
 
 def loaded_seeing_profile() -> str | None:
-    """Geladenes llama-swap-Profil mit eigenem Vision-Encoder — außer den
-    ``-visiond``-Describern selbst. ``None``, wenn keins sieht."""
+    """AIfreds eingestelltes Modell (in jeder Variante), wenn es geladen ist und selbst sieht — nie das
+    Profil einer anderen Sitzung (14.11.2026: nachts beschrieb Vigilantia Kamerabilder mit dem
+    GLM-Testmodell von vllm-research, rund 30 Anfragen in deren Messung). ``None`` sonst."""
+    from .config import get_effective_model_from_settings
     from .vision_utils import has_native_vision
     from .vlm_naming import is_visiond_profile
+    main = get_effective_model_from_settings("aifred")
     for profile in loaded_llamaswap_profiles():
-        if not is_visiond_profile(profile) and has_native_vision(profile):
+        if same_model(profile, main) and not is_visiond_profile(profile) and has_native_vision(profile):
             return profile
     return None
 

@@ -513,12 +513,20 @@ def _system_cloud(raw: dict) -> SystemAgentCloud | None:
 
 def _system_cards() -> list[SystemAgentCard]:
     from ..agent_config import ROLE_SYSTEM, load_agents_raw
-    from ..prompt_loader import automatik_prompt_languages, prompt_languages
+    from ..prompt_loader import (
+        PROMPTS_DIR,
+        automatik_prompt_languages,
+        prompt_languages,
+    )
 
-    languages = prompt_languages()
+    def languages(prompts: dict[str, str]) -> list[str]:
+        # A system agent's prompts are loaded in the languages its files exist in (the calibration's in English
+        # only); the editor offers no other.
+        return [lang for lang in prompt_languages() if all((PROMPTS_DIR / lang / path).is_file() for path in prompts.values())]
+
     cards = [
         SystemAgentCard(id=agent_id, label=f"{raw['emoji']} {raw['display_name']}", prompt_keys=list(raw.get("prompts") or {}),
-                        languages=languages, cloud=_system_cloud(raw))
+                        languages=languages(raw.get("prompts") or {}), cloud=_system_cloud(raw))
         for agent_id, raw in load_agents_raw().items() if raw.get("role") == ROLE_SYSTEM
     ]
     label, layers = _prompt_layers(AUTOMATIK)

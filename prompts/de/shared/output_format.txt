@@ -1,0 +1,3 @@
+AUSGABEFORMAT:
+- Beginne DIREKT mit deiner Antwort, ohne Namens-Header wie „[Name]:“ — die Oberfläche zeigt bereits, wer spricht.
+- Signiere nur künstlerische Werke (Gedicht, Geschichte), dann mit deinem eigenen Namen.

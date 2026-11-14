@@ -15,7 +15,7 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.plugin_base import load_tool_description, load_tool_parameters
-from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
+from ....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
 from ....lib.tool_args import (
     InvalidValue,
     parse_bool,
@@ -322,13 +322,15 @@ def get_epim_tools(db: EpimDatabase, source: str) -> list[Tool]:
         return _ok(id=row_id)
 
     def tool(name: str, tier: int, executor: Any, enum: list[str]) -> Tool:
-        return Tool(name=name, tier=tier, executor=executor,
+        return Tool(name=name, tier=tier, executor=executor, read_only=name in ("epim_search", "epim_get"),
                     description=load_tool_description(__file__, name),
                     parameters=load_tool_parameters(__file__, name, enums={"entity_type": enum}))
 
     candidates = (
-        ("epim_search", TIER_READONLY, epim_search, search_types),
-        ("epim_get", TIER_READONLY, epim_get, get_types),
+        # Reading too is TIER_WRITE_DATA: appointments, contacts and passwords are private, a stranger's
+        # channel never reaches them (as nextcloud and google_suite).
+        ("epim_search", TIER_WRITE_DATA, epim_search, search_types),
+        ("epim_get", TIER_WRITE_DATA, epim_get, get_types),
         ("epim_create", TIER_WRITE_DATA, epim_create, create_types),
         ("epim_update", TIER_WRITE_DATA, epim_update, update_types),
         ("epim_delete", TIER_WRITE_SYSTEM, epim_delete, delete_types),

@@ -31,7 +31,7 @@ memory through files in the workspace.
 | Async-generator executor with `progress` events | `function_calling.py`, precedent `research` | The delegation tool streams progress into the status line without blocking the report |
 | Collapsible blocks | `aifred/lib/formatting.py`, `llm_pipeline.PipelineResult` | The inner run is attached to the bubble as HTML next to the text, like the research sources |
 | Token estimate ignores `<details>` | `aifred/lib/context_manager.py` | The run block costs nothing in the history and never reaches the model |
-| Prompt layers and plugin instructions | `aifred/lib/prompt_loader.py`, `plugin_base.load_plugin_instructions` | The sub-agent gets a lean prompt made of frame, tool instructions and `disciplines`; the caller gets instructions on when to delegate and what belongs in the handover |
+| Prompt layers and plugin instructions | `aifred/lib/prompt_loader.py`, `plugin_base.load_plugin_instructions` | The sub-agent gets a lean prompt, built by `agent_system_prompt` (`answers_user=False`) from frame, tool instructions and `disciplines`; the caller gets instructions on when to delegate and what belongs in the handover |
 | Debug bus with `session_scope` | `aifred/lib/debug_bus.py` | The sub-agent's debug lines land in the same session; ContextVar-based, hence nesting-safe |
 
 Newly built are only the plugin itself, a generic frame prompt in both
@@ -63,8 +63,8 @@ with the switch off, `agent` is not in the tool schema and the model cannot
 use it in the first place.
 
 When AIfred calls Codine this way, the sub-agent works as Codine, but
-without conversation and memory, without the reminder and without her task
-layer for the conversation. No Codine bubble and no exchange appear in the chat; AIfred stays
+without conversation and memory, without the reminder and without the
+conversation's situation (`shared/conversation_roles`). No Codine bubble and no exchange appear in the chat; AIfred stays
 the user's counterpart, Codine's report goes to AIfred as a tool result and
 her transcript into the collapsible block of AIfred's answer. This is
 division of labour in the background and deliberately not the Symposion,
@@ -85,23 +85,32 @@ today does not get them through a sub-agent either.
    structurally 1, with no counter and no lock. The setting "recursion
    depth" (default 1) allows more later; the current depth then travels as a
    field in `PluginContext.metadata`.
-2. The sub-agent's system prompt, deliberately lean: the frame from
-   `prompts/<lang>/shared/subagent_frame.txt`, the tool instructions of the
-   plugins it actually gets, and the shared layer `disciplines`. No
-   reminder, no memory context. Without `agent` also no identity and no
-   personality: a sub-agent of the caller itself is a worker without
-   persona. With `agent`, the identity and personality of the chosen agent
-   are added, through the same helpers as a normal turn (`load_identity`,
-   `load_personality`; the agent's personality toggle therefore applies here
-   too) and in the same layer order as `merge_prompt_layers`, with the frame
-   in the task slot: identity, frame, security boundary, personality, tool
-   instructions, `disciplines`. The frame says: you are a sub-agent, you have no access to the
+2. The sub-agent's system prompt (`subagent.subagent_messages`),
+   deliberately lean: the same builder as everywhere,
+   `prompt_loader.agent_system_prompt`, with `answers_user=False` (the answer
+   goes to the caller, not to the user: no user prefix, no output format, no
+   formatting rules, no announcing of tool calls, no asking back) and
+   `memory=False`. It consists of the frame
+   `prompts/<lang>/shared/subagent_frame.txt` as the situation, the tool
+   instructions only for the tools the sub-agent actually has, and the shared
+   layer `disciplines`. The security boundary comes when the caller's message
+   is not the owner's (`not in_owner_context(ctx.source, ctx.trust)`). No
+   reminder, no memory context. Without `agent` (`agent_id=None`) also no
+   identity, no reasoning and no personality: a sub-agent of the caller
+   itself is a worker without persona. With `agent`, the identity, reasoning
+   toggle and personality of the chosen agent are added (the agent's
+   personality toggle therefore applies here too), in the layer order of
+   `_merge_prompt_layers`: identity, reasoning, frame, security boundary,
+   personality, tool instructions, `disciplines`. The frame says: you are a sub-agent, you have no access to the
    conversation or the memory, you ask no questions back, you end with a
    report containing exactly what `expected_result` asks for, without copying
    whole files, code or long output into it (naming the file or URL is enough), and you
    delegate further only if you hold the `delegate_task` tool (that is, only
    below the recursion depth).
-3. The sub-agent's user message: `task`. History: empty. This is the core of
+3. The sub-agent's user message: `task` and `expected_result` from
+   `prompts/<lang>/shared/subagent_task.txt`, with the time stamp of every user
+   message (`stamp_user_turn`; the disciplines promise date and time from it).
+   History: empty. This is the core of
    the context relief, and it forces the caller into a complete handover.
    The instructions to the caller (plugin fragment `delegate_task.txt`) say exactly that.
 4. Execution through `run_llm_stream` with the own toolkit; model, sampling,

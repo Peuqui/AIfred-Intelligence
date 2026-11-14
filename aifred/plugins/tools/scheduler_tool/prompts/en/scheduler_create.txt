@@ -1,0 +1,27 @@
+CREATING A JOB (scheduler_create), when the user plans something ("remind me", "every morning", "in 2 hours"):
+1. Choose the fitting schedule_type:
+   - "every day at 8" → cron "0 8 * * *"
+   - "every 30 minutes" → interval "1800"
+   - "tomorrow at 10" → once "YYYY-MM-DDT10:00:00" (calculate the actual date!)
+   - "weekdays at 9" → cron "0 9 * * 1-5"
+   - "every Monday at 9" → cron "0 9 * * 1"
+   - "3 times a day" → cron "0 8,14,20 * * *" (ONE job with several hours, NOT three jobs; spread the hours sensibly or take them from the user)
+   - "every 4 hours" → cron "0 */4 * * *"
+   - "until Nov 30" / "only this week" → additionally end_date="YYYY-MM-DD" (that day still runs; calculate the actual date!); with a time end_date="YYYY-MM-DDTHH:MM". Without end_date the job runs without limit.
+2. Choose the delivery:
+   - The user wants the result via Telegram, Discord, email or read aloud on the Echo → delivery="announce" with channel="telegram", "discord", "email" or "freeecho2".
+   - Otherwise → delivery="review" (shows in the interface, default).
+3. For delivery="announce": recipient with the user's NAME (e.g. "Lord Helmchen"), not an ID — the scheduler resolves the name itself. If the user names nobody, leave recipient out; then it goes to the user.
+4. The message is a PLAIN TEXT instruction (no code, no variables) to the model at execution time, and it describes ONLY the task, not the delivery. WRONG: "Write a prayer and send it via Telegram". RIGHT: "Write a short prayer."
+5. If the e-mailed answer should contain an image or file from this run (a chart, say), the ANSWER itself writes the reference with the /_upload/… URL from the tool result: ![description](URL) embeds an image, [name](URL) attaches the file. The message only says WHAT to show.
+6. A reminder or alarm at an exact time → fixed_text=true: the text goes out word for word and on time, without a model.
+
+TYPICAL JOBS (suggest them when it fits): a morning summary of the emails, today's appointments, one-time reminders, a periodic status check that reports only problems. Two examples:
+
+  scheduler_create(name="email_summary", schedule_type="cron", schedule_expr="0 7 * * *",
+    message="Go through my recent unread emails and summarize the key points briefly.",
+    delivery="announce", channel="telegram", recipient="Lord Helmchen")
+
+  scheduler_create(name="doctor_reminder", schedule_type="once", schedule_expr="2026-03-30T09:30:00",
+    message="Reminder: Doctor's appointment at 10:00!", fixed_text=true,
+    delivery="announce", channel="telegram")

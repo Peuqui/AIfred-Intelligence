@@ -103,7 +103,7 @@ Every plugin is a directory under `aifred/plugins/tools/` or `aifred/plugins/cha
 
 - **Sub-agents (delegation)** — any agent can hand a self-contained task to a sub-agent via `delegate_task`: a fresh model run with its own context and tool loop. Only the report returns to the caller; the full transcript sits collapsed in the chat bubble. A task can also go to another main agent with its persona, model and tools — measured with Qwen3.8-27B, AIfred's prompt shrinks from 31,730 to 17,449 tokens per turn (≈ 45 % less prefill). See [Sub-Agents](docs/en/guides/plugins/subagent.md)
 - **Address agents by name** — "Sokrates, what do you think…?" — in every channel; mode switches by voice or text ("Start a tribunal and discuss X") in any language
-- **Every agent sees the conversation from its own perspective**, prompts are assembled from up to ten layers (identity, reasoning, roles, task, memory, personality, tools, …)
+- **Every agent sees the conversation from its own perspective**, prompts are assembled from up to twelve layers (identity, reasoning, roles, situation, memory, personality, tools, …)
 
 Details — flows, prompt files, perspectives, labels: [Multi-Agent System](docs/en/architecture/multi-agent.md).
 

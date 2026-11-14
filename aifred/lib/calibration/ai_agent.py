@@ -38,6 +38,11 @@ logger = logging.getLogger(__name__)
 # 25 leaves ample room for unexpected OOM streaks without burning
 # unbounded tokens if the agent fails to converge.
 MAX_PROBES = 25
+
+# The calibration agent's prompts (prompts/en/calibration/): English only — they drive a tool-use loop, not a
+# conversation, and tool-calling is more reliable in English whatever the interface's language.
+CALIBRATION_PROMPTS = "calibration"
+CALIBRATION_LANGUAGE = "en"
 # Turn-Budget der Agenten-Schleife (Runaway-Bremse, falls das LLM nie
 # ``finalize`` ruft). Muss deutlich über MAX_PROBES liegen: Estimates
 # sind billig (1-2 s, kein Modell-Load) und werden dem LLM ausdrücklich
@@ -199,20 +204,21 @@ def _hardware_block(gpus: list[GPU], reserve_mb: tuple[int, ...] = ()) -> str:
     the REDUCED usable VRAM — otherwise it plans against the full free_mb
     and the probe OOMs on the reserved card without the AI understanding why.
     """
+    from ..prompt_loader import load_prompt
+
     lines = []
     for i, g in enumerate(gpus):
         r = reserve_mb[i] if i < len(reserve_mb) else 0
         if r > 0:
-            usable = g.free_mb - r
-            lines.append(
-                f"  CUDA{i}: {g.name} — {g.total_mb} MB total, {usable} MB USABLE "
-                f"({r} MB reserved for a TTS/VLM side-channel — treat it as gone, "
-                f"give this card proportionally fewer layers)"
-            )
+            lines.append(load_prompt(
+                f"{CALIBRATION_PROMPTS}/hardware_gpu_reserved", lang=CALIBRATION_LANGUAGE, index=i, name=g.name,
+                total_mb=g.total_mb, usable_mb=g.free_mb - r, reserve_mb=r,
+            ).rstrip("\n"))
         else:
-            lines.append(
-                f"  CUDA{i}: {g.name} — {g.total_mb} MB total, {g.free_mb} MB free"
-            )
+            lines.append(load_prompt(
+                f"{CALIBRATION_PROMPTS}/hardware_gpu", lang=CALIBRATION_LANGUAGE, index=i, name=g.name,
+                total_mb=g.total_mb, free_mb=g.free_mb,
+            ).rstrip("\n"))
     return "\n".join(lines)
 
 
@@ -223,7 +229,8 @@ def _build_system_prompt(
     total_layers: int,
     gpus: list[GPU],
     headroom_mib: int,
-    extra_constraints: str = "",
+    locked_set: bool,
+    constraints: list[str],
     reserve_mb: tuple[int, ...] = (),
 ) -> str:
     """Load the calibration agent's system prompt and fill in runtime
@@ -232,11 +239,13 @@ def _build_system_prompt(
     file via the Agent Editor without code changes (CLAUDE.md rule: no
     hardcoded prompts in source).
 
-    The seed/strategy guidance is carried entirely by ``extra_constraints``
-    (the pre-search block) so there is a single source for it — no separate
-    seed_block that could contradict the pre-search advice.
+    ``locked_set``: a variant on a set of GPUs the caller pinned (the speed variant), which may search
+    the context down to the useful minimum; the base configuration only shrinks it a little.
+    ``constraints``: the blocks at the end (the caller's, the math projection, hybrid off), each one
+    paragraph — the seed/strategy guidance lives only in the math projection.
     """
     from ..agent_config import load_agents_raw
+    from ..config import MIN_USEFUL_CONTEXT_TOKENS
     from ..prompt_loader import load_prompt
 
     cal_cfg = load_agents_raw().get("calibration") or {}
@@ -244,15 +253,11 @@ def _build_system_prompt(
     # load_prompt strips the .txt suffix internally
     prompt_name = prompt_path.removesuffix(".txt")
 
-    extra = f"\n\n{extra_constraints}" if extra_constraints else ""
-
-    # Force lang="en" — the prompt is for an LLM tool-use loop, not the
-    # human UI. Tool-calling reasoning is more reliable on English
-    # regardless of UI locale; the DE file is kept only for the
-    # bilingual prompt convention and is not loaded here.
+    reduction = "ctx_reduction_locked" if locked_set else "ctx_reduction_base"
+    blocks = [block.strip() for block in constraints if block.strip()]
     return load_prompt(
         prompt_name,
-        lang="en",
+        lang=CALIBRATION_LANGUAGE,
         headroom_mib=headroom_mib,
         model_id=model_id,
         model_size_gb=f"{model_size_gb:.1f}",
@@ -260,8 +265,10 @@ def _build_system_prompt(
         native_ctx=native_ctx,
         hardware_block=_hardware_block(gpus, reserve_mb),
         max_probes=MAX_PROBES,
-        seed_block="",
-        extra_constraints=extra,
+        ctx_reduction=load_prompt(
+            f"{CALIBRATION_PROMPTS}/{reduction}", lang=CALIBRATION_LANGUAGE, min_useful_ctx=MIN_USEFUL_CONTEXT_TOKENS,
+        ).strip(),
+        extra_constraints="".join(f"\n\n{block}" for block in blocks),
     )
 
 
@@ -539,6 +546,7 @@ async def calibrate_with_ai(
     from ...backends.cloud_api import get_cloud_api_key
     from ..agent_config import load_agents_raw
     from ..config import CLOUD_API_PROVIDERS, DEFAULT_CLOUD_API_PROVIDER
+    from ..prompt_loader import load_prompt
     cal_cfg = load_agents_raw().get("calibration") or {}
     provider = str(cal_cfg.get("cloud_provider") or DEFAULT_CLOUD_API_PROVIDER)
     if cloud_model is None:
@@ -564,6 +572,7 @@ async def calibrate_with_ai(
     # Caller may pin the active GPU set (e.g. the speed variant locks to the
     # fastest N cards) — then the AI physically can't activate the others,
     # because it only ever sees these. Default: enumerate all, as before.
+    locked_set = gpus is not None   # the caller pinned the active set: a variant (speed), not the base
     if gpus is None:
         gpus = enumerate_gpus()
     if not gpus:
@@ -608,40 +617,11 @@ async def calibrate_with_ai(
                 if model_size_mb else len(gpus)
             )
             needs_all = min_w >= len(gpus) - 1
-            proportional = (
-                "tensor_split values are RELATIVE ratios but must stay roughly "
-                "PROPORTIONAL to each GPU's VRAM — never give a 32 GB V100 more "
-                "layers than a 48 GB RTX 8000, or a 24 GB P40 more than either. "
-                "Overloading the smallest card is the #1 cause of probe OOM."
+            projection = "projection_all_gpus" if needs_all else "projection_subset"
+            pre_search_block = load_prompt(
+                f"{CALIBRATION_PROMPTS}/{projection}", lang=CALIBRATION_LANGUAGE, split=_format_split(searched_split),
+                ctx=searched_ctx, min_gpus=min_w, gpu_count=len(gpus), native_ctx=native_ctx,
             )
-            if needs_all:
-                pre_search_block = (
-                    f"\n\nMATH PROJECTION (via llama-fit-params, no model load): "
-                    f"the split {_format_split(searched_split)} fits at "
-                    f"ctx={searched_ctx}. This model needs (nearly) all GPUs — "
-                    f"its weights alone require {min_w} of {len(gpus)} cards, so "
-                    f"running on fewer is physically impossible. Do NOT waste turns "
-                    f"deactivating GPUs or crawling up from an empty split. This "
-                    f"full split is your strongest starting point: PROBE IT FIRST. "
-                    f"If it passes and ctx < {native_ctx}, push ctx up. If a probe "
-                    f"OOMs, rebalance layers off the tightest card or trim ctx "
-                    f"slightly — keep all GPUs active. {proportional} The native "
-                    f"max is {native_ctx} — never probe higher."
-                )
-            else:
-                pre_search_block = (
-                    f"\n\nMATH PROJECTION (via llama-fit-params, no model load): "
-                    f"the full split {_format_split(searched_split)} fits at "
-                    f"ctx={searched_ctx} and is your SAFE fallback. This model also "
-                    f"fits on as few as {min_w} of {len(gpus)} GPUs, so for faster "
-                    f"inference you MAY first try a greedy split that deactivates the "
-                    f"slowest cards (0-entries). But seed such a greedy split "
-                    f"CAPACITY-PROPORTIONALLY on the fastest {min_w} cards — never "
-                    f"[1,1,...]. Scout greedy candidates with estimate_config, then "
-                    f"probe the best. If greedy can't hold a useful ctx, fall back to "
-                    f"probing the full split above. {proportional} The native max is "
-                    f"{native_ctx} — never probe higher."
-                )
         elif not allow_hybrid:
             # Pre-search found nothing AND hybrid is disabled: there's no
             # GPU-only solution. Fail fast instead of letting the AI burn
@@ -657,18 +637,7 @@ async def calibrate_with_ai(
         else:
             yield f"   -> {search_log}"
 
-    hybrid_constraint = (
-        ""
-        if allow_hybrid
-        else (
-            "\n\nIMPORTANT: Hybrid mode (CPU offload of layers, ngl<99) is "
-            "DISABLED for this calibration. You must find a GPU-only "
-            "configuration. If after several probes no GPU-only fit exists, "
-            "call finalize with the best partial result and explain in the "
-            "reasoning that the model exceeds available GPU VRAM — the user "
-            "will then enable the Hybrid toggle if needed."
-        )
-    )
+    hybrid_constraint = "" if allow_hybrid else load_prompt(f"{CALIBRATION_PROMPTS}/hybrid_disabled", lang=CALIBRATION_LANGUAGE)
 
     system_prompt = _build_system_prompt(
         model_id=model_id,
@@ -677,13 +646,14 @@ async def calibrate_with_ai(
         total_layers=total_layers or 0,
         gpus=gpus,
         headroom_mib=headroom_mib,
-        extra_constraints=extra_constraints + pre_search_block + hybrid_constraint,
+        locked_set=locked_set,
+        constraints=[extra_constraints, pre_search_block, hybrid_constraint],
         reserve_mb=reserve_mb,
     )
 
     messages: list[dict] = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": "Start the calibration."},
+        {"role": "user", "content": load_prompt(f"{CALIBRATION_PROMPTS}/start", lang=CALIBRATION_LANGUAGE).strip()},
     ]
 
     client = AsyncOpenAI(api_key=api_key, base_url=base_url)

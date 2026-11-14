@@ -1,0 +1,1 @@
+Die IDs und Namen der Kameras liefert `vision_list_sources`.

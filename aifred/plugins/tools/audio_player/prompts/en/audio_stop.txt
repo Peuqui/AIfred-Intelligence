@@ -1,0 +1,1 @@
+target='all' only with audio_pause or audio_stop, and only when the user explicitly wants everything stopped.

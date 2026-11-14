@@ -182,8 +182,8 @@ class MyChannel(BaseChannel):
     # ── Kontext (Pflicht) ───────────────────────────
     def build_context(self, message) -> str:
         """Baut den LLM-Prompt-Kontext. Dateien aus prompts/ verwenden, keinen hardcodierten Text."""
-        from ....lib.prompt_loader import load_prompt
-        return load_prompt("shared/channel_my_channel", sender=message.sender, text=message.text)
+        from ....lib.plugin_base import load_plugin_prompt
+        return load_plugin_prompt(__file__, "context/inbound", sender=message.sender, text=message.text)
 
     # ── Ausgangsformatierung (optional überschreibbar) ──────
     def format_outbound(self, text: str) -> dict[str, str]:
@@ -227,7 +227,7 @@ MyChannel_instance = MyChannel()
 - Das Plugin liegt in `aifred/plugins/channels/{name}_channel/` (`BaseChannel` leitet den Pfad der `settings.json` aus diesem Ordnernamen ab)
 - Muss eine `BaseChannel`-Instanz auf Modulebene bereitstellen (die Registry übernimmt jede `BaseChannel`-Instanz im Modul)
 - `listener_loop()` muss unbegrenzt laufen und `asyncio.CancelledError` behandeln
-- `build_context()` sollte Prompts aus dem Verzeichnis `prompts/` laden
+- `build_context()` lädt den Rahmen der Nachricht aus dem eigenen Plugin-Ordner (`prompts/<de|en>/context/inbound.txt`, `load_plugin_prompt`), nicht aus dem Kern-Baum `prompts/shared/`. Antwortet der Kanal nicht dem Benutzer (wie AI-Connect einem anderen Assistenten), gibt `situation(lang)` die eigene Situation zurück (`context/situation.txt`); `markdown_output = False` lässt die Formatregeln weg, wenn die Antwort gesprochen oder als reiner Text ausgeliefert wird
 - **Credentials über `broker.get()`**, niemals über `os.environ` oder globale Variablen aus `config.py`
 - `broker` löst `(service, key)` zur Umgebungsvariable `<SERVICE>_<KEY>` auf; einen Eintrag in `credential_broker.py: _CREDENTIAL_MAP` brauchst du nur, wenn der Variablenname davon abweicht
 - Channel-Tools MÜSSEN benannte Tier-Konstanten verwenden (typischerweise `TIER_COMMUNICATE`) und ihre Beschreibung per `load_tool_description(__file__, "<tool>")` laden
@@ -430,7 +430,7 @@ aifred/
 │   ├── markdown_render.py     # md_to_html, md_to_plain (Ausgangsformatierung)
 │   └── i18n/                  # Zentrale UI-Übersetzungen (de.json, en.json, __init__.py) — nicht für Plugin-Texte
 └── plugins/
-    ├── channels/              # jeder Kanal: __init__.py, i18n.json, settings.json, prompts/tools/
+    ├── channels/              # jeder Kanal: __init__.py, i18n.json, settings.json, prompts/tools/, prompts/<lang>/context/
     │   ├── discord_channel/   # Discord-Bot (+ discord_send)
     │   ├── email_channel/     # IMAP IDLE + SMTP (+ E-Mail-Tools; client.py, config.py, tools.py)
     │   ├── freeecho2_channel/ # FreeEcho.2-Lautsprecher über WebSocket (+ freeecho2_announce)

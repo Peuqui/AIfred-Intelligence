@@ -313,7 +313,9 @@ async def _compose_via_llm(ev: AlertEvent, extra_context: str = "") -> str | Non
 
     prompt = f"[{ev.producer}] {ev.title} — {ev.body}".strip(" —")
     if extra_context:
-        prompt = f"{prompt}\n\nBildbeschreibung (VLM): {extra_context}"
+        from .prompt_loader import load_prompt
+
+        prompt = f"{prompt}\n\n{load_prompt('vision/alert_description', description=extra_context).strip()}"
     msg = InboundMessage(
         channel=ev.producer,
         channel_id=ev.session_key or ev.source_id or ev.producer,

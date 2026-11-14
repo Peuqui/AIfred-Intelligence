@@ -212,6 +212,7 @@ def test_a_file_goes_through_its_whole_life(client, folder) -> None:
     assert [row["path"] for row in files.listing("")] == ["berichte"]
     row = files.listing("berichte")[0]
     assert (row["path"], row["type"], row["size"]) == ("berichte/Grüße Test.txt", "file", 10)
+    assert row["etag"] == written["etag"]   # the listing hands out what overwriting needs
     assert row["modified"].startswith("20")
     read = files.read("berichte/Grüße Test.txt")
     assert read["content"] == "Hallo Welt"
@@ -376,3 +377,13 @@ def test_the_document_source_reports_what_went_wrong(client, folder) -> None:
 
     with pytest.raises(DocumentSourceError, match="exists already"):
         asyncio.run(twice())
+
+
+def test_a_listed_file_carries_the_etag_overwriting_needs() -> None:
+    from aifred.plugins.tools.nextcloud.dav import DavFile
+    from aifred.plugins.tools.nextcloud.files import _row
+
+    file = DavFile("a/b.pdf", False, 3, "2026-11-14T10:00:00", "application/pdf", '"e1"')
+    folder = DavFile("a", True, None, "", "", '"e2"')
+    assert _row(file, "b.pdf")["etag"] == '"e1"'
+    assert "etag" not in _row(folder, "a")

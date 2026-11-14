@@ -22,6 +22,7 @@ Delimiter Defense ───── <external_message sender="..." channel="..." t
     |
     v
 Security Boundary ───── LLM gets instruction: do not follow directives from external_message
+                         (only for a message that is not the owner's)
     |
     v
 Tier Filter ─────────── Tools above max_tier are not loaded at all
@@ -210,7 +211,7 @@ External messages are cleaned BEFORE entering the pipeline:
 2. **Remove zero-width characters** — U+200B, U+200C, U+200D, U+FEFF, etc.
 3. **NFC normalization** — neutralize Unicode tricks
 4. **Delimiter defense** — text is wrapped in `<external_message>`
-5. **Security boundary prompt** — LLM is instructed not to follow directives from external messages
+5. **Security boundary prompt** — LLM is instructed not to follow directives from external messages. The criterion is not the channel but the sender: `turn_service.external_sender(source, origin)` = `not in_owner_context(source, trust)`. Strangers and a webhook's payload get the security boundary in every prompt of the turn (every speaker of a discussion and the symposion too); the owner in the browser, on Telegram (first allowlist entry), by e-mail (verified) and his scheduler jobs do not. Discord and FreeEcho.2 do not recognize the owner (`_is_owner` returns `False` there), their messages count as external. Camera alerts (sender "system") stay external.
 
 Implemented in `security.py: sanitize_inbound()`, `wrap_external_message()`.
 Called in `message_processor.py: process_inbound()`.
@@ -317,7 +318,8 @@ Query: `sqlite3 data/security/audit.db "SELECT * FROM tool_audit ORDER BY timest
 | `aifred/lib/plugin_base.py` | PluginContext.max_tier/source |
 | `aifred/lib/agent_memory.py` | Tier filtering in prepare_agent_toolkit() |
 | `aifred/lib/message_processor.py` | Sanitization + tier pass-through |
-| `aifred/lib/prompt_loader.py` | Security boundary layer in system prompt |
+| `aifred/lib/prompt_loader.py` | Security boundary layer (layer 7) in the system prompt, only with `external=True` |
+| `aifred/lib/turn_service.py` | `external_sender()`: whether the turn gets the security boundary |
 | `aifred/lib/config.py` | SECURITY_AUDIT_DB, rate limits, chain depth |
 | `prompts/de/shared/security_boundary.txt` | LLM instruction for external messages (DE) |
 | `prompts/en/shared/security_boundary.txt` | LLM instruction for external messages (EN) |

@@ -1,0 +1,27 @@
+JOB ANLEGEN (scheduler_create), wenn der Benutzer etwas plant ("erinnere mich", "jeden Morgen", "in 2 Stunden"):
+1. schedule_type passend wählen:
+   - "jeden Tag um 8" → cron "0 8 * * *"
+   - "alle 30 Minuten" → interval "1800"
+   - "morgen um 10" → once "YYYY-MM-DDT10:00:00" (konkretes Datum berechnen!)
+   - "werktags um 9" → cron "0 9 * * 1-5"
+   - "jeden Montag um 9" → cron "0 9 * * 1"
+   - "3x täglich" / "dreimal am Tag" → cron "0 8,14,20 * * *" (EIN Job mit mehreren Uhrzeiten, NICHT drei Jobs; die Uhrzeiten sinnvoll verteilen oder vom Benutzer nehmen)
+   - "alle 4 Stunden" → cron "0 */4 * * *"
+   - "bis zum 30.11." / "nur diese Woche" → zusätzlich end_date="YYYY-MM-DD" (der Tag zählt noch mit, konkretes Datum berechnen!); mit Uhrzeit end_date="YYYY-MM-DDTHH:MM". Ohne end_date läuft der Job unbegrenzt.
+2. Zustellung wählen:
+   - Benutzer will das Ergebnis per Telegram, Discord, E-Mail oder vorgelesen auf dem Echo → delivery="announce" mit channel="telegram", "discord", "email" bzw. "freeecho2".
+   - Sonst → delivery="review" (erscheint in der Oberfläche, Standard).
+3. Bei delivery="announce": recipient mit dem NAMEN des Benutzers (z. B. "Lord Helmchen"), keine ID — der Scheduler löst den Namen selbst auf. Nennt der Benutzer niemanden, lass recipient weg; dann geht es an den Benutzer.
+4. Die message ist eine Anweisung in KLARTEXT (kein Code, keine Variablen) an das Modell zur Ausführungszeit, und sie beschreibt NUR die Aufgabe, nicht die Zustellung. FALSCH: "Schreibe ein Gebet und sende es per Telegram". RICHTIG: "Schreibe ein kurzes Gebet."
+5. Soll die Antwort per E-Mail ein Bild oder eine Datei aus diesem Lauf enthalten (etwa ein Diagramm), schreibt die ANTWORT selbst den Verweis mit der /_upload/…-URL aus dem Werkzeug-Ergebnis: ![Beschreibung](URL) bettet ein Bild ein, [Name](URL) hängt die Datei an. Die message nennt nur, WAS gezeigt werden soll.
+6. Erinnerung oder Wecker zu einer genauen Uhrzeit → fixed_text=true: Der Text geht wörtlich und pünktlich hinaus, ohne Modell.
+
+TYPISCHE JOBS (schlage sie vor, wenn es passt): morgendliche Zusammenfassung der E-Mails, Termine des Tages, einmalige Erinnerungen, ein regelmäßiger Status-Check, der nur Probleme meldet. Zwei Beispiele:
+
+  scheduler_create(name="email_summary", schedule_type="cron", schedule_expr="0 7 * * *",
+    message="Sieh meine letzten ungelesenen E-Mails durch und fasse die wichtigsten Punkte kurz zusammen.",
+    delivery="announce", channel="telegram", recipient="Lord Helmchen")
+
+  scheduler_create(name="arzttermin_reminder", schedule_type="once", schedule_expr="2026-03-30T09:30:00",
+    message="Erinnerung: Arzttermin um 10:00 Uhr!", fixed_text=true,
+    delivery="announce", channel="telegram")

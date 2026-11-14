@@ -2,4 +2,4 @@ Translate a short text with DeepL. Languages: {languages}. Markdown structure (h
 
 SIZE LIMIT: the text goes out in a SINGLE DeepL request; beyond the hard limit of 128 KiB it fails with 413 Payload Too Large (the error does not name the limit). Use this tool only for passages up to a few thousand characters; documents, transcripts and whole files go to translate_file, which handles any size in one call. NEVER build your own chunking pipeline.
 
-If you do split a text yourself, cut ONLY at blank lines, headings or code fences — never mid-sentence or line by line: a hard-wrapped paragraph sent one line at a time loses its sentence context and gets mistranslated ("from a fresh / clone handles ..." became "aus einem neuen / Kümmer sich um ...", the noun "clone" read as a verb).
+If a text must be split anyway, cut ONLY at blank lines, headings or code fences — never mid-sentence or line by line: a hard-wrapped paragraph sent one line at a time loses its sentence context and gets mistranslated ("from a fresh / clone handles ..." became "aus einem neuen / Kümmer sich um ...", the noun "clone" read as a verb).

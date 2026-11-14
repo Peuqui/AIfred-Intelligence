@@ -32,8 +32,12 @@ def clean_path(value: str) -> str:
 
 
 def _row(entry: DavFile, path: str) -> dict[str, Any]:
-    return {"path": path, "type": "folder" if entry.is_folder else "file", "size": entry.size,
-            "modified": entry.modified, "mime": entry.mime}
+    """A listed entry; a file with its etag, which overwriting it needs (upload and write take it)."""
+    row: dict[str, Any] = {"path": path, "type": "folder" if entry.is_folder else "file", "size": entry.size,
+                           "modified": entry.modified, "mime": entry.mime}
+    if not entry.is_folder:
+        row["etag"] = entry.etag
+    return row
 
 
 def _content_type(path: str, unknown: str = _TEXT) -> str:

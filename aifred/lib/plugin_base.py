@@ -79,6 +79,23 @@ def load_plugin_instructions(
     return "\n\n".join(out)  # "" wenn nichts greift
 
 
+def load_plugin_prompt(plugin_file: str | Path, name: str, lang: str | None = None, **placeholders: Any) -> str:
+    """A prompt the plugin itself builds (not a tool instruction): ``<plugin_dir>/prompts/<lang>/<name>.txt`` with
+    the standard placeholders and ``placeholders`` filled in (prompt_loader.fill_prompt). ``name`` lies in a
+    subfolder (``context/inbound``: a channel's frame of an incoming message), apart from the tool fragments
+    load_plugin_instructions reads. ``lang`` None: the turn's language.
+
+    Raises:
+        FileNotFoundError: the plugin has no such prompt in the language
+    """
+    from pathlib import Path
+
+    from .prompt_loader import fill_prompt, prompt_language
+
+    lang = lang or prompt_language()
+    return fill_prompt(Path(plugin_file).resolve().parent / "prompts" / lang / f"{name}.txt", lang, **placeholders)
+
+
 def load_tool_description(plugin_file: str | Path, tool_name: str) -> str:
     """Tool-Description aus ``<plugin_dir>/prompts/tools/<tool_name>.txt``.
 
@@ -370,6 +387,11 @@ class BaseChannel(ABC):
     # user_mapping.json macht eine Nachricht zur User-Nachricht.
     speaker_is_user: bool = False
 
+    # True: der Kanal zeigt Markdown an oder setzt es um (Browser-artig: Tabellen, Überschriften); der
+    # Prompt bekommt dann die Formatregeln (shared/formatting). False: die Antwort wird gesprochen
+    # (Echo-Puck) oder als reiner Text gezeigt (Telegram), Formatregeln wären dort falsch.
+    markdown_output: bool = True
+
     # ── Plugin Settings (settings.json in plugin directory) ────
 
     def _settings_path(self) -> Path:
@@ -452,6 +474,13 @@ class BaseChannel(ABC):
     @abstractmethod
     def build_context(self, message: InboundMessage) -> str:
         ...
+
+    def situation(self, lang: str) -> str | None:
+        """The situation of an agent answering this channel's message when it is not the user's conversation
+        (AI-Connect: another assistant asks); the agent then gets no layers addressed to the user
+        (prompt_loader.agent_system_prompt, answers_user). None: the user's conversation
+        (shared/conversation_roles)."""
+        return None
 
     @property
     def always_reply(self) -> bool:

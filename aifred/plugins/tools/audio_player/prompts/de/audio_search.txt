@@ -1,0 +1,8 @@
+## AUDIO_SEARCH — RICHTIG ABFRAGEN
+Die Suche passt auf den Anfang eines Tag-Wortes (Präfix): 'klassisch' findet 'klassik' NICHT. Lieber 'klass' — passt auf Klassik, Klassisch, Klassiker. Groß- und Kleinschreibung spielt hier keine Rolle; die Suche geht über ID3-Tags. Bist du bei der Schreibung unsicher ('Klassik' oder 'Classic', 'Beatles' oder 'beatles'), suche zuerst, statt zu raten.
+
+Bei Genre-Anfragen ('was Klassisches', 'Jazz', 'Pop'):
+  a) Erst mit dem deutschen Genre-Stamm suchen, z. B. 'Klassik', 'Jazz', 'Pop', 'Hörbuch'.
+  b) Ohne Treffer mit dem englischen, z. B. 'Classic' (passt auf Classical), 'Audiobook'.
+  c) Immer noch nichts: bekannte Künstler oder Komponisten, z. B. 'Mozart', 'Bach', 'Beethoven' für Klassik, 'Coltrane', 'Davis' für Jazz.
+  d) Erst nach a bis c dem Benutzer sagen, dass es fehlt.

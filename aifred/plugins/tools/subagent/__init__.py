@@ -380,6 +380,29 @@ async def build_subagent_toolkit(
     )
 
 
+def subagent_messages(
+    ctx: PluginContext, agent: str | None, toolkit: ToolKit | None, task: str, expected_result: str,
+) -> list[dict[str, Any]]:
+    """The sub-agent's request: a worker for its caller. The persona of the agent delegated to (its value may sit in
+    the prompt, e.g. a review method), none when the caller delegates to itself; instructions for exactly the tools
+    it holds; no memory. The task is stamped like every user turn (the disciplines promise date and time from it)."""
+    from ....lib.message_builder import stamp_user_turn, user_turn_stamp
+    from ....lib.prompt_loader import agent_system_prompt, load_prompt
+    from ....lib.security import in_owner_context
+
+    granted = {tool.name for tool in toolkit.tools} if toolkit else set()
+    system_prompt = agent_system_prompt(
+        agent, load_prompt("shared/subagent_frame", lang=ctx.lang), ctx.lang,
+        answer_channel=ctx.source, external=not in_owner_context(ctx.source, ctx.trust), tools=granted, memory=False,
+        answers_user=False,
+    )
+    user_text = stamp_user_turn(
+        load_prompt("shared/subagent_task", lang=ctx.lang, task=task, expected_result=expected_result),
+        user_turn_stamp(),
+    )
+    return [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_text}]
+
+
 async def run_subagent(
     ctx: PluginContext,
     settings: SubAgentSettings,
@@ -393,7 +416,6 @@ async def run_subagent(
     one ``collapsible`` with the full transcript, and the ``result``."""
     from ....lib.agent_config import get_agent_config
     from ....lib.context_manager import LoopCompression, estimate_tokens, estimate_toolkit_tokens
-    from ....lib.prompt_loader import get_subagent_system_prompt, load_prompt
     from ....lib.tool_output_cap import budget_var, compute_budget
 
     labels = _transcript_labels(ctx.lang)
@@ -408,15 +430,8 @@ async def run_subagent(
     agent_label = f"{cfg.display_name} ({labels['title']})"
 
     toolkit = await build_subagent_toolkit(ctx, settings, depth, target_agent, task)
-    granted = {t.name for t in toolkit.tools} if toolkit else set()
-    system_prompt = get_subagent_system_prompt(
-        ctx.lang, granted, source=ctx.source, persona_agent=agent,
-    )
-    user_text = load_prompt("shared/subagent_task", lang=ctx.lang, task=task, expected_result=expected_result)
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_text},
-    ]
+    messages = subagent_messages(ctx, agent, toolkit, task, expected_result)
+    system_prompt, user_text = messages[0]["content"], messages[1]["content"]
 
     params = resolve_run_params(target_agent)
     caller_model = resolve_run_params(ctx.agent_id).model

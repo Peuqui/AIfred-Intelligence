@@ -389,3 +389,17 @@ def test_holding_and_releasing_goes_to_the_machines_gpu_orc(box):
     assert box["gpu_orc"].held is None
     with pytest.raises(remote_describers.RemoteHostError, match="no machine"):
         remote_describers.set_hold("Nowhere", True, "x")
+
+
+def test_the_main_model_entry_is_only_aifreds_own_model(monkeypatch):
+    """14.11.2026: at night Vigilantia described camera images with another session's loaded test model
+    (vllm-research's GLM). "Main model" is AIfred's configured model, in any variant, loaded and seeing."""
+    from aifred.lib import config, vision_utils, vlm_naming
+
+    monkeypatch.setattr(config, "get_effective_model_from_settings", lambda _agent="aifred": "Qwen3.6-35B-A3B")
+    monkeypatch.setattr(vision_utils, "has_native_vision", lambda _profile: True)
+    monkeypatch.setattr(vlm_naming, "is_visiond_profile", lambda _profile: False)
+    monkeypatch.setattr(vision_routing, "loaded_llamaswap_profiles", lambda: ["GLM-5.3-Flash-test-vllm"])
+    assert vision_routing.loaded_seeing_profile() is None
+    monkeypatch.setattr(vision_routing, "loaded_llamaswap_profiles", lambda: ["GLM-5.3-Flash-test-vllm", "Qwen3.6-35B-A3B"])
+    assert vision_routing.loaded_seeing_profile() == "Qwen3.6-35B-A3B"

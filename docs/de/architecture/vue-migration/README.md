@@ -459,7 +459,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
      dieselben Endpunkte wie die eines Chat-Agenten (`/agents/{id}/prompts/…`), der Prompt-Editor ist eine Komponente
      (`PromptLayers.vue`). Calibration: Cloud-Anbieter, Modell (live vom Anbieter, `backend_switch.model_catalog`) und
      Reasoning, `PATCH /api/agents/system/{id}/cloud`; einen Cloud-Ablauf markiert `cloud_provider` in agents.json. Im
-     Browser geprüft (ohne API-Schlüssel der Testinstanz: der Hinweis statt der Liste).)
+     Browser geprüft (ohne API-Schlüssel der Testinstanz: der Hinweis statt der Liste).) Stand 14.11.: Die Einträge der Systemagenten in `agents.json` zeigen nur die Prompts, die ihr Modell wirklich bekommt (Vision: die 16 Dateien aus `prompts/<lang>/vision/`; `vision/identity` und `vision/memory_context` gibt es nicht mehr); der Editor bietet nur die Sprachen an, in denen alle Dateien des Agenten existieren (`api/agents.py: _system_cards`), die Kalibrierung also nur Englisch (`prompts/en/calibration/`).
   8. ~~„Chat löschen“~~ (erledigt 08.11.: 🗑️ in der Kopfleiste, `POST /api/sessions/{id}/clear`,
      `session_storage.clear_chat`, `turn_service.end_session_activity` für Zug, Lesung und Wiedergabe, auch beim
      Löschen einer Sitzung; Ereignis `chat_cleared`). Die Dateien folgen der Regel des Löschens (Bilder, Audio,

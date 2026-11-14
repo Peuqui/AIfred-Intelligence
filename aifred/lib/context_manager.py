@@ -907,7 +907,7 @@ async def compress_tool_loop(
         yield {"type": "debug", "message": "⚠️ Tool loop compression failed - messages unchanged"}
         return
 
-    summary_message = context_message(llm_summary_entry(summary["text"])["content"])
+    summary_message = context_message(llm_summary_entry(summary["text"])["content"], compression.language)
     compressed_tokens = used_tokens - removed + _loop_tokens([summary_message])
     kept = [msg for round_messages in rounds[taken:] for msg in round_messages]
     log_message(

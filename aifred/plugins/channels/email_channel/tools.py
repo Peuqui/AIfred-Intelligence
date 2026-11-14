@@ -419,8 +419,8 @@ def get_readonly_mailbox_tools(lang: str = "de", session_id: str = "") -> list[T
     async def _email_readonly(action: str, **kwargs: str) -> str:
         handler = handlers.get(action.lower().strip())
         if handler is None:
-            from ....lib.prompt_loader import load_prompt
-            return load_prompt("shared/email_readonly_refused", lang=lang, actions=", ".join(sorted(handlers))).strip()
+            from ....lib.plugin_base import load_plugin_prompt
+            return load_plugin_prompt(__file__, "messages/readonly_refused", lang, actions=", ".join(sorted(handlers))).strip()
         return await handler(readonly_mailbox_account(), kwargs)
 
     return [

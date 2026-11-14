@@ -167,7 +167,7 @@ zwischen den Läufen für sauberen GPU-State.
 |---|---|
 | LLM gewinnt klar (≥20% schneller, gleiche ctx-Werte, deterministisch) | AI-Pfad als optionale Variante behalten, Prompts pro Step ausgliedern (eigene Prompts für BASE + SPEED, Re-Projection bleibt algorithmisch), evtl. später Default |
 | LLM kompetitiv aber nicht klar besser | AI-Pfad als Notnagel behalten für Edge-Cases (ungewöhnliche Hardware, fit-params versagt komplett). Keine Investition in Refactor |
-| LLM schlechter oder nicht-deterministisch | AI-Pfad rauswerfen, [ai_agent.py](../../../aifred/lib/calibration/ai_agent.py) + die KI-Zweige in [flow.py](../../../aifred/lib/calibration/flow.py) (`_try_ai_calibration`, `_ai_variant_from_base`) + `prompts/{de,en}/calibration/system.txt` + den Agenten `calibration` in `data/agents.json` + `calibration_mode`-Switch löschen |
+| LLM schlechter oder nicht-deterministisch | AI-Pfad rauswerfen, [ai_agent.py](../../../aifred/lib/calibration/ai_agent.py) + die KI-Zweige in [flow.py](../../../aifred/lib/calibration/flow.py) (`_try_ai_calibration`, `_ai_variant_from_base`) + den Ordner `prompts/en/calibration/` (nur Englisch) + den Agenten `calibration` in `data/agents.json` + `calibration_mode`-Switch löschen |
 
 ## Wichtige Verbindlichkeiten für die LLM-Seite
 
@@ -215,7 +215,7 @@ Wenn der AI-Pfad ausgebaut wird, neues Prompt-Layout:
 - [aifred/lib/calibration/optimizer.py](../../../aifred/lib/calibration/optimizer.py) —
   `fill_fastest_first`
 - [prompts/en/calibration/system.txt](../../../prompts/en/calibration/system.txt) —
-  aktueller LLM-System-Prompt (`ai_agent.py` lädt ihn immer mit `lang="en"`)
+  aktueller LLM-System-Prompt; die Bausteine daneben (`start`, `ctx_reduction_*`, `projection_*`, `hybrid_disabled`, `hardware_gpu*`) liegen im selben Ordner. Kalibrierung ist nur englisch (`CALIBRATION_LANGUAGE` in `ai_agent.py`), eine deutsche Fassung gibt es nicht
 - [data/vlm_vram_cache.json](../../../data/vlm_vram_cache.json) — Burn-In-Lookup
 - [data/model_vram_cache.json](../../../data/model_vram_cache.json) — Calibration-Cache
   (vor Vergleich für Testmodell leeren)

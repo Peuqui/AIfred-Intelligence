@@ -28,9 +28,9 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Pat
     agents_file.write_text(json.dumps({"agents": agents}), encoding="utf-8")
     monkeypatch.setattr(agent_config, "AGENTS_FILE", agents_file)
     prompts = tmp_path / "prompts"
-    for lang in ("de", "en"):
-        (prompts / lang / "calibration").mkdir(parents=True)
-        (prompts / lang / "calibration" / "system.txt").write_text(f"Kalibriere ({lang})", encoding="utf-8")
+    (prompts / "en" / "calibration").mkdir(parents=True)   # the calibration's prompts are English only
+    (prompts / "en" / "calibration" / "system.txt").write_text("Calibrate", encoding="utf-8")
+    (prompts / "de").mkdir()
     (prompts / "en" / "automatik").mkdir()
     (prompts / "en" / "automatik" / "intent_detection.txt").write_text("Who is addressed?", encoding="utf-8")
     (prompts / "en" / "automatik" / "url_ranking.txt").write_text("Rank these.", encoding="utf-8")
@@ -58,7 +58,7 @@ def test_the_list_holds_the_system_agents_and_the_automatik(client: TestClient) 
     assert list(cards) == ["vision", "calibration", "automatik"]
     assert cards["automatik"]["prompt_keys"] == ["intent_detection", "url_ranking"]
     assert cards["automatik"]["languages"] == ["en"]            # it is always asked in English
-    assert cards["calibration"]["languages"] == ["de", "en"]
+    assert cards["calibration"]["languages"] == ["en"]          # its files exist in English only
     assert cards["calibration"]["prompt_keys"] == ["system"]
     assert cards["vision"]["cloud"] is None and cards["automatik"]["cloud"] is None
     cloud = cards["calibration"]["cloud"]
@@ -70,7 +70,7 @@ def test_the_prompts_of_a_system_agent_and_of_the_automatik_are_read_and_written
     client: TestClient, world: tuple[Path, Path],
 ) -> None:
     _agents_file, prompts = world
-    assert client.get("/agents/calibration/prompts/de/system").json() == {"text": "Kalibriere (de)", "exists": True}
+    assert client.get("/agents/calibration/prompts/en/system").json() == {"text": "Calibrate", "exists": True}
     assert client.get("/agents/automatik/prompts/en/url_ranking").json() == {"text": "Rank these.", "exists": True}
     assert client.get("/agents/automatik/prompts/de/url_ranking").json() == {"text": "", "exists": False}
     client.put("/agents/automatik/prompts/en/intent_detection", json={"text": "Who is meant?"})

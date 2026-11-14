@@ -1,1 +1,1 @@
-FILES: They live in Nextcloud. Agents work only in their agent folder; the user sees the files in the document window. nextcloud_file_download copies a file from the agent folder into the local workspace unchanged, images and other binary files too; do not read the content and write it anew for that.
+FILES: They live in Nextcloud. Agents work only in their agent folder; the user sees the files in the document window.

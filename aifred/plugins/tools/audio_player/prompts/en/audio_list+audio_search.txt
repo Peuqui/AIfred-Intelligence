@@ -1,0 +1,1 @@
+If audio_list reports 'Unknown source', do not give up: search the same keyword with audio_search — the term is probably a subfolder, an ID3 tag or a genre in an existing source.

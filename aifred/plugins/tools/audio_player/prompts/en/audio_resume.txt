@@ -1,0 +1,1 @@
+'continue', 'go on', 'resume' → audio_resume: it continues at the saved position (audio_play starts from the beginning).

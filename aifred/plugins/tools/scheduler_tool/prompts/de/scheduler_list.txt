@@ -1,0 +1,1 @@
+"Was habe ich geplant?" / "zeig meine Jobs" → scheduler_list (liefert je Job auch den Auftragstext "message").

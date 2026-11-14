@@ -4,6 +4,4 @@ Enthält es Text: Gib ihn wortgetreu wieder (keine Korrekturen, keine Auslassung
 
 Enthält es keinen oder nur wenig Text: Beschreibe stattdessen ausführlich und objektiv, was zu sehen ist (Motiv, Bildaufbau, relevante visuelle Details) — auch mehrdeutige oder interpretationswürdige Details als Beobachtung, nicht als eigene Wertung.
 
-Heute ist {current_weekday}, der {current_date}, {current_time} Uhr.
-
 {task_instruction}

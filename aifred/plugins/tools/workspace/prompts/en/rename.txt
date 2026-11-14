@@ -1,1 +1,1 @@
-- rename → Rename a file
+- rename → Rename a file or folder

@@ -55,7 +55,7 @@ class AgentConfig:
     color: str  # "#rrggbb": the stripe at the left of its chat bubbles and its name there (AGENT_COLOR_PATTERN)
 
     # Prompt file paths relative to prompts/{lang}/
-    # Keys: "identity", "personality", "task", "reminder", + role-specific
+    # Keys: "identity", "personality", "reminder", "memory_context"
     prompts: dict[str, str] = field(default_factory=dict)
 
     # Default toggle states
@@ -102,8 +102,6 @@ def _default_agents() -> dict[str, dict]:
                 "identity": "aifred/identity.txt",
                 "personality": "aifred/personality.txt",
                 "reminder": "aifred/reminder.txt",
-                "task": "aifred/system_minimal.txt",
-                "direct": "aifred/direct.txt",
             },
             "toggles": {
                 "personality": True,
@@ -122,8 +120,6 @@ def _default_agents() -> dict[str, dict]:
                 "identity": "sokrates/identity.txt",
                 "personality": "sokrates/personality.txt",
                 "reminder": "sokrates/reminder.txt",
-                "task": "sokrates/system_minimal.txt",
-                "direct": "sokrates/direct.txt",
             },
             "toggles": {
                 "personality": True,
@@ -142,8 +138,6 @@ def _default_agents() -> dict[str, dict]:
                 "identity": "salomo/identity.txt",
                 "personality": "salomo/personality.txt",
                 "reminder": "salomo/reminder.txt",
-                "task": "salomo/system_minimal.txt",
-                "direct": "salomo/direct.txt",
             },
             "toggles": {
                 "personality": True,
@@ -157,11 +151,24 @@ def _default_agents() -> dict[str, dict]:
             "description": "Vision Language Model fuer Bildanalyse",
             "color": "#56d4dd",
             "role": ROLE_SYSTEM,   # backs the image workflow, no chat partner (as every agents.json has it)
+            # What the image model reads (it never speaks as an agent): the prompt editor shows these.
             "prompts": {
-                "identity": "vision/identity.txt",
-                "personality": "aifred/personality.txt",
-                "task": "vision/task_adaptive.txt",
-                "memory_context": "vision/memory_context.txt",
+                "event_single": "vision/vision_event_single.txt",
+                "event_sequence": "vision/vision_event_sequence.txt",
+                "event_summary": "vision/vision_event_summary.txt",
+                "continuous": "vision/vision_continuous.txt",
+                "ir_context": "vision/vision_ir_context.txt",
+                "identity_context": "vision/vision_identity_context.txt",
+                "headcount_context": "vision/vision_headcount_context.txt",
+                "default_question": "vision/default_question.txt",
+                "task_adaptive": "vision/task_adaptive.txt",
+                "task_instruction_default": "vision/task_instruction_default.txt",
+                "task_instruction_question": "vision/task_instruction_question.txt",
+                "task_instruction_handoff": "vision/task_instruction_handoff.txt",
+                "task_instruction_handoff_question": "vision/task_instruction_handoff_question.txt",
+                "sandbox_screenshot": "vision/sandbox_screenshot.txt",
+                "sandbox_screenshot_focus": "vision/sandbox_screenshot_focus.txt",
+                "sandbox_screenshot_sequence": "vision/sandbox_screenshot_sequence.txt",
             },
             "toggles": {
                 "personality": True,
@@ -375,8 +382,7 @@ def create_agent(
     prompts = {
         "identity": f"{agent_id}/identity.txt",
         "personality": f"{agent_id}/personality.txt",
-        "task": f"{agent_id}/system_minimal.txt",
-        "direct": f"{agent_id}/direct.txt",
+        "reminder": f"{agent_id}/reminder.txt",
         "memory_context": f"{agent_id}/memory_context.txt",
     }
 

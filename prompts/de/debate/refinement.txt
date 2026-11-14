@@ -10,8 +10,6 @@ WICHTIG:
 - Behalte was aus deiner These noch gilt
 - Die neue Antwort soll ein NEUES Ganzes sein, nicht Flickwerk
 
-Beginne DIREKT mit deiner überarbeiteten Antwort - kein Header, kein "{main_agent}:"
-
 KONSENS-VOTING - Beende mit EINEM dieser Tags:
 - [LGTM] wenn du zufrieden bist
 - [WEITER] wenn weitere Verbesserung nötig ist

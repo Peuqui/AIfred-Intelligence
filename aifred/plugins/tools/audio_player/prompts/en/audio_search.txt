@@ -1,0 +1,8 @@
+## AUDIO_SEARCH — QUERYING IT RIGHT
+The search matches the start of a tag word (prefix): 'klassisch' does NOT find 'klassik'. Better 'klass' — matches Klassik, Klassisch, Klassiker. Case does not matter here; the search goes over ID3 tags. When you are unsure of the spelling ('Klassik' or 'Classic', 'Beatles' or 'beatles'), search first instead of guessing.
+
+For genre requests ('something classical', 'jazz', 'pop'):
+  a) First search the German genre stem, e.g. 'Klassik', 'Jazz', 'Pop', 'Hörbuch'.
+  b) Without hits the English one, e.g. 'Classic' (matches Classical), 'Audiobook'.
+  c) Still nothing: well-known artists or composers, e.g. 'Mozart', 'Bach', 'Beethoven' for classical, 'Coltrane', 'Davis' for jazz.
+  d) Only after a to c tell the user it is missing.

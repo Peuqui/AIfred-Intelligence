@@ -62,9 +62,14 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     async def no_compression(*_args: Any) -> None:
         return None
 
-    async def toolkit(*_args: Any, **kwargs: Any) -> tuple[str, None]:
+    async def toolkit(*_args: Any, **kwargs: Any) -> tuple[str, Any]:
+        """As prepare_agent_toolkit: the memory tools only when the session keeps memory."""
+        from aifred.lib.function_calling import Tool, ToolKit
+
         world["memory"].append(kwargs["memory_enabled"])
-        return "", None
+        if not kwargs["memory_enabled"]:
+            return "", None
+        return "", ToolKit(tools=[Tool(name="store_memory", description="x", parameters={}, executor=lambda **_: "ok")])
 
     async def stream(*args: Any, **_kwargs: Any) -> AsyncIterator[dict[str, Any]]:
         world["requests"].append(args[2])     # the messages of the call
@@ -410,6 +415,7 @@ class _Channel:
 
     speaker_is_user = True
     always_reply = True
+    markdown_output = True
     emoji = "✈️"
 
     def __init__(self) -> None:
@@ -417,6 +423,9 @@ class _Channel:
 
     def build_context(self, message: Any) -> str:
         return f"[Telegram from {message.sender}]\n\n{message.text}"
+
+    def situation(self, _lang: str) -> str | None:
+        return None   # the user's conversation (BaseChannel's default)
 
     def build_reply_metadata(self, _message: Any) -> dict[str, Any]:
         return {"chat_id": 42}

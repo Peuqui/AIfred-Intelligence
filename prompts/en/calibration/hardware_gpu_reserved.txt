@@ -1,0 +1,1 @@
+  CUDA{index}: {name} — {total_mb} MB total, {usable_mb} MB USABLE ({reserve_mb} MB reserved for a TTS/VLM side-channel — treat it as gone, give this card proportionally fewer layers)

@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 
 import aifred.lib.message_processor as mp
+from aifred.lib.message_builder import image_marker
 
 
 class _FakeRoutingTable:
@@ -105,7 +106,8 @@ def test_llm_history_gets_text_and_image_urls(llm_recorded):
     assert entry["role"] == "assistant"
     assert "Hauseingang · 13:44" in entry["content"]
     assert "/_upload/wide.jpg, /_upload/face_crops/a.jpg" in entry["content"]
-    assert "vision_analyze" in entry["content"]
+    # the images as the image marker names them (re-examinable with an image tool)
+    assert image_marker(["/_upload/wide.jpg", "/_upload/face_crops/a.jpg"]) in entry["content"]
     assert "![" not in entry["content"]
     assert not entry["content"].startswith("[AIFRED]")
 

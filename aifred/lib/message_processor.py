@@ -349,10 +349,13 @@ def _turn_origin(
     if plugin:
         llm_context = plugin.build_context(message)
     else:
+        from .prompt_loader import load_prompt
+
         sender_info = message.sender
         if original_sender != message.sender:
-            sender_info = f"{message.sender} (via {original_sender})"
-        llm_context = f"[{channel_label} from {sender_info}]\n\n{message.text}"
+            sender_info = load_prompt("shared/channel_sender_via", sender=message.sender, original_sender=original_sender).strip()
+        header = load_prompt("shared/channel_header", channel_label=channel_label, sender_info=sender_info).strip()
+        llm_context = f"{header}\n\n{message.text}"
     # Trust label from the authenticated owner verdict (N5) — the raw sender string is forgeable
     # (email From), the mapped name is derived from it.
     trust = resolve_trust_label(message.channel, original_sender, message.metadata)
@@ -701,6 +704,7 @@ def record_routed_voice_turn(
     from datetime import datetime
 
     from .message_builder import stamp_user_turn, user_turn_stamp
+    from .prompt_loader import load_prompt
     from .security import resolve_trust_label, wrap_external_message
     from .session_storage import load_session, session_rmw_lock
 
@@ -716,7 +720,8 @@ def record_routed_voice_turn(
 
     trust = resolve_trust_label(channel, sender, message.metadata)
     wrapped = wrap_external_message(
-        f"[{channel_display_label(channel)} from {sender}, routed to {route_name}]\n\n{text}",
+        load_prompt("shared/channel_header_routed", channel_label=channel_display_label(channel), sender=sender,
+                    route_name=route_name).strip() + f"\n\n{text}",
         sender, channel, trust,
     )
     with session_rmw_lock:

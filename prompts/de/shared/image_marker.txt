@@ -1,1 +1,1 @@
-[Bildmaterial: {urls} — mit dem vision_analyze-Tool erneut betrachtbar]
+[Bildmaterial: {urls} — mit einem Bild-Werkzeug erneut betrachtbar, falls du eines hast]

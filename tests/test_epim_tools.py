@@ -117,3 +117,12 @@ def test_no_readable_module_means_no_tools(tmp_path):
     database = EpimDatabase(copy_fixture(tmp_path, "off.epim"), ALL_OFF)
     assert _tools(database) == {}
     database.close()
+
+
+def test_reading_is_private_data_out_of_a_strangers_reach(db):
+    """Appointments, contacts and passwords are private: reading carries TIER_WRITE_DATA, as in nextcloud and
+    google_suite (Peuqui 14.11.2026), so a stranger's channel (lower tier) never gets the tools."""
+    from aifred.lib.security import TIER_WRITE_DATA
+
+    tools = _tools(db)
+    assert all(tools[name].tier == TIER_WRITE_DATA and tools[name].read_only for name in ("epim_search", "epim_get"))
