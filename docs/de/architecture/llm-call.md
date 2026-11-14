@@ -83,12 +83,11 @@ Jeder Modell-Call eines Zuges läuft durch dieselben drei Schritte: bauen (`Agen
 | `thinking` | `text: str` | Chain-of-Thought-Block |
 | `debug` | `message: str` | Debug-Meldung des Backends (Trunkierungswarnung, Context-Guard, ...) |
 | `progress` | `phase: str` | Arbeit des Backends zwischen den Runden: `compress`, solange die Werkzeugschleife komprimiert, `""` beendet sie |
-| `done` | `metrics: dict` | Stream-Ende mit Backend-Metriken |
 | `pipeline_result` | `result: PipelineResult` | Endgültiges, aggregiertes Ergebnis |
 
-`PipelineResult` enthält: vollständigen Antworttext (`text`, inkl. `<think>`-Blöcken), bereinigten Text (`text_clean`), Inferenz-Metadaten (`metadata_dict`, `metadata_display`, `debug_msg`, `metrics`), `ttft`, `inference_time`, die gemessene Arbeit (`work`), Bubble-Artefakte (`artifacts` — Quellen aus `web_fetch`, Sandbox-Ausgabe, VLM-Ausgabe), `final_text` (Antwort nach dem letzten Tool-Call), `history_notes` sowie die Flags `silent_reply` und `truncated`.
+`PipelineResult` enthält: vollständigen Antworttext (`text`, inkl. `<think>`-Blöcken), bereinigten Text (`text_clean`), Inferenz-Metadaten (`metadata_dict`, `metadata_display`, `debug_msg`, `metrics`), `ttft`, `inference_time`, die gemessene Arbeit (`work`), Bubble-Artefakte (`artifacts` — Quellen aus `web_fetch`, Sandbox-Ausgabe, VLM-Ausgabe), `answer_text` (Antwort nach dem letzten Tool-Call), `load_time` (Laden des Modells vor der Antwort, 0 = warm), `history_notes` sowie die Flags `silent_reply` und `truncated`. Das `done` des Backends gibt die Pipeline nicht weiter; seine Metriken landen in `PipelineResult.metrics`.
 
-`history_notes` sind Zeilen, die nur hinter der Antwort in der `llm_history` stehen, nicht im Chat. Die Werkzeug-Aufrufe selbst überleben die Runde nicht. Damit das Modell in der Folgerunde weiß, was es getan hat, hängt `run_llm_stream()` hier die Zeile aus `ToolKit.call_note()` an (Text: `prompts/{de,en}/shared/tool_calls_marker.txt`): schreibende Aufrufe mit ihren Angaben (geheime Werte geschwärzt), lesende nur gezählt, `✗` = fehlgeschlagen. Lange Werte werden einzeln und mit `…` gekürzt (`TOOL_CALL_NOTE_VALUE_CHARS`), nie der Aufruf als Ganzes: Das Modell liest die Notiz als seinen Aufruf, und ein mitten im Datum abgeschnittener Wert brachte es dazu, einen gelungenen Eintrag zu widerrufen. `shared/tool_instructions.txt` verbietet dem Modell, solche Zeilen selbst zu schreiben.
+`history_notes` sind Zeilen, die nur hinter der Antwort in der `llm_history` stehen, nicht im Chat. Die Werkzeug-Aufrufe selbst überleben den Zug nicht. Damit das Modell im Folgezug weiß, was es getan hat, hängt `run_llm_stream()` hier die Zeile aus `ToolKit.call_note()` an (Text: `prompts/{de,en}/shared/tool_calls_marker.txt`): schreibende Aufrufe mit ihren Angaben (geheime Werte geschwärzt), lesende nur gezählt, `✗` = fehlgeschlagen. Lange Werte werden einzeln und mit `…` gekürzt (`TOOL_CALL_NOTE_VALUE_CHARS`), nie der Aufruf als Ganzes: Das Modell liest die Notiz als seinen Aufruf, und ein mitten im Datum abgeschnittener Wert brachte es dazu, einen gelungenen Eintrag zu widerrufen. `shared/tool_instructions.txt` verbietet dem Modell, solche Zeilen selbst zu schreiben.
 
 ---
 
@@ -96,7 +95,7 @@ Jeder Modell-Call eines Zuges läuft durch dieselben drei Schritte: bauen (`Agen
 
 ### 1. Ein Zug (Chat und Kanäle)
 
-Ein Zug ist eine Nachricht der Sitzung bis zur fertigen Antwort. Er läuft als Task des Servers, unabhängig von einem offenen Tab; die Tabs lesen den Ereignisstrom der Sitzung (`session_events`). Eine Nachricht im Chat (`submit_turn`) und die eines Kanals (`process_inbound`, siehe Abschnitt 5) laufen denselben Weg. Läuft in der Sitzung schon ein Zug, wartet die Nachricht in der Warteschlange (`pending_messages`) und startet, wenn er endet.
+Ein Zug ist eine Nachricht der Sitzung bis zur fertigen Antwort. Er läuft als Task des Servers, unabhängig von einem offenen Tab; die Tabs lesen den Ereignisstrom der Sitzung (`session_events`). Eine Nachricht im Chat (`submit_turn`) und die eines Kanals (`process_inbound`, siehe Abschnitt 5) laufen denselben Weg. Läuft in der Sitzung schon ein Zug, wartet eine Chat-Nachricht in der Warteschlange (`pending_messages`) und startet, wenn er endet; die Nachricht eines Kanals löst den laufenden Zug ab (`pipeline_registry.register_pipeline`, der neueste gewinnt).
 
 ```
 turn_service.py: run_turn() -> _run()
@@ -171,7 +170,7 @@ run_debate()
   |-- sonst               -> _critique()   (critical_review und auto_consensus)
 ```
 
-Jeder Sprecher baut seinen Call mit `_call()` (System-Prompt, History aus seiner Sicht, bei Verfasser-Aufgaben die Frage der Runde) und läuft über `stream_call` → `run_llm_stream()` und `finish_call`. Der System-Prompt ist der Aufgaben-Prompt des Agenten für Mehr-Agenten-Modi (`_base_system`, Rollenbeschreibung `DEBATE_ROLES`) plus die Aufgabe des Platzes (`_seat_system`).
+Jeder Sprecher baut seinen Call mit `_call()` (System-Prompt, History aus seiner Sicht, bei Verfasser-Aufgaben die Frage der Runde) und läuft über `stream_call` → `run_llm_stream()` und `finish_call`. Der System-Prompt ist der Aufgaben-Prompt des Agenten für Mehr-Agenten-Modi (`_base_system`, Rollenbeschreibung `DEBATE_ROLES`) plus die Aufgabe des Platzes (`_seat_system`) für Kritiker, Mediator, Ankläger und Richter. Die Aufgaben des Verfassers (Überarbeitung, Verteidigung, Correctura) stehen stattdessen als Frage hinter dem Verlauf, in der Recensio unter `REVIEW_ROLES`.
 
 #### Kritische Prüfung (critical_review)
 
@@ -206,7 +205,8 @@ _tribunal()
   |
   Feste Rundenzahl max_debate_rounds (kein vorzeitiger Ausstieg):
     |-- KRITIKER (Ankläger): Aufgabe tribunal + round_rules("tribunal", N == 1)
-    |-- VERFASSER (Verteidigung): Aufgabe defense als Frage (darf bleiben oder ändern)
+    |-- VERFASSER (Verteidigung): Aufgabe defense als Frage (darf bleiben oder ändern),
+    |     nicht in der letzten Runde
   |
   Nach allen Runden:
     |-- RICHTER (Beobachter): Aufgabe judge, Urteil
@@ -329,7 +329,7 @@ Beispiele: GLM-5.3 denkt immer → `low`, `high`, `max (Standard)`;
 DeepSeek-V4 → `off`, `on`, `max`; Qwen3-VL Instruct → `off`. Modelle ohne
 llama-swap-Eintrag (Ollama, Cloud) bieten `off`/`on`.
 
-Der Mechanismus ist vollständig modellagnostisch — keine Modellnamen sind hardcodiert:
+Der Mechanismus ist modellagnostisch, mit einer Ausnahme: Der llama.cpp-Weg schaltet das Denken bei Modellen mit „instruct“ im Namen ab, auch gegen die Wahl des Nutzers (`backends/llamacpp.py`; ein Namens-Sonderfall, zur Entfernung vorgeschlagen). Sonst gilt:
 
 ```
 GGUF (tokenizer.chat_template)

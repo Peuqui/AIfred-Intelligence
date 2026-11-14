@@ -21,12 +21,14 @@ prompts/
 ```
 
 Which file belongs to which agent and role (`identity`, `personality`, `task`, `direct`, ...) is
-set in `data/agents.json` (`prompts` of each agent).
+set in `data/agents.json` (`prompts` of each agent) — with one exception today: the direct answer
+loads `<agent>/direct.txt` by its path (`prompt_loader.get_agent_direct_prompt`), past the `direct`
+entry; that entry is read by the Symposion only.
 
 ## Prompt Layers
 
 An agent's system prompt is assembled by `_merge_prompt_layers()` in `aifred/lib/prompt_loader.py`
-from up to ten layers; the table of the layers is in
+from ten layers plus the plugins' tool instructions; the table of the layers is in
 [Multi-Agent System → Prompt layers](../docs/en/architecture/multi-agent.md#prompt-layers).
 The three that belong to the agent itself:
 
@@ -34,7 +36,7 @@ The three that belong to the agent itself:
 |-------|------|---------|------------|
 | Identity | `identity.txt` | WHO am I (name, role) | No (always loaded) |
 | Personality | `personality.txt` | HOW do I speak (style) | Yes (via settings) |
-| Task | `system_minimal.txt` / `task.txt` | WHAT should I do | No (situational) |
+| Task | `direct.txt` (direct answer) / `system_minimal.txt` or `task.txt` (debate seats) | WHAT should I do | No (situational) |
 
 In the debate modes the task of a seat (`debate/`) follows the agent's everyday task; only for the
 censor of the Recensio it takes its place (`get_seat_system_prompt`). `shared/multi_agent_roles`
@@ -47,8 +49,8 @@ censor of the Recensio it takes its place (`get_seat_system_prompt`). `shared/mu
 | `aifred` | `identity`, `personality`, `reminder` (style reminder), `system_minimal` (task), `direct` (addressed directly), `memory_context` |
 | `sokrates` | `identity`, `personality`, `reminder`, `system_minimal`, `direct`, `memory_context` |
 | `salomo` | `identity`, `personality`, `reminder`, `system_minimal`, `direct`, `memory_context` |
-| `hal` | `identity`, `personality`, `reminder`, `task` (also `direct`), `system_minimal`, `memory_context` |
-| `codine`, `pater`, `rabbi` | `identity`, `personality`, `task` (also `direct`), `system_minimal`, `memory_context` |
+| `hal` | `identity`, `personality`, `reminder`, `task` (debate seats and, via `direct` in agents.json, the Symposion), `direct.txt` (direct answer), `system_minimal` (loaded nowhere), `memory_context` |
+| `codine`, `pater`, `rabbi` | `identity`, `personality`, `task` (debate seats and, via `direct` in agents.json, the Symposion), `direct.txt` (direct answer), `system_minimal` (loaded nowhere), `memory_context` |
 | `vision` | `identity`, `memory_context`, `task_adaptive` and the files under `vision/` (the personality is AIfred's) |
 | `agent-template` | `identity`, `personality`, `system_minimal`, `direct`, `memory_context` |
 
@@ -154,8 +156,6 @@ Missing placeholder in prompt 'decision_making': 'user_text'
 ```
 Pass all required placeholders when calling `load_prompt()`.
 
-### Prompt not reloading
-Restart the service after modifying `.txt` files:
-```bash
-sudo systemctl restart aifred-intelligence.service
-```
+### Prompt changes
+`load_prompt()` reads the file on every call; a changed `.txt` takes effect with the next request,
+without a restart.

@@ -83,10 +83,9 @@ Every model call of a turn runs through the same three steps: build (`AgentCall`
 | `thinking` | `text: str` | Chain-of-thought block |
 | `debug` | `message: str` | Backend debug item (truncation warning, context guard, ...) |
 | `progress` | `phase: str` | Backend work between rounds: `compress` while the tool loop compresses, `""` ends it |
-| `done` | `metrics: dict` | Stream end with backend metrics |
 | `pipeline_result` | `result: PipelineResult` | Final aggregated result |
 
-`PipelineResult` contains: full response text (`text`, incl. `<think>` blocks), cleaned text (`text_clean`), inference metadata (`metadata_dict`, `metadata_display`, `debug_msg`, `metrics`), `ttft`, `inference_time`, the measured work (`work`), bubble artifacts (`artifacts` — sources from `web_fetch`, sandbox output, VLM output), `final_text` (answer after the last tool call), `history_notes`, plus the flags `silent_reply` and `truncated`.
+`PipelineResult` contains: full response text (`text`, incl. `<think>` blocks), cleaned text (`text_clean`), inference metadata (`metadata_dict`, `metadata_display`, `debug_msg`, `metrics`), `ttft`, `inference_time`, the measured work (`work`), bubble artifacts (`artifacts` — sources from `web_fetch`, sandbox output, VLM output), `answer_text` (answer after the last tool call), `load_time` (model load before the answer, 0 = warm), `history_notes`, plus the flags `silent_reply` and `truncated`. The pipeline does not pass the backend's `done` on; its metrics end up in `PipelineResult.metrics`.
 
 `history_notes` are lines that sit behind the answer in the `llm_history` only, not in the chat. The tool calls themselves do not survive the turn. So that the model knows in the next turn what it did, `run_llm_stream()` appends the line from `ToolKit.call_note()` here (text: `prompts/{de,en}/shared/tool_calls_marker.txt`): write calls with their arguments (secret values redacted), read calls only counted, `✗` = failed. Long values are cut one by one and marked `…` (`TOOL_CALL_NOTE_VALUE_CHARS`), never the call as a whole: the model reads the note as its own call, and a value cut in the middle of a date made it take back an entry that had worked. `shared/tool_instructions.txt` forbids the model to write such lines itself.
 
@@ -96,7 +95,7 @@ Every model call of a turn runs through the same three steps: build (`AgentCall`
 
 ### 1. A Turn (Chat and Channels)
 
-A turn is one message of the session up to the finished reply. It runs as a task of the server, independent of any open tab; the tabs read the session's event stream (`session_events`). A message in the chat (`submit_turn`) and one from a channel (`process_inbound`, see section 5) take the same path. If a turn is already running in the session, the message waits in the queue (`pending_messages`) and starts when it ends.
+A turn is one message of the session up to the finished reply. It runs as a task of the server, independent of any open tab; the tabs read the session's event stream (`session_events`). A message in the chat (`submit_turn`) and one from a channel (`process_inbound`, see section 5) take the same path. If a turn is already running in the session, a chat message waits in the queue (`pending_messages`) and starts when it ends; a channel's message replaces the running turn (`pipeline_registry.register_pipeline`, the newest wins).
 
 ```
 turn_service.py: run_turn() -> _run()
@@ -171,7 +170,7 @@ run_debate()
   |-- else                -> _critique()   (critical_review and auto_consensus)
 ```
 
-Every speaker builds its call with `_call()` (system prompt, history from its view, the round's question for author tasks) and runs through `stream_call` → `run_llm_stream()` and `finish_call`. The system prompt is the agent's multi-agent task prompt (`_base_system`, role description `DEBATE_ROLES`) plus the seat's task (`_seat_system`).
+Every speaker builds its call with `_call()` (system prompt, history from its view, the round's question for author tasks) and runs through `stream_call` → `run_llm_stream()` and `finish_call`. The system prompt is the agent's multi-agent task prompt (`_base_system`, role description `DEBATE_ROLES`) plus the seat's task (`_seat_system`) for critic, mediator, prosecutor and judge. The author's tasks (refinement, defense, correctura) come as the question after the history instead, in the recensio under `REVIEW_ROLES`.
 
 #### Critical Review (critical_review)
 
@@ -206,7 +205,8 @@ _tribunal()
   |
   Fixed number of rounds max_debate_rounds (no early exit):
     |-- CRITIC (prosecutor): task tribunal + round_rules("tribunal", N == 1)
-    |-- AUTHOR (defense): task defense as the question (may hold or change position)
+    |-- AUTHOR (defense): task defense as the question (may hold or change position),
+    |     not in the last round
   |
   After all rounds:
     |-- JUDGE (observer): task judge, the verdict
@@ -328,7 +328,7 @@ its default stands as a level at its own place, marked "default". Examples:
 GLM-5.3 always thinks → `low`, `high`, `max (default)`; DeepSeek-V4 → `off`, `on`, `max`; Qwen3-VL Instruct → `off`.
 Models without a llama-swap entry (Ollama, cloud) offer `off`/`on`.
 
-The mechanism is fully model-agnostic — no model names are hardcoded:
+The mechanism is model-agnostic with one exception: the llama.cpp path turns thinking off for models with "instruct" in their name, even against the user's choice (`backends/llamacpp.py`; a special case by name, proposed for removal). Otherwise:
 
 ```
 GGUF (tokenizer.chat_template)
