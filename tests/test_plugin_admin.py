@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
-from aifred.lib import config, plugin_admin, plugin_background, plugin_registry, settings
+from aifred.lib import browser_push, config, plugin_admin, plugin_background, plugin_registry, settings
 from aifred.lib.plugin_base import CredentialField
 from aifred.lib.user_error import Conflict, Invalid, Missing
 
@@ -178,3 +178,15 @@ def test_the_page_lists_switches_and_fills_the_form(world: dict[str, Any]) -> No
         saved = client.put("/plugins/mail/form", json={"values": {"MAIL_USER": "a", "MAIL_PASSWORD": "b", "MAIL_MODE": "imap"}}).json()
         assert [field["value"] for field in saved["fields"]] == ["a", "", "imap"] and saved["fields"][1]["is_set"]
         assert client.get("/plugins/wetter/form").status_code == 404
+
+
+def test_every_switch_tells_the_open_pages_the_plugins_changed(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    told: list[str] = []
+    monkeypatch.setattr(browser_push, "notify_changed", told.append)
+    asyncio.run(plugin_admin.set_tool("wetter", True))
+    assert told == ["plugins"]
+    asyncio.run(plugin_admin.set_tool("wetter", True))      # already on: nothing changed, nobody is told
+    assert told == ["plugins"]
+    os.environ["MAIL_PASSWORD"] = "geheim"
+    asyncio.run(plugin_admin.set_channel("mail", monitor=True))
+    assert told == ["plugins", "plugins"]

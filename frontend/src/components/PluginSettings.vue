@@ -3,28 +3,28 @@
 // their own) and security tier, the tool plugins with theirs; ⚙️ opens a plugin's settings form. Switching on a
 // channel that is not set up opens its form instead.
 import { Lock, Settings, TriangleAlert } from "lucide-vue-next";
-import { onMounted, ref } from "vue";
+import { computed, ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { PluginOverview } from "../api/types";
 import { t } from "../i18n";
+import { usePlugins } from "../stores/plugins";
 import PluginForm from "./PluginForm.vue";
 
-const overview = ref<PluginOverview | null>(null);
+const plugins = usePlugins();
+const overview = computed(() => plugins.overview);
 const notice = ref("");
 const editing = ref("");
 
 async function call(work: () => Promise<PluginOverview>): Promise<void> {
   notice.value = "";
   try {
-    overview.value = await work();
+    plugins.overview = await work();
   } catch (error) {
     notice.value = error instanceof ApiError ? error.detail : String(error);
   }
 }
 const send = (path: string, method: string, body: object): Promise<PluginOverview> =>
   api<PluginOverview>(path, { method, body: JSON.stringify(body) });
-const load = (): Promise<void> => call(() => api<PluginOverview>("plugins"));
-onMounted(load);
 
 function channel(name: string, configured: boolean, body: Record<string, boolean | number>): void {
   if (body.monitor && !configured) {
@@ -70,7 +70,7 @@ const picked = (event: Event): number => Number((event.target as HTMLSelectEleme
         <input type="checkbox" :checked="row.enabled" @change="tool(row.name, checked($event))" />
       </label>
     </div>
-    <PluginForm v-if="editing" :plugin="editing" @close="editing = ''" @saved="load" />
+    <PluginForm v-if="editing" :plugin="editing" @close="editing = ''" @saved="plugins.load()" />
   </section>
 </template>
 

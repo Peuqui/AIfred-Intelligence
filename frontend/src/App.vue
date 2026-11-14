@@ -3,8 +3,9 @@
 // page stays alive while another page shows (its session and event stream go on).
 import { Bot, Clock, Eye, Folder, LogOut, Menu, MessageSquare, NotebookPen, Settings, Wrench } from "lucide-vue-next";
 import { type Component, computed, onMounted, ref, watch, watchEffect } from "vue";
-import { RouterLink, RouterView, useRoute } from "vue-router";
+import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { UPDATE_CHECK_MS, api, checkForUpdate } from "./api/client";
+import PluginGate from "./components/PluginGate.vue";
 import HubNoticeToast from "./components/HubNoticeToast.vue";
 import LoginForm from "./components/LoginForm.vue";
 import ServiceStatusBar from "./components/ServiceStatusBar.vue";
@@ -13,6 +14,7 @@ import UpdateNotice from "./components/UpdateNotice.vue";
 import { loadLanguage, t } from "./i18n";
 import { useAuth } from "./stores/auth";
 import { useChat } from "./stores/chat";
+import { usePlugins } from "./stores/plugins";
 import { useSettings } from "./stores/settings";
 import { ZOOM, type ZoomName, chatZoom, consoleZoom, pinQuestion, resetZooms, uiZoom, zoomBy } from "./lib/devicePrefs";
 import { useSessionsColumn } from "./lib/sessionsColumn";
@@ -21,7 +23,9 @@ import hatIcon from "../../assets/AIfred-Zylinder.png";
 const auth = useAuth();
 const chat = useChat();
 const settings = useSettings();
+const plugins = usePlugins();
 const route = useRoute();
+const router = useRouter();
 // With the saved chats as a column (on the chat page) the page may be wider, so the chat keeps its width.
 const sessionsColumn = useSessionsColumn().shown;
 const wide = computed(() => sessionsColumn.value && route.path === "/");
@@ -43,6 +47,13 @@ const menuEntries: { to: string; icon: Component; label: string; color?: string 
   { to: "/maintenance", icon: Wrench, label: "nav_maintenance", color: "var(--aifred-accent-cyan)" },
   { to: "/settings", icon: Settings, label: "settings", color: "var(--aifred-accent-gold)" },
 ];
+// A page of a plugin (the route's meta `plugin`, router.ts) is in the menu only while the plugin is on.
+const shownEntries = computed(() =>
+  menuEntries.filter((entry) => {
+    const plugin = router.resolve(entry.to).meta.plugin;
+    return !plugin || plugins.toolOn(plugin);
+  }),
+);
 const sizes = computed<{ name: ZoomName; label: string; value: number }[]>(() => [
   { name: "ui", label: "size_interface", value: uiZoom.value },
   { name: "console", label: "size_console", value: consoleZoom.value },
@@ -66,6 +77,7 @@ async function logout(): Promise<void> {
 watch(() => auth.user, (user) => {
   if (!user) return;
   void settings.load();
+  void plugins.load();
   void chat.openLatest();
 });
 
@@ -121,7 +133,7 @@ onMounted(async () => {
           <!-- Also of this device: a phone starts with it off. -->
           <label class="pin" :title="t('pin_question_hint')"><input v-model="pinQuestion" type="checkbox" /> {{ t("pin_question") }}</label>
         </div>
-        <RouterLink v-for="entry in menuEntries" :key="entry.to" :to="entry.to">
+        <RouterLink v-for="entry in shownEntries" :key="entry.to" :to="entry.to">
           <component :is="entry.icon" :size="16" class="menu-icon" :style="{ color: entry.color }" /> {{ t(entry.label) }}
         </RouterLink>
       </nav>
@@ -130,8 +142,9 @@ onMounted(async () => {
     <ServiceStatusBar />
     <div class="divider" role="separator" />
     <HubNoticeToast />
-    <RouterView v-slot="{ Component }">
-      <KeepAlive><component :is="Component" class="page" /></KeepAlive>
+    <RouterView v-slot="{ Component, route: shown }">
+      <PluginGate v-if="shown.meta.plugin" :name="shown.meta.plugin"><component :is="Component" class="page" /></PluginGate>
+      <KeepAlive v-else><component :is="Component" class="page" /></KeepAlive>
     </RouterView>
   </div>
 </template>

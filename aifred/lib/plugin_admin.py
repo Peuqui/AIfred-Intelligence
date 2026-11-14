@@ -135,6 +135,7 @@ async def set_tool(name: str, enabled: bool) -> None:
     without its connection offers no tools until connected (its form; the list says ``needs_connection``).
     Off means off at once: the plugin's own ``on_switched_off`` runs first (while it is still loaded), then its
     background parts stop; switching it on lets its ``on_switched_on`` run before they start."""
+    from .browser_push import notify_changed
     from .plugin_background import sync_background_parts
     from .plugin_registry import (
         disable_plugin,
@@ -159,6 +160,7 @@ async def set_tool(name: str, enabled: bool) -> None:
         if hook is not None:
             hook()
     await sync_background_parts()
+    notify_changed("plugins")
 
 
 def _lang() -> str:
@@ -174,6 +176,7 @@ async def set_channel(
     """Change a channel's switches or tier and start or stop its listener as they say. ``Missing`` for no such
     channel, ``Conflict`` for switching on a channel that is not configured (its form first), ``Invalid`` for a
     tier that does not exist or a channel without tiers."""
+    from .browser_push import notify_changed
     from .plugin_background import sync_background_parts
     from .plugin_registry import get_channel
     from .security import TIER_I18N_KEYS
@@ -201,6 +204,7 @@ async def set_channel(
         raise NotDone("settings_not_saved")
     # Its listener runs as the switches say (plugin_background): the main switch off stops it, whatever else is set.
     await sync_background_parts()
+    notify_changed("plugins")
 
 
 # ── The settings form ────────────────────────────────────────────────────
