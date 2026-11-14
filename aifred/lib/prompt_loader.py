@@ -426,13 +426,15 @@ def get_agent_system_prompt(
 
 def get_seat_system_prompt(
     agent_id: str, task_prompt: str, lang: str, seats: dict[str, str], roles: str, memory: bool = True,
-    tools: Collection[str] | None = None,
+    tools: Collection[str] | None = None, source: str = "browser",
 ) -> str:
     """An agent's prompt with the task of its seat AS its task layer, in place of its everyday task:
     the reviewer's task is the whole job, the agent's own ("better short than long") would pull against
     it. Identity and personality stay. ``tools``: the seat keeps only these of its agent's tools, and
     only their instructions come in."""
-    return _merge_prompt_layers(agent_id, task_prompt, lang, seats=seats, memory=memory, roles=roles, tools=tools)
+    return _merge_prompt_layers(
+        agent_id, task_prompt, lang, seats=seats, memory=memory, roles=roles, tools=tools, source=source,
+    )
 
 
 # ============================================================
@@ -693,7 +695,7 @@ def get_vision_event_summary_prompt(lang: str | None = None) -> str:
 # ============================================================
 
 def get_agent_direct_prompt(
-    agent_id: str, lang: str | None = None, memory: bool = True,
+    agent_id: str, lang: str | None = None, memory: bool = True, source: str = "browser",
 ) -> str:
     """Load direct response prompt for any agent via layer merging.
 
@@ -702,7 +704,7 @@ def get_agent_direct_prompt(
     """
     task_prompt = load_prompt(f'{agent_id}/direct', lang=lang)
     return _merge_prompt_layers(
-        agent_id, task_prompt, lang, memory=memory,
+        agent_id, task_prompt, lang, memory=memory, source=source,
     )
 
 

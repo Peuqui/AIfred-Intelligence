@@ -132,9 +132,9 @@ def _events(kind: str) -> list[dict[str, Any]]:
     return [event.data for event in session_events.replay_after(SESSION, 0) if event.kind == kind]
 
 
-def _turn(text: str = "Ist Kaffee gesund?") -> None:
+def _turn(text: str = "Ist Kaffee gesund?", source: str = "browser") -> None:
     async def scenario() -> None:
-        await turn_service.run_turn(turn_service.TurnRequest(SESSION, text))
+        await turn_service.run_turn(turn_service.TurnRequest(SESSION, text, source=source))
         await asyncio.sleep(0)   # the title task
 
     asyncio.run(scenario())
@@ -503,3 +503,28 @@ def test_the_reviewer_gets_the_files_the_author_changed(
     assert "Neu: rechner.html" in _system_prompt(world, "Sokrates")
     # The censor reads and tests, it writes nothing (RECENSIO_CENSOR_TOOLS); the auctor keeps its tools.
     assert tools_of == {"AIfred": ["execute_code_write"], "Sokrates": []}
+
+
+# ── where the message came from ──────────────────────────────────────────
+
+
+SECURITY = "SICHERHEITSHINWEIS"   # prompts/de/shared/security_boundary.txt
+
+
+@pytest.mark.parametrize("mode", ["critical_review", "auto_consensus", "tribunal", "recensio"])
+def test_a_channels_message_gives_every_speaker_the_security_boundary(world: dict[str, Any], mode: str) -> None:
+    """A channel's message may come from a stranger (<external_message>): every system prompt of the turn explains
+    it. From 07.11.2026 (turn_service) until 14.11.2026 no prompt builder got the source, none had it."""
+    _mode(mode)
+    world["view"].max_debate_rounds = 1
+    _turn(source="email")
+    systems = {label: messages[0]["content"] for label, messages in world["calls"]}
+    assert systems and all(SECURITY in system for system in systems.values()), [
+        label for label, system in systems.items() if SECURITY not in system
+    ]
+
+
+def test_a_chat_message_has_no_security_boundary(world: dict[str, Any]) -> None:
+    _mode("critical_review")
+    _turn()
+    assert all(SECURITY not in messages[0]["content"] for _, messages in world["calls"])

@@ -654,7 +654,7 @@ async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
     # The agent thinks as its own row says for the model it runs on (Peuqui 07.11.2026: AIfred's
     # choice does not apply to the other agents).
     thinking = thinking_mode(view, agent, model)
-    system_prompt = get_agent_direct_prompt(agent, lang=lang, memory=ctx.memory_enabled)
+    system_prompt = get_agent_direct_prompt(agent, lang=lang, memory=ctx.memory_enabled, source=ctx.source)
     seen = list(ctx.seen_images)
     question = seeing_question(seen, ctx.user_text, ctx.stamp, lang) if seen else ctx.llm_user_text
     messages: list[dict[str, Any]] = [*build_messages_from_llm_history(
