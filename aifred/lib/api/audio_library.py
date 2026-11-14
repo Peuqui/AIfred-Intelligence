@@ -7,7 +7,7 @@ import asyncio
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_message
-from .app import api_app
+from .app import api_app, audio_player_api
 
 
 class AudioSourceRow(BaseModel):
@@ -22,6 +22,7 @@ class AudioLibrary(BaseModel):
     sources: list[AudioSourceRow]
     picker_root: str = Field(description="The sandbox new sources come from")
     tts_list_max: int = Field(description="From how many entries a list in the spoken reply is cut")
+    player_on: bool = Field(description="The audio player plugin is on: only then its sources and sandbox are managed")
     indexing: str = Field(description="The source being read now ('' = none)")
     message: str = Field(description="The reading's state or its last outcome in words")
 
@@ -56,10 +57,11 @@ def _library() -> AudioLibrary:
     from dataclasses import asdict
 
     from ..audio_library import indexing, picker_root, sources, tts_list_max
+    from ..plugin_registry import is_plugin_enabled
 
     state = indexing()
     return AudioLibrary(sources=[AudioSourceRow(**asdict(source)) for source in sources()], picker_root=picker_root(),
-                        tts_list_max=tts_list_max(), indexing=state.running, message=state.message(_lang()))
+                        tts_list_max=tts_list_max(), player_on=is_plugin_enabled("audio_player"), indexing=state.running, message=state.message(_lang()))
 
 
 @api_app.get("/audio/sources", response_model=AudioLibrary, tags=["Audio"])
@@ -67,7 +69,7 @@ async def audio_sources() -> AudioLibrary:
     return await asyncio.to_thread(_library)
 
 
-@api_app.post("/audio/sources", response_model=AudioDone, status_code=201, tags=["Audio"])
+@audio_player_api.post("/audio/sources", response_model=AudioDone, status_code=201, tags=["Audio"])
 async def audio_source_add(adding: AudioSourceAdd) -> AudioDone:
     """A folder of the sandbox as a new source (a symlink under data/media/audio/); 422 for no folder or one that
     leads outside the sandbox."""
@@ -79,7 +81,7 @@ async def audio_source_add(adding: AudioSourceAdd) -> AudioDone:
     return AudioDone(message=t("audio_source_added", lang=_lang(), source=label))
 
 
-@api_app.delete("/audio/sources/{label}", response_model=AudioDone, tags=["Audio"])
+@audio_player_api.delete("/audio/sources/{label}", response_model=AudioDone, tags=["Audio"])
 async def audio_source_remove(label: str) -> AudioDone:
     """Take a source out with its index (the folder a symlink points to stays); 404 for a label the source map does
     not know."""
@@ -91,7 +93,7 @@ async def audio_source_remove(label: str) -> AudioDone:
     return AudioDone(message=t("audio_source_removed", lang=_lang(), source=label, count=removed))
 
 
-@api_app.delete("/audio/sources/{label}/index", response_model=AudioDone, tags=["Audio"])
+@audio_player_api.delete("/audio/sources/{label}/index", response_model=AudioDone, tags=["Audio"])
 async def audio_source_clear(label: str) -> AudioDone:
     from ..audio_library import clear_index
     from ..i18n import t
@@ -100,7 +102,7 @@ async def audio_source_clear(label: str) -> AudioDone:
     return AudioDone(message=t("audio_source_cleared", lang=_lang(), source=label, count=removed))
 
 
-@api_app.post("/audio/sources/{label}/index", response_model=AudioLibrary, status_code=202, tags=["Audio"])
+@audio_player_api.post("/audio/sources/{label}/index", response_model=AudioLibrary, status_code=202, tags=["Audio"])
 async def audio_source_index(label: str, start: AudioIndexStart) -> AudioLibrary:
     """Read a source's files anew into the index; answers at once, ``GET /audio/sources`` follows it. 409 while one
     runs, 404 for an unknown label."""

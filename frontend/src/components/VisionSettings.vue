@@ -127,10 +127,6 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
         <span class="name">{{ t("vigilantia_help_person_label") }}</span>
         <input type="checkbox" :checked="settings.person_detect" @change="change({ person_detect: checked($event) })" />
       </label>
-      <label class="line" :title="t('vision_settings_face_retention_help')">
-        <span class="name">{{ t("vision_settings_face_retention_label") }}</span>
-        <input class="days" type="number" min="1" max="3650" :value="settings.retention_days" @change="change({ retention_days: Number(value($event)) })" />
-      </label>
     </article>
 
     <article v-if="rules" class="rules">
@@ -220,7 +216,6 @@ article { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; b
 select, input { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; }
 button { padding: 3px 8px; font-size: 0.85rem; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); width: 16px; height: 16px; padding: 0; }
-.days { width: 90px; }
 .camera header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .camera.away { opacity: 0.7; }
 .alias { font-weight: 600; min-width: 200px; }

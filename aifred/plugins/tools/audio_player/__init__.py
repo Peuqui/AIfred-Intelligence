@@ -25,7 +25,7 @@ from ....lib.audio_player_settings import (
 )
 from ....lib.function_calling import Tool
 from ....lib.logging_utils import log_exception, log_message
-from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
+from ....lib.plugin_base import BackgroundPart, PluginContext, load_tool_description, load_tool_parameters
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 
 
@@ -113,6 +113,23 @@ class AudioPlayerPlugin:
 
     def is_available(self) -> bool:
         return True
+
+    def background_parts(self) -> dict[str, BackgroundPart]:
+        """The player's own upkeep, while the plugin is on: the daily clean-out of finished positions and the
+        index's incremental sync."""
+        from ....lib.audio_index import sync_audio_index_task
+        from ....lib.audio_state import cleanup_audio_state_task
+
+        return {
+            "audio_state_cleanup": BackgroundPart(cleanup_audio_state_task),
+            "audio_index_sync": BackgroundPart(sync_audio_index_task),
+        }
+
+    async def on_switched_off(self) -> None:
+        """Switching the player off ends what it plays."""
+        from ....lib import audio_channels
+
+        await audio_channels.stop_everything()
 
     # Quellen, die Audio STEUERN dürfen: User am Bildschirm + Voice-Puck
     # (Kern-Use-Case "spiel Musik im Wohnzimmer"). Externe Message-Kanäle

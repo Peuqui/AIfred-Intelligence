@@ -234,7 +234,7 @@ but for the Message Hub only the primary user matters for now.
 - [x] Discord bot plugin (`plugins/channels/discord_channel/`)
 - [x] Telegram bot plugin (`plugins/channels/telegram_channel/`)
 - [x] FreeEcho.2 voice channel (`plugins/channels/freeecho2_channel/`)
-- [x] Auto-discovery + registration via `message_hub.py: register_channel_workers()`
+- [x] Auto-discovery + registration via `plugin_background.sync_background_parts()` (at start and after every switch)
 - [ ] Cross-channel routing
 
 ---

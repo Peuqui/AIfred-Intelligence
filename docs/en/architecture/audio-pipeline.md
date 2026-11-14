@@ -342,8 +342,8 @@ Write rules:
   (see "consumed_ms Position Sync").
 - On mpv `eof-reached` → `completed: true`, immediately.
 - `completed: true` entries older than `AUDIO_STATE_CLEANUP_AGE_DAYS` (config.py, 7)
-  are deleted at service start and daily at `GARBAGE_COLLECTION_HOUR`
-  (`cleanup_audio_state_task()`).
+  are deleted daily at `GARBAGE_COLLECTION_HOUR` (`cleanup_audio_state_task()`,
+  a background part of the `audio_player` plugin: it runs only while the plugin is on).
 
 ## Audio Index (SQLite/FTS5)
 

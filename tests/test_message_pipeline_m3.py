@@ -68,7 +68,7 @@ class TestM3WrappedHistory:
         assert entry["content"] == "Verbindungstest"
 
 
-def test_announcement_carries_its_session_for_threading(monkeypatch) -> None:
+def test_announcement_carries_its_session_for_threading(monkeypatch, channels_on) -> None:
     """A scheduler/alert announcement names its session in the outbound
     metadata, so a threading channel (email) registers it and the answer to
     the announcement returns to that session (14.09.: it opened a new one)."""
@@ -76,6 +76,7 @@ def test_announcement_carries_its_session_for_threading(monkeypatch) -> None:
 
     import aifred.lib.message_processor as mp
 
+    channels_on("email")
     sent = {}
 
     class FakePlugin:

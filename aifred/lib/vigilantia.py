@@ -1,6 +1,6 @@
 """The eye of the vision and its general settings, for every interface (the vision page of Vue): armed or not with its consequence (every background watcher started or stopped),
-how the image model stays (on demand or live), which model, the face and person detection, how long events are
-kept, the image model loaded or not. Everything lives in the plugin's ``settings.json`` (``vision_settings``).
+how the image model stays (on demand or live), which model, the face and person detection, the image model loaded or not
+(how long events are kept is the vision plugin's settings form, ``vision_cleanup``). Everything lives in the plugin's ``settings.json`` (``vision_settings``).
 
 Changes take effect as before: a mode switched to live loads the model at once, a new model unloads the old one
 (an Ollama model; llama-swap swaps a describer itself), face and person detection act at a watcher's next start.
@@ -26,7 +26,6 @@ class Vigilantia:
     face_enabled: bool
     face_continuous: bool     # faces looked for all the time, not only on motion
     person_detect: bool       # persons looked for on motion
-    retention_days: int       # how long frames, faces and events are kept
 
 
 def _mode(settings: dict) -> str:
@@ -45,7 +44,6 @@ def vision_mode() -> str:
 def vigilantia() -> Vigilantia:
     """The stored settings. A mode the eye does not know is an error (ValueError), not a default."""
     from .plugin_registry import is_plugin_enabled
-    from .vision_cleanup import retention_days
 
     settings = load_vision_settings()
     mode = _mode(settings)
@@ -59,7 +57,6 @@ def vigilantia() -> Vigilantia:
         face_enabled=bool(faces.get("enabled", True)),
         face_continuous=bool(faces.get("continuous", False)),
         person_detect=bool(watch.get("run_person_detect_on_motion", False)),
-        retention_days=retention_days(),
     )
 
 
@@ -90,19 +87,14 @@ async def set_armed(armed: bool) -> int:
 
 async def change(
     *, mode: str | None = None, model: str | None = None, face_enabled: bool | None = None,
-    face_continuous: bool | None = None, person_detect: bool | None = None, retention_days: int | None = None,
+    face_continuous: bool | None = None, person_detect: bool | None = None,
 ) -> Vigilantia:
     """Change some of the general settings, with their consequences (see the module). Refuses a mode the eye does
-    not know and a retention outside its range (ValueError), nothing is written then."""
-    from .vision_cleanup import RETENTION_DAYS_RANGE
-
+    not know (Invalid), nothing is written then."""
     if mode is not None and mode not in VISION_MODES:
         raise Invalid("unknown_mode", value=mode)
-    if retention_days is not None and not RETENTION_DAYS_RANGE[0] <= retention_days <= RETENTION_DAYS_RANGE[1]:
-        raise Invalid("number_range", value=retention_days, low=RETENTION_DAYS_RANGE[0], high=RETENTION_DAYS_RANGE[1])
     before = vigilantia()
-    faces = {key: value for key, value in (("enabled", face_enabled), ("continuous", face_continuous),
-                                           ("retention_days", retention_days)) if value is not None}
+    faces = {key: value for key, value in (("enabled", face_enabled), ("continuous", face_continuous)) if value is not None}
     update: dict[str, Any] = {}
     if mode is not None:
         update["vision_mode"] = mode

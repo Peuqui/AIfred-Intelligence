@@ -16,6 +16,8 @@ from ....lib.plugin_base import (
 from ....lib.plugin_modules import module_credential_fields, module_instructions
 from .settings import (
     DB_PATH_KEY,
+    DELETION_SYNC_KEY,
+    DELETION_SYNC_VALUES,
     MODULE_DEFAULTS,
     SETTINGS_PREFIX,
     load_raw_settings,
@@ -47,6 +49,12 @@ class EpimPlugin:
                 placeholder="/path/to/database.epim",
             ),
             *module_credential_fields(SETTINGS_PREFIX, MODULE_DEFAULTS, "epim_cred_module_{module}"),
+            CredentialField(
+                env_key=DELETION_SYNC_KEY,
+                label_key="epim_cred_deletion_sync",
+                default=DELETION_SYNC_VALUES[0],
+                options=[(value, f"epim_deletion_sync_{value}") for value in DELETION_SYNC_VALUES],
+            ),
         ]
 
     def _load_settings(self) -> dict[str, str]:

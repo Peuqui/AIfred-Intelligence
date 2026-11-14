@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from ...theme import css_variables
 from ..user_error import BadRequest, Missing, UserError
-from .app import api_app
+from .app import audio_player_api
 
 
 def _audio_resolver():
@@ -59,7 +59,7 @@ class RangeNotSatisfiable(UserError):
     status = 416
 
 
-@api_app.get("/audio/file", tags=["Audio"])
+@audio_player_api.get("/audio/file", tags=["Audio"])
 async def audio_file(request: Request, key: str):
     """Stream an audio file by state_key. Supports HTTP Range for seeking.
 
@@ -184,7 +184,7 @@ class AudioPositionRequest(BaseModel):
     completed: bool = False
 
 
-@api_app.get("/audio/test", tags=["Audio"], response_class=HTMLResponse)
+@audio_player_api.get("/audio/test", tags=["Audio"], response_class=HTMLResponse)
 async def audio_test_page(key: str = "music/05-Ausgefressen.mp3"):
     """Standalone test page — verifies endpoint + browser playback without LLM/State."""
     import html as _html
@@ -227,7 +227,7 @@ fetch("{audio_src}", {{method:'HEAD'}}).then(r => log(`HEAD response: HTTP ${{r.
 </body></html>"""
 
 
-@api_app.post("/audio/position", tags=["Audio"])
+@audio_player_api.post("/audio/position", tags=["Audio"])
 async def audio_position(req: AudioPositionRequest):
     """Update audio_state.json from the browser's currentTime."""
     from ..audio_state import audio_state

@@ -109,6 +109,13 @@ class FreeEcho2Channel:
     def can_handle(self, target_id: str) -> bool:
         return target_id.startswith(TARGET_PREFIX)
 
+    def running_targets(self) -> list[str]:
+        """Rooms where the player's mpv stream runs (speech, announcements and alarms have none)."""
+        return [
+            f"{TARGET_PREFIX}{room}" for room in _connected_devices()
+            if (stream := self._streams.get(room)) is not None and stream.is_running
+        ]
+
     def list_targets(self, ctx: PluginContext) -> list[TargetInfo]:
         return [
             TargetInfo(
@@ -289,7 +296,7 @@ class FreeEcho2Channel:
         room = _parse_room(target_id)
         if not room:
             return False
-        # Folder-Queue (audio_play_folder) auch leeren
+        # Queue zuerst leeren, damit das Stream-Ende keinen Folgetitel startet
         self._queues.pop(room, None)
         # Orchestrator → stop (cancelled TTS-pump, raeumt mpv-stream auf
         # via _reset_active_unlocked, sendet audio_end)
@@ -297,13 +304,37 @@ class FreeEcho2Channel:
         stopped = False
         if orc is not None:
             stopped = await orc.stop()
-        # Stream-Slot freigeben (Orchestrator hat ihn schon gestoppt
-        # via _reset_active_unlocked, aber wir muessen den Pointer
-        # auch aus _streams entfernen damit beim naechsten play() ein
-        # frischer Stream entsteht)
+        # Ein Stream, den der Orchestrator nicht kennt (Ordner-Queue), läuft sonst weiter
+        queue_stream_stopped = await self._end_queue_and_stream(room)
+        return stopped or queue_stream_stopped
+
+    async def _end_queue_and_stream(self, room: str) -> bool:
+        """Clear the folder queue first (the stream end must not start a next track), then stop the stream.
+
+        The slot leaves ``_streams`` so the next play starts a fresh stream. True if a running stream was stopped.
+        """
+        self._queues.pop(room, None)
         async with self._streams_lock:
-            self._streams.pop(room, None)
-        return stopped
+            stream = self._streams.pop(room, None)
+        if stream is None or not stream.is_running:
+            return False
+        return await stream.stop()
+
+    @_on_ws_loop
+    async def stop_player(self, target_id: str, ctx: PluginContext | None = None) -> bool:
+        """End only what the player plays (track, stream, folder queue); speech, announcements and alarms go on.
+
+        A track the orchestrator knows as music ends through ``stop`` (audio_end + done). A folder queue
+        is not registered there (``play_queue`` starts its streams itself) and ends on the stream alone.
+        """
+        room = _parse_room(target_id)
+        stream = self._streams.get(room) if room else None
+        if room is None or stream is None or not stream.is_running:
+            return False
+        orc = self._orchestrators.get(room)
+        if orc is not None and orc.active_type == "music":
+            return await self.stop(target_id)
+        return await self._end_queue_and_stream(room)
 
     @_on_ws_loop
     async def play_queue(

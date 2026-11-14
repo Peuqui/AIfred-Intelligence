@@ -1,7 +1,7 @@
 """FastAPI app core: app instance, login-cookie middleware, global state access."""
 
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -50,6 +50,25 @@ async def _unreadable_request(_request: Request, error: RequestValidationError) 
     return JSONResponse({"detail": t("error_unreadable_request", lang=_ui_language(), fields=", ".join(fields))},
                         status_code=422)
 
+
+# ============================================================
+# Endpoints that belong to one plugin
+# ============================================================
+# Off means off: what only a plugin uses answers with its refusal (409, in the UI language) while it is switched off.
+# A module takes the router of its plugin instead of ``api_app``; ``include_plugin_routers`` (api/__init__.py) mounts them.
+
+
+def _router_of_plugin(name: str) -> APIRouter:
+    def check() -> None:
+        from ..plugin_registry import require_plugin_enabled
+
+        require_plugin_enabled(name)
+
+    return APIRouter(dependencies=[Depends(check)])
+
+
+vision_api = _router_of_plugin("vision")
+audio_player_api = _router_of_plugin("audio_player")
 
 # NOTE: CORS middleware is NOT added here (the page and the API share one origin).
 

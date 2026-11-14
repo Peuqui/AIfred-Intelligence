@@ -16,7 +16,7 @@ from ..casus import EventFilter
 from ..config import VISION_CASUS_PAGE_SIZE
 from ..logging_utils import log_message
 from ..server_shutdown import until_shutdown
-from .app import api_app
+from .app import vision_api
 from .schemas import ChoiceOption
 
 
@@ -69,7 +69,7 @@ class Deleted(BaseModel):
     deleted: int
 
 
-@api_app.get("/vision/casus/events", response_model=CasusPage, tags=["Vision"])
+@vision_api.get("/vision/casus/events", response_model=CasusPage, tags=["Vision"])
 async def casus_events(
     source: str = "", type: str = "all", face: str = "all", grouped: bool = False,
     offset: int = Query(0, ge=0), limit: int = Query(VISION_CASUS_PAGE_SIZE, ge=1, le=VISION_CASUS_PAGE_SIZE),
@@ -97,7 +97,7 @@ class CasusRecent(BaseModel):
     refresh_seconds: int = Field(description="How often the badge asks again (older events leave the window)")
 
 
-@api_app.get("/vision/casus/recent", response_model=CasusRecent, tags=["Vision"])
+@vision_api.get("/vision/casus/recent", response_model=CasusRecent, tags=["Vision"])
 async def casus_recent() -> CasusRecent:
     """The vision's row in the chat: the eye, whether a camera is watched, how many events the last minutes brought,
     the newest ones."""
@@ -122,7 +122,7 @@ async def casus_recent() -> CasusRecent:
     )
 
 
-@api_app.get("/vision/casus/choices", response_model=CasusChoices, tags=["Vision"])
+@vision_api.get("/vision/casus/choices", response_model=CasusChoices, tags=["Vision"])
 async def casus_choices() -> CasusChoices:
     from ..casus import TAGGABLE_TYPES, choices
     from ..prompt_loader import get_language
@@ -141,7 +141,7 @@ class FilmPicture(BaseModel):
     has_zoom: bool
 
 
-@api_app.get("/vision/casus/events/{event_id}/film", response_model=list[FilmPicture], tags=["Vision"])
+@vision_api.get("/vision/casus/events/{event_id}/film", response_model=list[FilmPicture], tags=["Vision"])
 async def casus_film(event_id: int) -> list[FilmPicture]:
     """The pictures of the event's occurrence, oldest first (the event alone without one); 404 for no event."""
     from ..casus import film
@@ -150,7 +150,7 @@ async def casus_film(event_id: int) -> list[FilmPicture]:
     return [FilmPicture(id=picture_id, has_zoom=has_zoom) for picture_id, has_zoom in pictures]
 
 
-@api_app.get("/vision/casus/stream", tags=["Vision"])
+@vision_api.get("/vision/casus/stream", tags=["Vision"])
 async def casus_stream() -> StreamingResponse:
     """Server-sent events: ``stored`` with ``{latest}`` (the newest event id) once at the start and whenever an
     event was stored; the page loads its list again then."""
@@ -166,7 +166,7 @@ async def casus_stream() -> StreamingResponse:
                              headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 
-@api_app.put("/vision/casus/events/{event_id}/face", status_code=204, tags=["Vision"])
+@vision_api.put("/vision/casus/events/{event_id}/face", status_code=204, tags=["Vision"])
 async def casus_assign_face(event_id: int, assignment: FaceAssignment) -> None:
     """Assign a person to a face event, or take the assignment back; 404 for no event, 422 for no such person or an
     event without a face."""
@@ -176,7 +176,7 @@ async def casus_assign_face(event_id: int, assignment: FaceAssignment) -> None:
     log_message(f"🗂️ Casus: event {event_id} → person {assignment.face_id}")
 
 
-@api_app.delete("/vision/casus/events/{event_id}", status_code=204, tags=["Vision"])
+@vision_api.delete("/vision/casus/events/{event_id}", status_code=204, tags=["Vision"])
 async def casus_delete_event(event_id: int) -> None:
     """Delete the event with its pictures; 404 for no event."""
     from ..casus import delete_event
@@ -185,7 +185,7 @@ async def casus_delete_event(event_id: int) -> None:
     log_message(f"🗂️ Casus: event {event_id} deleted")
 
 
-@api_app.post("/vision/casus/events/delete", response_model=Deleted, tags=["Vision"])
+@vision_api.post("/vision/casus/events/delete", response_model=Deleted, tags=["Vision"])
 async def casus_delete_matching(chosen: CasusFilter) -> Deleted:
     """Delete every event the filter lists (every event without a filter) with its pictures; 422 for an unknown
     filter."""
@@ -235,13 +235,13 @@ def _runs() -> CasusRuns:
     )
 
 
-@api_app.get("/vision/casus/runs", response_model=CasusRuns, tags=["Vision"])
+@vision_api.get("/vision/casus/runs", response_model=CasusRuns, tags=["Vision"])
 async def casus_runs() -> CasusRuns:
     """The analysis of one event and the description of every event: what runs, how far, how the last one ended."""
     return _runs()
 
 
-@api_app.post("/vision/casus/events/{event_id}/analyze", response_model=CasusRuns, status_code=202, tags=["Vision"])
+@vision_api.post("/vision/casus/events/{event_id}/analyze", response_model=CasusRuns, status_code=202, tags=["Vision"])
 async def casus_analyze(event_id: int) -> CasusRuns:
     """Let the image model describe one event (it loads the model if it must); answers at once, ``runs`` follows it.
     409 while another event is analysed, 404 for no event, 422 for an event without a picture."""
@@ -252,7 +252,7 @@ async def casus_analyze(event_id: int) -> CasusRuns:
     return _runs()
 
 
-@api_app.post("/vision/casus/describe-all", response_model=CasusRuns, status_code=202, tags=["Vision"])
+@vision_api.post("/vision/casus/describe-all", response_model=CasusRuns, status_code=202, tags=["Vision"])
 async def casus_describe_all() -> CasusRuns:
     """Describe every event without a description, once per occurrence, after checking that the image model fits on
     a card; answers at once, ``runs`` follows it. 409 while it runs."""
@@ -263,7 +263,7 @@ async def casus_describe_all() -> CasusRuns:
     return _runs()
 
 
-@api_app.delete("/vision/casus/describe-all", response_model=CasusRuns, tags=["Vision"])
+@vision_api.delete("/vision/casus/describe-all", response_model=CasusRuns, tags=["Vision"])
 async def casus_describe_all_cancel() -> CasusRuns:
     """Stop the run after the occurrence it describes now (its request to the model is cut off)."""
     from ..casus import cancel_describe_all

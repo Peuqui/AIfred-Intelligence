@@ -109,15 +109,17 @@ def test_the_settings_show_the_listed_model_and_change_with_their_consequences(w
     shown = client.get("/vision/settings").json()
     assert shown["model"] == "Qwen3VL-4B-Instruct-Q8_0"          # the Ollama spelling read as the listed model
     assert [kind["id"] for kind in shown["alert_types"]] == ["person", "vehicle", "animal", "face"]
-    client.patch("/vision/settings", json={"mode": "live", "model": "qwen3-vl:8b", "face_continuous": True, "retention_days": 30})
+    client.patch("/vision/settings", json={"mode": "live", "model": "qwen3-vl:8b", "face_continuous": True})
     assert state["calls"] == ["prewarm"]                          # live loads; the old llama-swap model swaps itself
     client.patch("/vision/settings", json={"model": "Qwen3VL-4B-Instruct-Q8_0"})
     assert state["calls"] == ["prewarm", "unload qwen3-vl:8b"]    # the old Ollama model leaves the card
     stored = json.loads(settings_file.read_text())
     assert (stored["vision_mode"], stored["vlm"]["model"]) == ("live", "Qwen3VL-4B-Instruct-Q8_0")
-    assert stored["face_recognition"] == {"enabled": True, "retention_days": 30, "continuous": True}   # the rest stays
+    assert stored["face_recognition"] == {"enabled": True, "retention_days": 7, "continuous": True}   # the rest stays
     assert client.patch("/vision/settings", json={"mode": "off"}).status_code == 422
-    assert client.patch("/vision/settings", json={"retention_days": 0}).status_code == 422
+    for gone in ({"retention_days": 30}, {"gc_prune": False}, {"gc_describe": False}):    # only the plugin's form changes these
+        assert client.patch("/vision/settings", json=gone).status_code == 422
+    assert not {"retention_days", "gc_prune", "gc_describe"} & set(shown)
 
 
 def test_a_cameras_alert_settings_are_checked_and_kept(world: tuple[TestClient, dict[str, Any], Path]) -> None:

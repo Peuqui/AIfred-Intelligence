@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from .user_error import Invalid
+from .user_error import Conflict, Invalid
 
 logger = logging.getLogger(__name__)
 
@@ -512,11 +512,15 @@ async def _deliver_in_session(ev: AlertEvent, rule: AlertRule) -> bool:
         channel, _, target = sink.partition(":")
         recipients = resolve_announce_targets(channel, target) or [target]
         for recipient in recipients:
-            if await announce_to_channel(
-                channel, recipient, text, session_id=alert_session_id,
-                media=sink_media, metadata=sink_metadata,
-            ):
-                channel_ok = True
+            try:
+                delivered = await announce_to_channel(
+                    channel, recipient, text, session_id=alert_session_id,
+                    media=sink_media, metadata=sink_metadata,
+                )
+            except Conflict as refused:     # a channel that is switched off sends nothing; the other sinks go on
+                logger.warning("alert: sink %r not delivered: %s", sink, refused)
+                continue
+            channel_ok = channel_ok or delivered
 
     # Browser-Session zählt als Zustellung (Kontroll-Trail) — auch wenn ein
     # Kanal nicht konfiguriert ist.

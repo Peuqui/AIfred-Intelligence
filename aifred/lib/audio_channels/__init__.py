@@ -35,6 +35,7 @@ __all__ = [
     "all_targets",
     "register",
     "resolve",
+    "stop_everything",
 ]
 
 _REGISTRY: list[AudioOutputChannel] = []
@@ -70,6 +71,16 @@ def all_targets(ctx: PluginContext) -> list[TargetInfo]:
 def all_channels() -> list[AudioOutputChannel]:
     """Liste aller registrierten Channels (read-only Snapshot)."""
     return list(_REGISTRY)
+
+
+async def stop_everything() -> None:
+    """Beende die Wiedergabe des Players auf allen Channels (er wird abgeschaltet), nie die Sprachausgabe."""
+    for ch in _REGISTRY:
+        for target_id in ch.running_targets():
+            try:
+                await ch.stop_player(target_id)
+            except Exception as exc:  # noqa: BLE001 — one target must not keep the others playing; logged
+                log_message(f"⚠️ Audio stop of '{target_id}' failed: {exc!r}", "warning")
 
 
 # ── Auto-Registrierung der eingebauten Channels ──────────────────────

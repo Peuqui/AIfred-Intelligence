@@ -223,3 +223,51 @@ def test_missing_backup_is_a_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     _ssh_result(monkeypatch, 2, "")
     with pytest.raises(subprocess.CalledProcessError):
         tool.latest_backup(_settings())
+
+
+# ── Off means off (14.11.2026) ──────────────────────────────────
+
+def _switches(monkeypatch: pytest.MonkeyPatch, *, epim: bool = True, nextcloud: bool = True, sync: bool = True) -> None:
+    from aifred.lib import plugin_registry
+    from aifred.plugins.tools.epim import settings as epim_settings
+
+    monkeypatch.setattr(plugin_registry, "is_plugin_enabled", lambda name: {"epim": epim, "nextcloud": nextcloud}[name])
+    monkeypatch.setattr(epim_settings, "load_epim_settings", lambda: epim_settings.EpimSettings(db_path=None, deletion_sync=sync))
+
+
+def test_it_runs_only_with_both_plugins_and_its_setting_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    _switches(monkeypatch)
+    assert tool.reason_not_to_run() is None
+    _switches(monkeypatch, epim=False)
+    assert "EPIM plugin is off" in str(tool.reason_not_to_run())
+    _switches(monkeypatch, nextcloud=False)
+    assert "Nextcloud plugin is off" in str(tool.reason_not_to_run())
+    _switches(monkeypatch, sync=False)
+    assert "setting" in str(tool.reason_not_to_run())
+
+
+@pytest.mark.parametrize("apply", [True, False])
+def test_a_run_that_must_not_run_ends_without_touching_anything(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], apply: bool,
+) -> None:
+    _switches(monkeypatch, epim=False)
+
+    def untouched(*_args: Any) -> None:
+        raise AssertionError("the run went on although the plugin is off")
+
+    monkeypatch.setattr(tool, "load_settings", untouched)
+    monkeypatch.setattr(tool, "latest_backup", untouched)
+    assert tool.run(apply) == 0
+    assert "does nothing" in capsys.readouterr().out
+
+
+def test_the_setting_is_a_field_of_the_plugin_with_the_default_on() -> None:
+    from aifred.plugins.tools.epim import plugin
+    from aifred.plugins.tools.epim.settings import DELETION_SYNC_KEY, parse_settings
+
+    assert parse_settings({}).deletion_sync is True
+    assert parse_settings({DELETION_SYNC_KEY: "off"}).deletion_sync is False
+    with pytest.raises(ValueError):
+        parse_settings({DELETION_SYNC_KEY: "maybe"})
+    field = next(field for field in plugin.credential_fields if field.env_key == DELETION_SYNC_KEY)
+    assert field.default == "on" and [value for value, _label in field.options or []] == ["on", "off"]

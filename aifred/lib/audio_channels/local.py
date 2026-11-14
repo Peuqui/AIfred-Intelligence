@@ -26,6 +26,9 @@ class LocalChannel(AudioOutputChannel):
     def can_handle(self, target_id: str) -> bool:
         return target_id == "local"
 
+    def running_targets(self) -> list[str]:
+        return ["local"]
+
     def list_targets(self, ctx: PluginContext) -> list[TargetInfo]:
         return [
             TargetInfo(
@@ -78,6 +81,10 @@ class LocalChannel(AudioOutputChannel):
     async def stop(self, target_id: str, ctx: PluginContext | None = None) -> bool:
         from ..audio_manager import audio_manager
         return await audio_manager.stop()
+
+    async def stop_player(self, target_id: str, ctx: PluginContext | None = None) -> bool:
+        """``audio_manager`` plays nothing but the player's tracks: ``stop`` is already the player's stop."""
+        return await self.stop(target_id, ctx)
 
     async def seek(
         self,

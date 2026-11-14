@@ -489,12 +489,19 @@ Drei Wege lösen denselben Lauf aus:
 
 1. **Casus-Button** — manueller Bulk-Lauf über die UI, mit Fortschrittsbalken,
    Abbrechen und VRAM-Vorabcheck.
-2. **Nacht-Lauf** — die tägliche Garbage-Collection um `GARBAGE_COLLECTION_HOUR`
+2. **Aufräumlauf** — die tägliche Garbage-Collection um `GARBAGE_COLLECTION_HOUR`
    (Standard `03:00`) beschreibt **erst** alle noch unerfassten Events, **dann**
    prunt sie. So hat jeder Frame eine Beschreibung, bevor er nach Ablauf der TTL
    gelöscht wird, und die Tageschronik ist morgens vollständig — auch ohne
-   geöffnetes Vorschau-Popup. Code: `cleanup_vision_task` in
-   `aifred/lib/vision_cleanup.py`.
+   geöffnetes Vorschau-Popup. Zwei Teile, je ein Schalter im Einstellungsformular des Plugins
+   (Einstellungen → Plugins → Zahnrad bei „Vision“, auch bei abgeschaltetem Plugin erreichbar; dort auch die
+   Aufbewahrung in Tagen; der einzige Weg, diese drei Werte zu ändern: nicht mehr auf der Vision-Seite;
+   gespeichert als `face_recognition.gc_describe` „Nachts nachbeschreiben“, `face_recognition.gc_prune`
+   „Alte Ereignisse nach Frist löschen“, beide Standard an, auch bei abgeschaltetem
+   Plugin gelesen): das Nachbeschreiben gehört dem Plugin (läuft nur bei Vision an
+   und Schalter an), das Löschen nach `retention_days` ist Kern und läuft auch bei
+   Vision aus, damit Kamerabilder nicht über die Frist liegen bleiben. Code:
+   `vision_gc_task` / `run_vision_gc` in `aifred/lib/vision_cleanup.py`.
 3. **On-demand** — `vision_query_events` mit `describe=true` zieht fehlende
    Beschreibungen nur für das gerade abgefragte Zeitfenster vorab. Das deckt
    frische Daten des laufenden Tages ab, die der Nutzer abfragt, bevor der
@@ -545,7 +552,8 @@ Neustart anpassen kann. Wichtige Gruppen:
 - **`vlm`** — `model`, `num_ctx`, `keep_alive`, `host`, `default_prompt`.
 - **`face_recognition`** — `providers`, `gpu_id` (int / `"auto"` / `null` für
   Nur-CPU), `det_size`, `model_name` (`buffalo_l`), `threshold_known`,
-  `threshold_unsure`.
+  `threshold_unsure`, `retention_days`, `gc_describe` und `gc_prune` (die zwei
+  Schalter des Aufräumlaufs, Standard an; alle drei werden im Plugin-Formular geändert, nicht auf der Vision-Seite).
 - **`watch`** — `default_fps`, die Motion-Schwellwerte (`motion_min_area_ratio`,
   `motion_history_frames`, `motion_var_threshold`, `motion_warmup_frames`),
   `min_event_interval_sec`, `save_event_frames`, `run_face_detect_on_motion`,

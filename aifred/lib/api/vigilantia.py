@@ -1,5 +1,5 @@
 """The vision page's settings: the eye (armed or not), how the image model stays and which one, face and person
-detection, how long events are kept, the image model loaded or not (``lib/vigilantia.py``); the alert rules
+detection, the image model loaded or not (``lib/vigilantia.py``); the alert rules
 (``alert_bus``), the RTSP cameras (``lib/rtsp_cameras.py``) and the describer list (``lib/describer_list.py``). The
 cameras' own settings are ``PATCH /vision/cameras/{id}`` (``api/cameras.py``)."""
 
@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_message
 from ..user_error import Invalid
-from .app import api_app
+from .app import api_app, vision_api
 from .schemas import ChoiceOption
 
 
@@ -22,7 +22,6 @@ class VigilantiaRow(BaseModel):
     face_enabled: bool
     face_continuous: bool
     person_detect: bool
-    retention_days: int
     modes: list[ChoiceOption]
     models: list[str] = Field(description="The image models (llama-swap describer profiles, then Ollama's)")
     alert_types: list[ChoiceOption] = Field(description="The event types a camera can alert on")
@@ -36,7 +35,6 @@ class VigilantiaChange(BaseModel):
     face_enabled: bool | None = None
     face_continuous: bool | None = None
     person_detect: bool | None = None
-    retention_days: int | None = None
 
 
 class ArmedChange(BaseModel):
@@ -72,16 +70,16 @@ def _row() -> VigilantiaRow:
     )
 
 
-@api_app.get("/vision/settings", response_model=VigilantiaRow, tags=["Vision"])
+@vision_api.get("/vision/settings", response_model=VigilantiaRow, tags=["Vision"])
 async def vision_settings() -> VigilantiaRow:
     """The eye and the general settings of the vision, with their choices."""
     return await asyncio.to_thread(_row)
 
 
-@api_app.patch("/vision/settings", response_model=VigilantiaRow, tags=["Vision"])
+@vision_api.patch("/vision/settings", response_model=VigilantiaRow, tags=["Vision"])
 async def vision_settings_change(change: VigilantiaChange) -> VigilantiaRow:
     """Change some of the general settings: a mode switched to live loads the model at once, a new model unloads
-    the old one; 422 for a mode or retention the eye does not take."""
+    the old one; 422 for a mode the eye does not take."""
     from ..vigilantia import change as change_settings
 
     changes = change.model_dump(exclude_none=True)
@@ -90,7 +88,7 @@ async def vision_settings_change(change: VigilantiaChange) -> VigilantiaRow:
     return await asyncio.to_thread(_row)
 
 
-@api_app.put("/vision/armed", response_model=VigilantiaRow, tags=["Vision"])
+@vision_api.put("/vision/armed", response_model=VigilantiaRow, tags=["Vision"])
 async def vision_armed(change: ArmedChange) -> VigilantiaRow:
     """Arm or disarm the eye: every camera with its background switch on starts (inside its schedule) or stops.
     409 when the vision plugin is off."""
@@ -101,7 +99,7 @@ async def vision_armed(change: ArmedChange) -> VigilantiaRow:
     return await asyncio.to_thread(_row)
 
 
-@api_app.get("/vision/model", response_model=ModelState, tags=["Vision"])
+@vision_api.get("/vision/model", response_model=ModelState, tags=["Vision"])
 async def vision_model() -> ModelState:
     """Whether the image model is loaded, as its backend reports it."""
     from ..vigilantia import model_loaded
@@ -109,7 +107,7 @@ async def vision_model() -> ModelState:
     return ModelState(loaded=await model_loaded())
 
 
-@api_app.put("/vision/model", response_model=ModelState, tags=["Vision"])
+@vision_api.put("/vision/model", response_model=ModelState, tags=["Vision"])
 async def vision_model_load(state: ModelState) -> ModelState:
     """Load the image model (also in on-demand mode) or unload it; answers with what the backend reports then.
     409 without a model chosen."""
@@ -131,7 +129,7 @@ class AlertRuleRow(BaseModel):
 
 
 class AlertRules(BaseModel):
-    channels: list[ChoiceOption] = Field(description="Every channel plugin an alert can go through")
+    channels: list[ChoiceOption] = Field(description="Every channel that is on, an alert can go through it")
     rules: list[AlertRuleRow]
 
 
@@ -146,23 +144,23 @@ def _rules() -> AlertRules:
     from ..alert_bus import vision_rules
     from ..i18n import t
     from ..plugin_base import plugin_display_name
-    from ..plugin_registry import all_channels
+    from ..plugin_registry import on_channels
     from ..prompt_loader import get_language
 
     lang = get_language()
     return AlertRules(
-        channels=[ChoiceOption(id=name, label=plugin_display_name(channel, lang)) for name, channel in sorted(all_channels().items())],
+        channels=[ChoiceOption(id=name, label=plugin_display_name(channel, lang)) for name, channel in sorted(on_channels().items())],
         rules=[AlertRuleRow(category=category, label=t(f"alert_cat_{category}", lang=lang), **rule)
                for category, rule in vision_rules().items()],
     )
 
 
-@api_app.get("/vision/alert-rules", response_model=AlertRules, tags=["Vision"])
+@vision_api.get("/vision/alert-rules", response_model=AlertRules, tags=["Vision"])
 async def vision_alert_rules() -> AlertRules:
     return await asyncio.to_thread(_rules)
 
 
-@api_app.patch("/vision/alert-rules/{category}", response_model=AlertRules, tags=["Vision"])
+@vision_api.patch("/vision/alert-rules/{category}", response_model=AlertRules, tags=["Vision"])
 async def vision_alert_rule_change(category: str, change: AlertRuleChange) -> AlertRules:
     """A channel of a category on or off (``sink`` with ``sink_on``), or its description by the image model; the
     alert dispatcher reads the rules again at once. 422 for an unknown category or channel."""
@@ -228,12 +226,12 @@ def _rtsp() -> RtspCameras:
     return RtspCameras(cameras=[RtspCamera(**camera) for camera in rtsp_cameras()], profiles=list(PROFILES))
 
 
-@api_app.get("/vision/rtsp-cameras", response_model=RtspCameras, tags=["Vision"])
+@vision_api.get("/vision/rtsp-cameras", response_model=RtspCameras, tags=["Vision"])
 async def vision_rtsp_cameras() -> RtspCameras:
     return await asyncio.to_thread(_rtsp)
 
 
-@api_app.post("/vision/rtsp-cameras", response_model=RtspCameras, status_code=201, tags=["Vision"])
+@vision_api.post("/vision/rtsp-cameras", response_model=RtspCameras, status_code=201, tags=["Vision"])
 async def vision_rtsp_camera_add(camera: NewRtspCamera) -> RtspCameras:
     """A new camera; 409 for a name another camera has, 422 for a field it cannot take."""
     from ..rtsp_cameras import add_rtsp_camera
@@ -244,7 +242,7 @@ async def vision_rtsp_camera_add(camera: NewRtspCamera) -> RtspCameras:
     return await asyncio.to_thread(_rtsp)
 
 
-@api_app.put("/vision/rtsp-cameras/{name}", response_model=RtspCameras, tags=["Vision"])
+@vision_api.put("/vision/rtsp-cameras/{name}", response_model=RtspCameras, tags=["Vision"])
 async def vision_rtsp_camera_change(name: str, connection: RtspConnection) -> RtspCameras:
     """Change the connection: the fields sent go into the entry, every other stays (a field sent as "" leaves it)."""
     from ..rtsp_cameras import change_rtsp_camera
@@ -255,7 +253,7 @@ async def vision_rtsp_camera_change(name: str, connection: RtspConnection) -> Rt
     return await asyncio.to_thread(_rtsp)
 
 
-@api_app.delete("/vision/rtsp-cameras/{name}", response_model=RtspCameras, tags=["Vision"])
+@vision_api.delete("/vision/rtsp-cameras/{name}", response_model=RtspCameras, tags=["Vision"])
 async def vision_rtsp_camera_delete(name: str) -> RtspCameras:
     """Take the camera out; its credentials leave the .env when no other camera uses them, its events stay."""
     from ..rtsp_cameras import delete_rtsp_camera

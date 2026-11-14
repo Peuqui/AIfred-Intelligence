@@ -6,7 +6,7 @@ and the channels are temporary stand-ins."""
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -21,7 +21,7 @@ CRON = {"name": "Morgengruß", "schedule_type": "cron", "schedule_expr": "0 8 * 
 
 
 @pytest.fixture
-def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> scheduler.JobStore:
+def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, channels_on: Callable[..., None]) -> scheduler.JobStore:
     job_store = scheduler.JobStore(tmp_path / "jobs.db")
     monkeypatch.setattr(scheduler, "_job_store", job_store)
     monkeypatch.setattr("aifred.lib.file_manager.DOCUMENTS_DIR", tmp_path / "documents")  # a job's folder lies here, not in the real workspace
@@ -32,6 +32,7 @@ def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> scheduler.JobStore
     monkeypatch.setattr(agent_config, "AGENTS_FILE", agents_file)
     channels = {"telegram": SimpleNamespace(name="telegram"), "freeecho2": SimpleNamespace(name="freeecho2")}
     monkeypatch.setattr("aifred.lib.plugin_registry.all_channels", lambda: channels)
+    channels_on(*channels)
     monkeypatch.setattr("aifred.lib.plugin_base.plugin_display_name", lambda channel, lang: channel.name.title())
     return job_store
 

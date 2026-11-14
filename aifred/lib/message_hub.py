@@ -113,7 +113,11 @@ class MessageHub:
         """Remove a worker (stops it first if running)."""
         worker = self._workers.pop(name, None)
         if worker and worker.task and not worker.task.done():
-            worker.task.cancel()
+            # The task belongs to the hub thread's loop: cancelling it from here is not thread-safe.
+            if self._loop is not None:
+                self._loop.call_soon_threadsafe(worker.task.cancel)
+            else:
+                worker.task.cancel()
             _hub_log(f"Message Hub: unregistered + cancelled worker '{name}'")
 
     # ------------------------------------------------------------------
@@ -208,6 +212,10 @@ class MessageHub:
     # Status
     # ------------------------------------------------------------------
 
+    def registered(self) -> set[str]:
+        """The names of the registered workers (running, or about to start on the hub's loop)."""
+        return set(self._workers)
+
     def is_running(self, name: str) -> bool:
         """Check whether a specific worker is currently running."""
         worker = self._workers.get(name)
@@ -286,29 +294,3 @@ class MessageHub:
 # ---------------------------------------------------------------------------
 message_hub = MessageHub()
 
-
-def register_channel_workers(hub: MessageHub | None = None) -> None:
-    """Register all configured channel listeners with the hub.
-
-    Auto-discovers channel plugins and registers those that are
-    both configured (credentials present) and enabled in settings.
-    """
-    hub = hub or message_hub
-
-    from .plugin_registry import all_channels
-    from .settings import load_settings
-
-    settings = load_settings() or {}
-    channel_toggles = settings.get("channel_toggles", {})
-
-    for name, plugin in all_channels().items():
-        if hub.is_running(name):
-            continue  # already running, don't re-register
-        toggles = channel_toggles.get(name, {})
-        plugin_on = toggles.get("monitor", False)
-        listener_on = plugin_on if plugin.always_reply else toggles.get("listener", False)
-        if plugin.is_configured() and plugin_on and listener_on:
-            hub.register(name, plugin.listener_loop)
-        else:
-            _hub_log(f"Message Hub: channel '{name}' skipped "
-                     f"(configured={plugin.is_configured()}, enabled={plugin_on}, listener={listener_on})")

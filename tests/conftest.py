@@ -123,3 +123,16 @@ def _reset_freeecho2_alert_state():
     fe._alert_queues.clear()
     fe._alert_workers.clear()
     fe._playback_done.clear()
+
+
+@pytest.fixture
+def channels_on(monkeypatch):
+    """Die Hauptschalter der Kanäle (``monitor``) setzt der Test selbst, statt den Stand der echten
+    data/settings.json zu erben: ``channels_on("freeecho2", "email")`` schaltet genau diese an, alle anderen aus.
+    Keine autouse-Fixture: Tests, die das Aus selbst prüfen, schreiben ihre eigene Settings-Datei."""
+    from aifred.lib import plugin_registry
+
+    def switch_on(*names: str) -> None:
+        monkeypatch.setattr(plugin_registry, "channel_switch", lambda name, switch: switch == "monitor" and name in names)
+
+    return switch_on

@@ -36,7 +36,7 @@ modules below register their endpoints on import (same registration
 order as the former single-file api.py).
 """
 
-from .app import API_VERSION, api_app
+from .app import API_VERSION, api_app, audio_player_api, vision_api
 
 # Router modules — importing them registers their routes on api_app.
 # Order matters: it mirrors the original single-file section order.
@@ -66,6 +66,11 @@ from . import housekeeping
 from . import backend
 from . import files
 from . import gpu
+
+# The endpoints of a plugin answer only while it is on (app.py): mounted once every module has put its routes on them.
+api_app.include_router(vision_api)
+api_app.include_router(audio_player_api)
+
 from . import app_shell  # last: its /app mount must follow every /app route
 
 

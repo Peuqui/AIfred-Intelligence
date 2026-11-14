@@ -344,8 +344,8 @@ Schreibregeln:
   (siehe „consumed_ms-Position-Sync").
 - Bei mpv `eof-reached` → `completed: true`, sofort.
 - `completed: true`-Einträge älter als `AUDIO_STATE_CLEANUP_AGE_DAYS` (config.py, 7)
-  werden beim Dienst-Start und täglich um `GARBAGE_COLLECTION_HOUR` gelöscht
-  (`cleanup_audio_state_task()`).
+  werden täglich um `GARBAGE_COLLECTION_HOUR` gelöscht (`cleanup_audio_state_task()`,
+  ein Hintergrundteil des Plugins `audio_player`: läuft nur, solange es an ist).
 
 ## Audio-Index (SQLite/FTS5)
 

@@ -74,5 +74,21 @@
   "module_access_write": {
     "de": "Lesen und Schreiben",
     "en": "Read and write"
+  },
+  "epim_cred_deletion_sync": {
+    "de": "Löschungen nach Nextcloud übertragen",
+    "en": "Carry deletions over to Nextcloud"
+  },
+  "epim_cred_deletion_sync_tooltip": {
+    "de": "Stündlich werden in EPIM gelöschte Termine, Kontakte und Aufgaben auch in Nextcloud gelöscht (Skript epim_deletions_to_nextcloud). Läuft nur mit eingeschalteten Plugins EPIM und Nextcloud.",
+    "en": "Hourly, appointments, contacts and tasks deleted in EPIM are deleted in Nextcloud too (script epim_deletions_to_nextcloud). Runs only with the EPIM and Nextcloud plugins on."
+  },
+  "epim_deletion_sync_on": {
+    "de": "an",
+    "en": "on"
+  },
+  "epim_deletion_sync_off": {
+    "de": "aus",
+    "en": "off"
   }
 }

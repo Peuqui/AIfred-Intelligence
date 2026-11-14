@@ -1,5 +1,7 @@
 """Announce API: token guard, room list, 404 / 422, one text or several paragraphs, no length limit."""
 
+from collections.abc import Callable
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -11,7 +13,8 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
 @pytest.fixture
-def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def client(monkeypatch: pytest.MonkeyPatch, channels_on: Callable[..., None]) -> TestClient:
+    channels_on("freeecho2")
     monkeypatch.setenv("ANNOUNCE_API_TOKEN", TOKEN)
     monkeypatch.setattr(announce, "resolve_announce_targets",
                         lambda channel, target: ["wohnzimmer"] if target in ("*", "wohnzimmer") else [])

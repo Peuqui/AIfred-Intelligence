@@ -89,18 +89,19 @@ onBeforeUnmount(() => {
 
 <template>
   <section v-if="library" class="sources">
-    <div class="head">
+    <p v-if="!library.player_on" class="hint">{{ t("plugin_off_hint") }}</p>
+    <div v-if="library.player_on" class="head">
       <strong>{{ t("audio_sources_title") }}</strong>
       <button @click="choosing = true">{{ t("audio_source_add") }}</button>
     </div>
-    <p class="hint">{{ t("audio_sources_help") }}</p>
+    <p v-if="library.player_on" class="hint">{{ t("audio_sources_help") }}</p>
     <p v-if="library.message" class="status">{{ library.message }}</p>
     <p v-if="notice" class="notice">{{ notice }}</p>
     <p v-if="saved" class="saved"><CircleCheck :size="16" /> {{ t("audio_settings_saved") }}</p>
 
     <FileRequester v-if="choosing" area="audio" :title="t('audio_source_add')" pick @pick="pick" @close="choosing = false" />
 
-    <div v-for="entry in library.sources" :key="entry.label" class="entry">
+    <div v-for="entry in library.player_on ? library.sources : []" :key="entry.label" class="entry">
       <span class="label"><Radio v-if="entry.type === 'http_stream'" :size="16" /><Link v-else-if="entry.is_symlink" :size="16" /><Folder v-else :size="16" /> <strong>{{ entry.label }}</strong></span>
       <span class="target" :title="entry.target">{{ entry.target }}</span>
       <span class="count">{{ entry.type === "http_stream" ? t("audio_source_stream") : tCount("audio_source_indexed", entry.indexed) }}</span>
@@ -117,7 +118,7 @@ onBeforeUnmount(() => {
       </span>
     </div>
 
-    <div class="line setting">
+    <div v-if="library.player_on" class="line setting">
       <label class="name" :title="t('audio_settings_root_help')">{{ t("audio_settings_root") }}</label>
       <input v-model="root" class="wide" />
       <button :disabled="root === library.picker_root" @click="save({ picker_root: root })">{{ t("audio_settings_save") }}</button>

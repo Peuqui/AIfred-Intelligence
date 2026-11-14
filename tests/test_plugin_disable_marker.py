@@ -49,15 +49,14 @@ def reloads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 def test_the_marker_decides_on_or_off(tree: Path) -> None:
     assert plugin_registry.is_plugin_enabled("alpha")
     assert not plugin_registry.is_plugin_enabled("beta")
-    assert plugin_registry.is_plugin_enabled("delta", "channel")
     assert not plugin_registry.is_plugin_enabled("missing")
     assert not plugin_registry.is_plugin_enabled("gamma")   # a lone module is no plugin
 
 
 def test_the_manager_lists_plugins_switched_off_too(tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(plugin_registry, "discover_tools", list)
+    monkeypatch.setattr(plugin_registry, "get_tool_plugin_on_or_off", lambda name: None)      # the stand-ins have no module
     listed = {(entry["type"], entry["name"]): entry["enabled"] for entry in plugin_registry.list_all_plugins()}
-    assert listed == {("tool", "alpha"): "1", ("tool", "beta"): "", ("channel", "delta"): "1"}
+    assert listed == {("tool", "alpha"): "1", ("tool", "beta"): ""}      # a channel is switched in the settings
 
 
 def test_switching_off_and_on_sets_and_removes_the_marker_only(tree: Path, reloads: list[str]) -> None:
@@ -122,3 +121,22 @@ def test_switching_a_tool_leaves_the_channels_running(tree: Path, monkeypatch: p
     finally:
         sys.modules.update(loaded)   # the reload dropped this process's tool modules
     assert plugin_registry._channels is channels and list(channels) == ["probe"]
+
+
+def test_a_channel_folder_with_the_marker_is_still_a_channel(tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nothing ever wrote ``.disabled`` into a channel's folder: a channel is on or off by ``monitor`` in the
+    settings (``channel_is_on``). The marker was a second, dead switch; it no longer decides anything."""
+    (tree / "channels" / "delta" / ".disabled").touch()
+    imported: list[str] = []
+
+    def record(name: str, package: str | None = None) -> object:
+        imported.append(name)
+        return object()
+
+    monkeypatch.setattr(plugin_registry.importlib, "import_module", record)
+    monkeypatch.setattr(plugin_registry, "_channels", {})
+    monkeypatch.setattr(plugin_registry, "_channels_discovered", False)
+
+    plugin_registry._discover_channels()
+
+    assert imported == [".channels.delta"]

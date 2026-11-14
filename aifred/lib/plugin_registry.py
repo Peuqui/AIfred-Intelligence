@@ -6,9 +6,13 @@ Scans:
 
 A plugin is a package folder (``__init__.py``) whose name is the plugin's name.
 
-A plugin is switched off by a marker in its folder, ``.disabled``. The marker is machine-local
+A tool plugin is switched off by a marker in its folder, ``.disabled``. The marker is machine-local
 (gitignored); the code stays where git keeps it, so its tests run and updates reach it while it is
 off. Without a marker a plugin is on: a new plugin needs nothing, a deleted one takes its marker along.
+
+A channel has no marker: its main switch is ``monitor`` in the settings (``channel_toggles``, see
+``channel_is_on``). Off means off for both: what belongs to the plugin alone stops with it (``plugin_background``)
+and nothing reaches it any more (``require_plugin_enabled``, ``require_channel_on``).
 """
 
 from __future__ import annotations
@@ -40,6 +44,7 @@ def _plugins_root() -> Path:
 
 DISABLED_MARKER = ".disabled"
 _SUBDIRS = {"channel": "channels", "tool": "tools"}
+CHANNEL_TOGGLES = "channel_toggles"      # settings.json: per channel its switches (monitor, listener, auto_reply)
 
 
 def _plugin_dirs(plugin_type: str) -> list[Path]:
@@ -61,7 +66,7 @@ _channels_discovered = False
 
 
 def _discover_channels() -> None:
-    """Import the channel plugins that are not switched off and collect their BaseChannel instances."""
+    """Import the channel plugins and collect their BaseChannel instances (on or off: the switch is ``channel_is_on``)."""
     global _channels_discovered
     if _channels_discovered:
         return
@@ -70,8 +75,6 @@ def _discover_channels() -> None:
     from .logging_utils import log_exception, log_message
 
     for plugin_dir in _plugin_dirs("channel"):
-        if _is_switched_off(plugin_dir):
-            continue
         try:
             mod = importlib.import_module(f".channels.{plugin_dir.name}", package="aifred.plugins")
             # Look for a module-level instance of BaseChannel
@@ -95,6 +98,43 @@ def all_channels() -> dict[str, BaseChannel]:
     return dict(_channels)
 
 
+def channel_switch(name: str, switch: str) -> bool:
+    """One of a channel's switches in the settings (``monitor``, ``listener``, ``auto_reply``); off when never set."""
+    from .settings import load_settings
+
+    toggles = (load_settings() or {}).get(CHANNEL_TOGGLES) or {}
+    return bool((toggles.get(name) or {}).get(switch))
+
+
+def channel_is_on(name: str) -> bool:
+    """The channel exists and its main switch (``monitor``) is on. The one answer for: its listener runs, it offers
+    tools, it is offered as a target, something may be sent through it."""
+    return get_channel(name) is not None and channel_switch(name, "monitor")
+
+
+def on_channels() -> dict[str, BaseChannel]:
+    """The channels whose main switch is on."""
+    return {name: channel for name, channel in all_channels().items() if channel_switch(name, "monitor")}
+
+
+def plugin_label(plugin: object) -> str:
+    """A plugin's name as the user reads it, in the UI language."""
+    from .prompt_loader import get_language
+
+    return plugin_display_name(plugin, get_language())
+
+
+def require_channel_on(name: str) -> None:
+    """``Conflict`` (409, in the UI language) for a channel that is switched off; ``Missing`` for none of that name."""
+    from .user_error import Conflict, Missing
+
+    channel = get_channel(name)
+    if channel is None:
+        raise Missing("no_plugin", plugin=name)
+    if not channel_switch(name, "monitor"):
+        raise Conflict("channel_off", plugin=plugin_label(channel))
+
+
 # ============================================================
 # TOOL PLUGIN REGISTRY
 # ============================================================
@@ -108,6 +148,15 @@ def get_tool_plugin(name: str) -> ToolPlugin | None:
         if p.name == name:
             return p
     return None
+
+
+def get_tool_plugin_on_or_off(name: str) -> ToolPlugin | None:
+    """A tool plugin by name, switched on or off (its module is imported either way). Only for what has to work
+    with the plugin off, its settings form; whatever acts as the plugin asks ``get_tool_plugin``."""
+    if _plugin_dir(name) is None:
+        return None
+    plugin = getattr(importlib.import_module(f".tools.{name}", package="aifred.plugins"), "plugin", None)
+    return plugin if isinstance(plugin, ToolPlugin) else None
 
 
 def discover_tools() -> list[ToolPlugin]:
@@ -154,7 +203,7 @@ def collect_plugin_tools(ctx: PluginContext) -> list[tuple[ToolPlugin | BaseChan
     for plugin in discover_tools():
         if plugin.is_available():
             collected.append((plugin, plugin.get_tools(ctx)))
-    for channel in all_channels().values():
+    for channel in on_channels().values():
         if channel.is_configured():
             collected.append((channel, channel.get_tools(ctx)))
     return [(owner, tools) for owner, tools in collected if tools]
@@ -208,7 +257,7 @@ def _reload_tools() -> None:
 # ============================================================
 
 def list_all_plugins() -> list[dict[str, str]]:
-    """List all plugins, switched on or off, with status.
+    """List all tool plugins, switched on or off, with status (a channel is switched by its settings, not listed here).
 
     Returns: [{"name": "epim", "file": "epim", "type": "tool", "enabled": "1"}, ...]
     """
@@ -223,46 +272,52 @@ def list_all_plugins() -> list[dict[str, str]]:
         }
 
     def _has_credentials(stem: str) -> str:
-        """Check if a tool plugin has credential_fields (a plugin switched off is not loaded: "")."""
-        for p in discover_tools():
-            if p.name == stem:
-                fields = getattr(p, "credential_fields", None)
-                if fields:
-                    return "1"
-        return ""
+        """Whether a tool plugin has a settings form, switched on or off."""
+        return "1" if getattr(get_tool_plugin_on_or_off(stem), "credential_fields", None) else ""
 
-    for plugin_type in _SUBDIRS:
-        for plugin_dir in _plugin_dirs(plugin_type):
-            name = plugin_dir.name
-            result.append({
-                "name": name, **_display(plugin_dir), "file": name, "type": plugin_type,
-                "enabled": "" if _is_switched_off(plugin_dir) else "1",
-                "has_credentials": _has_credentials(name) if plugin_type == "tool" else "",
-            })
+    for plugin_dir in _plugin_dirs("tool"):
+        name = plugin_dir.name
+        result.append({
+            "name": name, **_display(plugin_dir), "file": name, "type": "tool",
+            "enabled": "" if _is_switched_off(plugin_dir) else "1",
+            "has_credentials": _has_credentials(name),
+        })
 
     result.sort(key=lambda p: p["name"])
     return result
 
 
-def _plugin_dir(name: str, plugin_type: str) -> Path | None:
-    """The folder of the plugin ``name``; None if there is no such plugin."""
-    path = _plugins_root() / _SUBDIRS[plugin_type] / name
-    return path if path in _plugin_dirs(plugin_type) else None
+def _plugin_dir(name: str) -> Path | None:
+    """The folder of the tool plugin ``name``; None if there is no such plugin."""
+    path = _plugins_root() / _SUBDIRS["tool"] / name
+    return path if path in _plugin_dirs("tool") else None
 
 
-def is_plugin_enabled(name: str, plugin_type: str = "tool") -> bool:
-    """True if the plugin exists and is not switched off.
+def is_plugin_enabled(name: str) -> bool:
+    """True if the tool plugin exists and is not switched off.
 
     Pure filesystem check (no plugin import) — safe to call from lib modules
     like vision_prewarm without a circular import.
     """
-    path = _plugin_dir(name, plugin_type)
+    path = _plugin_dir(name)
     return path is not None and not _is_switched_off(path)
+
+
+def require_plugin_enabled(name: str) -> None:
+    """``Conflict`` (409, in the UI language) for a tool plugin that is switched off: what belongs to it alone answers
+    with this instead of working."""
+    from .user_error import Conflict
+
+    if not is_plugin_enabled(name):
+        path = _plugins_root() / _SUBDIRS["tool"] / name
+        from .prompt_loader import get_language
+
+        raise Conflict("plugin_off", plugin=plugin_i18n_text(path, PLUGIN_DISPLAY_NAME_KEY, get_language()) or name)
 
 
 def disable_plugin(name: str) -> bool:
     """Switch a tool plugin off (set its marker) and reload the tools. False if there is no such plugin."""
-    path = _plugin_dir(name, "tool")
+    path = _plugin_dir(name)
     if path is None:
         return False
     (path / DISABLED_MARKER).touch()
@@ -273,7 +328,7 @@ def disable_plugin(name: str) -> bool:
 def enable_plugin(name: str) -> bool:
     """Switch a tool plugin on (remove its marker) and reload the tools. False if there is no
     such plugin or it is not switched off."""
-    path = _plugin_dir(name, "tool")
+    path = _plugin_dir(name)
     if path is None:
         return False
     marker = path / DISABLED_MARKER

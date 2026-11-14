@@ -39,7 +39,8 @@ das Ergebnis an den konfigurierten Delivery-Modus übergeben.
 - **Historie pro Job:** Jeder Lauf sieht, was die letzten Läufe zugestellt haben
 - **Tier-Begrenzung:** Jobs laufen mit `TIER_COMMUNICATE`, nicht mit dem Tier des erstellenden Users; Erinnerungen schreiben dürfen sie trotzdem, weil sie dem Owner gehören
 - **Isolierte Ausführung:** Jeder Job läuft aus seinem eigenen gespeicherten Payload
-- **Persistent:** Jobs werden im Job-Store abgelegt und überleben Neustarts des Services
+- **Persistent:** Jobs werden im Job-Store abgelegt und überleben Neustarts des Services; was beim Neustart überfällig ist, läuft nach
+- **Aus heißt aus:** Die Ausführungsschleife gehört dem Plugin. Ist es aus, startet kein Job; ein gerade laufender Job läuft zu Ende. Termine der Aus-Zeit verfallen: Beim Einschalten rücken fällige Jobs auf ihren nächsten regulären Termin, ohne Lauf und ohne Eintrag im Laufprotokoll (ein einmaliger Job wird ausgeschaltet)
 
 ## Anwendungsbeispiele
 

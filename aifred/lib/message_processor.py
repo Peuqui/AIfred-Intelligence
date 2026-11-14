@@ -485,14 +485,11 @@ def _is_auto_reply_enabled(channel: str) -> bool:
     If the channel plugin declares always_reply=True, auto-reply is
     always on regardless of the toggle setting.
     """
-    from .plugin_registry import get_channel
+    from .plugin_registry import channel_switch, get_channel
     plugin = get_channel(channel)
     if plugin and plugin.always_reply:
         return True
-    from .settings import load_settings
-    settings = load_settings() or {}
-    channel_toggles = settings.get("channel_toggles", {})
-    return bool(channel_toggles.get(channel, {}).get("auto_reply", False))
+    return channel_switch(channel, "auto_reply")
 
 
 # ============================================================
@@ -649,12 +646,13 @@ async def announce_to_channel(
     ``None`` when the message belongs to no session."""
     from datetime import datetime
 
-    from .plugin_registry import get_channel
+    from .plugin_registry import get_channel, require_channel_on
 
     plugin = get_channel(channel)
     if not plugin:
         log_message(f"announce: channel '{channel}' not found", "error")
         return False
+    require_channel_on(channel)     # a channel that is off sends nothing: Conflict, the caller says so
     target = _resolve_channel_recipient(channel, recipient)
     if not target:
         log_message(f"announce: no recipient/allowlist for '{channel}'", "warning")
@@ -834,7 +832,10 @@ async def announce_into_rooms(
     short announcement would be spoken before its bubble existed.
 
     Returns the rooms reached. A room not reached keeps its bubble unspoken;
-    that is logged, not hidden."""
+    that is logged, not hidden. A channel that is switched off reaches nobody (Conflict, before any bubble is made)."""
+    from .plugin_registry import require_channel_on
+
+    require_channel_on(channel)
     reached: list[str] = []
     for room in rooms:
         session_id = record_autonomous_turn(channel, room, speaker, text, speaker=speaker)

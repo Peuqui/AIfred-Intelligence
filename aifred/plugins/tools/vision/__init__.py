@@ -31,7 +31,7 @@ from ....lib.frame_sources import (
     rescan as rescan_sources,
 )
 from ....lib.function_calling import Tool
-from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
+from ....lib.plugin_base import BackgroundPart, CredentialField, PluginContext, load_tool_description, load_tool_parameters
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 from ....lib.vision_analyzer import (
     DEFAULT_KEEP_ALIVE,
@@ -40,6 +40,14 @@ from ....lib.vision_analyzer import (
     analyze_sequence,
 )
 from ....lib.vigilantia import vision_mode
+from ....lib.vision_cleanup import (
+    DEFAULT_RETENTION_DAYS,
+    GC_FORM_KEYS,
+    RETENTION_FORM_KEY,
+    SWITCH_VALUES,
+    cleanup_form_values,
+    save_cleanup_form_values,
+)
 from ....lib.vision_filters.face_detect import get_default_detector
 from ....lib.vision_gpu_select import resolve_gpu_id
 from ....lib.vision_settings import VISION_SETTINGS_PATH, load_vision_settings
@@ -140,6 +148,39 @@ class VisionPlugin:
         # Plugin is always loadable — individual tools fail gracefully
         # when no source is registered. Settings file presence is sufficient.
         return VISION_SETTINGS_PATH.exists()
+
+    @property
+    def credential_fields(self) -> list[CredentialField]:
+        """The cleanup's three values (retention, delete after it, describe at night): their only place, also
+        reachable with the plugin off (the daily deleting is core and runs then too)."""
+        switch_options = [(value, f"vision_cleanup_switch_{value}") for value in SWITCH_VALUES]
+        return [
+            CredentialField(env_key=RETENTION_FORM_KEY, label_key="vision_cred_retention_days",
+                            default=str(DEFAULT_RETENTION_DAYS)),
+            CredentialField(env_key=GC_FORM_KEYS["gc_prune"], label_key="vision_cred_gc_prune",
+                            default=SWITCH_VALUES[0], options=switch_options),
+            CredentialField(env_key=GC_FORM_KEYS["gc_describe"], label_key="vision_cred_gc_describe",
+                            default=SWITCH_VALUES[0], options=switch_options),
+        ]
+
+    def _load_settings(self) -> dict[str, str]:
+        return cleanup_form_values()
+
+    def _save_settings(self, settings: dict[str, str]) -> None:
+        save_cleanup_form_values(settings)
+
+    def background_parts(self) -> dict[str, BackgroundPart]:
+        """The supervisor of the cameras' schedules, while the plugin is on. (The daily garbage collection is not
+        listed: its pruning is core and runs with the plugin off too, see lib/vision_cleanup.py.)"""
+        from ....lib.vision_autostart import schedule_supervisor
+
+        return {"vision_supervisor": BackgroundPart(schedule_supervisor)}
+
+    async def on_switched_off(self) -> None:
+        """Switching the vision off disarms the eye first: no watcher may keep watching."""
+        from ....lib.vigilantia import set_armed
+
+        await set_armed(False)
 
     def get_prompt_instructions(
         self, lang: str, granted_tools: set[str] | None = None

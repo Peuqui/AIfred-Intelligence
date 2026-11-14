@@ -67,6 +67,15 @@ class AudioOutputChannel(Protocol):
         """
         ...
 
+    def running_targets(self) -> list[str]:
+        """Die Ziele, auf denen gerade der Player spielt (ohne Kontext einer Anfrage): ``stop_player`` beendet dort."""
+        ...
+
+    async def stop_player(self, target_id: str, ctx: PluginContext | None = None) -> bool:
+        """Beende nur die Wiedergabe des Players (Musik, Hörbuch, Stream, Ordner-Warteschlange); Sprachausgabe
+        am Target läuft weiter. ``stop`` bleibt der Stopp-Befehl für alles."""
+        ...
+
     def list_targets(self, ctx: PluginContext) -> list[TargetInfo]:
         """Live-Discovery konkreter Targets.
 

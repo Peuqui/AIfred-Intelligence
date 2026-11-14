@@ -209,6 +209,14 @@ def profile_watch_overrides(
     return overrides
 
 
+def eye_is_on(plugin_settings: dict[str, Any]) -> bool:
+    """The eye watches only with the vision plugin on and the eye armed (``vigilantia_armed``): the one rule of
+    every background watcher and of the supervisor."""
+    from .plugin_registry import is_plugin_enabled
+
+    return is_plugin_enabled("vision") and bool(plugin_settings.get("vigilantia_armed", False))
+
+
 def _device_not_connected(record: dict[str, Any]) -> bool:
     """A USB camera that is not plugged in is not a registered source: nothing to start, no error
     (it registers when the device is found, see ``frame_sources.rescan``)."""
@@ -272,8 +280,8 @@ async def start_all_background_watchers() -> int:
         logger.warning("autostart: source listing failed: %s", e)
         return 0
     plugin = load_vision_settings()
-    if not plugin.get("vigilantia_armed", False):
-        logger.info("autostart: vigilantia disarmed — skipping all sources")
+    if not eye_is_on(plugin):
+        logger.info("autostart: vigilantia disarmed or the vision plugin off — skipping all sources")
         return 0
     from .vision_live_analysis import is_live
 
@@ -333,7 +341,7 @@ async def apply_background_watch(source_id: str) -> None:
     plugin = load_vision_settings()
     record = VisionStore().get_source(source_id) or {}
     wanted = (
-        bool(plugin.get("vigilantia_armed", False))
+        eye_is_on(plugin)
         and bool(record.get("auto_start")) and _schedule_active_now(record.get("settings") or {})
     )
     watcher = get_default_watcher()
@@ -358,7 +366,7 @@ async def schedule_supervisor() -> None:
         try:
             await asyncio.sleep(60)
             plugin = load_vision_settings()
-            if not plugin.get("vigilantia_armed", False):
+            if not eye_is_on(plugin):
                 continue
             records = VisionStore().list_sources()
             await _start_newly_plugged_cameras(records)
@@ -370,25 +378,6 @@ async def schedule_supervisor() -> None:
             raise
         except Exception as e:  # the supervisor loop goes on
             logger.warning("schedule supervisor error: %s", e, exc_info=True)
-
-
-_supervisor_task: asyncio.Task[None] | None = None
-
-
-def ensure_schedule_supervisor() -> None:
-    """Startet den :func:`schedule_supervisor` GENAU EINMAL pro Prozess.
-
-    Muss aus einem laufenden Event-Loop gerufen werden (App-Lifespan).
-    Idempotent über ein Modul-Task-Handle — ein zweiter Aufruf (z.B.
-    ein erneuter Lifespan-Durchlauf) ist ein
-    No-Op, solange der Task noch lebt. Ohne diesen Launcher lief der
-    Supervisor nie: der Boot-Pfad rief nur start_all_background_watchers,
-    sodass Kameras am Fenster-ENDE (z.B. 06:00) nie gestoppt wurden."""
-    global _supervisor_task
-    if _supervisor_task is not None and not _supervisor_task.done():
-        return
-    _supervisor_task = asyncio.create_task(schedule_supervisor())
-    logger.info("schedule supervisor launched")
 
 
 async def stop_all_background_watchers() -> int:

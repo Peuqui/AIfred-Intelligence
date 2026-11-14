@@ -39,7 +39,8 @@ result is handed to the configured delivery mode.
 - **History per job:** each run sees what the last runs delivered
 - **Tier capping:** Jobs run at `TIER_COMMUNICATE`, not at the creating user's tier; they may still write memories because they belong to the owner
 - **Isolated execution:** Each job runs from its own stored payload
-- **Persistent:** Jobs are stored via the job store and survive service restarts
+- **Persistent:** Jobs are stored via the job store and survive service restarts; what is overdue at a restart runs afterwards
+- **Off means off:** The execution loop belongs to the plugin. While it is off no job starts; a job that is already running runs to its end. Appointments of the time off lapse: when the plugin is switched on, due jobs move to their next regular appointment without a run and without an entry in the run log (a one-shot job is switched off)
 
 ## Usage examples
 

@@ -13,7 +13,7 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.security import JOB_DEFAULT_TIER, TIER_ADMIN, TIER_READONLY, TIER_WRITE_DATA
-from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
+from ....lib.plugin_base import BackgroundPart, PluginContext, load_tool_description, load_tool_parameters
 from ....lib.scheduler import DELIVERY_MODES, SCHEDULE_TYPES
 
 
@@ -25,6 +25,18 @@ class SchedulerPlugin:
 
     def is_available(self) -> bool:
         return True
+
+    def background_parts(self) -> dict[str, BackgroundPart]:
+        """The loop that runs the jobs: while the plugin is off, no job starts."""
+        from ....lib.scheduler import scheduler_loop
+
+        return {"scheduler": BackgroundPart(scheduler_loop, in_hub=True)}
+
+    def on_switched_on(self) -> None:
+        """Appointments that fell into the time off lapse: nothing is made up."""
+        from ....lib.scheduler import get_job_store
+
+        get_job_store().lapse_missed_runs()
 
     # Payload fields shown by list and changed by update — one place. What a job may be
     # (schedule types, delivery modes, the fixed-text rule) is lib/scheduler.py's: job_problem.

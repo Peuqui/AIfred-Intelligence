@@ -46,5 +46,37 @@
   "error_source_unavailable": {
     "de": "Quelle „{source_id}\" ist nicht erreichbar.",
     "en": "Source \"{source_id}\" is not reachable."
+  },
+  "vision_cred_retention_days": {
+    "de": "Aufbewahrung (Tage)",
+    "en": "Retention (days)"
+  },
+  "vision_cred_retention_days_tooltip": {
+    "de": "Wie lange Face-Crops, Motion-Frames, Filme und Datenbank-Ereignisse behalten werden (1 bis 3650). Der Aufräumlauf läuft täglich um 03:00 lokal.",
+    "en": "How long face crops, motion frames, films and database events are kept (1 to 3650). The cleanup runs daily at 03:00 local."
+  },
+  "vision_cred_gc_prune": {
+    "de": "Alte Ereignisse nach Frist löschen",
+    "en": "Delete old events after the retention"
+  },
+  "vision_cred_gc_prune_tooltip": {
+    "de": "Beim täglichen Aufräumlauf um 03:00 werden Bilder, Filme und Ereignisse nach der Aufbewahrungsfrist gelöscht, auch bei ausgeschaltetem Vision-Plugin.",
+    "en": "The daily cleanup run at 03:00 deletes pictures, films and events past the retention, also with the vision plugin off."
+  },
+  "vision_cred_gc_describe": {
+    "de": "Nachts nachbeschreiben",
+    "en": "Describe at night"
+  },
+  "vision_cred_gc_describe_tooltip": {
+    "de": "Beim täglichen Aufräumlauf um 03:00 werden unbeschriebene Ereignisse vorher vom Bildmodell beschrieben. Nur bei eingeschaltetem Vision-Plugin.",
+    "en": "The daily cleanup run at 03:00 first lets the image model describe events that have no description. Only with the vision plugin on."
+  },
+  "vision_cleanup_switch_on": {
+    "de": "an",
+    "en": "on"
+  },
+  "vision_cleanup_switch_off": {
+    "de": "aus",
+    "en": "off"
   }
 }

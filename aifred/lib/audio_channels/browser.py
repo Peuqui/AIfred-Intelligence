@@ -85,6 +85,9 @@ class BrowserChannel(AudioOutputChannel):
     def can_handle(self, target_id: str) -> bool:
         return target_id == "browser" or target_id.startswith("browser:")
 
+    def running_targets(self) -> list[str]:
+        return [f"browser:{session_id}" for session_id in _playing]
+
     def list_targets(self, ctx: PluginContext) -> list[TargetInfo]:
         """The session of the call: every open tab of it plays."""
         from ..i18n import t
@@ -133,6 +136,10 @@ class BrowserChannel(AudioOutputChannel):
             return False
         browser_push(session_id, "stop")
         return True
+
+    async def stop_player(self, target_id: str, ctx: PluginContext | None = None) -> bool:
+        """The channel plays nothing but the player's tracks: ``stop`` is already the player's stop."""
+        return await self.stop(target_id, ctx)
 
     async def seek(
         self,

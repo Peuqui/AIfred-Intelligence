@@ -1,7 +1,7 @@
 """What AIfred starts once per process, with or without a browser: the debug log and the platform line, the background
 tasks (cleanups of audio state, lookup caches, vision, the audit log and the vLLM compile cache; the audio index), the
 vision pre-warm in live mode, the GPU detection and an empty Ollama; and the lifespans of the server: the session
-events' loop, the Message Hub with the scheduler and Vigilantia's background watchers, the service status.
+events' loop, the Message Hub with the plugins' background parts and Vigilantia's background watchers, the service status.
 
 The server (aifred/server.py) runs them all from its lifespan (``SERVER_LIFESPANS``).
 """
@@ -35,10 +35,6 @@ async def start_process_tasks() -> None:
         env_label = "Native Linux (no VRAM swapping)"
     log_message(f"🖥️ Platform: {platform.system()} {kernel} — {env_label}")
 
-    # Audio state cleanup task
-    from .audio_state import cleanup_audio_state_task
-    asyncio.create_task(cleanup_audio_state_task())
-
     # Vision pre-warm: when vision_mode is "live" the VLM
     # is supposed to stay resident in VRAM. Fire-and-forget
     # because the load can take seconds and we don't want
@@ -55,11 +51,12 @@ async def start_process_tasks() -> None:
     from .lookup_cache_cleanup import cleanup_lookup_cache_task
     asyncio.create_task(cleanup_lookup_cache_task())
 
-    # Vision cleanup task — räumt alte Face-Crops, Motion-
-    # Frames und Vision-DB-Events auf, TTL aus
-    # plugins/tools/vision/settings.json face_recognition.retention_days.
-    from .vision_cleanup import cleanup_vision_task
-    asyncio.create_task(cleanup_vision_task())
+    # Vision garbage collection — räumt alte Face-Crops, Motion-Frames und
+    # Vision-DB-Events nach der Frist auf (Kern, läuft auch bei Vision aus) und
+    # beschreibt vorher Unbeschriebenes nach (nur bei Vision an); je ein Schalter
+    # in plugins/tools/vision/settings.json (face_recognition.gc_*).
+    from .vision_cleanup import vision_gc_task
+    asyncio.create_task(vision_gc_task())
 
     # Audit-Log cleanup task — prunt die append-only tool_audit-
     # Tabelle (SECURITY_AUDIT_RETENTION_DAYS) am selben Slot.
@@ -71,10 +68,6 @@ async def start_process_tasks() -> None:
     # Obergrenze, siehe VLLM_PRODUCTION_CACHE_*) am selben Slot.
     from .calibration.vllm_probe import cleanup_vllm_compile_cache_task
     asyncio.create_task(cleanup_vllm_compile_cache_task())
-
-    # Audio index incremental sync (only for sources already populated)
-    from .audio_index import sync_audio_index_task
-    asyncio.create_task(sync_audio_index_task())
 
     # Whisper STT: Docker container (started on demand or always-on)
     if get_stt_client().is_ready():
@@ -129,32 +122,23 @@ async def message_hub_lifespan() -> AsyncIterator[None]:
     A second run of the lifespan must not start a second hub.
     """
     from .config import MESSAGE_HUB_OWNER
-    from .message_hub import message_hub, register_channel_workers
-    from .scheduler import scheduler_loop
+    from .message_hub import message_hub
+    from .plugin_background import stop_server_tasks, sync_background_parts
 
     if not MESSAGE_HUB_OWNER:
         raise RuntimeError(
             "MESSAGE_HUB_OWNER is not set — add MESSAGE_HUB_OWNER=<your AIfred "
             "username> to .env (the account that owns Message-Hub sessions)"
         )
-    register_channel_workers(message_hub)
-    if not message_hub.is_running("scheduler"):
-        message_hub.register("scheduler", scheduler_loop)
-    await message_hub.start_all()
+    # Every plugin's background work (channel listeners, scheduler, vision supervisor, audio cleanups): those
+    # of the plugins that are on, started from this one place.
+    await sync_background_parts()
     # Vigilantia: Hintergrund-Watcher für Quellen mit auto_start=True.
     # Läuft unabhängig vom Browser-Tab — solange der AIfred-Service da
-    # ist, ist die Detection scharf.
+    # ist, ist die Detection scharf (und Vision an: start_all prüft es selbst).
     try:
-        from .vision_autostart import (
-            ensure_schedule_supervisor,
-            start_all_background_watchers,
-        )
+        from .vision_autostart import start_all_background_watchers
         await start_all_background_watchers()
-        # Dauer-Supervisor: startet/stoppt die Watcher an den Pro-Kamera-
-        # Zeitfenster-Grenzen (z.B. Stopp um 06:00). Lief bisher nie, weil
-        # nur start_all aufgerufen wurde — Kameras blieben nach Fenster-Ende
-        # scharf. Idempotent.
-        ensure_schedule_supervisor()
     except Exception as e:  # Vigilantia must not keep AIfred from starting; logged
         import logging
         logging.getLogger(__name__).warning(
@@ -164,6 +148,7 @@ async def message_hub_lifespan() -> AsyncIterator[None]:
         yield
     finally:
         from .logging_utils import log_exception
+        stop_server_tasks()
         await message_hub.stop_all()
         try:
             from .vision_watcher import get_default_watcher

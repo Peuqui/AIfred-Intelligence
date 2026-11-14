@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
-from aifred.lib import config, message_hub, plugin_admin, plugin_registry, settings
+from aifred.lib import config, plugin_admin, plugin_background, plugin_registry, settings
 from aifred.lib.plugin_base import CredentialField
 from aifred.lib.user_error import Conflict, Invalid, Missing
 
@@ -26,8 +26,8 @@ class _Hub:
     def __init__(self) -> None:
         self.running: set[str] = set()
 
-    def is_running(self, name: str) -> bool:
-        return name in self.running
+    def registered(self) -> set[str]:
+        return set(self.running)
 
     def register(self, name: str, _factory: Any) -> None:
         self.running.add(name)
@@ -86,21 +86,23 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     monkeypatch.setattr(config, "PROJECT_ROOT", tmp_path)
     (tmp_path / ".env").write_text("")
     hub = _Hub()
-    monkeypatch.setattr(message_hub, "message_hub", hub)
+    channels = {"mail": _Mail(tmp_path), "chat": _Chat(tmp_path)}
+    monkeypatch.setattr(plugin_background, "message_hub", hub)
+    monkeypatch.setattr(plugin_background, "discover_tools", list)       # no real plugin's background part starts here
+    monkeypatch.setattr(plugin_background, "all_channels", lambda: dict(channels))
+    monkeypatch.setattr(plugin_registry, "get_tool_plugin", lambda name: None)
     # The stand-ins have no folder with an i18n.json: their names come from here.
     monkeypatch.setattr(plugin_admin, "plugin_display_name", lambda plugin, lang: str(plugin.name).title())
     monkeypatch.setattr(plugin_admin, "plugin_description", lambda plugin, lang: "")
     monkeypatch.setattr(plugin_admin, "load_plugin_i18n", lambda folder: {})
-    channels = {"mail": _Mail(tmp_path), "chat": _Chat(tmp_path)}
     switched_off: set[str] = {"wetter"}
     monkeypatch.setattr(plugin_registry, "all_channels", lambda: dict(channels))
     monkeypatch.setattr(plugin_registry, "get_channel", lambda name: channels.get(name))
-    monkeypatch.setattr(plugin_registry, "get_tool_plugin", lambda name: None)
     monkeypatch.setattr(plugin_registry, "list_all_plugins", lambda: [
         {"name": name, "display_de": name.title(), "display_en": name.title(), "file": name, "type": "tool",
          "enabled": "" if name in switched_off else "1", "has_credentials": ""} for name in ("rechner", "wetter")
     ])
-    monkeypatch.setattr(plugin_registry, "is_plugin_enabled", lambda name, plugin_type="tool": name not in switched_off)
+    monkeypatch.setattr(plugin_registry, "is_plugin_enabled", lambda name: name not in switched_off)
     def enable(name: str) -> bool:
         switched_off.discard(name)
         return True

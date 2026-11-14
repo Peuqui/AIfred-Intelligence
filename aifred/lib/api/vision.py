@@ -17,11 +17,11 @@ from ..user_error import BadRequest, Invalid, Missing, UpstreamFailed
 # plugin tools so popup-UI resolution and tool-call resolution match.
 from ..vision_settings import load_vision_settings, save_vision_settings
 from ..vision_utils import resolve_source_resolution as _resolve_resolution
-from .app import api_app
+from .app import vision_api
 from .schemas import SystemActionResponse
 
 
-@api_app.get("/vision/snapshot/{source_id:path}", tags=["Vision"])
+@vision_api.get("/vision/snapshot/{source_id:path}", tags=["Vision"])
 async def vision_snapshot_endpoint(
     source_id: str, width: int = 0, height: int = 0
 ) -> Response:
@@ -174,7 +174,7 @@ async def _mjpeg_stream(
         yield _encode_mjpeg_chunk(frame)
 
 
-@api_app.get("/vision/stream/{source_id:path}", tags=["Vision"])
+@vision_api.get("/vision/stream/{source_id:path}", tags=["Vision"])
 async def vision_stream_endpoint(
     source_id: str, fps: float = 1.0, width: int = 0, height: int = 0,
     overlay: str = "",
@@ -230,7 +230,7 @@ async def vision_stream_endpoint(
     )
 
 
-@api_app.get("/vision/events/{source_id:path}", tags=["Vision"])
+@vision_api.get("/vision/events/{source_id:path}", tags=["Vision"])
 async def vision_events_endpoint(source_id: str) -> Any:
     """Server-Sent-Events stream of VLM analysis events for a source.
 
@@ -313,7 +313,7 @@ class FaceRenameRequest(BaseModel):
     name: str = Field(..., min_length=1)
 
 
-@api_app.get("/vision/face/list", response_model=FaceSummaryList, tags=["Vision"])
+@vision_api.get("/vision/face/list", response_model=FaceSummaryList, tags=["Vision"])
 async def vision_face_list() -> FaceSummaryList:
     """Every person with its picture (the newest crop), how many embeddings it has and when it was seen last."""
     from ..personarium import persons
@@ -321,7 +321,7 @@ async def vision_face_list() -> FaceSummaryList:
     return FaceSummaryList(faces=[FaceSummary(**row) for row in await asyncio.to_thread(persons)])
 
 
-@api_app.get(
+@vision_api.get(
     "/vision/face/{face_id}/details",
     response_model=FaceDetailResponse,
     tags=["Vision"],
@@ -344,7 +344,7 @@ async def vision_face_details(face_id: int) -> FaceDetailResponse:
     )
 
 
-@api_app.post(
+@vision_api.post(
     "/vision/face/{face_id}/rename",
     response_model=SystemActionResponse,
     tags=["Vision"],
@@ -358,7 +358,7 @@ async def vision_face_rename(face_id: int, request: FaceRenameRequest) -> System
     return SystemActionResponse(success=True, message=f"renamed to '{request.name.strip()}'")
 
 
-@api_app.delete(
+@vision_api.delete(
     "/vision/face/{face_id}",
     response_model=SystemActionResponse,
     tags=["Vision"],
@@ -383,7 +383,7 @@ class FaceEmbedding(BaseModel):
     crop_url: str
 
 
-@api_app.get("/vision/face/{face_id}/embeddings", response_model=list[FaceEmbedding], tags=["Vision"])
+@vision_api.get("/vision/face/{face_id}/embeddings", response_model=list[FaceEmbedding], tags=["Vision"])
 async def vision_face_embeddings(face_id: int) -> list[FaceEmbedding]:
     """A person's embeddings, newest first (without the vector); 404 for no such person."""
     from ..personarium import embeddings
@@ -391,7 +391,7 @@ async def vision_face_embeddings(face_id: int) -> list[FaceEmbedding]:
     return [FaceEmbedding(**row) for row in await asyncio.to_thread(embeddings, face_id)]
 
 
-@api_app.delete(
+@vision_api.delete(
     "/vision/face/embedding/{embedding_id}",
     response_model=SystemActionResponse,
     tags=["Vision"],
@@ -430,7 +430,7 @@ class ActionDone(BaseModel):
     message: str = Field(description="What happened, in the page's language")
 
 
-@api_app.get("/vision/face/open", response_model=list[OpenFace], tags=["Vision"])
+@vision_api.get("/vision/face/open", response_model=list[OpenFace], tags=["Vision"])
 async def vision_open_faces() -> list[OpenFace]:
     """Every face no person is confirmed for and nobody dismissed, newest first, one card per crop file."""
     from dataclasses import asdict
@@ -440,7 +440,7 @@ async def vision_open_faces() -> list[OpenFace]:
     return [OpenFace(**asdict(card)) for card in await asyncio.to_thread(open_faces)]
 
 
-@api_app.post("/vision/face/open/dismiss", response_model=ActionDone, tags=["Vision"])
+@vision_api.post("/vision/face/open/dismiss", response_model=ActionDone, tags=["Vision"])
 async def vision_open_faces_dismiss(dismissing: OpenFacesDismiss) -> ActionDone:
     """Take cards out of the open faces (their events stay in the Casus); 404 for a card no longer open."""
     from ..i18n import t
@@ -451,7 +451,7 @@ async def vision_open_faces_dismiss(dismissing: OpenFacesDismiss) -> ActionDone:
     return ActionDone(message=t("personarium_dismissed", lang=get_language(), count=dismissed))
 
 
-@api_app.post("/vision/face/open/{card_id}/assign", response_model=ActionDone, tags=["Vision"])
+@vision_api.post("/vision/face/open/{card_id}/assign", response_model=ActionDone, tags=["Vision"])
 async def vision_open_face_assign(card_id: int, assigning: OpenFaceAssign) -> ActionDone:
     """Assign the card's face to a person (``face_id``, or ``name`` for an existing or a new one) and learn it from
     the picture (the face model computes the embedding). 404 for a card no longer open, 422 for neither or both of
@@ -479,12 +479,12 @@ def _rematch_state() -> RematchState:
     return RematchState(running=state.running, message=state.message(get_language()))
 
 
-@api_app.get("/vision/face/rematch", response_model=RematchState, tags=["Vision"])
+@vision_api.get("/vision/face/rematch", response_model=RematchState, tags=["Vision"])
 async def vision_face_rematch_state() -> RematchState:
     return _rematch_state()
 
 
-@api_app.post("/vision/face/rematch", response_model=RematchState, status_code=202, tags=["Vision"])
+@vision_api.post("/vision/face/rematch", response_model=RematchState, status_code=202, tags=["Vision"])
 async def vision_face_rematch() -> RematchState:
     """Recognise every open face again against the embeddings: sure matches are assigned (no new embeddings), the
     rest stays open. Answers at once, ``GET`` follows it; 409 while it runs."""
@@ -494,7 +494,7 @@ async def vision_face_rematch() -> RematchState:
     return _rematch_state()
 
 
-@api_app.get("/vision/frame", tags=["Vision"])
+@vision_api.get("/vision/frame", tags=["Vision"])
 async def vision_frame(id: int, w: int = 0, zoom: int = 0) -> Response:
     """Gespeichertes Event-Bild als JPEG ausliefern.
 
@@ -551,7 +551,7 @@ class ZoneMask(BaseModel):
     enabled: bool = Field(default=True, description="Off: the mask stays stored but does not act")
 
 
-@api_app.get("/vision/zone-mask", response_model=ZoneMask, tags=["Vision"])
+@vision_api.get("/vision/zone-mask", response_model=ZoneMask, tags=["Vision"])
 async def get_zone_mask(source_id: str) -> ZoneMask:
     """Gespeicherte Zonen-Maske einer Quelle (für den Editor zum Laden)."""
     entry = (load_vision_settings().get("zone_masks") or {}).get(source_id)
@@ -561,7 +561,7 @@ async def get_zone_mask(source_id: str) -> ZoneMask:
                     cells=entry.get("cells", ""), enabled=entry.get("enabled", True))
 
 
-@api_app.post(
+@vision_api.post(
     "/vision/zone-mask", response_model=SystemActionResponse, tags=["Vision"]
 )
 async def save_zone_mask(payload: ZoneMaskPayload) -> SystemActionResponse:

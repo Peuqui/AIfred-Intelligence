@@ -145,12 +145,12 @@ async def jobs_options() -> JobOptions:
     from ..agent_config import selectable_agents
     from ..message_processor import announces_in_rooms
     from ..plugin_base import plugin_display_name
-    from ..plugin_registry import all_channels
+    from ..plugin_registry import on_channels
     from ..prompt_loader import get_language
     from ..scheduler import AUDIO_TYPES, CRON_PRESETS, DELIVERY_MODES, SCHEDULE_TYPES
 
     lang = get_language()
-    channels = sorted(all_channels().items())
+    channels = sorted(on_channels().items())
     return JobOptions(
         schedule_types=list(SCHEDULE_TYPES), delivery_modes=list(DELIVERY_MODES), audio_types=list(AUDIO_TYPES),
         tiers=list(range(TIER_READONLY, TIER_ADMIN + 1)), default_tier=JOB_DEFAULT_TIER,

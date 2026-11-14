@@ -1,8 +1,13 @@
 """Vision-Cleanup-Task: Face-Crops und alte Vision-Events aufräumen.
 
-Läuft 1× täglich um ``GARBAGE_COLLECTION_HOUR`` (03:00 lokal),
-genauso wie die anderen Cleanup-Tasks. TTL ist konfigurierbar im
-Plugin-Setting ``face_recognition.retention_days`` (Default 14).
+Aufräumlauf (garbage collection), 1× täglich um ``GARBAGE_COLLECTION_HOUR``
+(03:00 lokal), genauso wie die anderen Cleanup-Tasks. TTL ist konfigurierbar im
+Plugin-Setting ``face_recognition.retention_days`` (Default 14). Zwei Teile mit
+je eigenem Schalter (Einstellungen des Vision-Plugins, beide Standard an, auch
+bei abgeschaltetem Plugin gelesen):
+
+* Nachbeschreiben (``gc_describe``) gehört dem Plugin: nur bei Vision an.
+* Löschen nach Frist (``gc_prune``) ist Kern: läuft auch bei Vision aus.
 
 Was wird aufgeräumt:
 
@@ -33,8 +38,10 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from .config import DATA_DIR, GARBAGE_COLLECTION_HOUR
 from .logging_utils import log_exception, log_message
-from .vision_settings import load_vision_settings
+from .user_error import Invalid
+from .vision_settings import load_vision_settings, save_vision_settings
 from .vision_utils import FILMS_DIR, RECORDINGS_DIR
 
 logger = logging.getLogger(__name__)
@@ -119,15 +126,103 @@ def _cleanup_vision_db_events(cutoff: datetime) -> int:
         return 0
 
 
-async def cleanup_vision_task() -> None:
-    """Daily-Worker: löscht Face-Crops, Motion-Frames und DB-Events
-    älter als die im Plugin-Setting konfigurierte Aufbewahrungsdauer.
-    """
+def gc_switch(name: str) -> bool:
+    """One of the two switches of the daily cleanup (``face_recognition.gc_describe``, ``face_recognition.gc_prune``
+    in the plugin's settings); on when never set. Read whether the plugin is on or off."""
+    return bool((load_vision_settings().get("face_recognition") or {}).get(name, True))
+
+
+# The settings form of the vision plugin (Settings, Plugins, gear) is the one way to change these three values: its
+# fields are named like this and carry the values as text ("on"/"off" for the switches).
+RETENTION_FORM_KEY = "VISION_RETENTION_DAYS"
+GC_FORM_KEYS = {"gc_prune": "VISION_GC_PRUNE", "gc_describe": "VISION_GC_DESCRIBE"}
+SWITCH_VALUES = ("on", "off")
+
+
+def cleanup_form_values() -> dict[str, str]:
+    """The three values as the plugin's form shows them (read whether the plugin is on or off)."""
+    return {
+        RETENTION_FORM_KEY: str(retention_days()),
+        **{form_key: SWITCH_VALUES[0] if gc_switch(name) else SWITCH_VALUES[1] for name, form_key in GC_FORM_KEYS.items()},
+    }
+
+
+def save_cleanup_form_values(values: dict[str, str]) -> None:
+    """Store what the form sends into ``face_recognition`` of the plugin's settings. ``Invalid`` (nothing written)
+    for retention days that are no whole number in ``RETENTION_DAYS_RANGE`` or a switch that is neither on nor off."""
+    low, high = RETENTION_DAYS_RANGE
+    raw_days = values[RETENTION_FORM_KEY].strip()
+    if not raw_days.isdigit() or not low <= int(raw_days) <= high:
+        raise Invalid("number_range", value=raw_days, low=low, high=high)
+    switches = {}
+    for name, form_key in GC_FORM_KEYS.items():
+        if values[form_key] not in SWITCH_VALUES:
+            raise Invalid("unknown_option", field=form_key, value=values[form_key])
+        switches[name] = values[form_key] == SWITCH_VALUES[0]
+    settings = load_vision_settings()
+    settings["face_recognition"] = {**(settings.get("face_recognition") or {}), "retention_days": int(raw_days), **switches}
+    save_vision_settings(settings)
+
+
+async def _describe_before_pruning() -> None:
+    """Every undescribed motion/face event gets a clustered VLM description while the GPU is idle, so no frame is
+    ever pruned before it has been described. Belongs to the vision plugin: only with it on, and with the switch."""
+    from .plugin_registry import is_plugin_enabled
+
+    if not (is_plugin_enabled("vision") and gc_switch("gc_describe")):
+        return
+    from .vision_bulk import run_bulk_describe
+    # No VRAM pre-check — Ollama manages the side-channel VLM's VRAM
+    # itself; a pre-check could falsely abort and silently skip the
+    # whole backfill. A partial run is idempotent anyway.
+    described = await run_bulk_describe(check_vram=False)
+    if described.aborted_vram:
+        log_message(f"🌙 Vision GC describe skipped: {described.vram_message}")
+    elif described.total_events:
+        log_message(
+            f"🌙 Vision GC describe: {described.total_clusters} clusters "
+            f"from {described.total_events} events, {described.failed} failed"
+        )
+
+
+def _prune_expired() -> None:
+    """Delete what is older than the retention. Core, not the plugin's: camera pictures must not lie around past
+    their time because the plugin is off. Only its own switch stops it."""
+    if not gc_switch("gc_prune"):
+        return
+    ttl_days = retention_days()
+    cutoff = datetime.now() - timedelta(days=ttl_days)
+    crops_removed = _cleanup_dated_subdirs(DATA_DIR / "vision" / "faces", cutoff)
+    frames_removed = _cleanup_dated_subdirs(DATA_DIR / "vigilantia" / "motion", cutoff)
+    films_removed = _cleanup_dated_subdirs(FILMS_DIR, cutoff) + _cleanup_dated_subdirs(RECORDINGS_DIR, cutoff)
+    db_removed = _cleanup_vision_db_events(cutoff)
+    if crops_removed or frames_removed or films_removed or db_removed:
+        log_message(
+            f"🗑️ Vision cleanup: "
+            f"{crops_removed} crop-Tagesordner, "
+            f"{frames_removed} motion-Tagesordner, "
+            f"{films_removed} film-Tagesordner, "
+            f"{db_removed} DB-Events entfernt "
+            f"(TTL {ttl_days}d)"
+        )
+
+
+async def run_vision_gc() -> None:
+    """One pass of the daily garbage collection: describe what is undescribed (plugin), then prune (core)."""
+    try:
+        await _describe_before_pruning()
+    except Exception as exc:  # noqa: BLE001 — a failed describe run must not stop the pruning; logged
+        log_exception("⚠️ Vision GC describe error", exc)
+    _prune_expired()
+
+
+async def vision_gc_task() -> None:
+    """Daily worker of the garbage collection at ``GARBAGE_COLLECTION_HOUR``; runs whether the vision plugin is on
+    or off (see ``run_vision_gc`` for what each part needs)."""
     from .cleanup_utils import seconds_until_next_run
-    from .config import DATA_DIR, GARBAGE_COLLECTION_HOUR
 
     log_message(
-        f"🗑️ Vision-Cleanup task started "
+        f"🗑️ Vision garbage collection started "
         f"(slot: {GARBAGE_COLLECTION_HOUR:02d}:00 lokal, "
         f"TTL: aus face_recognition.retention_days, Default "
         f"{DEFAULT_RETENTION_DAYS}d)"
@@ -136,49 +231,6 @@ async def cleanup_vision_task() -> None:
     while True:
         try:
             await asyncio.sleep(seconds_until_next_run(GARBAGE_COLLECTION_HOUR))
-            # Describe before pruning: every undescribed motion/face event
-            # gets a clustered VLM description while the GPU is idle, so no
-            # frame is ever pruned before it has been described (the 14d TTL
-            # gives ample margin, but the order makes it correct by design).
-            try:
-                from .vision_bulk import run_bulk_describe
-                # No VRAM pre-check — Ollama manages the side-channel VLM's VRAM
-                # itself; a pre-check could falsely abort and silently skip the
-                # whole nightly backfill. A partial run is idempotent anyway.
-                described = await run_bulk_describe(check_vram=False)
-                if described.aborted_vram:
-                    log_message(
-                        f"🌙 Nightly describe skipped: {described.vram_message}"
-                    )
-                elif described.total_events:
-                    log_message(
-                        f"🌙 Nightly describe: {described.total_clusters} clusters "
-                        f"from {described.total_events} events, "
-                        f"{described.failed} failed"
-                    )
-            except Exception as exc:  # noqa: BLE001 — a failed describe run must not stop the cleanup; logged
-                log_exception("⚠️ Nightly describe error", exc)
-
-            ttl_days = retention_days()
-            cutoff = datetime.now() - timedelta(days=ttl_days)
-            crops_removed = _cleanup_dated_subdirs(
-                DATA_DIR / "vision" / "faces", cutoff
-            )
-            frames_removed = _cleanup_dated_subdirs(
-                DATA_DIR / "vigilantia" / "motion", cutoff
-            )
-            films_removed = _cleanup_dated_subdirs(FILMS_DIR, cutoff) + _cleanup_dated_subdirs(
-                RECORDINGS_DIR, cutoff
-            )
-            db_removed = _cleanup_vision_db_events(cutoff)
-            if crops_removed or frames_removed or films_removed or db_removed:
-                log_message(
-                    f"🗑️ Vision cleanup: "
-                    f"{crops_removed} crop-Tagesordner, "
-                    f"{frames_removed} motion-Tagesordner, "
-                    f"{films_removed} film-Tagesordner, "
-                    f"{db_removed} DB-Events entfernt "
-                    f"(TTL {ttl_days}d)"
-                )
-        except Exception as exc:  # pragma: no cover  # noqa: BLE001 — the nightly task must not end; logged
-            log_exception("⚠️ Vision cleanup task error", exc)
+            await run_vision_gc()
+        except Exception as exc:  # pragma: no cover  # noqa: BLE001 — the daily task must not end; logged
+            log_exception("⚠️ Vision garbage collection error", exc)

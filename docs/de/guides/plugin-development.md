@@ -397,7 +397,7 @@ Plugins werden über den **Plugin Manager** verwaltet (Settings > Plugin Manager
 ### Channel-Plugins und Tool-Plugins — unterschiedliches Schaltverhalten
 
 **Channel-Plugins** (E-Mail, Discord) haben Schalter, die **sofort** wirken:
-- Der Hauptschalter aktiviert/deaktiviert den gesamten Kanal (Tools + Listener)
+- Der Hauptschalter (`monitor`) aktiviert/deaktiviert den gesamten Kanal: Listener, Werkzeuge, Senden und die Ziel-Listen (Aufträge, Alarme) folgen ihm; ein Kanal hat keine `.disabled`-Markierung
 - Unterschalter steuern den Hintergrund-Listener (Monitor) und Auto-Reply
 - Änderungen wirken sofort, weil sie laufende Hintergrund-Worker starten/stoppen
 - Der Zustand wird in AIfreds `data/settings.json` gespeichert (`channel_toggles`)
@@ -405,6 +405,7 @@ Plugins werden über den **Plugin Manager** verwaltet (Settings > Plugin Manager
 **Tool-Plugins** (Calculator, Workspace, EPIM usw.) haben Schalter, die **sofort** wirken:
 - Ausschalten legt eine leere Datei `.disabled` in den Ordner des Plugins; die Registry lädt das Plugin dann nicht
 - Einschalten entfernt die Markierung wieder; ein Plugin ohne Markierung ist an, ein neues braucht also nichts
+- Aus heißt aus: Was nur dem Plugin gehört, stoppt mit ihm, sofort und ebenso beim Dienststart. Das Plugin nennt seine Hintergrundteile selbst: optional `background_parts() -> dict[str, BackgroundPart]` (Name → Coroutinen-Fabrik; `in_hub=True` läuft im Thread des Message Hubs, sonst auf der Schleife des Servers), optional `async on_switched_off()` (läuft, solange das Plugin noch geladen ist, z. B. Wiedergabe beenden) und `on_switched_on()`. Eine Stelle, `lib/plugin_background.py`, gleicht die laufenden Teile an den Zustand an; Endpunkte, die nur dem Plugin gehören, hängen an seinem Router in `lib/api/app.py` und antworten bei aus mit 409
 - Der Code bleibt immer an seinem Platz unter `tools/` bzw. `channels/`: Die Markierung ist gitignoriert und gilt nur auf diesem Rechner, die Tests des Plugins laufen auch, wenn es abgeschaltet ist
 
 ### Unterschalter von Kanälen

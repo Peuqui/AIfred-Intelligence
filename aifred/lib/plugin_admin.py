@@ -19,9 +19,9 @@ from .plugin_base import (
     plugin_dir_of,
     plugin_display_name,
 )
+from .plugin_registry import CHANNEL_TOGGLES
 from .user_error import Conflict, Missing
 
-CHANNEL_TOGGLES = "channel_toggles"
 CHANNEL_TIERS = "channel_security_tiers"
 NO_TIER_CHANNELS = ("browser",)     # the user in front of the screen: no tier to choose
 
@@ -133,10 +133,13 @@ def tier_choices(lang: str) -> list[tuple[int, str]]:
 async def set_tool(name: str, enabled: bool) -> None:
     """Switch a tool plugin on or off (its ``.disabled`` marker). ``Missing`` for no such plugin. An OAuth plugin
     without its connection offers no tools until connected (its form; the list says ``needs_connection``).
-    Switching the vision off disarms the eye first: nothing of it may keep watching."""
+    Off means off at once: the plugin's own ``on_switched_off`` runs first (while it is still loaded), then its
+    background parts stop; switching it on lets its ``on_switched_on`` run before they start."""
+    from .plugin_background import sync_background_parts
     from .plugin_registry import (
         disable_plugin,
         enable_plugin,
+        get_tool_plugin,
         is_plugin_enabled,
         list_all_plugins,
     )
@@ -146,27 +149,22 @@ async def set_tool(name: str, enabled: bool) -> None:
     if enabled == is_plugin_enabled(name):
         return
     if not enabled:
-        if name == "vision":
-            from .vigilantia import set_armed
-
-            await set_armed(False)
+        hook = getattr(get_tool_plugin(name), "on_switched_off", None)
+        if hook is not None:
+            await hook()
         disable_plugin(name)
-        return
-    enable_plugin(name)
+    else:
+        enable_plugin(name)
+        hook = getattr(get_tool_plugin(name), "on_switched_on", None)
+        if hook is not None:
+            hook()
+    await sync_background_parts()
 
 
 def _lang() -> str:
     from .prompt_loader import get_language
 
     return get_language()
-
-
-async def _start_listener(name: str, plugin: Any) -> None:
-    from .message_hub import message_hub
-
-    if not message_hub.is_running(name):
-        message_hub.register(name, plugin.listener_loop)
-        await message_hub.start_all()
 
 
 async def set_channel(
@@ -176,7 +174,7 @@ async def set_channel(
     """Change a channel's switches or tier and start or stop its listener as they say. ``Missing`` for no such
     channel, ``Conflict`` for switching on a channel that is not configured (its form first), ``Invalid`` for a
     tier that does not exist or a channel without tiers."""
-    from .message_hub import message_hub
+    from .plugin_background import sync_background_parts
     from .plugin_registry import get_channel
     from .security import TIER_I18N_KEYS
     from .settings import update_settings
@@ -201,13 +199,8 @@ async def set_channel(
         from .user_error import NotDone
 
         raise NotDone("settings_not_saved")
-    # A channel that always answers listens with its switch; the others have a switch of their own.
-    listening = switches.get("monitor") if plugin.always_reply else switches.get("listener")
-    if (monitor is not None and plugin.always_reply) or (listener is not None and not plugin.always_reply):
-        if listening:
-            await _start_listener(name, plugin)
-        else:
-            message_hub.unregister(name)
+    # Its listener runs as the switches say (plugin_background): the main switch off stops it, whatever else is set.
+    await sync_background_parts()
 
 
 # ── The settings form ────────────────────────────────────────────────────
@@ -239,10 +232,10 @@ class Form:
 
 def _plugin(name: str) -> tuple[Any, list[CredentialField], bool]:
     """The plugin, its fields and whether it is a channel; ``Missing`` for no plugin with a settings form."""
-    from .plugin_registry import get_channel, get_tool_plugin
+    from .plugin_registry import get_channel, get_tool_plugin_on_or_off
 
     channel = get_channel(name)
-    plugin: Any = channel if channel is not None else get_tool_plugin(name)
+    plugin: Any = channel if channel is not None else get_tool_plugin_on_or_off(name)
     fields = list(getattr(plugin, "credential_fields", None) or []) if plugin is not None else []
     if not fields:
         raise Missing("no_plugin_form", plugin=name)
@@ -325,8 +318,7 @@ async def save_form(name: str, values: dict[str, str]) -> None:
         enabled_key = f"{name.upper()}_ENABLED"
         set_key(env_path, enabled_key, "true")
         os.environ[enabled_key] = "true"
-        await set_channel(name, monitor=True)
-        await _start_listener(name, plugin)
+        await set_channel(name, monitor=True, listener=True)
 
 
 # ── OAuth ────────────────────────────────────────────────────────────────

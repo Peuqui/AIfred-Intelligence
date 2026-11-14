@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
     from pathlib import Path
 
     from ..lib.envelope import InboundMessage, OutboundMessage
@@ -307,9 +308,27 @@ class PluginContext:
     metadata: dict = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class BackgroundPart:
+    """Something a plugin keeps running in the background: a coroutine that runs until it is cancelled.
+
+    ``in_hub``: in the Message Hub's own thread, where work that must not hold up the pages runs (a channel's
+    listener, the scheduler's jobs); otherwise on the server's loop (cleanups, supervisors that touch objects the
+    pages' requests use too)."""
+
+    factory: Callable[[], Coroutine[Any, Any, None]]
+    in_hub: bool = False
+
+
 @runtime_checkable
 class ToolPlugin(Protocol):
     """Protocol that every tool plugin must satisfy.
+
+    **Optional** ``background_parts() -> dict[str, BackgroundPart]``: what the plugin keeps running (name -> part).
+    It runs exactly while the plugin is on (``plugin_background.sync_background_parts``, at start and after every
+    switch); a plugin without background work omits the method. **Optional** ``on_switched_off()`` (async, called
+    while the plugin is still loaded) and ``on_switched_on()``: what the plugin has to do at the switch itself,
+    e.g. stop what runs for the moment or let missed appointments lapse.
 
     **Optional class attribute** ``oauth_provider: str = "<provider_name>"``
     (e.g. ``"google"``) — when set on the plugin instance, the plugin manager

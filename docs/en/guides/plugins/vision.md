@@ -470,11 +470,19 @@ Three paths trigger the same run:
 
 1. **Casus button** — manual bulk run from the UI, with progress bar, cancel and
    a VRAM pre-check.
-2. **Nightly run** — the daily garbage collection at `GARBAGE_COLLECTION_HOUR`
+2. **Cleanup run** — the daily garbage collection at `GARBAGE_COLLECTION_HOUR`
    (default `03:00`) **describes** all still-undescribed events **first**, then
    prunes. So every frame has a description before it is deleted at TTL expiry,
    and the day's chronicle is complete by morning — even without an open preview
-   popup. Code: `cleanup_vision_task` in `aifred/lib/vision_cleanup.py`.
+   popup. Two parts, one switch each in the plugin's settings form
+   (Settings → Plugins → gear at "Vision", reachable with the plugin off too; the retention in days is there as
+   well; the only way to change these three values, no longer on the vision page; stored as `face_recognition.gc_describe`
+   "Describe at night", `face_recognition.gc_prune` "Delete old events after the
+   retention", both on by default, read with the plugin off too): describing
+   belongs to the plugin (only with vision on and the switch on); pruning past
+   `retention_days` is core and runs with vision off as well, so camera pictures
+   never stay past their time. Code: `vision_gc_task` / `run_vision_gc` in
+   `aifred/lib/vision_cleanup.py`.
 3. **On-demand** — `vision_query_events` with `describe=true` backfills missing
    descriptions only for the window just queried. This covers fresh same-day data
    the user asks about before the nightly run kicks in. The cost stays bounded by
@@ -520,7 +528,8 @@ restarting. Key groups:
 - **`vlm`** — `model`, `num_ctx`, `keep_alive`, `host`, `default_prompt`.
 - **`face_recognition`** — `providers`, `gpu_id` (int / `"auto"` / `null` for
   CPU-only), `det_size`, `model_name` (`buffalo_l`), `threshold_known`,
-  `threshold_unsure`.
+  `threshold_unsure`, `retention_days`, `gc_describe` and `gc_prune` (the two
+  switches of the cleanup run, on by default; all three are changed in the plugin form, not on the vision page).
 - **`watch`** — `default_fps`, the motion thresholds (`motion_min_area_ratio`,
   `motion_history_frames`, `motion_var_threshold`, `motion_warmup_frames`),
   `min_event_interval_sec`, `save_event_frames`, `run_face_detect_on_motion`,

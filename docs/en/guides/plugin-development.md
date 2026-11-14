@@ -405,6 +405,7 @@ Plugins are managed via the **Plugin Manager** (Settings > Plugin Manager > gear
 **Tool plugins** (Calculator, Workspace, EPIM, etc.) have toggles that apply **immediately**:
 - Switching off puts an empty `.disabled` file into the plugin's folder; the registry then does not load the plugin
 - Switching on removes the marker; a plugin without a marker is on, so a new plugin needs nothing
+- Off means off: what belongs to the plugin alone stops with it, at once and likewise at the service start. The plugin names its background parts itself: optional `background_parts() -> dict[str, BackgroundPart]` (name -> coroutine factory; `in_hub=True` runs in the Message Hub's thread, otherwise on the server's loop), optional `async on_switched_off()` (runs while the plugin is still loaded, e.g. to end playback) and `on_switched_on()`. One place, `lib/plugin_background.py`, brings the running parts in line with the state; endpoints that belong to the plugin alone hang on its router in `lib/api/app.py` and answer 409 while it is off
 - The code always stays where it is under `tools/` or `channels/`: the marker is gitignored and applies to this machine only, and the plugin's tests run while it is switched off
 
 ### Channel Sub-Toggles

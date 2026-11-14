@@ -16,6 +16,9 @@ option off EPIM deletes nothing by itself, so all of this is the user's doing.
     AIFRED_CLI_MODE=1 venv/bin/python scripts/epim_deletions_to_nextcloud.py           # shows the plan
     AIFRED_CLI_MODE=1 venv/bin/python scripts/epim_deletions_to_nextcloud.py --apply   # deletes
 
+It does nothing (one log line) unless the EPIM and the Nextcloud plugin are on and the EPIM plugin's setting
+"carry deletions over to Nextcloud" is on (default on).
+
 Settings: data/epim/deletion_sync.json with ssh_host, ssh_port, ssh_user,
 backup_dir (on the EPIM machine), backup_glob (the working database only,
 e.g. MP.backup_*.epim), work_dir, max_deletions, notify_channel,
@@ -259,9 +262,29 @@ def notify_stop(settings: Settings, state: dict[str, Any], remote: str, total: i
         print(f"notification via {settings.notify_channel} not delivered, trying again next run")
 
 
+def reason_not_to_run() -> str | None:
+    """Why this run does nothing: the EPIM plugin is off, the Nextcloud plugin it writes to is off, or the plugin's
+    setting "carry deletions over to Nextcloud" is off. None: it may run. (Off means off: the timer goes on, the
+    script does nothing.)"""
+    from aifred.lib.plugin_registry import is_plugin_enabled
+    from aifred.plugins.tools.epim.settings import load_epim_settings
+
+    if not is_plugin_enabled("epim"):
+        return "the EPIM plugin is off"
+    if not is_plugin_enabled("nextcloud"):
+        return "the Nextcloud plugin is off"
+    if not load_epim_settings().deletion_sync:
+        return "the EPIM plugin's setting for the deletion sync is off"
+    return None
+
+
 def run(apply: bool) -> int:
     from aifred.plugins.tools.nextcloud import store as store_module
 
+    reason = reason_not_to_run()
+    if reason is not None:
+        print(f"deletion sync does nothing: {reason}")
+        return 0
     settings = load_settings()
     remote = latest_backup(settings)
     if remote is None:

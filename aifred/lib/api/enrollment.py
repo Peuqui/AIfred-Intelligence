@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..enrollment import Session
 from ..logging_utils import log_message
-from .app import api_app
+from .app import vision_api
 from .schemas import ChoiceOption
 
 
@@ -65,7 +65,7 @@ def _session(session: Session) -> EnrollSession:
     )
 
 
-@api_app.post("/vision/enroll", response_model=EnrollSession, tags=["Vision"])
+@vision_api.post("/vision/enroll", response_model=EnrollSession, tags=["Vision"])
 async def enroll_start(start: EnrollStart) -> EnrollSession:
     """A new session (it replaces any other): more poses for a person, or a new one. 404 for no such person."""
     from ..enrollment import start as start_session
@@ -73,7 +73,7 @@ async def enroll_start(start: EnrollStart) -> EnrollSession:
     return _session(await asyncio.to_thread(start_session, start.face_id))
 
 
-@api_app.get("/vision/enroll/preview/{source_id:path}", tags=["Vision"])
+@vision_api.get("/vision/enroll/preview/{source_id:path}", tags=["Vision"])
 async def enroll_preview(source_id: str) -> Response:
     """The camera's freshest picture for a face (JPEG; the tele lens where it has one). 404 for no such camera."""
     from ..enrollment import fresh_face_frame
@@ -82,7 +82,7 @@ async def enroll_preview(source_id: str) -> Response:
     return Response(content=bytes(frame.image_bytes), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
-@api_app.post("/vision/enroll/{token}/capture", response_model=EnrollSession, tags=["Vision"])
+@vision_api.post("/vision/enroll/{token}/capture", response_model=EnrollSession, tags=["Vision"])
 async def enroll_capture(token: str, request: EnrollCaptureRequest) -> EnrollSession:
     """Take the pose asked for now from the camera (the face model finds the largest face, on the CPU unless set
     otherwise). 409 for a session no longer current, 404 for no such camera, 422 when no face is in the picture."""
@@ -91,14 +91,14 @@ async def enroll_capture(token: str, request: EnrollCaptureRequest) -> EnrollSes
     return _session(await capture(token, request.source_id))
 
 
-@api_app.post("/vision/enroll/{token}/skip", response_model=EnrollSession, tags=["Vision"])
+@vision_api.post("/vision/enroll/{token}/skip", response_model=EnrollSession, tags=["Vision"])
 async def enroll_skip(token: str) -> EnrollSession:
     from ..enrollment import skip
 
     return _session(skip(token))
 
 
-@api_app.delete("/vision/enroll/{token}/captures/last", response_model=EnrollSession, tags=["Vision"])
+@vision_api.delete("/vision/enroll/{token}/captures/last", response_model=EnrollSession, tags=["Vision"])
 async def enroll_undo(token: str) -> EnrollSession:
     """Take the last capture back; its pose is asked for again."""
     from ..enrollment import undo
@@ -106,14 +106,14 @@ async def enroll_undo(token: str) -> EnrollSession:
     return _session(undo(token))
 
 
-@api_app.get("/vision/enroll/{token}/captures/{index}", tags=["Vision"])
+@vision_api.get("/vision/enroll/{token}/captures/{index}", tags=["Vision"])
 async def enroll_capture_crop(token: str, index: int) -> Response:
     from ..enrollment import crop
 
     return Response(content=crop(token, index), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
-@api_app.post("/vision/enroll/{token}/finish", response_model=EnrollFinished, tags=["Vision"])
+@vision_api.post("/vision/enroll/{token}/finish", response_model=EnrollFinished, tags=["Vision"])
 async def enroll_finish(token: str, request: EnrollFinish) -> EnrollFinished:
     """Store the captures (the person made if new) and end the session; the recognition knows the poses at once. 409
     for a session no longer current, 422 without a capture or a new person without a name."""
@@ -126,7 +126,7 @@ async def enroll_finish(token: str, request: EnrollFinish) -> EnrollFinished:
     return EnrollFinished(face_id=face_id, message=t("multipose_saved", lang=get_language(), name=name, count=count))
 
 
-@api_app.delete("/vision/enroll/{token}", status_code=204, tags=["Vision"])
+@vision_api.delete("/vision/enroll/{token}", status_code=204, tags=["Vision"])
 async def enroll_cancel(token: str) -> None:
     """End the session without storing anything."""
     from ..enrollment import cancel

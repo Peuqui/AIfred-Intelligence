@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_message
 from ..user_error import Invalid, Missing
-from .app import api_app
+from .app import vision_api
 from .schemas import ChoiceOption
 
 PtzDirection = Literal["left", "right", "up", "down", "zoom_in", "zoom_out"]
@@ -158,13 +158,13 @@ def _live() -> LiveView:
     )
 
 
-@api_app.get("/vision/live", response_model=LiveView, tags=["Vision"])
+@vision_api.get("/vision/live", response_model=LiveView, tags=["Vision"])
 async def vision_live() -> LiveView:
     """The cameras, which of them the view shows and the view's settings."""
     return await asyncio.to_thread(_live)
 
 
-@api_app.put("/vision/live/analysis/{source_id:path}", response_model=LiveAnalysisRow, tags=["Vision"])
+@vision_api.put("/vision/live/analysis/{source_id:path}", response_model=LiveAnalysisRow, tags=["Vision"])
 async def vision_live_analysis(source_id: str, wanted: LiveAnalysisRow) -> LiveAnalysisRow:
     """Start, change or end a camera's live analysis (both off: back to its background watch). It lasts while a
     page follows ``GET /vision/events/{id}`` (5 s after the last one leaves it ends); 404 for no such camera, 500
@@ -176,7 +176,7 @@ async def vision_live_analysis(source_id: str, wanted: LiveAnalysisRow) -> LiveA
     return LiveAnalysisRow(vlm=running.vlm, faces=running.faces)
 
 
-@api_app.patch("/vision/live", response_model=LiveView, tags=["Vision"])
+@vision_api.patch("/vision/live", response_model=LiveView, tags=["Vision"])
 async def vision_live_change(change: PreviewChange) -> LiveView:
     """Frame rate, layout, rhythm of the analysis or the cameras shown; 422 for a value outside its range. A running
     live analysis takes a new pace at once."""
@@ -190,7 +190,7 @@ async def vision_live_change(change: PreviewChange) -> LiveView:
     return await asyncio.to_thread(_live)
 
 
-@api_app.post("/vision/cameras/rescan", response_model=LiveView, tags=["Vision"])
+@vision_api.post("/vision/cameras/rescan", response_model=LiveView, tags=["Vision"])
 async def vision_cameras_rescan() -> LiveView:
     """Look for cameras again (a webcam plugged in, an RTSP camera added)."""
     from ..frame_sources import rescan
@@ -199,7 +199,7 @@ async def vision_cameras_rescan() -> LiveView:
     return await asyncio.to_thread(_live)
 
 
-@api_app.get("/vision/cameras/{source_id:path}/resolutions", response_model=list[ChoiceOption], tags=["Vision"])
+@vision_api.get("/vision/cameras/{source_id:path}/resolutions", response_model=list[ChoiceOption], tags=["Vision"])
 async def vision_camera_resolutions(source_id: str) -> list[ChoiceOption]:
     """The modes the camera offers (a probe of the device): its driver's default first."""
     from ..i18n import t
@@ -211,7 +211,7 @@ async def vision_camera_resolutions(source_id: str) -> list[ChoiceOption]:
     return [ChoiceOption(id=value, label=label or t("vision_resolution_default", lang=lang)) for value, label in offered]
 
 
-@api_app.patch("/vision/cameras/{source_id:path}", response_model=CameraRow, tags=["Vision"])
+@vision_api.patch("/vision/cameras/{source_id:path}", response_model=CameraRow, tags=["Vision"])
 async def vision_camera_change(source_id: str, change: CameraChange) -> CameraRow:
     """What the user sets for a camera: name, resolution, briefing, background switch, alerts, quiet hours, active
     window, event interval; 422 for a value the camera cannot take. A change of the background switch or the
@@ -235,7 +235,7 @@ async def _ptz(action: str, source_id: str, *args: str) -> None:
     await getattr(ptz_driver, action)(source_id, *args)
 
 
-@api_app.post("/vision/ptz/{source_id:path}/press", status_code=204, tags=["Vision"])
+@vision_api.post("/vision/ptz/{source_id:path}/press", status_code=204, tags=["Vision"])
 async def vision_ptz_press(source_id: str, press: PtzPress) -> None:
     """The head moves while the key is held: the page sends ``keepalive`` every few hundred ms and ``release``
     at the end; without a sign of life the server stops it after VISION_PTZ_DEADMAN_SEC."""
@@ -246,23 +246,23 @@ async def vision_ptz_press(source_id: str, press: PtzPress) -> None:
     await _ptz("press", source_id, press.direction, press.speed)
 
 
-@api_app.post("/vision/ptz/{source_id:path}/keepalive", status_code=204, tags=["Vision"])
+@vision_api.post("/vision/ptz/{source_id:path}/keepalive", status_code=204, tags=["Vision"])
 async def vision_ptz_keepalive(source_id: str) -> None:
     await _ptz("keep_alive", source_id)
 
 
-@api_app.post("/vision/ptz/{source_id:path}/release", status_code=204, tags=["Vision"])
+@vision_api.post("/vision/ptz/{source_id:path}/release", status_code=204, tags=["Vision"])
 async def vision_ptz_release(source_id: str) -> None:
     await _ptz("release", source_id)
 
 
-@api_app.post("/vision/ptz/{source_id:path}/home", status_code=204, tags=["Vision"])
+@vision_api.post("/vision/ptz/{source_id:path}/home", status_code=204, tags=["Vision"])
 async def vision_ptz_home(source_id: str) -> None:
     """The head goes to the camera's guard position."""
     await _ptz("home", source_id)
 
 
-@api_app.post("/vision/photo/{source_id:path}", response_model=PhotoTaken, tags=["Vision"])
+@vision_api.post("/vision/photo/{source_id:path}", response_model=PhotoTaken, tags=["Vision"])
 async def vision_photo(source_id: str) -> PhotoTaken:
     """A photo in full resolution (the camera's own snapshot when it has one), kept under the vigilantia folder."""
     from ..vision_photo import take_photo

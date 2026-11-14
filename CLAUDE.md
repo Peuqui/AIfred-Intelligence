@@ -17,6 +17,16 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
   bzw. `plugins/channels/`, seine Tests laufen immer. Vorher wurde das Verzeichnis
   nach `plugins/disabled/` verschoben: Git sah die Dateien als gelöscht, und die
   Tests des Plugins fanden es nicht.
+- **Aus heißt aus** (Peuqui 14.11.2026): Ist ein Plugin abgeschaltet, ist alles aus, was nur ihm gehört,
+  sofort beim Umschalten und ebenso beim Dienststart. Jedes Tool-Plugin nennt seine Hintergrundteile selbst
+  (`background_parts()` → `BackgroundPart`, optional `on_switched_off()` / `on_switched_on()`); EINE Stelle,
+  `lib/plugin_background.sync_background_parts()`, gleicht sie an den Plugin-Zustand an (Start und nach jedem
+  Umschalten in `plugin_admin`). Ein Kanal ist an, wenn sein Hauptschalter `monitor` in `channel_toggles` an ist
+  (`plugin_registry.channel_is_on` / `on_channels` / `require_channel_on`): aus heißt kein Listener, keine
+  Werkzeuge, kein Senden, nicht als Ziel angeboten. Endpunkte, die nur einem Plugin gehören, hängen an dessen
+  Router (`api/app.py`: `vision_api`, `audio_player_api`) und antworten bei aus mit 409. Was mehrere nutzen, ist
+  Kern und bleibt (Bildbeschreiber im Chat, Dokumentablage, Löschen nach Aufbewahrungsfrist). Ein Kanal hat keine
+  `.disabled`-Markierung.
 - **Plugin → aifred/lib: ERLAUBT und erwünscht** — lib ist Kern-Infrastruktur
   und immer da. Gemeinsame Logik zweier Plugins wird als lib-Helper
   konsolidiert, niemals per Plugin-Import geteilt.

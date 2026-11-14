@@ -319,6 +319,27 @@ class JobStore:
             ).fetchall()
         return [self._row_to_job(r) for r in rows]
 
+    def lapse_missed_runs(self) -> int:
+        """Let every appointment that is due now lapse without a run: a recurring job moves to its next regular
+        appointment (or ends, if that falls after its end), a one-shot job is off. ``last_run`` and the run history
+        stay as they are: nothing ran. Used when the scheduler plugin is switched on again after a time off.
+        Returns how many jobs it moved."""
+        now = _now_iso()
+        lapsed = self.get_due_jobs(now)
+        with self._connect() as conn:
+            for job in lapsed:
+                next_run = None if job.schedule_type == "once" else _calculate_next_run(job.schedule_type, job.schedule_expr, now)
+                ended = next_run is None or _runs_after_end(next_run, job.ends_at)
+                conn.execute(
+                    "UPDATE jobs SET next_run = ?, enabled = ? WHERE job_id = ?",
+                    (None if ended else next_run, 0 if ended else 1, job.job_id),
+                )
+            conn.commit()
+        if lapsed:
+            self._changed()
+            log_message(f"Scheduler: {len(lapsed)} appointment(s) of the time off lapsed: {[job.name for job in lapsed]}")
+        return len(lapsed)
+
     def mark_executed(self, job_id: int) -> None:
         """Update last_run and calculate next_run after execution."""
         now = _now_iso()
@@ -516,10 +537,29 @@ def get_job_store() -> JobStore:
     return _job_store
 
 
-async def scheduler_loop() -> None:
-    """Main scheduler loop — runs as a Message Hub worker.
+_running_job_ids: set[int] = set()     # jobs of this process that are being executed right now
 
-    Checks for due jobs every minute and executes them.
+
+async def _run_due_job(store: JobStore, job: Job) -> None:
+    """One job from its start to its mark in the store."""
+    log_message(f"Scheduler: executing job '{job.name}' (id={job.job_id})")
+    _running_job_ids.add(job.job_id)
+    try:
+        await _execute_job(job)
+        store.mark_executed(job.job_id)
+        log_message(f"Scheduler: job '{job.name}' completed")
+    except Exception as exc:  # noqa: BLE001 — one failing job must not end the loop
+        store.mark_failed(job.job_id)
+        log_message(f"Scheduler: job '{job.name}' failed: {exc}", "error")
+    finally:
+        _running_job_ids.discard(job.job_id)
+
+
+async def scheduler_loop() -> None:
+    """Main scheduler loop — runs as a Message Hub worker, while the scheduler plugin is on.
+
+    Checks for due jobs every minute and executes them. Cancelling the loop (the plugin is switched off) does
+    not cancel the job that is running: it runs to its end and marks itself; the loop only stops starting new ones.
     """
     store = get_job_store()
     log_message("Scheduler: started")
@@ -527,17 +567,10 @@ async def scheduler_loop() -> None:
     while True:
         try:
             now = _now_iso()
-            due_jobs = store.get_due_jobs(now)
-
-            for job in due_jobs:
-                log_message(f"Scheduler: executing job '{job.name}' (id={job.job_id})")
-                try:
-                    await _execute_job(job)
-                    store.mark_executed(job.job_id)
-                    log_message(f"Scheduler: job '{job.name}' completed")
-                except Exception as exc:  # noqa: BLE001 — one failing job must not end the loop
-                    store.mark_failed(job.job_id)
-                    log_message(f"Scheduler: job '{job.name}' failed: {exc}", "error")
+            for job in store.get_due_jobs(now):
+                if job.job_id in _running_job_ids:     # started by an earlier loop that was cancelled meanwhile
+                    continue
+                await asyncio.shield(asyncio.ensure_future(_run_due_job(store, job)))
 
         except asyncio.CancelledError:
             log_message("Scheduler: shutting down")
