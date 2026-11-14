@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Care of the documents' search index: how many documents and sections it holds, the entries whose file is gone
-// from the local folder (taken out one by one or all), and the whole index cleared after asking (the files stay).
+// from the local folder (taken out one by one or all), the entries of each document source (taken out together, also while
+// the source's plugin is off: the index is core), and the whole index cleared after asking (the files stay).
 import { BookMinus, BrushCleaning, FileText, Trash2, TriangleAlert } from "lucide-vue-next";
 import { onMounted, ref } from "vue";
 import { ApiError, api } from "../api/client";
@@ -27,6 +28,11 @@ onMounted(() => call(() => api<IndexOverview>("documents/index/overview")));
 
 async function remove(filenames: string[]): Promise<void> {
   await call(() => post("documents/index/orphans/remove", { filenames }));
+  emit("changed");
+}
+
+async function removeSource(key: string): Promise<void> {
+  await call(() => post("documents/index/sources/remove", { key }));
   emit("changed");
 }
 
@@ -60,6 +66,14 @@ async function clearAll(): Promise<void> {
             <span class="name"><FileText :size="16" /> {{ orphan.filename }}</span>
             <span class="meta">{{ tCount("doc_chunk_count", orphan.chunks) }} · {{ orphan.indexed }}</span>
             <button :title="t('db_remove_from_index')" @click="remove([orphan.filename])"><BookMinus :size="16" /></button>
+          </div>
+        </section>
+        <section v-if="overview.sources.length">
+          <div class="head"><strong>{{ t("db_sources_title") }}</strong></div>
+          <div v-for="source in overview.sources" :key="source.key" class="orphan source">
+            <span class="name">{{ source.plugin }}<em v-if="!source.plugin_on"> ({{ t("db_source_plugin_off") }})</em></span>
+            <span class="meta">{{ tCount("db_document_count", source.documents) }} · {{ tCount("doc_chunk_count", source.chunks) }}</span>
+            <button :title="t('db_source_remove')" @click="removeSource(source.key)"><BookMinus :size="16" /></button>
           </div>
         </section>
         <div class="actions">

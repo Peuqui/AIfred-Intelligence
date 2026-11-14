@@ -14,13 +14,15 @@ from __future__ import annotations
 import functools
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from ....lib.function_calling import Tool
 from ....lib.plugin_base import CredentialField, PluginContext, load_plugin_i18n
 from ....lib.plugin_modules import READ, ModuleAccess, module_credential_fields
 
 SETTINGS_PREFIX = "GOOGLE"
+# The key of the plugin's document source (drive/source.py); the registry reads it without the plugin being on.
+DOCUMENT_SOURCE_KEY = "google_drive"
 MODULE_DEFAULTS: dict[str, str] = {
     "calendar": READ,
     "contacts": READ,
@@ -84,6 +86,7 @@ class GooglePlugin:
     # plugin invisible to the UI (no gear/lightbulb, OAuth connect unreachable).
     name: str = "google_suite"
     oauth_provider: str = "google"
+    document_source_key: ClassVar[str] = DOCUMENT_SOURCE_KEY
 
     # ── Settings ────────────────────────────────────────────────
 

@@ -17,6 +17,7 @@ import type {
   SourceListing,
   SourceUploaded,
 } from "../api/types";
+import { onResourceChanged } from "../lib/resourceChanges";
 
 export const LOCAL = "local";
 
@@ -136,6 +137,15 @@ export const useDocuments = defineStore("documents", () => {
     if (found) sources.value = found;
   }
 
+  // A plugin switched on or off (the server announces it): the list of sources follows; a source that is gone
+  // takes the open one with it, and the page falls back to the local folder (core).
+  async function followPlugins(): Promise<void> {
+    await loadSources();
+    if (!sources.value.some((offered) => offered.key === source.value)) await openSource(LOCAL);
+  }
+
+  onResourceChanged("plugins", () => void followPlugins());
+
   async function listRemote(): Promise<void> {
     const params = new URLSearchParams({ folder_id: openFolderId.value, query: query.value });
     const listed = await call(() => api<SourceListing>(`${sourcePath()}?${params}`));
@@ -194,6 +204,6 @@ export const useDocuments = defineStore("documents", () => {
   return {
     listing, notice, busy, indexing, rejected, open, newFolder, rename, remove, preview, upload, index, watchIndexing,
     sources, source, remote, trail, query, loadSources, openSource, enterRemote, backRemote, searchRemote, uploadRemote,
-    indexRemote, deindexRemote,
+    indexRemote, deindexRemote, reload,
   };
 });

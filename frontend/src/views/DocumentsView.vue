@@ -248,7 +248,7 @@ const runOutcome = computed(() => {
     </template>
     <SourceBrowser v-else />
 
-    <IndexCare v-if="caring" @close="caring = false" @changed="go(folder)" />
+    <IndexCare v-if="caring" @close="caring = false" @changed="docs.reload()" />
 
     <ModalDialog v-if="deleting" @close="deleting = null">
       <strong>{{ t("doc_delete_confirm_title") }}</strong>

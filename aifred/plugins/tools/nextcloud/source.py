@@ -14,6 +14,7 @@ import httpx
 
 from ....lib.document_sources import DocumentSourceError, SourceDownload, SourceEntry
 from ....lib.plugin_base import plugin_i18n_text
+from . import DOCUMENT_SOURCE_KEY
 from .dav import DavClient, DavConflict, DavError, DavFile
 from .errors import NextcloudRefused
 from .files import clean_path
@@ -36,7 +37,7 @@ def _reason(exc: Exception) -> str:
 
 
 class NextcloudDocumentSource:
-    key = "nextcloud_files"
+    key = DOCUMENT_SOURCE_KEY
 
     def __init__(self, client: DavClient, writable: bool) -> None:
         self._client = client

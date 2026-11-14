@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator
 import httpx
 
 from .....lib.document_sources import DocumentSourceError, SourceDownload, SourceEntry
+from .. import DOCUMENT_SOURCE_KEY
 from .._common import _get_token, _google_request
 from ._api import DRIVE_API, FOLDER_MIME, UPLOAD_API, escape_drive_term
 
@@ -56,7 +57,7 @@ def _reason(exc: Exception) -> str:
 
 
 class DriveDocumentSource:
-    key = "google_drive"
+    key = DOCUMENT_SOURCE_KEY
 
     def __init__(self, writable: bool) -> None:
         # Follows the plugin's Drive level (the grant at Google always allows writing).

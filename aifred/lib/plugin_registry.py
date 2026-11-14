@@ -195,6 +195,18 @@ def discover_tools() -> list[ToolPlugin]:
     return _tools
 
 
+def document_source_owners() -> dict[str, str]:
+    """The tool plugin (name) behind each document source key, switched on or off: a plugin names its source in
+    ``document_source_key``, so the key is known while the plugin is off (the source itself exists only while on)."""
+    owners: dict[str, str] = {}
+    for plugin_dir in _plugin_dirs("tool"):
+        plugin = get_tool_plugin_on_or_off(plugin_dir.name)
+        key = getattr(plugin, "document_source_key", None)
+        if key is not None:
+            owners[key] = plugin_dir.name
+    return owners
+
+
 def collect_plugin_tools(ctx: PluginContext) -> list[tuple[ToolPlugin | BaseChannel, list[Tool]]]:
     """Every available tool plugin and configured channel with the tools it
     offers in ``ctx`` — the one plugin-selection rule of the toolkit factory.

@@ -4,7 +4,7 @@ writable on its own, and writing also needs Nextcloud's own write right."""
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from ....lib.function_calling import Tool
 from ....lib.plugin_base import (
@@ -31,6 +31,9 @@ from .settings import (
     save_raw_settings,
 )
 
+# The key of the plugin's document source (source.py); the registry reads it without the plugin being on.
+DOCUMENT_SOURCE_KEY = "nextcloud_files"
+
 _TOOLS = ("nextcloud_search", "nextcloud_get", "nextcloud_create", "nextcloud_update", "nextcloud_delete")
 _FILE_TOOLS = ("nextcloud_file_list", "nextcloud_file_read", "nextcloud_file_download", "nextcloud_file_write",
                "nextcloud_file_upload", "nextcloud_file_move", "nextcloud_file_delete")
@@ -41,6 +44,7 @@ _WRITE_TOOLS = frozenset({*_TOOLS[2:], *_FILE_TOOLS[3:]})
 @dataclass
 class NextcloudPlugin:
     name: str = "nextcloud"
+    document_source_key: ClassVar[str] = DOCUMENT_SOURCE_KEY
 
     @property
     def credential_fields(self) -> list[CredentialField]:

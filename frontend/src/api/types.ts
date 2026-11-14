@@ -26,6 +26,7 @@ export type DocumentPreview = Schemas["DocumentPreview"];
 export type DocumentIndexProgress = Schemas["DocumentIndexProgress"];
 export type DocumentsUploaded = Schemas["DocumentsUploaded"];
 export type IndexOverview = Schemas["IndexOverview"];
+export type IndexSource = Schemas["IndexSource"];
 export type DocumentSourceInfo = Schemas["DocumentSourceInfo"];
 export type SourceListing = Schemas["SourceListing"];
 export type SourceRow = Schemas["SourceRow"];

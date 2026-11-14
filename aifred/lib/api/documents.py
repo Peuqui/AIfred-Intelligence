@@ -10,7 +10,7 @@ comes. Login cookie required like every API path (app middleware).
 """
 import asyncio
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import quote
 
 from fastapi import Form, UploadFile
@@ -30,7 +30,7 @@ from .app import api_app
 
 @api_app.get("/documents/source/{source_key}/file/{file_id:path}", tags=["Documents"])
 async def document_source_file(source_key: str, file_id: str) -> StreamingResponse:
-    """Download one file of a document source (404 unknown source, 502 source failed). The id may hold
+    """Download one file of a document source (409 plugin off, 404 unknown source, 502 source failed). The id may hold
     slashes: Nextcloud's is the file's path."""
     download = await get_document_source(source_key).download(file_id)
     log_message(f"📄 Document download from {source_key}: {download.name}")
@@ -280,12 +280,21 @@ class IndexOrphan(BaseModel):
     indexed: str = Field(description="When it was indexed, as the lists show a point in time")
 
 
+class IndexSource(BaseModel):
+    key: str
+    plugin: str = Field(description="Name of the plugin the source belongs to, as the user reads it")
+    plugin_on: bool
+    documents: int
+    chunks: int
+
+
 class IndexOverview(BaseModel):
     """The search index of the documents: how much is in it, and what of it has lost its file."""
 
     documents: int
     chunks: int
     orphans: list[IndexOrphan] = Field(description="Indexed files of the local folder that are gone from the disk")
+    sources: list[IndexSource] = Field(description="Document sources with entries in the index, plugin on or off")
 
 
 class OrphansRemoval(BaseModel):
@@ -293,14 +302,46 @@ class OrphansRemoval(BaseModel):
     filenames: list[str]
 
 
+class SourceRemoval(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str
+
+
 class IndexCleared(BaseModel):
     chunks_removed: int
+
+
+def _source_entries(listed: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    """The index entries of one source: the index names them ``<key>:/<id>`` (``source_index_name``)."""
+    return [entry for entry in listed if entry["filename"].startswith(f"{key}:/")]
+
+
+def _index_sources(listed: list[dict[str, Any]]) -> list[IndexSource]:
+    from ..plugin_registry import (
+        document_source_owners,
+        get_tool_plugin_on_or_off,
+        is_plugin_enabled,
+        plugin_label,
+    )
+
+    sources = []
+    for key, owner in document_source_owners().items():
+        entries = _source_entries(listed, key)
+        plugin = get_tool_plugin_on_or_off(owner)
+        assert plugin is not None   # the owner was just found as a plugin
+        if entries:
+            sources.append(IndexSource(
+                key=key, plugin=plugin_label(plugin), plugin_on=is_plugin_enabled(owner),
+                documents=len(entries), chunks=sum(int(entry["total_chunks"]) for entry in entries),
+            ))
+    return sources
 
 
 def _index_overview() -> IndexOverview:
     listed = _done(fm.list_indexed()).metadata["documents"]
     orphans = _done(fm.list_orphaned()).metadata["orphans"]
     return IndexOverview(
+        sources=_index_sources(listed),
         documents=len(listed), chunks=sum(int(entry["total_chunks"]) for entry in listed),
         orphans=[IndexOrphan(filename=entry["filename"], chunks=int(entry["total_chunks"]),
                              indexed=format_stamp(datetime.fromisoformat(entry["upload_date"]).timestamp()))
@@ -323,6 +364,21 @@ async def documents_index_orphans_remove(removal: OrphansRemoval) -> IndexOvervi
         if filename in orphans:
             await fm.deindex_file(filename)
     log_message(f"🧹 Index: {len(set(removal.filenames) & orphans)} orphaned entries removed")
+    return await asyncio.to_thread(_index_overview)
+
+
+@api_app.post("/documents/index/sources/remove", response_model=IndexOverview, tags=["Documents"])
+async def documents_index_source_remove(removal: SourceRemoval) -> IndexOverview:
+    """Take every entry of one document source out of the index, whether its plugin is on or off (the files stay
+    at the source). 404 for a key no plugin has."""
+    from ..document_sources import require_known_document_source
+
+    require_known_document_source(removal.key)
+    listed = _done(await asyncio.to_thread(fm.list_indexed)).metadata["documents"]
+    entries = _source_entries(listed, removal.key)
+    for entry in entries:
+        await fm.deindex_file(entry["filename"])
+    log_message(f"🧹 Index: {len(entries)} entries of {removal.key} removed")
     return await asyncio.to_thread(_index_overview)
 
 
@@ -397,7 +453,7 @@ class SourceUploaded(BaseModel):
 
 
 def _source(key: str) -> DocumentSource:
-    """The source of an enabled plugin; 404 when none offers it (disabled or not connected)."""
+    """The source of an enabled plugin; 409 when its plugin is off, 404 when none offers it (unknown or not connected)."""
     return get_document_source(key)
 
 
@@ -483,9 +539,10 @@ async def documents_source_index(source_key: str, indexing: SourceIndexing) -> D
     from ..document_sources import files_below
     from ..document_store import PARSERS
 
+    source = _source(source_key)   # 409/404 at once, not as a failure of the queued run
     items = [document_indexing.source_item(source_key, file.id, file.name) for file in indexing.files]
     for folder_id in indexing.folders:
-        below = await files_below(_source(source_key), folder_id=folder_id)
+        below = await files_below(source, folder_id=folder_id)
         items.extend(
             document_indexing.source_item(source_key, entry.id, entry.name)
             for entry in below if Path(entry.name).suffix.lower() in PARSERS
@@ -497,10 +554,10 @@ async def documents_source_index(source_key: str, indexing: SourceIndexing) -> D
 
 @api_app.post("/documents/source/{source_key}/deindex", response_model=SourceDeindexed, tags=["Documents"])
 async def documents_source_deindex(source_key: str, deindexing: SourceDeindexing) -> SourceDeindexed:
-    """Files of a source out of the search index; they stay at the source."""
-    from ..document_sources import source_index_name
+    """Files of a source out of the search index; they stay at the source. Works with the plugin off too."""
+    from ..document_sources import require_known_document_source, source_index_name
 
-    _source(source_key)
+    require_known_document_source(source_key)   # the index entries are core: no source, no plugin needed
     removed = 0
     for file_id in deindexing.file_ids:
         result = await fm.deindex_file(source_index_name(source_key, file_id))

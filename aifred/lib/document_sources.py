@@ -91,9 +91,24 @@ def document_sources() -> dict[str, DocumentSource]:
     return sources
 
 
+def require_known_document_source(key: str) -> str:
+    """The plugin (name) whose source has this key, on or off; ``Missing`` (404) when no plugin has one. What is
+    left of a source in the index (taking it out) needs only this, not the source itself."""
+    from .plugin_registry import document_source_owners
+
+    owner = document_source_owners().get(key)
+    if owner is None:
+        raise Missing("no_document_source", source=key)
+    return owner
+
+
 def get_document_source(key: str) -> DocumentSource:
-    """The source with this key; ``Missing`` (a ``LookupError``) when no enabled plugin offers it."""
+    """The source with this key. ``Conflict`` (409) when its plugin is off, ``Missing`` (404, a ``LookupError``)
+    when it is unknown or the plugin offers none right now (not connected)."""
     source = document_sources().get(key)
     if source is None:
+        from .plugin_registry import require_plugin_enabled
+
+        require_plugin_enabled(require_known_document_source(key))
         raise Missing("no_document_source", source=key)
     return source

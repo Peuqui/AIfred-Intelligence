@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
-from aifred.lib import document_indexing, document_sources, document_store, file_manager
+from aifred.lib import document_indexing, document_sources, document_store, file_manager, plugin_registry
 from aifred.lib.document_sources import DocumentSourceError, SourceDownload, SourceEntry, source_index_name
 
 FILES = {
@@ -84,6 +84,7 @@ class _Index:
 def world(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[_Source, _Index]]:
     source, index = _Source(), _Index()
     monkeypatch.setattr(document_sources, "document_sources", lambda: {"stub": source})
+    monkeypatch.setattr(plugin_registry, "document_source_owners", lambda: {"stub": "nextcloud"})   # its plugin, as taking files out asks
     monkeypatch.setattr(document_store, "get_document_store", lambda: index)
     monkeypatch.setattr(file_manager, "chunks_per_document", lambda: dict(index.chunks))
     monkeypatch.setattr(document_indexing, "_progress", document_indexing.IndexProgress())
