@@ -311,20 +311,20 @@ def describers(world: tuple[TestClient, dict[str, Any], Path], tmp_path: Path, m
 
 def test_the_describer_list_is_shown_moved_and_switched_and_kept_in_the_settings(describers: tuple[TestClient, Path]) -> None:
     client, settings_file = describers
-    shown = client.get("/vision/describers").json()
+    shown = client.get("/describers").json()
     assert shown["measuring"] == ""
     assert [(row["source"], row["enabled"], row["remote"]) for row in shown["rows"]] == [
         ("local", True, False), ("main", True, False), (f"Box/{BIG}", False, True)]
     assert shown["rows"][0]["label"] == "qwen3-vl:4b-instruct-q8_0 · dieser Rechner"
     assert shown["rows"][2]["warn"] is True and "24.576" in shown["rows"][2]["note"]      # not measured at its context
 
-    moved = client.post("/vision/describers/move", json={"index": 2, "delta": -1}).json()
+    moved = client.post("/describers/move", json={"index": 2, "delta": -1}).json()
     assert [row["source"] for row in moved["rows"]] == ["local", f"Box/{BIG}", "main"]
-    client.post("/vision/describers/switch", json={"index": 1, "enabled": True})
+    client.post("/describers/switch", json={"index": 1, "enabled": True})
     assert json.loads(settings_file.read_text())["describers"] == [
         {"source": "local", "enabled": True}, {"source": f"Box/{BIG}", "enabled": True}, {"source": "main", "enabled": True}]
-    assert client.post("/vision/describers/move", json={"index": 7, "delta": 1}).status_code == 422
-    assert client.post("/vision/describers/switch", json={"index": 7, "enabled": True}).status_code == 422
+    assert client.post("/describers/move", json={"index": 7, "delta": 1}).status_code == 422
+    assert client.post("/describers/switch", json={"index": 7, "enabled": True}).status_code == 422
 
 
 def test_a_burn_in_runs_one_at_a_time_and_its_failure_shows_in_the_row(describers: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -344,14 +344,14 @@ def test_a_burn_in_runs_one_at_a_time_and_its_failure_shows_in_the_row(describer
         raise RemoteHostError("Box: the cards are held (a test)")
 
     monkeypatch.setattr(vlm_stress_prewarm, "stress_prewarm_remote", stress)
-    started = client.post("/vision/describers/burn-in", json={"source": f"Box/{BIG}"})
+    started = client.post("/describers/burn-in", json={"source": f"Box/{BIG}"})
     assert started.status_code == 202 and started.json()["measuring"] == f"Box/{BIG}"
-    assert client.post("/vision/describers/burn-in", json={"source": f"Box/{BIG}"}).status_code == 409   # one at a time
+    assert client.post("/describers/burn-in", json={"source": f"Box/{BIG}"}).status_code == 409   # one at a time
     release.set()
     deadline = time.monotonic() + 5
-    while client.get("/vision/describers").json()["measuring"] and time.monotonic() < deadline:
+    while client.get("/describers").json()["measuring"] and time.monotonic() < deadline:
         time.sleep(0.02)
-    row = client.get("/vision/describers").json()["rows"][2]
+    row = client.get("/describers").json()["rows"][2]
     assert burnt == [f"Box/{BIG}"]
     assert row["warn"] is True and "the cards are held" in row["note"]
-    assert client.post("/vision/describers/burn-in", json={"source": "local"}).status_code == 422
+    assert client.post("/describers/burn-in", json={"source": "local"}).status_code == 422

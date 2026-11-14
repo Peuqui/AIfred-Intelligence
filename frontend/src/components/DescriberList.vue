@@ -21,7 +21,7 @@ async function call(work: () => Promise<Describers>): Promise<void> {
     notice.value = error instanceof ApiError ? error.detail : String(error);
   }
 }
-const post = (path: string, body: object): Promise<Describers> => api<Describers>(`vision/describers${path}`, { method: "POST", body: JSON.stringify(body) });
+const post = (path: string, body: object): Promise<Describers> => api<Describers>(`describers${path}`, { method: "POST", body: JSON.stringify(body) });
 
 // While a burn-in runs the list is asked again; its end brings the row's new note.
 function follow(describers: Describers): void {
@@ -29,13 +29,13 @@ function follow(describers: Describers): void {
   if (describers.measuring && polling === null) {
     polling = window.setTimeout(() => {
       polling = null;
-      void call(() => api<Describers>("vision/describers"));
+      void call(() => api<Describers>("describers"));
     }, PROGRESS_POLL_MS);
   }
 }
 
 // Read anew whenever the page is shown: this machine's row names the image model, which the vision settings change.
-onActivated(() => call(() => api<Describers>("vision/describers")));
+onActivated(() => call(() => api<Describers>("describers")));
 onBeforeUnmount(() => {
   if (polling !== null) window.clearTimeout(polling);
 });

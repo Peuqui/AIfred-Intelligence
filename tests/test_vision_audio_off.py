@@ -164,8 +164,8 @@ def test_the_endpoints_of_vision_refuse_while_it_is_off(client: TestClient, plug
 def test_the_describer_list_is_not_visions(client: TestClient, plugin_on: dict[str, bool], monkeypatch: pytest.MonkeyPatch) -> None:
     """The image describer of the chat stands alone: its list answers with the vision plugin off."""
     plugin_on["vision"] = False
-    monkeypatch.setattr("aifred.lib.api.vigilantia._describers", lambda: {"rows": [], "measuring": ""})
-    assert client.get("/vision/describers").status_code == 200
+    monkeypatch.setattr("aifred.lib.api.describers._describers", lambda: {"rows": [], "measuring": ""})
+    assert client.get("/describers").status_code == 200
 
 
 def test_the_endpoints_of_the_player_refuse_while_it_is_off(client: TestClient, plugin_on: dict[str, bool]) -> None:

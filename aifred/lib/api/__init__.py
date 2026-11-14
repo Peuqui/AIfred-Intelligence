@@ -58,6 +58,7 @@ from . import jobs
 from . import speech
 from . import cameras
 from . import vigilantia
+from . import describers
 from . import casus
 from . import enrollment
 from . import audio_library
