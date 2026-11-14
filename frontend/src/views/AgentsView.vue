@@ -149,7 +149,7 @@ h3 { margin: 8px 0 0; font-size: 0.95rem; }
 .creating .emoji { width: 4em; }
 .creating .color { width: 3em; height: 32px; padding: 2px; cursor: pointer; }
 .creating .description-input { flex: 1; min-width: 12em; }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 12px; }
 .card { border: 1px solid var(--aifred-border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--aifred-input-bg); }
 .card.off { opacity: 0.6; }
@@ -159,9 +159,7 @@ h3 { margin: 8px 0 0; font-size: 0.95rem; }
 .description { font-size: 0.8rem; color: var(--aifred-text-secondary); overflow-wrap: anywhere; }
 .off-hint { margin: 0; font-size: 0.85rem; color: var(--aifred-text-muted); }
 .card footer { display: flex; justify-content: flex-end; gap: 8px; }
-button, a.button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; text-decoration: none; }
+button, a.button { padding: 4px 8px; text-decoration: none; }
 a.button { display: inline-flex; align-items: center; gap: 4px; }
-button:disabled { opacity: 0.5; cursor: default; }
-.danger { border-color: var(--aifred-danger); color: var(--aifred-danger); }
 .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
 </style>

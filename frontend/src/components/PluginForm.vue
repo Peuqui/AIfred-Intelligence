@@ -139,14 +139,13 @@ async function disconnect(): Promise<void> {
 .row { display: flex; gap: 10px; flex-wrap: wrap; }
 .field { display: flex; flex-direction: column; gap: 3px; min-width: 160px; font-size: 0.85rem; }
 .label { color: var(--aifred-text-secondary); }
-input, select, button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; font-size: 0.85rem; }
-button { cursor: pointer; }
-button.primary { border-color: var(--aifred-primary); color: var(--aifred-primary); font-weight: 600; }
-button:disabled { opacity: 0.5; cursor: default; }
+input, select { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; font-size: 0.85rem; }
+button { padding: 4px 8px; font-size: 0.85rem; }
+button.primary { font-weight: 600; }
 .oauth { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.85rem; }
 .connect { color: var(--aifred-primary); font-weight: 600; }
-.ok { color: var(--aifred-accent-success); }
+.ok { color: var(--aifred-accent-success); --icon-own: currentColor; }
 .hint { color: var(--aifred-text-muted); font-size: 0.8rem; }
 footer { display: flex; justify-content: flex-end; gap: 8px; }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 </style>

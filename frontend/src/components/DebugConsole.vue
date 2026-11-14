@@ -47,7 +47,7 @@ watch(
 </template>
 
 <style scoped>
-.toggle { background: none; border: none; color: var(--aifred-debug-accent); cursor: pointer; font: inherit; padding: 0; }
+.toggle { background: none; border: none; color: var(--aifred-debug-accent); --icon-own: currentColor; cursor: pointer; font: inherit; padding: 0; }
 /* The Matrix terminal of the Reflex console: neon green, errors red. */
 .lines {
   box-sizing: border-box; /* the grip's height is the one the box takes */

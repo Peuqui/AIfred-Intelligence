@@ -298,10 +298,9 @@ const similarity = (value: number | null): string => (value === null ? "" : ` ·
 <style scoped>
 .live { display: flex; flex-direction: column; gap: 10px; }
 .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-button, select, textarea { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; }
-button { cursor: pointer; }
-button:disabled { opacity: 0.5; cursor: default; }
-.chip.on { border-color: var(--aifred-primary); color: var(--aifred-primary); }
+select, textarea { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; }
+button { padding: 3px 8px; font-size: 0.85rem; }
+.chip.on { border-color: var(--aifred-primary); color: var(--aifred-primary); --icon-own: currentColor; }
 .chip.away { opacity: 0.6; }
 .fps { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; }
 /* At least 420 px a camera, but never wider than the screen (one column on a phone). */
@@ -313,7 +312,6 @@ button:disabled { opacity: 0.5; cursor: default; }
 .picture { position: relative; }
 .picture > img { display: block; width: 100%; border-radius: 6px; background: var(--aifred-media-bg); cursor: zoom-in; min-height: 120px; }
 .grid.single .picture > img { cursor: zoom-out; }
-button.on { border-color: var(--aifred-primary); color: var(--aifred-primary); }
 .prompter { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; }
 .prompter ol, ol.prompter { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
 .prompter.over { position: absolute; left: 8px; right: 8px; bottom: 8px; padding: 6px 8px; border-radius: 6px; background: var(--aifred-backdrop); pointer-events: none; }
@@ -329,6 +327,6 @@ button.on { border-color: var(--aifred-primary); color: var(--aifred-primary); }
 .briefing textarea { resize: vertical; color: var(--aifred-text-primary); }
 .photos { display: flex; gap: 6px; flex-wrap: wrap; }
 .photos img { height: 60px; border-radius: 4px; cursor: zoom-in; }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 .empty { margin: 0; color: var(--aifred-text-muted); }
 </style>

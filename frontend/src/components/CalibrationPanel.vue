@@ -175,13 +175,12 @@ function cellTitle(cell: MatrixCell): string {
 .panel { display: flex; flex-direction: column; gap: 8px; }
 .line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .hint { color: var(--aifred-text-secondary); font-size: 0.85rem; margin: 0; }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 .done, .run { margin: 0; color: var(--aifred-accent-success); }
 .subtitle { font-weight: 600; font-size: 0.85rem; margin: 12px 0 0; }
-select, button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
-button { cursor: pointer; }
-button:disabled, select:disabled { opacity: 0.5; cursor: default; }
-button.danger { border-color: var(--aifred-danger); color: var(--aifred-danger); }
+select { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+button { padding: 4px 8px; }
+select:disabled { opacity: 0.5; cursor: default; }
 .option { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .matrix { border-collapse: collapse; font-size: 0.8rem; }

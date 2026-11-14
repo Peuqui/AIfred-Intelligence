@@ -49,7 +49,6 @@ onBeforeUnmount(() => window.removeEventListener("keydown", key));
 img { display: block; max-width: calc(92 * var(--vw)); max-height: calc(88 * var(--dvh)); border-radius: 6px; }
 .pair img { max-width: calc(44 * var(--vw)); }
 button { position: absolute; background: none; border: none; color: #fff; font-size: 2rem; cursor: pointer; padding: 8px 14px; }
-button:disabled { opacity: 0.3; cursor: default; }
 .close { top: 8px; right: 12px; }
 .back { left: 8px; }
 .forward { right: 8px; }

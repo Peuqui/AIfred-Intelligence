@@ -78,15 +78,14 @@ function named(event: Event): void {
 section { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 10px; }
 .line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .name { min-width: 170px; font-weight: 600; font-size: 0.9rem; }
-select, input.user-name, button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
-button { cursor: pointer; min-width: 32px; }
-button:disabled { opacity: 0.5; cursor: default; }
+select, input.user-name { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+button { padding: 4px 8px; min-width: 32px; }
 .gender { display: inline-flex; gap: 4px; }
-.gender button.on { border-color: var(--aifred-primary); color: var(--aifred-primary); }
+.gender button.on { border-color: var(--aifred-primary); color: var(--aifred-primary); --icon-own: currentColor; }
 .signs { display: flex; flex-wrap: wrap; gap: 4px; }
 .signs button { font-size: 1.2rem; padding: 2px 6px; background: none; border: 1px solid var(--aifred-border); border-radius: 6px; cursor: pointer; }
-.signs button.on { border-color: var(--aifred-primary); background: var(--aifred-input-bg); }
+.signs button.on { border-color: var(--aifred-primary); background: var(--aifred-input-bg); --icon-own: currentColor; }
 .count { min-width: 2ch; text-align: center; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); width: 16px; height: 16px; }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 </style>

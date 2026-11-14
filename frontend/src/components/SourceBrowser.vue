@@ -131,10 +131,10 @@ async function picked(): Promise<void> {
 .trail { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; color: var(--aifred-text-muted); }
 .search { display: flex; gap: 6px; }
 .actions { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
-button, input:not([type="checkbox"]) { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; }
+input:not([type="checkbox"]) { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; }
+button { padding: 4px 8px; }
 .trail button, .link, .row-actions button { background: none; border: none; padding: 2px 4px; }
 .trail button:hover, .link:hover { text-decoration: underline; }
-button:disabled { opacity: 0.5; cursor: default; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .hits { margin: 0; color: var(--aifred-text-secondary); }
 .list { width: 100%; border-collapse: collapse; font-size: 0.9rem; }

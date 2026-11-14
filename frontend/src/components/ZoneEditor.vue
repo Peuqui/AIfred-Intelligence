@@ -297,17 +297,17 @@ function switchMask(event: Event): void {
 
 <style scoped>
 .head { display: flex; align-items: center; gap: 10px; }
-.head strong { color: var(--aifred-primary); }
+.head strong { color: var(--aifred-primary); --icon-own: currentColor; }
 .camera { flex: 1; font-size: 0.85rem; color: var(--aifred-text-secondary); }
 .icon { background: none; border: none; color: inherit; font-size: 1.2rem; cursor: pointer; padding: 0 4px; }
 .icon.on { filter: drop-shadow(0 0 4px var(--aifred-accent-gold)); }
 /* The help bulb looks like HelpButton's. */
-.icon.help { padding: 0; color: var(--aifred-accent-amber); transition: transform 0.2s ease; }
+.icon.help { padding: 0; color: var(--aifred-accent-amber); transition: transform 0.2s ease; --icon-own: currentColor; }
 .icon.help:hover { transform: scale(1.15); }
 .help { display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; padding: 10px 12px; background: var(--aifred-input-bg); border-radius: 8px; max-width: 760px; }
 .help p { margin: 0; line-height: 1.45; }
 .kind-help { display: flex; gap: 8px; align-items: baseline; }
-.warning { margin: 0; padding: 7px 10px; font-size: 0.85rem; color: var(--aifred-accent-amber); border: 1px solid var(--aifred-accent-amber); border-radius: 6px; background: var(--aifred-warning-bg); }
+.warning { margin: 0; padding: 7px 10px; font-size: 0.85rem; color: var(--aifred-accent-amber); border: 1px solid var(--aifred-accent-amber); border-radius: 6px; background: var(--aifred-warning-bg); --icon-own: currentColor; }
 .controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 0.85rem; }
 .controls label { display: inline-flex; align-items: center; gap: 6px; }
 .kind .swatch, .kind-help .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--aifred-border-light); flex-shrink: 0; }
@@ -319,9 +319,8 @@ function switchMask(event: Event): void {
 .muted { margin: 0; font-size: 0.8rem; color: var(--aifred-text-muted); }
 input[type="radio"], input[type="checkbox"] { accent-color: var(--aifred-primary); }
 input[type="range"] { accent-color: var(--aifred-primary); }
-button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 12px; font: inherit; font-size: 0.85rem; cursor: pointer; }
-button.primary { border-color: var(--aifred-primary); color: var(--aifred-primary); font-weight: 600; }
-button.danger { border-color: var(--aifred-danger); color: var(--aifred-danger); }
+button { padding: 4px 12px; font-size: 0.85rem; }
+button.primary { font-weight: 600; }
 /* The canvas gives the stage its size (its own width and height keep the picture's shape); the picture lies under it. */
 .stage { position: relative; max-width: 100%; line-height: 0; background: var(--aifred-media-bg); border: 1px solid var(--aifred-border); border-radius: 8px; overflow: hidden; }
 .stage img { position: absolute; inset: 0; width: 100%; height: 100%; }

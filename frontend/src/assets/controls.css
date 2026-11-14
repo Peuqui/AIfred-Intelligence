@@ -1,0 +1,65 @@
+/* Buttons and icons, the one place for their look (Peuqui 14.11.2026: proposal A, as on the Reflex page).
+   Colours only as var(--aifred-*) from aifred/theme.py.
+
+   Buttons: the Reflex page's "soft" variant of Radix Themes — no rim, a faint tint, the text in a soft colour. Every
+   rule here has no specificity (:where), so a component that draws a button otherwise on purpose (a bare icon, a list
+   row, a pill) keeps its own rule.
+
+   Icons: every Lucide icon in the colour of what it means (svg.lucide-<name>, the classes lucide-vue-next sets). An
+   element that colours its icons itself on purpose (a warning in amber, the send button in gold, a switch that is on)
+   sets --icon-own: currentColor, and its icons take its colour. Buttons that are primary, on or dangerous do so here. */
+
+:where(button, .button) {
+  font: inherit;
+  cursor: pointer;
+  color: var(--aifred-radix-soft-gray-text);
+  background: var(--aifred-button-soft-bg);
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+:where(button, .button):hover:not(:disabled) { background: var(--aifred-button-soft-bg-hover); }
+:where(button):disabled { opacity: 0.45; cursor: default; }
+:where(button.primary, button.on) { color: var(--aifred-radix-orange-text); background: var(--aifred-button-primary-bg); }
+:where(button.danger) { color: var(--aifred-radix-red-text); background: var(--aifred-button-danger-bg); }
+:where(button.primary, button.on, button.danger) { --icon-own: currentColor; }
+:where(button.primary, button.on):hover:not(:disabled) { background: color-mix(in srgb, var(--aifred-primary) 24%, transparent); }
+:where(button.danger):hover:not(:disabled) { background: color-mix(in srgb, var(--aifred-danger) 22%, transparent); }
+
+svg.lucide { color: var(--icon-own, var(--icon-tint, var(--aifred-icon-neutral))); }
+
+svg.lucide-pencil, svg.lucide-notebook-pen, svg.lucide-crop, svg.lucide-wrench, svg.lucide-brush-cleaning {
+  --icon-tint: var(--aifred-radix-orange-text);
+}
+svg.lucide-trash-2, svg.lucide-x, svg.lucide-circle-x, svg.lucide-circle-stop, svg.lucide-square, svg.lucide-log-out {
+  --icon-tint: var(--aifred-radix-red-text);
+}
+svg.lucide-triangle-alert { --icon-tint: var(--aifred-radix-amber-text); }
+svg.lucide-refresh-cw, svg.lucide-refresh-ccw-dot, svg.lucide-rotate-cw, svg.lucide-rotate-ccw, svg.lucide-power {
+  --icon-tint: var(--aifred-radix-teal-text);
+}
+svg.lucide-check, svg.lucide-circle-check, svg.lucide-shield-check, svg.lucide-list-checks, svg.lucide-user-plus,
+svg.lucide-book-plus, svg.lucide-folder-plus {
+  --icon-tint: var(--aifred-radix-green-text);
+}
+svg.lucide-download, svg.lucide-upload, svg.lucide-import, svg.lucide-file-up, svg.lucide-folder-up, svg.lucide-link,
+svg.lucide-share-2, svg.lucide-paperclip, svg.lucide-copy, svg.lucide-corner-down-left {
+  --icon-tint: var(--aifred-radix-blue-text);
+}
+svg.lucide-folder, svg.lucide-folder-open, svg.lucide-file-text, svg.lucide-scroll-text, svg.lucide-book-open,
+svg.lucide-book-minus, svg.lucide-package, svg.lucide-hard-drive, svg.lucide-library {
+  --icon-tint: var(--aifred-radix-yellow-text);
+}
+svg.lucide-brain, svg.lucide-sparkles, svg.lucide-bot, svg.lucide-dna, svg.lucide-dices, svg.lucide-cpu {
+  --icon-tint: var(--aifred-radix-violet-text);
+}
+svg.lucide-play, svg.lucide-pause, svg.lucide-fast-forward, svg.lucide-rewind, svg.lucide-skip-back, svg.lucide-mic,
+svg.lucide-camera, svg.lucide-video, svg.lucide-film, svg.lucide-radio, svg.lucide-tv, svg.lucide-list-video,
+svg.lucide-scan-face, svg.lucide-scan-search, svg.lucide-zoom-in, svg.lucide-zoom-out, svg.lucide-radar,
+svg.lucide-target, svg.lucide-eye {
+  --icon-tint: var(--aifred-radix-cyan-text);
+}
+/* Their own colour: sending as the Reflex page's send button (gold), the help bulbs gold, switched off crossed out in
+   the muted orange (never grey). */
+svg.lucide-send { --icon-tint: var(--aifred-accent-warning); }
+svg.lucide-lightbulb { --icon-tint: var(--aifred-accent-gold); }
+svg.lucide-eye-off { --icon-tint: var(--aifred-icon-off); }

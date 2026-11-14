@@ -217,11 +217,9 @@ article { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; b
 .line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .name { min-width: 210px; font-weight: 600; font-size: 0.9rem; display: inline-flex; align-items: center; gap: 6px; }
 .kind { font-size: 0.85rem; display: inline-flex; align-items: center; gap: 4px; }
-select, input, button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; }
+select, input { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; }
+button { padding: 3px 8px; font-size: 0.85rem; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); width: 16px; height: 16px; padding: 0; }
-button { cursor: pointer; }
-button:disabled { opacity: 0.5; cursor: default; }
-button.on { border-color: var(--aifred-primary); color: var(--aifred-primary); }
 .days { width: 90px; }
 .camera header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .camera.away { opacity: 0.7; }
@@ -234,5 +232,5 @@ h3 { margin: 6px 0 0; font-size: 1rem; }
 .rules td { padding: 3px 8px; text-align: center; border-top: 1px solid var(--aifred-border); }
 .rules td.who { text-align: left; white-space: nowrap; }
 .hint { margin: 0; font-size: 0.8rem; color: var(--aifred-text-muted); }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 </style>

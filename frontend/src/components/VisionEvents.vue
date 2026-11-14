@@ -303,10 +303,8 @@ const value = (event: Event): string => (event.target as HTMLSelectElement).valu
 .filters, .pages { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pages { justify-content: center; font-size: 0.85rem; color: var(--aifred-text-secondary); }
 .grow { flex: 1; }
-select, button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; }
-button { cursor: pointer; }
-button:disabled { opacity: 0.5; cursor: default; }
-button.danger { color: var(--aifred-danger); }
+select { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; }
+button { padding: 3px 8px; font-size: 0.85rem; }
 .switch { display: inline-flex; align-items: center; gap: 4px; font-size: 0.85rem; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .event { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--aifred-border); flex-wrap: wrap; }
@@ -328,9 +326,9 @@ input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .description { font-size: 0.8rem; font-style: italic; color: var(--aifred-text-muted); cursor: pointer; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .description.open { display: block; white-space: pre-wrap; }
 .actions { display: inline-flex; gap: 4px; align-items: center; }
-.actions button.done { border-color: var(--aifred-accent-purple); }
+.actions button.done { border-color: var(--aifred-accent-purple); --icon-own: currentColor; }
 .bulk { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.bulk progress { width: 220px; accent-color: var(--aifred-primary); }
+.bulk progress { width: 220px; accent-color: var(--aifred-primary); --icon-own: currentColor; }
 .hint { margin: 0; font-size: 0.85rem; color: var(--aifred-text-muted); }
 .notice { margin: 0; color: var(--aifred-accent-amber); }
 </style>

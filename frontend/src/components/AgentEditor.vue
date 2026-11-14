@@ -150,15 +150,14 @@ onMounted(() =>
 .editor { width: min(860px, calc(88 * var(--vw))); display: flex; flex-direction: column; gap: 10px; }
 .head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .tabs { display: flex; gap: 6px; flex: 1; flex-wrap: wrap; }
-.tabs button.active { border-color: var(--aifred-primary); color: var(--aifred-primary); }
+.tabs button.active { border-color: var(--aifred-primary); color: var(--aifred-primary); --icon-own: currentColor; }
 .close { background: none; border: none; font-size: 1.2rem; }
 /* border-box: a field at width 100 % keeps its padding and border inside (the emoji field ran over the edge). */
-button:not(.pill), input:not([type="checkbox"]), select { box-sizing: border-box; background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
-button { cursor: pointer; }
-button:disabled { opacity: 0.5; cursor: default; }
+input:not([type="checkbox"]), select { box-sizing: border-box; background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+button:not(.pill) { box-sizing: border-box; padding: 4px 8px; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
-.saved { margin: 0; color: var(--aifred-accent-cyan); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
+.saved { margin: 0; color: var(--aifred-accent-cyan); --icon-own: currentColor; }
 .persona { display: grid; grid-template-columns: 1fr 120px 80px; gap: 10px; }
 .persona label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--aifred-text-secondary); }
 .persona .wide { grid-column: 1 / -1; }

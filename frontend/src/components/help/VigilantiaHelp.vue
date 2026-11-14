@@ -60,5 +60,5 @@ h3 { margin: 0 0 6px; font-size: 0.95rem; color: var(--aifred-accent-gold); }
 .icon { font-size: 1.1rem; }
 strong { font-size: 0.9rem; }
 p { margin: 2px 0 0; font-size: 0.88rem; color: var(--aifred-text-secondary); }
-.link { align-self: flex-start; background: none; border: none; padding: 0; color: var(--aifred-accent-amber); text-decoration: underline; cursor: pointer; font: inherit; }
+.link { align-self: flex-start; background: none; border: none; padding: 0; color: var(--aifred-accent-amber); text-decoration: underline; cursor: pointer; font: inherit; --icon-own: currentColor; }
 </style>

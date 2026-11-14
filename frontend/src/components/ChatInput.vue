@@ -252,7 +252,7 @@ figure button { cursor: pointer; font: inherit; border: none; }
   --badge-working: var(--aifred-primary);
 }
 /* In the working colour, which tells it from the red rim of the recording microphone beside it (as in Agent-Orc). */
-.discard { display: inline-flex; align-items: center; justify-content: center; background: none; border: none; color: var(--aifred-primary); }
+.discard { display: inline-flex; align-items: center; justify-content: center; background: none; border: none; color: var(--aifred-primary); --icon-own: currentColor; }
 /* Send and stop: an icon in its colour, framed (the look of the Reflex page's action buttons). */
 .line-button {
   display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;
@@ -260,6 +260,9 @@ figure button { cursor: pointer; font: inherit; border: none; }
 }
 .line-button:hover:not(:disabled) { background: color-mix(in srgb, var(--line-color) 38%, transparent); }
 .line-button:disabled { opacity: 0.45; cursor: default; }
-.send { --line-color: var(--aifred-accent-warning); }
-.stop { --line-color: var(--aifred-danger); }
+/* Send as on the Reflex page (its send button, on the phone too): gold on dark brown, amber under the mouse. */
+.send { --line-color: var(--aifred-accent-warning); --icon-own: currentColor; background: var(--aifred-warning-bg-mid); }
+.send:hover:not(:disabled) { background: var(--aifred-warning-bg-hover); color: var(--aifred-accent-amber); }
+.send:active:not(:disabled) { background: var(--aifred-warning-bg); color: var(--aifred-primary-hover); transform: scale(0.98); }
+.stop { --line-color: var(--aifred-danger); --icon-own: currentColor; }
 </style>

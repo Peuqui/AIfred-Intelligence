@@ -78,11 +78,10 @@ onMounted(() => {
 
 <style scoped>
 .prompts { display: flex; flex-direction: column; gap: 10px; }
-button, select, textarea { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
-button { cursor: pointer; }
-button:disabled { opacity: 0.5; cursor: default; }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
-.saved { margin: 0; color: var(--aifred-accent-cyan); }
+select, textarea { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+button { padding: 4px 8px; }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
+.saved { margin: 0; color: var(--aifred-accent-cyan); --icon-own: currentColor; }
 .pick { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .dirty { color: var(--aifred-accent-amber); font-size: 0.85rem; }
 .hint { margin: 0; font-size: 0.85rem; color: var(--aifred-text-muted); }

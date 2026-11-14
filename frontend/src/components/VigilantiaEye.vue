@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The eye that arms Vigilantia's background watch or disarms it: a bare 14 px eye without a box (Peuqui 13.11.2026),
-// armed open in Radix orange (the Reflex page's colour), off crossed out in light grey. One for the chat's card and the
-// vision settings' mode line.
+// armed open in Radix orange (the Reflex page's colour), off crossed out in the muted orange of switched-off icons
+// (assets/controls.css, Peuqui 14.11.2026: not grey). One for the chat's card and the vision settings' mode line.
 import { Eye, EyeOff } from "lucide-vue-next";
 
 defineProps<{ armed: boolean; disabled?: boolean; title: string }>();
@@ -21,6 +21,6 @@ defineEmits<{ toggle: [] }>();
   transition: transform 0.2s ease;
 }
 .eye:hover:not(:disabled) { transform: scale(1.15); }
-.eye.armed { color: var(--aifred-radix-solid-orange); }
+.eye.armed { color: var(--aifred-radix-solid-orange); --icon-own: currentColor; }
 .eye:disabled { opacity: 0.6; cursor: default; }
 </style>

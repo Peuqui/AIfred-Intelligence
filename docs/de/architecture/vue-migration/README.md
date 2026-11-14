@@ -28,6 +28,13 @@ ein Tab offen ist. Mehrere Tabs oder Geräte sehen dieselbe Sitzung live.
   endgültigen Wechsel zeigt nginx `/aifred/` auf den Server statt auf das Reflex-Frontend (3002).
 - **Farben** bleiben in `aifred/theme.py` (`COLORS`); Vue lädt die CSS-Variablen von
   `GET /api/app/theme.css` (`css_variables()`).
+- **Buttons und Icons** haben ihr Aussehen an einer Stelle, `frontend/src/assets/controls.css` (seit
+  14.11.2026, Vorschlag A wie die Reflex-Seite): Buttons im „soft“-Look von Radix Themes (kein Rahmen, leicht
+  getönter Grund), Klassen `.primary`, `.on`, `.danger`; jedes Lucide-Icon in der Farbe seiner Bedeutung
+  (`svg.lucide-<name>`), Abgeschaltetes durchgestrichen in gedämpftem Orange (`icon_off`). Alle Regeln ohne
+  Spezifität (`:where`), eine Komponente mit gewollt anderem Aussehen behält ihre Regel. Ein Element, das seine
+  Icons selbst färbt (Warnung, Senden-Knopf, eingeschalteter Schalter), setzt `--icon-own: currentColor`.
+  Komponenten tragen keine eigene Button-Optik (Grund, Rahmen, Textfarbe) mehr, nur Abstände.
 - **Übersetzungen** bleiben in `aifred/lib/i18n/{de,en}.json`; Vue lädt sie von
   `GET /api/app/i18n/{lang}`.
 - **Typen der API** entstehen aus den Pydantic-Schemas: OpenAPI der FastAPI-App →

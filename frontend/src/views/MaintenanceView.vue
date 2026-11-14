@@ -127,8 +127,7 @@ summary { cursor: pointer; font-weight: 600; }
 .kind { min-width: 70px; font-size: 0.75rem; color: var(--aifred-text-secondary); }
 .name { flex: 1; color: var(--aifred-accent-blue); word-break: break-all; }
 .meta { font-size: 0.75rem; color: var(--aifred-text-muted); }
-button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; font: inherit; font-size: 0.8rem; cursor: pointer; }
-button.danger { border-color: var(--aifred-danger); color: var(--aifred-danger); }
+button { padding: 2px 8px; font-size: 0.8rem; }
 table { border-collapse: collapse; font-size: 0.75rem; width: 100%; }
 th { text-align: left; color: var(--aifred-text-secondary); font-weight: 600; padding: 3px 6px; }
 td { padding: 3px 6px; border-top: 1px solid var(--aifred-border); }

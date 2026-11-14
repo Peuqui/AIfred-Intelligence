@@ -240,12 +240,9 @@ article.person { display: flex; flex-direction: column; gap: 8px; padding: 10px 
 .name { font-size: 1rem; }
 .meta { font-size: 0.78rem; color: var(--aifred-text-muted); }
 .confirm { font-size: 0.85rem; color: var(--aifred-danger); }
-select, input, button, .button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; }
+select, input { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; }
+button, .button { padding: 3px 8px; font-size: 0.85rem; }
 .button { text-decoration: none; }
-button { cursor: pointer; }
-button:disabled { opacity: 0.5; cursor: default; }
-button.on { border-color: var(--aifred-primary); color: var(--aifred-primary); }
-button.danger { color: var(--aifred-danger); }
 input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .embeddings { display: flex; gap: 8px; flex-wrap: wrap; }
 .embeddings figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; }

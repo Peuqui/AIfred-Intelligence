@@ -193,18 +193,17 @@ function contextLines(model: ModelInUse): { text: string; speed: boolean }[] {
 .line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .name { min-width: 170px; font-weight: 600; font-size: 0.9rem; }
 .hint { color: var(--aifred-text-secondary); font-size: 0.85rem; }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 .done { margin: 0; color: var(--aifred-accent-success); }
-select, button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
-button { cursor: pointer; }
-button:disabled, select:disabled { opacity: 0.5; cursor: default; }
-button.danger { border-color: var(--aifred-danger); color: var(--aifred-danger); }
+select { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+button { padding: 4px 8px; }
+select:disabled { opacity: 0.5; cursor: default; }
 .buttons { gap: 8px; }
-.ok { color: var(--aifred-accent-success); font-size: 0.85rem; }
-.missing { color: var(--aifred-danger); font-size: 0.85rem; }
+.ok { color: var(--aifred-accent-success); font-size: 0.85rem; --icon-own: currentColor; }
+.missing { color: var(--aifred-danger); font-size: 0.85rem; --icon-own: currentColor; }
 summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; }
 details p { margin: 6px 0 0; }
-.card { font-size: 0.85rem; color: var(--aifred-accent-cyan); }
+.card { font-size: 0.85rem; color: var(--aifred-accent-cyan); --icon-own: currentColor; }
 .subtitle { font-weight: 600; font-size: 0.85rem; margin-top: 12px !important; }
 .model { margin-top: 6px; }
 .model-name { font-size: 0.9rem; word-break: break-all; }

@@ -48,6 +48,24 @@ COLORS = {
     # Farben der alten Reflex-Oberfläche (Radix Themes 3.2.1, dunkel): Orange (accent-9) und helles Grau (gray-a11)
     "radix_solid_orange": "#f76b15",
     "radix_soft_gray_text": "#ffffffaf",
+    # Buttons and icons as on the Reflex page (Radix Themes 3, dark; Peuqui 14.11.2026: proposal A): the "soft" variant
+    # (no rim, a faint tint, the text in the colour's step 11) and every icon in the colour of what it means
+    # (frontend/src/assets/controls.css). Step 11 of each Radix scale is its readable text colour.
+    "button_soft_bg": "rgba(255, 255, 255, 0.07)",        # gray-a3
+    "button_soft_bg_hover": "rgba(255, 255, 255, 0.11)",  # gray-a4
+    "button_primary_bg": "rgba(247, 107, 21, 0.16)",      # orange-a3
+    "button_danger_bg": "rgba(255, 23, 63, 0.14)",        # red-a3
+    "radix_orange_text": "#ffa057",   # orange-11: main actions, editing
+    "radix_red_text": "#ff6369",      # red-10: deleting, stopping
+    "radix_amber_text": "#ffca16",    # amber-11: warnings
+    "radix_teal_text": "#0bd8b6",     # teal-11: reloading, switching on and off
+    "radix_green_text": "#3dd68c",    # green-11: adding, confirmed
+    "radix_blue_text": "#70b8ff",     # blue-11: moving data (download, upload, links)
+    "radix_yellow_text": "#f5d90a",   # yellow-11: files and documents
+    "radix_violet_text": "#baa7ff",   # violet-11: memory, knowledge, the models
+    "radix_cyan_text": "#4ccce6",     # cyan-11: audio, pictures, video
+    "icon_neutral": "#c9b8a6",        # navigation and settings: a warm grey, never white
+    "icon_off": "#a35829",            # a switched-off icon (crossed out): the AIfred orange, muted (orange-8), not grey
     "gpu_mark_text": "#fcd34d",  # GPU-Etikett am Mikrofon: Schrift (amber-300, wie in Agent-Orc)
     "gpu_mark_border": "#f59e0b",  # GPU-Etikett am Mikrofon: Rand (amber-500, wie in Agent-Orc)
     "danger": "#ef1c3f",         # Fehler, Löschen (Karminrot wie Agent-Orc; 4,0:1 auf card_bg)

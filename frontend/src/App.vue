@@ -146,7 +146,7 @@ html, body { -webkit-tap-highlight-color: transparent; }
 /* A hundredth of the screen with the interface's size taken out: the body is zoomed by --ui-zoom, and inside it
    vw/vh would grow with it (a dialog of 88vw became wider than the screen). Every size in screen units uses these. */
 :root { --vw: calc(1vw / var(--ui-zoom)); --vh: calc(1vh / var(--ui-zoom)); --dvh: calc(1dvh / var(--ui-zoom)); }
-button, input, select, textarea { font: inherit; }
+input, select, textarea { font: inherit; }
 /* Lucide icons sit on the line of the text beside them (a label with an icon in front), and never shrink in a flex row. */
 svg.lucide { vertical-align: -0.15em; flex: none; }
 /* A switch as a pill, as on the Reflex page: grey when off, a muted orange when on (tools of an agent, agents of the chat). */
@@ -191,7 +191,7 @@ h1, h2, h3, input, textarea, select { color: var(--aifred-text-primary); }
 
 .back { color: var(--aifred-text-secondary); text-decoration: none; white-space: nowrap; }
 .user { color: var(--aifred-text-secondary); white-space: nowrap; }
-.burger { background: none; border: none; color: var(--aifred-primary); cursor: pointer; font-size: 1.3rem; padding: 0 4px; }
+.burger { background: none; border: none; color: var(--aifred-primary); cursor: pointer; font-size: 1.3rem; padding: 0 4px; --icon-own: currentColor; }
 .backdrop { position: fixed; inset: 0; z-index: 40; }
 .menu { position: absolute; top: 100%; right: 0; z-index: 41; display: flex; flex-direction: column; min-width: 220px; padding: 6px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 8px; }
 .menu a { color: var(--aifred-text-secondary); text-decoration: none; padding: 8px 10px; border-radius: 6px; }
@@ -200,12 +200,11 @@ h1, h2, h3, input, textarea, select { color: var(--aifred-text-primary); }
 .sizes { display: flex; flex-direction: column; gap: 4px; padding: 4px 10px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--aifred-border); color: var(--aifred-text-secondary); font-size: 0.85rem; }
 .size { display: flex; align-items: center; gap: 6px; }
 .size span { flex: 1; }
-.size button { min-width: 32px; background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; }
-.size button:disabled { opacity: 0.4; cursor: default; }
+.size button { min-width: 32px; }
 .reset { align-self: flex-start; margin-top: 2px; background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; padding: 2px 8px; }
 .menu a:hover, .menu a.router-link-active { color: var(--aifred-text-primary); background: var(--aifred-input-bg); }
 /* Only the exit sign, everywhere: the tooltip names it. */
-.logout { display: inline-flex; align-items: center; background: none; border: 1px solid var(--aifred-border); color: inherit; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+.logout { display: inline-flex; align-items: center; padding: 4px 8px; }
 .page { flex: 1; }
 @media (max-width: 760px) {
   .app { padding: 0 8px; }

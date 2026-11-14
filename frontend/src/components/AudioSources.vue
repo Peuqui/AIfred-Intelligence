@@ -145,13 +145,10 @@ onBeforeUnmount(() => {
 .wide { min-width: 260px; }
 .number { width: 80px; }
 .confirm { font-size: 0.82rem; color: var(--aifred-danger); }
-select, input, button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; }
-button { cursor: pointer; }
-button:disabled { opacity: 0.5; cursor: default; }
-button.primary { border-color: var(--aifred-primary); color: var(--aifred-primary); }
-button.danger { color: var(--aifred-danger); }
+select, input { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; }
+button { padding: 3px 8px; font-size: 0.85rem; }
 .status { margin: 0; font-size: 0.85rem; }
 .hint { margin: 0; font-size: 0.8rem; color: var(--aifred-text-muted); }
 .notice { margin: 0; color: var(--aifred-accent-amber); }
-.saved { margin: 0; color: var(--aifred-accent-success); }
+.saved { margin: 0; color: var(--aifred-accent-success); --icon-own: currentColor; }
 </style>

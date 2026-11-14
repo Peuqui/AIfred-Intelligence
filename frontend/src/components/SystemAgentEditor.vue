@@ -95,16 +95,16 @@ async function saveCloud(): Promise<void> {
 .editor { width: min(860px, calc(88 * var(--vw))); display: flex; flex-direction: column; gap: 10px; }
 .head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .tabs { display: flex; gap: 6px; flex: 1; flex-wrap: wrap; }
-.tabs button.active { border-color: var(--aifred-primary); color: var(--aifred-primary); }
+.tabs button.active { border-color: var(--aifred-primary); color: var(--aifred-primary); --icon-own: currentColor; }
 .close { background: none; border: none; font-size: 1.2rem; }
-button, select { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; }
-button:disabled { opacity: 0.5; cursor: default; }
+select { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; }
+button { padding: 4px 8px; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .cloud { display: flex; flex-direction: column; gap: 10px; }
 .cloud label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--aifred-text-secondary); }
 .cloud .switch { flex-direction: row; align-items: center; gap: 6px; color: var(--aifred-text-primary); }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
-.saved { margin: 0; color: var(--aifred-accent-cyan); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
+.saved { margin: 0; color: var(--aifred-accent-cyan); --icon-own: currentColor; }
 .hint { margin: 0; font-size: 0.85rem; color: var(--aifred-text-muted); }
 .actions { display: flex; justify-content: flex-end; }
 </style>

@@ -83,7 +83,6 @@ function stop(): void {
 .controls, .progress { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .controls { flex-wrap: nowrap; }
 button { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; padding: 0 8px; font: inherit; }
-button:disabled { opacity: 0.4; cursor: default; }
 .time { color: var(--aifred-text-muted); font-variant-numeric: tabular-nums; }
 .seek { flex: 1; min-width: 60px; }
 /* Both sliders: a thin groove and the same small knob. */

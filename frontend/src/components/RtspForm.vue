@@ -104,13 +104,12 @@ const optional = (event: Event): number | null => ((event.target as HTMLInputEle
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
 label { display: flex; flex-direction: column; gap: 3px; font-size: 0.8rem; color: var(--aifred-text-secondary); }
 label.check { flex-direction: row; align-items: center; gap: 6px; }
-input, select, button { background: var(--aifred-input-bg); color: var(--aifred-text-primary); border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; }
+input, select { background: var(--aifred-input-bg); color: var(--aifred-text-primary); border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; }
+button { padding: 3px 8px; font-size: 0.85rem; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); width: 16px; height: 16px; }
-button { cursor: pointer; }
-.danger { border-color: var(--aifred-danger); color: var(--aifred-danger); }
 .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .space { flex: 1; }
 .confirm { font-size: 0.85rem; color: var(--aifred-accent-amber); }
 .hint { margin: 0; font-size: 0.75rem; color: var(--aifred-text-muted); }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 </style>

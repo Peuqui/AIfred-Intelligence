@@ -96,9 +96,8 @@ async function showRuns(job: JobRow): Promise<void> {
 .bar { display: flex; align-items: center; gap: 14px; }
 .bar button { margin-left: auto; }
 h2 { margin: 0; font-size: 1rem; }
-button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; }
-.danger { border-color: var(--aifred-danger); color: var(--aifred-danger); }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+button { padding: 4px 8px; }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 .empty { margin: 0; color: var(--aifred-text-muted); }
 .list { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .list th { text-align: left; font-weight: 500; font-size: 0.75rem; color: var(--aifred-text-muted); padding: 4px 6px; }

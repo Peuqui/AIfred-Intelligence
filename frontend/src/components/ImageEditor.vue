@@ -93,5 +93,5 @@ header { font-weight: 600; }
 .buttons { display: flex; gap: 10px; }
 .buttons button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 6px 14px; cursor: pointer; font: inherit; }
 .buttons button:disabled { opacity: 0.6; cursor: progress; }
-.buttons .apply { background: var(--aifred-accent-success); color: var(--aifred-text-on-accent); border-color: var(--aifred-accent-success); }
+.buttons .apply { background: var(--aifred-accent-success); color: var(--aifred-text-on-accent); border-color: var(--aifred-accent-success); --icon-own: currentColor; }
 </style>

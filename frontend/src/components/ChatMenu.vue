@@ -29,10 +29,7 @@ function picked(event: MouseEvent): void {
 
 <style scoped>
 .chat-menu { position: relative; display: inline-flex; }
-.trigger {
-  display: inline-flex; align-items: center; background: none; border: 1px solid var(--aifred-border); border-radius: 6px;
-  padding: 2px 6px; color: inherit; cursor: pointer;
-}
+.trigger { display: inline-flex; align-items: center; padding: 2px 6px; }
 .panel {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; width: min(300px, calc(90 * var(--vw))); padding: 4px;
   display: flex; flex-direction: column; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border-light);

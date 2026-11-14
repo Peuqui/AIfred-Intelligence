@@ -38,7 +38,7 @@ const BODIES: Record<HelpTopic, Component> = {
 <style scoped>
 .help { display: flex; flex-direction: column; gap: 14px; width: min(680px, calc(90 * var(--vw))); line-height: 1.5; }
 .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 1.05rem; }
-.head strong { color: var(--aifred-accent-gold); }
+.head strong { color: var(--aifred-accent-gold); --icon-own: currentColor; }
 .close { background: none; border: none; color: inherit; font-size: 1.3rem; cursor: pointer; }
 .done { align-self: center; padding: 6px 18px; background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; font: inherit; cursor: pointer; }
 </style>

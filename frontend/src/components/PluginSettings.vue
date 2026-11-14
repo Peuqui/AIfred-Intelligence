@@ -83,8 +83,8 @@ h3 { margin: 10px 0 2px; font-size: 0.95rem; color: var(--aifred-text-secondary)
 .spacer { flex: 1; }
 .switch { display: inline-flex; align-items: center; gap: 4px; font-size: 0.8rem; color: var(--aifred-text-secondary); }
 input[type="checkbox"] { accent-color: var(--aifred-primary); width: 16px; height: 16px; }
-select, button { background: var(--aifred-card-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; font: inherit; font-size: 0.8rem; }
-button { cursor: pointer; }
-.hint { font-size: 0.8rem; color: var(--aifred-accent-amber); }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+select { background: var(--aifred-card-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; font: inherit; font-size: 0.8rem; }
+button { padding: 2px 8px; font-size: 0.8rem; }
+.hint { font-size: 0.8rem; color: var(--aifred-accent-amber); --icon-own: currentColor; }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 </style>

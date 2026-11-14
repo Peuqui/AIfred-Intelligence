@@ -79,10 +79,8 @@ async function clearAll(): Promise<void> {
 .care { width: min(640px, calc(86 * var(--vw))); display: flex; flex-direction: column; gap: 10px; }
 header, .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .close { background: none; border: none; font-size: 1.2rem; }
-button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; }
-button:disabled { opacity: 0.5; cursor: default; }
-.danger { border-color: var(--aifred-danger); color: var(--aifred-danger); }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+button { padding: 4px 8px; }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 .counts { margin: 0; color: var(--aifred-text-secondary); }
 section { display: flex; flex-direction: column; gap: 6px; max-height: calc(45 * var(--dvh)); overflow-y: auto; }
 .empty { margin: 0; color: var(--aifred-text-muted); }

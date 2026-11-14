@@ -113,9 +113,8 @@ async function runImport(): Promise<void> {
 .file { display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; color: var(--aifred-text-secondary); }
 fieldset { border: 1px solid var(--aifred-border); border-radius: 8px; display: flex; gap: 12px; flex-wrap: wrap; }
 .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
-button, .button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; text-decoration: none; }
-button:disabled { opacity: 0.5; cursor: default; }
+button, .button { padding: 4px 8px; text-decoration: none; }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--aifred-primary); }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
-.done { margin: 0; color: var(--aifred-accent-cyan); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
+.done { margin: 0; color: var(--aifred-accent-cyan); --icon-own: currentColor; }
 </style>

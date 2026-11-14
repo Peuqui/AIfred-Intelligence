@@ -31,8 +31,8 @@ import { t } from "../../i18n";
 <style scoped>
 section { padding: 10px 12px; border: 1px solid var(--aifred-border); border-radius: 8px; }
 h3 { margin: 0 0 6px; font-size: 0.95rem; color: var(--aifred-accent-gold); }
-.reasoning h3 { color: var(--aifred-accent-amber); }
-.thinking h3 { color: var(--aifred-accent-blue); }
+.reasoning h3 { color: var(--aifred-accent-amber); --icon-own: currentColor; }
+.thinking h3 { color: var(--aifred-accent-blue); --icon-own: currentColor; }
 p { margin: 0 0 6px; }
 .effect { color: var(--aifred-text-secondary); font-style: italic; }
 dl { display: grid; grid-template-columns: 60px 1fr; gap: 6px 8px; margin: 0; }

@@ -217,9 +217,8 @@ section { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; b
 .head, .line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .head { justify-content: space-between; }
 .name { min-width: 170px; font-weight: 600; font-size: 0.9rem; }
-select, button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 0.85rem; }
-button { cursor: pointer; }
-button:disabled { opacity: 0.4; cursor: default; }
+select { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 0.85rem; }
+button { padding: 3px 6px; font-size: 0.85rem; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); width: 16px; height: 16px; }
 .entry { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--aifred-border); }
 .entry.off .label, tr.off .who { opacity: 0.6; }
@@ -240,5 +239,5 @@ tr.narrator td { border-top: 2px solid var(--aifred-border); }
 .error { margin: 0; color: var(--aifred-danger); font-size: 0.85rem; }
 .ok { color: var(--aifred-text-secondary); }
 .hint { margin: 0; font-size: 0.8rem; color: var(--aifred-text-muted); }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 </style>

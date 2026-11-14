@@ -281,17 +281,16 @@ h2 { margin: 0; font-size: 1rem; }
 .sources { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
 .trail { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; color: var(--aifred-text-muted); }
 .actions { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
-button, input:not([type="checkbox"]) { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; }
+input:not([type="checkbox"]) { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; }
+button { padding: 4px 8px; }
 .trail button, .link, .row-actions button { background: none; border: none; padding: 2px 4px; }
 .trail button:hover, .link:hover { text-decoration: underline; }
-.danger { border-color: var(--aifred-danger); color: var(--aifred-danger); }
-button:disabled { opacity: 0.5; cursor: default; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 .progress { margin: 0; color: var(--aifred-accent-cyan); }
-.outcome { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--aifred-accent-cyan); }
+.outcome { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--aifred-accent-cyan); --icon-own: currentColor; }
 .outcome button { background: none; border: none; padding: 0 4px; }
-.failure { flex-basis: 100%; margin: 0; color: var(--aifred-accent-amber); overflow-wrap: anywhere; }
+.failure { flex-basis: 100%; margin: 0; color: var(--aifred-accent-amber); overflow-wrap: anywhere; --icon-own: currentColor; }
 .dragging { outline: 2px dashed var(--aifred-primary); outline-offset: -4px; }
 .drop { margin: 0; color: var(--aifred-primary); }
 .naming { display: flex; gap: 8px; flex-wrap: wrap; }

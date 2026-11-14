@@ -165,11 +165,10 @@ legend { font-size: 0.85rem; padding: 0 4px; }
 .cron input { width: 6em; }
 .grow { flex: 1; min-width: 12em; }
 .number { width: 5em; }
-button, input:not([type="checkbox"]), select, textarea { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
-button { cursor: pointer; }
-button:disabled { opacity: 0.5; cursor: default; }
+input:not([type="checkbox"]), select, textarea { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+button { padding: 4px 8px; }
 textarea { min-height: 7em; resize: vertical; }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 .next { margin: 0; font-size: 0.85rem; color: var(--aifred-accent-cyan); }
 .actions { display: flex; gap: 8px; justify-content: flex-end; }
 @media (max-width: 760px) {

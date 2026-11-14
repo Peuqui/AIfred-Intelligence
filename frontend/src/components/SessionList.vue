@@ -95,18 +95,15 @@ function removeAll(): void {
 .sessions.column header { flex-wrap: wrap; }
 .sessions.column .toggle { flex-basis: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sessions.column .placement { margin-left: auto; }
-.reload:hover { color: var(--aifred-primary); }
+.reload:hover { color: var(--aifred-primary); --icon-own: currentColor; }
 .placement, .reload { display: inline-flex; align-items: center; background: none; border: none; padding: 2px; color: var(--aifred-text-secondary); cursor: pointer; }
 .count { margin-left: 6px; font-weight: 400; color: var(--aifred-text-muted); }
 header { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 600; }
 .new, .remove, .entry { background: none; border: none; color: inherit; cursor: pointer; font: inherit; }
 .new { color: var(--aifred-primary); }
 .bulk { display: flex; flex-wrap: wrap; gap: 6px; }
-.bulk button { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; font-size: var(--text-small); padding: 2px 8px; }
-.bulk button:disabled { opacity: 0.5; cursor: default; }
-.bulk .danger { border-color: var(--aifred-danger); }
-.bulk .select { color: var(--aifred-text-secondary); }
-.bulk .select.on { border-color: var(--aifred-primary); color: var(--aifred-primary); }
+.bulk button { font-size: var(--text-small); padding: 2px 8px; }
+.bulk .select.on { border-color: var(--aifred-primary); color: var(--aifred-primary); --icon-own: currentColor; }
 .pick { accent-color: var(--aifred-primary); margin-left: 6px; }
 ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
 li { display: flex; align-items: center; border-radius: 6px; }

@@ -135,8 +135,7 @@ summary::-webkit-details-marker { display: none; }
 .red .dot { background: var(--aifred-danger); }
 @keyframes breathe { 50% { opacity: 0.4; } }
 @media (prefers-reduced-motion: reduce) { .dot { animation: none !important; } }
-.refresh, .power { display: inline-flex; align-items: center; background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: var(--aifred-text-secondary); cursor: pointer; padding: 3px 6px; font: inherit; }
-.refresh:hover, .power:hover:not(:disabled) { color: var(--aifred-primary); border-color: var(--aifred-primary); }
+.refresh, .power { display: inline-flex; align-items: center; padding: 3px 6px; }
 .refresh { margin-left: auto; }
 /* A table: every line shares the columns (sign, service, model, time left, button), so the buttons stand one under the
    other whatever the length of a model's name. */
@@ -150,5 +149,5 @@ summary::-webkit-details-marker { display: none; }
 .value.wrap { white-space: normal; overflow-wrap: anywhere; } /* a machine's line breaks instead of cutting off its numbers */
 .time { color: var(--aifred-text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .power:disabled { opacity: 0.5; cursor: progress; }
-.notice { margin: 2px 0 0; color: var(--aifred-accent-amber); }
+.notice { margin: 2px 0 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 </style>

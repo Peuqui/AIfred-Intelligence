@@ -16,6 +16,6 @@ const open = ref(false);
 
 <style scoped>
 /* A bare bulb as in the Reflex interface; still a button for the keyboard and screen readers. */
-.help { background: none; border: none; padding: 0; cursor: pointer; font: inherit; color: var(--aifred-accent-amber); transition: transform 0.2s ease; }
+.help { background: none; border: none; padding: 0; cursor: pointer; font: inherit; color: var(--aifred-accent-amber); transition: transform 0.2s ease; --icon-own: currentColor; }
 .help:hover { transform: scale(1.15); }
 </style>

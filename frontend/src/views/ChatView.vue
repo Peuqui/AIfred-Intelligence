@@ -327,9 +327,9 @@ onMounted(() => void start());
 .how { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .how .watch { margin-left: auto; }
 h2 { margin: 0; font-size: 1.1rem; }
-.incognito, .agent-choices, .zoom { background: none; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; color: inherit; }
+.incognito, .agent-choices, .zoom { padding: 2px 8px; }
 .zoom:disabled { opacity: 0.5; cursor: default; }
-.incognito.on { border-color: var(--aifred-accent-amber); }
+.incognito.on { border-color: var(--aifred-accent-amber); --icon-own: currentColor; }
 /* The box keeps 70 % of the screen whatever the sizes; only its content takes the chat's size (the interface's
    size, set on the page, is taken out again). */
 .messages {
@@ -359,6 +359,6 @@ h2 { margin: 0; font-size: 1.1rem; }
 .streaming header { font-size: var(--text-small); font-weight: 600; color: var(--agent-color, var(--aifred-primary)); }
 .tool { margin: 4px 0 0; font-size: var(--text-small); color: var(--aifred-accent-cyan); }
 .waiting { align-self: flex-start; padding: 0 14px; }
-.notice { color: var(--aifred-accent-amber); }
-.info { color: var(--aifred-accent-success); }
+.notice { color: var(--aifred-accent-amber); --icon-own: currentColor; }
+.info { color: var(--aifred-accent-success); --icon-own: currentColor; }
 </style>

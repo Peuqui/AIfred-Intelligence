@@ -131,10 +131,8 @@ header { display: flex; align-items: baseline; gap: 10px; }
 .captures img { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; border: 1px solid var(--aifred-border); }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .grow { flex: 1; }
-select, input, button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 10px; font: inherit; font-size: 0.88rem; }
-button { cursor: pointer; }
-button:disabled { opacity: 0.5; cursor: default; }
-button.primary { border-color: var(--aifred-primary); color: var(--aifred-primary); }
+select, input { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 10px; font: inherit; font-size: 0.88rem; }
+button { padding: 4px 10px; font-size: 0.88rem; }
 .hint { margin: 0; font-size: 0.8rem; color: var(--aifred-text-muted); }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 </style>

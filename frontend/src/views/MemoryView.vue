@@ -109,7 +109,7 @@ watch(() => route.query.agent, (agent) => void (typeof agent === "string" && age
 <style scoped>
 .memory { padding: 12px 0; display: flex; flex-direction: column; gap: 12px; }
 h2 { margin: 0; font-size: 1rem; }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 .split { display: grid; grid-template-columns: minmax(180px, 240px) 1fr; gap: 14px; align-items: start; }
 /* The list of agents stays in view while the page scrolls the entries (no scroll container of its own around it). */
 .agents { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 8px; }
@@ -119,9 +119,8 @@ h2 { margin: 0; font-size: 1rem; }
 .entries { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .bar { display: flex; gap: 8px; align-items: center; }
 .bar .danger { margin-left: auto; }
-button, input, select, textarea { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
-button { cursor: pointer; }
-.danger { border-color: var(--aifred-danger); color: var(--aifred-danger); }
+input, select, textarea { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+button { padding: 4px 8px; }
 .empty { color: var(--aifred-text-muted); margin: 0; }
 .entry { border: 1px solid var(--aifred-border); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
 .entry header { display: flex; gap: 10px; align-items: center; font-size: 0.75rem; color: var(--aifred-text-muted); }

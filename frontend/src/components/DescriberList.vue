@@ -74,9 +74,8 @@ onBeforeUnmount(() => {
 .label { flex: 1; min-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note { flex-basis: 100%; font-size: 0.78rem; color: var(--aifred-text-muted); padding-left: 56px; overflow-wrap: anywhere; }
 .note.warn { color: var(--aifred-accent-warning); }
-button { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; cursor: pointer; }
-button:disabled { opacity: 0.5; cursor: default; }
+button { padding: 3px 8px; font-size: 0.85rem; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); width: 16px; height: 16px; }
 .hint { margin: 0; font-size: 0.8rem; color: var(--aifred-text-muted); }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 </style>

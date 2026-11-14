@@ -143,11 +143,10 @@ onMounted(async () => {
 .pick { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 0.9rem; }
 .link { display: flex; flex-direction: column; gap: 10px; width: min(520px, calc(88 * var(--vw))); }
 .link label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--aifred-text-secondary); }
-button, input { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 10px; font: inherit; }
-button { cursor: pointer; }
-button.primary { border-color: var(--aifred-primary); color: var(--aifred-primary); }
+input { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 10px; font: inherit; }
+button { padding: 4px 10px; }
 .actions { display: flex; gap: 8px; justify-content: flex-end; }
-.notice { margin: 0; color: var(--aifred-accent-amber); }
+.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 </style>
 
 <style>
