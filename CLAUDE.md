@@ -155,11 +155,10 @@ meldet jede Ausnahme, die nichts mehr unterdrückt.
 
 **IMMER nach Code-Änderungen ausführen - KEINE Ausnahmen!**
 
-**pytest NIE im Produktionsordner** (Peuqui 14.11.2026): Tests schreiben noch in das `data/` des Ordners, in dem sie
-laufen (belegt: Gesichtsordner `data/vision/faces/cam_test-*`, `vision.db`, `routing.db`, Audio-Index). Tests nur in
-einem Worktree laufen lassen (`git worktree add ../AIfred-<thema> -b <thema>`, `venv` und `frontend/node_modules` als
-Symlink); `~/.cache/aifred-e2e/aifred_pytest_per_file.sh` verweigert den Produktionsordner. Gilt bis die Tests ihr
-`data/` nicht mehr anfassen.
+**Tests haben ihr eigenes `data/`** (seit 14.11.2026): `tests/conftest.py` setzt vor jedem aifred-Import
+`AIFRED_DATA_DIR` auf einen frischen Temp-Ordner (mit den drei Dateien, die das Repo in `data/` führt) und räumt
+ihn am Ende weg; `config.DATA_DIR` liest die Variable. `tests/test_data_dir_isolated.py` schlägt an, wenn ein Test
+wieder das echte `data/` benutzen würde. Vorher schrieben alle Testdateien in das `data/` des Checkouts.
 
 ruff und mypy kommen aus `~/.venv/devtools/bin/`, nicht aus dem Projekt-venv. Die Typen des Projekts
 und die Stubs (`types-*` in `requirements.txt`) bekommt mypy über `--python-executable`.
