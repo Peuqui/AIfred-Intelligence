@@ -17,6 +17,7 @@ from websockets.asyncio.server import ServerConnection, serve
 
 import aifred.lib.settings as settings_module
 from aifred.lib import audio_processing, tts_client, tts_service
+from aifred.lib.config import TTS_LIST_MAX_DEFAULT
 from aifred.lib.tts_client import TTSClient
 
 # What the TTS-Suite sends as content type of its frame stream (the client reads the frames, not the type).
@@ -118,6 +119,7 @@ def install_fake_service(
     monkeypatch.setattr(tts_client, "_default_client", client)
     keys = listed if listed is not None else [row["engine"] for row in fake.catalog if row["host"] is None]
     settings = {
+        "tts_list_max": TTS_LIST_MAX_DEFAULT,  # read by clean_text_for_tts; persisted_settings() has it from the defaults
         "tts_escalation": [{"engine": key, "host": None, "enabled": True} for key in keys],
         "tts_toggles_per_engine": {},
         "tts_agent_voices_per_engine": agent_voices if agent_voices is not None else {
