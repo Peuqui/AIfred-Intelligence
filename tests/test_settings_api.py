@@ -55,9 +55,21 @@ def test_a_change_writes_its_keys_only(client: TestClient, monkeypatch: pytest.M
     {"max_debate_rounds": 11},
     {"max_debate_rounds": 0},
     {"consensus_type": "beliebig"},
+    {"tts_list_max": 0},
     {"backend_type": "ollama"},                                         # the backend has its own switch
 ])
 def test_a_value_the_setting_does_not_know_is_refused(client: TestClient, change: dict[str, object]) -> None:
     before = settings.SETTINGS_FILE.read_text()
     assert client.patch("/settings", json=change).status_code == 422
     assert settings.SETTINGS_FILE.read_text() == before
+
+
+def test_the_cut_of_lists_in_the_spoken_reply_is_a_speech_setting_the_filter_reads(client: TestClient) -> None:
+    """tts_list_max (07/14.11.2026: moved from the audio player's settings to the spoken output, the core)."""
+    from aifred.lib.audio_processing import _get_tts_list_max_items
+    from aifred.lib.config import TTS_LIST_MAX_DEFAULT
+
+    assert client.get("/settings").json()["tts_list_max"] == TTS_LIST_MAX_DEFAULT == _get_tts_list_max_items()
+    assert client.patch("/settings", json={"tts_list_max": 9}).json()["tts_list_max"] == 9
+    assert json.loads(settings.SETTINGS_FILE.read_text())["tts_list_max"] == 9
+    assert _get_tts_list_max_items() == 9

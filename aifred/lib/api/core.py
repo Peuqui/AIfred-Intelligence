@@ -45,6 +45,7 @@ class SettingsResponse(BaseModel):
     user_emoji: str = Field(description="The user's sign beside their chat bubble")
     enable_tts: bool = Field(description="Speech output is on")
     tts_autoplay: bool = Field(description="A reply is read aloud while it is written")
+    tts_list_max: int = Field(description="From how many entries a list in the spoken reply is cut (the speech reads a hint)")
     dictation_engine: str = Field(description="Who recognizes a dictation: one of config.DICTATION_ENGINES")
     show_transcription: bool = Field(description="A dictation goes into the input field first")
     max_debate_rounds: int
@@ -71,6 +72,7 @@ class SettingsUpdate(BaseModel):
     user_emoji: str | None = None
     enable_tts: bool | None = None
     tts_autoplay: bool | None = None
+    tts_list_max: int | None = None
     dictation_engine: str | None = None
     show_transcription: bool | None = None
     max_debate_rounds: int | None = Field(None, ge=DEBATE_ROUNDS_MIN, le=DEBATE_ROUNDS_MAX)
@@ -116,6 +118,8 @@ async def update_settings(update: SettingsUpdate) -> SettingsResponse:
         changes["user_name"] = changes["user_name"].strip()
     if changes.get("user_emoji", USER_EMOJI_CHOICES[0]) not in USER_EMOJI_CHOICES:
         raise Invalid("unknown_user_emoji", emoji=changes["user_emoji"])
+    if changes.get("tts_list_max", 1) < 1:
+        raise Invalid("number_too_small", value=changes["tts_list_max"], low=1)
     if changes.get("dictation_engine", DICTATION_ENGINES[0]) not in DICTATION_ENGINES:
         raise Invalid("unknown_dictation_engine", engine=changes["dictation_engine"])
     if changes and not write_settings(changes):

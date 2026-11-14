@@ -246,9 +246,6 @@ only holds the rest (shipped state):
   // Area the file picker in the settings UI may reach
   "picker": { "root": "/mnt" },
 
-  // Threshold of the TTS list filter (audio_processing.py)
-  "tts_list": { "full_max_items": 5 },
-
   // Resume behavior
   "resume": {
     "pre_roll_sec": 7,

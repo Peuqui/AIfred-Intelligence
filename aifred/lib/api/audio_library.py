@@ -1,13 +1,13 @@
 """The audio player's sources and settings (``lib/audio_library.py``): every source with its index count, a folder of
 the sandbox added, a source removed (only a label the source map knows), its index read anew (a run of the server,
-one at a time) or emptied; the sandbox and the list threshold of the spoken reply."""
+one at a time) or emptied; the sandbox. All of it answers 409 while the plugin is off."""
 
 import asyncio
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..logging_utils import log_message
-from .app import api_app, audio_player_api
+from .app import audio_player_api
 
 
 class AudioSourceRow(BaseModel):
@@ -21,8 +21,6 @@ class AudioSourceRow(BaseModel):
 class AudioLibrary(BaseModel):
     sources: list[AudioSourceRow]
     picker_root: str = Field(description="The sandbox new sources come from")
-    tts_list_max: int = Field(description="From how many entries a list in the spoken reply is cut")
-    player_on: bool = Field(description="The audio player plugin is on: only then its sources and sandbox are managed")
     indexing: str = Field(description="The source being read now ('' = none)")
     message: str = Field(description="The reading's state or its last outcome in words")
 
@@ -39,8 +37,7 @@ class AudioIndexStart(BaseModel):
 
 class AudioSettingsChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    picker_root: str | None = None
-    tts_list_max: int | None = None
+    picker_root: str
 
 
 class AudioDone(BaseModel):
@@ -56,15 +53,14 @@ def _lang() -> str:
 def _library() -> AudioLibrary:
     from dataclasses import asdict
 
-    from ..audio_library import indexing, picker_root, sources, tts_list_max
-    from ..plugin_registry import is_plugin_enabled
+    from ..audio_library import indexing, picker_root, sources
 
     state = indexing()
     return AudioLibrary(sources=[AudioSourceRow(**asdict(source)) for source in sources()], picker_root=picker_root(),
-                        tts_list_max=tts_list_max(), player_on=is_plugin_enabled("audio_player"), indexing=state.running, message=state.message(_lang()))
+                        indexing=state.running, message=state.message(_lang()))
 
 
-@api_app.get("/audio/sources", response_model=AudioLibrary, tags=["Audio"])
+@audio_player_api.get("/audio/sources", response_model=AudioLibrary, tags=["Audio"])
 async def audio_sources() -> AudioLibrary:
     return await asyncio.to_thread(_library)
 
@@ -112,10 +108,10 @@ async def audio_source_index(label: str, start: AudioIndexStart) -> AudioLibrary
     return await asyncio.to_thread(_library)
 
 
-@api_app.put("/audio/settings", response_model=AudioLibrary, tags=["Audio"])
+@audio_player_api.put("/audio/settings", response_model=AudioLibrary, tags=["Audio"])
 async def audio_settings_change(change: AudioSettingsChange) -> AudioLibrary:
-    """The sandbox (an absolute folder) and the list threshold (at least 1); 422 otherwise, nothing is written."""
+    """The sandbox (an absolute folder); 422 otherwise, nothing is written."""
     from ..audio_library import change_settings
 
-    await asyncio.to_thread(lambda: change_settings(root=change.picker_root, list_max=change.tts_list_max))
+    await asyncio.to_thread(lambda: change_settings(root=change.picker_root))
     return await asyncio.to_thread(_library)

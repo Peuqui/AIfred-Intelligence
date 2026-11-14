@@ -104,6 +104,9 @@ DEFAULT_TTS_ESCALATION: list[dict[str, object]] = [
 # (satzweise / absatzweise / am Stück) trägt die Engine selbst (Katalog der TTS-Suite: ``unit_default``).
 TTS_AUTOPLAY_DEFAULT = False
 
+# A list in the spoken reply is cut from this many entries on: the speech reads a hint instead (the chat keeps it whole).
+TTS_LIST_MAX_DEFAULT = 5
+
 DICTATION_ENGINES = ("stt_suite", "browser")
 
 # Provider of the backend "cloud_api" on a fresh install: a key of CLOUD_API_PROVIDERS.
@@ -131,6 +134,7 @@ DEFAULT_SETTINGS = {
     "tts_playback_rate": "1.25x",  # Browser playback speed (1.25 = default, speed via Agent Settings)
     "enable_tts": False,
     "tts_autoplay": TTS_AUTOPLAY_DEFAULT,
+    "tts_list_max": TTS_LIST_MAX_DEFAULT,
     # Per agent: its voice on/off ("enabled", default on) and the language it speaks ("language",
     # empty or "auto" = the language of the question).
     "tts_agents": {},
@@ -1535,8 +1539,6 @@ AUDIO_POSITION_SAVE_SEC = 30
 # The folder a new audio source may come from (the audio player's picker.root overrides it): a source is a symlink
 # under data/media/audio/ to a folder inside it, never outside (/api/audio/file serves what the sources hold).
 AUDIO_PICKER_ROOT_DEFAULT = "/mnt"
-# The audio player's list for the spoken reply: from this many entries on it is cut (tts_list.full_max_items overrides).
-AUDIO_TTS_LIST_MAX_DEFAULT = 5
 MEDIA_AUDIO_DIR = MEDIA_DIR / "audio"
 MEDIA_VIDEO_DIR = MEDIA_DIR / "video"
 MEDIA_AUDIO_DIR.mkdir(parents=True, exist_ok=True)

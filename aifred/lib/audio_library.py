@@ -1,8 +1,7 @@
 """The audio player's sources for every interface (the audio page of Vue): every source
 (a folder under data/media/audio/, mostly a symlink, or a stream of the plugin's settings) with how many files its index
 holds; a folder of the picker's sandbox added as a source, a source taken out, its index read anew (a run of the
-server, one at a time) or emptied; the plugin's settings the page changes: the sandbox (picker.root) and from how many
-entries the list in a spoken reply is cut (tts_list.full_max_items).
+server, one at a time) or emptied; the plugin's setting the page changes: the sandbox (picker.root).
 
 Only a label the source map knows is taken out or indexed (a page can name anything); a new source must resolve
 inside the sandbox, so no symlink chain leads /api/audio/file outside it.
@@ -57,31 +56,18 @@ def picker_root() -> str:
     return str((load_audio_player_settings().get("picker") or {}).get("root") or AUDIO_PICKER_ROOT_DEFAULT).strip()
 
 
-def tts_list_max() -> int:
-    """From how many entries the list in a spoken reply is cut."""
-    from .audio_player_settings import load_audio_player_settings
-    from .config import AUDIO_TTS_LIST_MAX_DEFAULT
-
-    return int((load_audio_player_settings().get("tts_list") or {}).get("full_max_items", AUDIO_TTS_LIST_MAX_DEFAULT))
-
-
-def change_settings(*, root: str | None = None, list_max: int | None = None) -> None:
-    """ValueError for a sandbox that is no absolute folder or a threshold below 1 (nothing is written then)."""
+def change_settings(*, root: str) -> None:
+    """ValueError for a sandbox that is no absolute folder (nothing is written then)."""
     from .audio_player_settings import (
         load_audio_player_settings,
         save_audio_player_settings,
     )
 
     settings = load_audio_player_settings()
-    if root is not None:
-        folder = Path(root.strip()).expanduser()
-        if not folder.is_absolute() or not folder.is_dir():
-            raise Invalid("sandbox_not_folder", path=root)
-        settings.setdefault("picker", {})["root"] = str(folder)
-    if list_max is not None:
-        if list_max < 1:
-            raise Invalid("number_too_small", value=list_max, low=1)
-        settings.setdefault("tts_list", {})["full_max_items"] = list_max
+    folder = Path(root.strip()).expanduser()
+    if not folder.is_absolute() or not folder.is_dir():
+        raise Invalid("sandbox_not_folder", path=root)
+    settings.setdefault("picker", {})["root"] = str(folder)
     save_audio_player_settings(settings)
 
 

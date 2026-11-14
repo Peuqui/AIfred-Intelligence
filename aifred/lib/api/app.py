@@ -69,6 +69,7 @@ def _router_of_plugin(name: str) -> APIRouter:
 
 vision_api = _router_of_plugin("vision")
 audio_player_api = _router_of_plugin("audio_player")
+narrator_api = _router_of_plugin("narrator")
 
 # NOTE: CORS middleware is NOT added here (the page and the API share one origin).
 

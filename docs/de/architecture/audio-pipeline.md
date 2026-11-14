@@ -247,9 +247,6 @@ Plugins hält nur noch den Rest (ausgelieferter Stand):
   // Bereich, den der Datei-Picker in der Settings-UI erreichen darf
   "picker": { "root": "/mnt" },
 
-  // Schwelle des TTS-Listen-Filters (audio_processing.py)
-  "tts_list": { "full_max_items": 5 },
-
   // Resume-Verhalten
   "resume": {
     "pre_roll_sec": 7,

@@ -75,14 +75,14 @@ def reset_content_hint_flags() -> None:
 
 
 def _get_tts_list_max_items() -> int:
-    """Read tts_list.full_max_items from audio_player settings.json.
+    """tts_list_max of settings.json (spoken output, core).
 
     Threshold for the TTS list filter: lists with > max_items entries are
     replaced with a spoken hint instead of being read aloud. Browser
     display is unaffected (filter only runs in TTS path).
     """
-    from .audio_library import tts_list_max
-    return tts_list_max()
+    from .settings import persisted_settings
+    return int(persisted_settings()["tts_list_max"])
 
 
 _LIST_ITEM_RE = re.compile(r'^[ \t]*(?:[-*+]|\d+[.)])\s+')
@@ -840,7 +840,7 @@ def clean_text_for_tts(text, language):
         clean_text = table_block_pattern.sub(replace_table, clean_text)
 
     # Multi-line: replace LONG markdown list blocks with a spoken hint.
-    # Threshold from settings.json (audio_player → tts_list.full_max_items).
+    # Threshold from settings.json (tts_list_max).
     # Short lists (≤ threshold) pass through unchanged so TTS reads them.
     # A "list block" = ≥ 2 consecutive lines starting with -, *, +, or N. / N).
     list_block_pattern = re.compile(

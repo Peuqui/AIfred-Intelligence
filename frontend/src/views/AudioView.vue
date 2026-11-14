@@ -1,15 +1,17 @@
 <script setup lang="ts">
 // The audio page: speech output on or off, AIfred's list of speech engines (order, switch, unit; the first
 // that can speaks), each chat agent's voice on an engine and the narrator's, whether speech recognition
-// answers, and the audio player's sources (AudioSources.vue). What exists (engines, places, voices) is the TTS service's catalog; when it does not answer the
+// answers, from how many entries a list in a reply is not read aloud, and the audio player's sources (AudioSources.vue; there
+// only while its plugin is on, like the narrator's row). What exists (engines, places, voices) is the TTS service's catalog; when it does not answer the
 // list shows from the settings and says why.
 import { BookOpen, ChevronDown, ChevronUp, CircleCheck, FolderOpen, Mic, RefreshCw, TriangleAlert } from "lucide-vue-next";
-import { defineAsyncComponent, onMounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, ref, watch } from "vue";
 import { ApiError, api } from "../api/client";
 import type { AgentSpeech, NarratorVoice, SpeechChoices, SpeechList, SpeechRecognition } from "../api/types";
 import { t } from "../i18n";
 import AudioSources from "../components/AudioSources.vue";
 import TtsIcon from "../components/TtsIcon.vue";
+import { usePlugins } from "../stores/plugins";
 import { useSettings } from "../stores/settings";
 
 // The voices folder of the TTS-Suite in the file requester (loaded when it opens: it brings VueFinder).
@@ -17,6 +19,8 @@ const FileRequester = defineAsyncComponent(() => import("../components/FileReque
 const voicesOpen = ref(false);
 
 const settings = useSettings();
+const plugins = usePlugins();
+const narratorOn = computed(() => plugins.toolOn("narrator"));
 const list = ref<SpeechList | null>(null);
 const choices = ref<SpeechChoices | null>(null);
 const recognition = ref<SpeechRecognition | null>(null);
@@ -66,14 +70,17 @@ async function refresh(): Promise<void> {
 
 watch(engine, async (chosen) => {
   if (!chosen) return;
-  const path = encodeURIComponent(chosen);
-  const [voices, reading] = await Promise.all([
-    call(() => api<AgentSpeech[]>(`speech/agents?engine=${path}`)),
-    call(() => api<NarratorVoice>(`speech/narrator/${path}`)),
-  ]);
-  agents.value = voices ?? [];
-  narrator.value = reading;
+  agents.value = (await call(() => api<AgentSpeech[]>(`speech/agents?engine=${encodeURIComponent(chosen)}`))) ?? [];
 });
+
+// The narrator's voice is asked for only while its plugin is on (the endpoints refuse with 409 otherwise).
+watch(
+  [engine, narratorOn],
+  async ([chosen, on]) => {
+    narrator.value = chosen && on ? await call(() => api<NarratorVoice>(`speech/narrator/${encodeURIComponent(chosen)}`)) : null;
+  },
+  { immediate: true },
+);
 
 function replace(updated: AgentSpeech | null): void {
   if (updated) agents.value = agents.value.map((agent) => (agent.agent === updated.agent ? updated : agent));
@@ -92,6 +99,14 @@ async function narrate(chosen: string): Promise<void> {
   narrator.value = (await call(() => send<NarratorVoice>(`speech/narrator/${encodeURIComponent(engine.value)}`, "PUT", { voice: chosen }))) ?? narrator.value;
 }
 
+// A number below 1 is refused by the server (its words appear as the notice); the field then shows the saved one again.
+async function changeListMax(event: Event): Promise<void> {
+  const field = event.target as HTMLInputElement;
+  await settings.change({ tts_list_max: Number(field.value) });
+  notice.value = settings.notice;
+  field.value = String(settings.current?.tts_list_max ?? "");
+}
+
 const picked = (event: Event): string => (event.target as HTMLSelectElement).value;
 </script>
 
@@ -107,6 +122,10 @@ const picked = (event: Event): string => (event.target as HTMLSelectElement).val
       <label class="line">
         <span class="name">{{ t("tts_autoplay_label") }}</span>
         <input type="checkbox" :checked="settings.current.tts_autoplay" :disabled="!settings.current.enable_tts" @change="settings.change({ tts_autoplay: !settings.current.tts_autoplay })" />
+      </label>
+      <label class="line" :title="t('audio_settings_list_max_help')">
+        <span class="name">{{ t("audio_settings_list_max") }}</span>
+        <input type="number" min="1" class="number" :value="settings.current.tts_list_max" @change="changeListMax" />
       </label>
     </section>
 
@@ -181,7 +200,7 @@ const picked = (event: Event): string => (event.target as HTMLSelectElement).val
               </select>
             </td>
           </tr>
-          <tr v-if="narrator" class="narrator">
+          <tr v-if="narratorOn && narrator" class="narrator">
             <td class="who" :title="t('narrator_settings_subtitle')"><BookOpen :size="16" /> {{ t("speech_narrator") }}</td>
             <td></td>
             <td></td>
@@ -219,6 +238,7 @@ section { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; b
 .name { min-width: 170px; font-weight: 600; font-size: 0.9rem; }
 select { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 0.85rem; }
 button { padding: 3px 6px; font-size: 0.85rem; }
+.number { width: 80px; background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); width: 16px; height: 16px; }
 .entry { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--aifred-border); }
 .entry.off .label, tr.off .who { opacity: 0.6; }

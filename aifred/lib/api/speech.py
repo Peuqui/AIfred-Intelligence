@@ -13,7 +13,7 @@ from ..agent_config import AgentConfig
 from ..logging_utils import log_message
 from ..tts_client import TTSSuiteError
 from ..user_error import Invalid, Missing, NotDone, Unavailable
-from .app import api_app
+from .app import api_app, narrator_api
 from .schemas import ChoiceOption
 
 
@@ -270,13 +270,13 @@ def _narrator(engine: str) -> NarratorVoice:
     return NarratorVoice(engine=engine, voice=narrator_voice(engine, voices), voices=voices)
 
 
-@api_app.get("/speech/narrator/{engine}", response_model=NarratorVoice, tags=["Speech"])
+@narrator_api.get("/speech/narrator/{engine}", response_model=NarratorVoice, tags=["Speech"])
 async def speech_narrator(engine: str) -> NarratorVoice:
     """The voice the narrator reads files with on ``engine``."""
     return await asyncio.to_thread(_narrator, engine)
 
 
-@api_app.put("/speech/narrator/{engine}", response_model=NarratorVoice, tags=["Speech"])
+@narrator_api.put("/speech/narrator/{engine}", response_model=NarratorVoice, tags=["Speech"])
 async def speech_narrator_change(engine: str, change: NarratorChange) -> NarratorVoice:
     from ..tts_settings import set_narrator_voice
 

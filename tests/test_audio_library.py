@@ -82,12 +82,12 @@ def test_only_a_known_source_is_removed_and_its_target_stays(world: dict) -> Non
 
 def test_the_settings_are_checked_before_they_are_written(world: dict, tmp_path: Path) -> None:
     before = world["settings"].read_text()
-    for bad in ({"root": "relative/path"}, {"root": str(tmp_path / "nothing")}, {"list_max": 0}):
+    for bad in ({"root": "relative/path"}, {"root": str(tmp_path / "nothing")}):
         with pytest.raises(ValueError):
             audio_library.change_settings(**bad)
     assert world["settings"].read_text() == before
-    audio_library.change_settings(root=str(tmp_path / "outside"), list_max=8)
-    assert (audio_library.picker_root(), audio_library.tts_list_max()) == (str(tmp_path / "outside"), 8)
+    audio_library.change_settings(root=str(tmp_path / "outside"))
+    assert audio_library.picker_root() == str(tmp_path / "outside")
     assert json.loads(world["settings"].read_text())["sources"]["Radio"]["type"] == "http_stream"   # the rest stays
 
 
@@ -126,5 +126,21 @@ def test_the_sources_over_the_api(client: TestClient, world: dict) -> None:
     assert client.post("/audio/sources", json={"path": "escape"}).status_code == 422
     assert client.delete("/audio/sources/Radio").status_code == 404
     assert client.delete("/audio/sources/Musik/index").json()["message"] == "🗑️ Musik: 12 Index-Einträge gelöscht"
-    assert client.put("/audio/settings", json={"tts_list_max": 0}).status_code == 422
-    assert client.put("/audio/settings", json={"tts_list_max": 7}).json()["tts_list_max"] == 7
+    assert client.put("/audio/settings", json={"picker_root": "relative/path"}).status_code == 422
+    outside = str(world["sandbox"].parent / "outside")
+    assert client.put("/audio/settings", json={"picker_root": outside}).json()["picker_root"] == outside
+    assert client.put("/audio/settings", json={"tts_list_max": 7}).status_code == 422     # the cut of lists is the speech's now
+
+
+def test_off_means_off_for_everything_only_the_player_uses(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sources, sandbox and the player's buttons (POST /sessions/{id}/media: music only, the spoken reply's buttons never
+    leave the browser) answer 409 while the plugin is off."""
+    from aifred.lib import plugin_registry
+
+    monkeypatch.setattr(plugin_registry, "is_plugin_enabled", lambda name: name != "audio_player")
+    assert client.get("/audio/sources").status_code == 409
+    assert client.put("/audio/settings", json={"picker_root": "/"}).status_code == 409
+    assert client.post("/audio/sources", json={"path": "Hörbücher"}).status_code == 409
+    assert client.post("/sessions/any/media", json={"action": "pause"}).status_code == 409
+    monkeypatch.setattr(plugin_registry, "is_plugin_enabled", lambda name: True)
+    assert client.get("/audio/sources").status_code == 200

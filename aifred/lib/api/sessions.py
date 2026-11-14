@@ -19,7 +19,7 @@ from ..server_shutdown import until_shutdown
 from ..session_storage import DEFAULT_SESSION_CONFIG
 from ..turn_images import TurnImage
 from ..user_error import Conflict, Invalid, Missing, Refused
-from .app import api_app
+from .app import api_app, audio_player_api
 
 SSE_KEEPALIVE_S = 15.0
 
@@ -512,7 +512,7 @@ class MediaControl(BaseModel):
     relative: bool = False
 
 
-@api_app.post("/sessions/{session_id}/media", tags=["Sessions"])
+@audio_player_api.post("/sessions/{session_id}/media", tags=["Sessions"])
 async def sessions_media(session_id: str, control: MediaControl, request: Request) -> dict[str, bool]:
     """The player's buttons on what the audio player plays in the session's tabs, the same way an agent's tool goes
     (lib/audio_channels/browser.py): every tab follows. ``ended``: the page played the last track to its end.

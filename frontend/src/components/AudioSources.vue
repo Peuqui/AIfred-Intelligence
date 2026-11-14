@@ -3,13 +3,16 @@
 // the streams of the plugin's settings, each with how many files its index holds; a folder of the sandbox added (the
 // file requester over the area "audio", where folders and links are made too), a source read anew into the index (a
 // run of the server, followed until it ends), its index emptied, the source removed (asked first; the folder it points
-// to stays). Below, the plugin's two settings: the sandbox and from how many entries a list in the spoken reply is cut.
+// to stays). Below, the plugin's setting: the sandbox. The whole box is there only while the plugin is on and follows
+// its switch live (stores/plugins.ts); the cut of lists in the spoken reply is the speech's own (AudioView.vue).
 import { BrushCleaning, CircleCheck, Folder, Hourglass, Link, Radio, RefreshCcwDot, RefreshCw, Trash2 } from "lucide-vue-next";
-import { defineAsyncComponent, onBeforeUnmount, onMounted, ref } from "vue";
+import { defineAsyncComponent, onBeforeUnmount, ref, watch } from "vue";
 import { ApiError, PROGRESS_POLL_MS, api } from "../api/client";
 import type { AudioLibrary } from "../api/types";
-import { formatNumber, t, tCount } from "../i18n";
+import { t, tCount } from "../i18n";
+import { usePlugins } from "../stores/plugins";
 
+const plugins = usePlugins();
 const library = ref<AudioLibrary | null>(null);
 const notice = ref("");
 const saved = ref(false);
@@ -18,7 +21,6 @@ const choosing = ref(false);
 const FileRequester = defineAsyncComponent(() => import("./FileRequester.vue"));
 const removing = ref("");
 const root = ref("");
-const listMax = ref(0);
 let polling: number | null = null;
 
 async function call<T>(work: () => Promise<T>): Promise<T | null> {
@@ -39,7 +41,6 @@ const source = (label: string): string => `audio/sources/${encodeURIComponent(la
 function follow(state: AudioLibrary): void {
   library.value = state;
   root.value = state.picker_root;
-  listMax.value = state.tts_list_max;
   if (state.indexing && polling === null) {
     polling = window.setTimeout(async () => {
       polling = null;
@@ -81,27 +82,38 @@ async function save(body: object): Promise<void> {
   }
 }
 
-onMounted(() => reload());
+// The plugin on: the sources are read (again); off: the box is gone and a read that is still due is dropped.
+watch(
+  () => plugins.toolOn("audio_player"),
+  (on) => {
+    if (on) void reload();
+    else {
+      library.value = null;
+      if (polling !== null) window.clearTimeout(polling);
+      polling = null;
+    }
+  },
+  { immediate: true },
+);
 onBeforeUnmount(() => {
   if (polling !== null) window.clearTimeout(polling);
 });
 </script>
 
 <template>
-  <section v-if="library" class="sources">
-    <p v-if="!library.player_on" class="hint">{{ t("plugin_off_hint") }}</p>
-    <div v-if="library.player_on" class="head">
+  <section v-if="plugins.toolOn('audio_player') && library" class="sources">
+    <div class="head">
       <strong>{{ t("audio_sources_title") }}</strong>
       <button @click="choosing = true">{{ t("audio_source_add") }}</button>
     </div>
-    <p v-if="library.player_on" class="hint">{{ t("audio_sources_help") }}</p>
+    <p class="hint">{{ t("audio_sources_help") }}</p>
     <p v-if="library.message" class="status">{{ library.message }}</p>
     <p v-if="notice" class="notice">{{ notice }}</p>
     <p v-if="saved" class="saved"><CircleCheck :size="16" /> {{ t("audio_settings_saved") }}</p>
 
     <FileRequester v-if="choosing" area="audio" :title="t('audio_source_add')" pick @pick="pick" @close="choosing = false" />
 
-    <div v-for="entry in library.player_on ? library.sources : []" :key="entry.label" class="entry">
+    <div v-for="entry in library.sources" :key="entry.label" class="entry">
       <span class="label"><Radio v-if="entry.type === 'http_stream'" :size="16" /><Link v-else-if="entry.is_symlink" :size="16" /><Folder v-else :size="16" /> <strong>{{ entry.label }}</strong></span>
       <span class="target" :title="entry.target">{{ entry.target }}</span>
       <span class="count">{{ entry.type === "http_stream" ? t("audio_source_stream") : tCount("audio_source_indexed", entry.indexed) }}</span>
@@ -118,16 +130,10 @@ onBeforeUnmount(() => {
       </span>
     </div>
 
-    <div v-if="library.player_on" class="line setting">
+    <div class="line setting">
       <label class="name" :title="t('audio_settings_root_help')">{{ t("audio_settings_root") }}</label>
       <input v-model="root" class="wide" />
       <button :disabled="root === library.picker_root" @click="save({ picker_root: root })">{{ t("audio_settings_save") }}</button>
-    </div>
-    <div class="line setting">
-      <label class="name" :title="t('audio_settings_list_max_help')">{{ t("audio_settings_list_max") }}</label>
-      <input v-model.number="listMax" class="number" type="number" min="1" />
-      <button :disabled="listMax === library.tts_list_max" @click="save({ tts_list_max: listMax })">{{ t("audio_settings_save") }}</button>
-      <span class="hint">{{ formatNumber(library.tts_list_max) }}</span>
     </div>
   </section>
 </template>
@@ -144,7 +150,6 @@ onBeforeUnmount(() => {
 .actions { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .setting .name { min-width: 260px; font-weight: 600; font-size: 0.88rem; }
 .wide { min-width: 260px; }
-.number { width: 80px; }
 .confirm { font-size: 0.82rem; color: var(--aifred-danger); }
 select, input { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 3px 8px; font: inherit; font-size: 0.85rem; }
 button { padding: 3px 8px; font-size: 0.85rem; }
