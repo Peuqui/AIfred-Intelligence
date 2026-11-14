@@ -868,6 +868,7 @@
   "sched_label_schedule": "Zeitplan",
   "sched_label_delivery": "Zustellung",
   "sched_label_channel": "Kanal",
+  "channel_off_marker": "{channel} (Kanal aus)",
   "sched_label_tier": "Rechte des Laufs",
   "sched_tier_hint": "Was der Agent während des Laufs tun darf: 0 nur lesen und recherchieren, 1 zusätzlich selbst Nachrichten senden, 2 zusätzlich Dateien im Workspace schreiben, 3 zusätzlich löschen und Systemaktionen, 4 alles. Mit der Zustellung des Ergebnisses hat das nichts zu tun.",
   "sched_label_message": "Nachricht (Prompt)",

@@ -3,6 +3,7 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { JobOptions, JobRow, JobRun, JobWrite } from "../api/types";
+import { t } from "../i18n";
 import { onResourceChanged } from "../lib/resourceChanges";
 
 export const useJobs = defineStore("jobs", () => {
@@ -42,6 +43,16 @@ export const useJobs = defineStore("jobs", () => {
     }
   });
 
+  // A channel's switch changed: what a job can be sent through is read anew (a page not opened yet reads it on opening).
+  onResourceChanged("plugins", () => {
+    if (options.value) void load();
+  });
+
+  // A channel by its name; a job's channel that is switched off is not offered (the server lists the channels that are on)
+  // but stays shown, marked.
+  const channelOff = (id: string): boolean => options.value !== null && !options.value.channels.some((channel) => channel.id === id);
+  const channelLabel = (id: string): string => (channelOff(id) ? t("channel_off_marker", { channel: id }) : id);
+
   // When an expression fires next; its reason when it never does.
   async function preview(scheduleType: string, scheduleExpr: string): Promise<{ next?: string; problem?: string }> {
     try {
@@ -55,5 +66,5 @@ export const useJobs = defineStore("jobs", () => {
     }
   }
 
-  return { jobs, options, notice, load, save, switchJob, remove, runs, preview };
+  return { jobs, options, notice, channelOff, channelLabel, load, save, switchJob, remove, runs, preview };
 });

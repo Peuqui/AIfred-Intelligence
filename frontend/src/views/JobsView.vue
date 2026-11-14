@@ -54,7 +54,7 @@ async function showRuns(job: JobRow): Promise<void> {
       <tbody>
         <tr v-for="job in jobs.jobs" :key="job.job_id" :class="{ off: !job.enabled }">
           <td><input type="checkbox" :checked="job.enabled" @change="jobs.switchJob(job.job_id, !job.enabled)" /></td>
-          <td class="name">{{ job.name }}<span class="delivery">{{ t(`sched_delivery_${job.delivery}`) }}{{ job.channel ? ` · ${job.channel}` : "" }}</span></td>
+          <td class="name">{{ job.name }}<span class="delivery">{{ t(`sched_delivery_${job.delivery}`) }}{{ job.channel ? ` · ${jobs.channelLabel(job.channel)}` : "" }}</span></td>
           <td>{{ agentLabel.get(job.agent) ?? job.agent }}</td>
           <td><span class="type">{{ t(`sched_type_${job.schedule_type}`) }}</span> <code>{{ job.schedule_expr }}</code><span v-if="job.ends_at" class="until">{{ t("sched_until") }} {{ job.ends_at.replace("T", " ") }}</span></td>
           <td class="stamp">{{ job.enabled ? when(job.next_run) : "–" }}</td>

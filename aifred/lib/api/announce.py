@@ -18,6 +18,7 @@ from ..config import (
 )
 from ..logging_utils import log_message
 from ..message_processor import announce_into_rooms, resolve_announce_targets
+from ..plugin_registry import require_channel_on
 from ..user_error import Missing, UpstreamFailed
 from .app import api_app
 from .schemas import CallerName
@@ -68,16 +69,18 @@ class AnnounceResponse(BaseModel):
 
 @api_app.get("/audio/announce/rooms", response_model=AnnounceRoomsResponse, tags=["Audio"])
 async def announce_rooms(authorization: str | None = Header(None)) -> dict[str, list[str]]:
-    """The FreeEcho.2 rooms connected right now — the valid values of ``room``."""
+    """The FreeEcho.2 rooms connected right now — the valid values of ``room``; 409 while the channel is off."""
     require_bearer_token("announce", authorization)
+    require_channel_on("freeecho2")
     return {"rooms": resolve_announce_targets("freeecho2", "*")}
 
 
 @api_app.post("/audio/announce", response_model=AnnounceResponse, tags=["Audio"])
 async def announce(request: AnnounceRequest, authorization: str | None = Header(None)) -> dict[str, object]:
     """Read the text (or the paragraphs of ``texts`` as ONE announcement) aloud in ``room``
-    (404 for an unknown or not connected room)."""
+    (404 for an unknown or not connected room, 409 while the channel is off)."""
     require_bearer_token("announce", authorization)
+    require_channel_on("freeecho2")
     paragraphs = request.paragraphs
     rooms = resolve_announce_targets("freeecho2", request.room)
     if not rooms:

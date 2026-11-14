@@ -119,3 +119,10 @@ def test_long_text_is_read_whole(client: TestClient) -> None:
     assert _post(client, text=long_text).status_code == 200
     assert _post(client, texts=[long_text, long_text, long_text]).status_code == 200
     assert len(client.delivered) == 2  # type: ignore[attr-defined]
+
+
+def test_channel_off_is_409_for_rooms_and_announce(client: TestClient, channels_on: Callable[..., None]) -> None:
+    channels_on()  # freeecho2 off
+    assert client.get("/audio/announce/rooms", headers=AUTH).status_code == 409
+    assert _post(client, text="Hallo").status_code == 409
+    assert client.delivered == []  # type: ignore[attr-defined]

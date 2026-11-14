@@ -39,6 +39,11 @@ const [startEndDate = "", startEndTime = ""] = (props.job?.ends_at ?? "").split(
 const endDate = ref(startEndDate);
 const endTime = ref(startEndTime.slice(0, 5));
 const endsAt = computed(() => (schedule.value.type === "once" || !endDate.value ? "" : endTime.value ? `${endDate.value}T${endTime.value}` : endDate.value));
+// The channels to choose from: those that are on; the job's own, when it is switched off, stays in the list, marked.
+const channelChoices = computed(() => {
+  const own = props.job?.channel;
+  return own && jobs.channelOff(own) ? [...props.options.channels, { id: own, label: jobs.channelLabel(own) }] : props.options.channels;
+});
 const inRooms = computed(() => props.options.rooms_channels.includes(form.value.channel));
 
 function preset(key: string): void {
@@ -126,7 +131,7 @@ async function save(): Promise<void> {
           <template v-if="form.delivery === 'announce'">
             <label class="cron">{{ t("sched_label_channel") }}
               <select v-model="form.channel" required>
-                <option v-for="channel in options.channels" :key="channel.id" :value="channel.id">{{ channel.label }}</option>
+                <option v-for="channel in channelChoices" :key="channel.id" :value="channel.id">{{ channel.label }}</option>
               </select>
             </label>
             <label class="grow">{{ t("sched_label_recipient") }}<input v-model="form.recipient" :placeholder="t('sched_recipient_placeholder')" /></label>

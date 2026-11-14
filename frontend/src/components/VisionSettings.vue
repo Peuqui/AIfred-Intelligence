@@ -5,10 +5,11 @@
 // background, alerts with their types, quiet hours, active window, event interval, zones, its connection. A change
 // of the background or the window takes effect at once.
 import { Bell, MapIcon, Plug, Power, TriangleAlert } from "lucide-vue-next";
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { ApiError, api } from "../api/client";
 import type { AlertRules, CameraRow, LiveView, RtspCameras, VigilantiaRow } from "../api/types";
 import { t } from "../i18n";
+import { usePlugins } from "../stores/plugins";
 import RtspForm from "./RtspForm.vue";
 import VigilantiaEye from "./VigilantiaEye.vue";
 import ZoneEditor from "./ZoneEditor.vue";
@@ -39,7 +40,18 @@ onMounted(async () => {
   cameras.value = (await call(() => api<LiveView>("vision/live")))?.cameras ?? [];
   loaded.value = (await call(() => api<{ loaded: boolean }>("vision/model")))?.loaded ?? null;
   rtsp.value = await call(() => api<RtspCameras>("vision/rtsp-cameras"));
+  await loadRules();
+});
+
+const loadRules = async (): Promise<void> => {
   rules.value = await call(() => api<AlertRules>("vision/alert-rules"));
+};
+// A channel switched on or off: the channels an alert can go through are read anew.
+watch(() => usePlugins().overview, () => void loadRules());
+// A rule can still lead to a channel that is off: it stays in the table, marked, and can be taken away.
+const offSinks = computed(() => {
+  const on = new Set(rules.value?.channels.map((channel) => channel.id));
+  return [...new Set((rules.value?.rules ?? []).flatMap((row) => row.sinks))].filter((sink) => !on.has(sink)).sort();
 });
 
 async function rule(category: string, body: object): Promise<void> {
@@ -134,6 +146,7 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
             <th></th>
             <th>{{ t("alert_rules_col_vlm") }}</th>
             <th v-for="channel in rules.channels" :key="channel.id">{{ channel.label }}</th>
+            <th v-for="sink in offSinks" :key="sink" class="off">{{ t("channel_off_marker", { channel: sink }) }}</th>
           </tr>
         </thead>
         <tbody>
@@ -142,6 +155,9 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
             <td><input type="checkbox" :checked="row.vlm" @change="rule(row.category, { vlm: checked($event) })" /></td>
             <td v-for="channel in rules.channels" :key="channel.id">
               <input type="checkbox" :checked="row.sinks.includes(channel.id)" @change="rule(row.category, { sink: channel.id, sink_on: checked($event) })" />
+            </td>
+            <td v-for="sink in offSinks" :key="sink">
+              <input type="checkbox" :checked="row.sinks.includes(sink)" @change="rule(row.category, { sink, sink_on: checked($event) })" />
             </td>
           </tr>
         </tbody>
@@ -221,6 +237,7 @@ h3 { margin: 6px 0 0; font-size: 1rem; }
 .rules table { border-collapse: collapse; }
 .rules th { font-size: 0.75rem; font-weight: 600; color: var(--aifred-text-secondary); padding: 3px 8px; text-align: center; }
 .rules td { padding: 3px 8px; text-align: center; border-top: 1px solid var(--aifred-border); }
+.rules th.off { color: var(--aifred-accent-amber); }
 .rules td.who { text-align: left; white-space: nowrap; }
 .hint { margin: 0; font-size: 0.8rem; color: var(--aifred-text-muted); }
 .notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
