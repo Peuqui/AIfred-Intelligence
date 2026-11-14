@@ -102,11 +102,11 @@ class OllamaBackend(LLMBackend):
 
     def __init__(self, base_url: str = DEFAULT_OLLAMA_URL):
         super().__init__(base_url=base_url)
-        # Timeout: None = UNLIMITED (Reflex will handle timeouts, not httpx)
+        # Timeout: None = UNLIMITED (the caller / asyncio handles timeouts, not httpx)
         # Limits: Increase connection limits to avoid pooling issues
         # History: Was 300s fixed, now unlimited for better flexibility
         limits = httpx.Limits(max_keepalive_connections=10, max_connections=20, keepalive_expiry=300.0)
-        timeout = httpx.Timeout(None)  # UNLIMITED - let Reflex/asyncio handle timeouts
+        timeout = httpx.Timeout(None)  # UNLIMITED - let asyncio handle timeouts
         self.client = httpx.AsyncClient(timeout=timeout, limits=limits)
 
     @staticmethod
@@ -274,7 +274,7 @@ class OllamaBackend(LLMBackend):
 
         try:
             timer = Timer()
-            # Use client's default timeout (unlimited) - Reflex handles timeouts
+            # Use client's default timeout (unlimited) - the caller handles timeouts
             response = await self.client.post(
                 f"{self.base_url}/api/chat",
                 json=payload

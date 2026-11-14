@@ -1,5 +1,4 @@
-"""Learning a person from several poses in front of a camera, for every interface (the vision page of Vue, the Reflex
-copy until it goes): a session in the server, one at a time (AIfred has one user; a new one replaces the old). Per pose
+"""Learning a person from several poses in front of a camera, for every interface (the vision page of Vue): a session in the server, one at a time (AIfred has one user; a new one replaces the old). Per pose
 the freshest picture of the camera (the tele lens where it has one), the largest face in it found by the face model,
 its crop framed like every face crop (``face_crop_store.crop_face_from_jpeg``) and its embedding; both stay here until
 the session is finished (the person made if new, the embeddings and crops stored, the recognisers load again) or

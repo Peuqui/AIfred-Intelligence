@@ -2,7 +2,7 @@
 Formatting Utilities - UI text formatting functions
 
 This module provides formatting functions for displaying AI responses
-and thinking processes in the Reflex UI.
+and thinking processes in the chat.
 """
 
 import re
@@ -26,12 +26,12 @@ _HTML_PREVIEW_DIR = DATA_DIR / "html_preview"
 _html_file_cache: OrderedDict[str, Path] = OrderedDict()
 _html_cache_lock = threading.Lock()
 
-# Global UI locale for number formatting (set by AIState on language change)
+# Global UI locale for number formatting (set via the settings API when the UI language changes)
 _ui_locale: str = "de"
 
 
 def set_ui_locale(locale: str):
-    """Set the global UI locale for number formatting (called by AIState)"""
+    """Set the global UI locale for number formatting (called when the UI language changes)"""
     global _ui_locale
     if locale in ["de", "en"]:
         _ui_locale = locale
@@ -227,10 +227,10 @@ def format_stamp(epoch: float) -> str:
 
 def convert_latex_delimiters(text: str) -> str:
     """
-    Convert various LaTeX delimiter formats to $...$ syntax for rx.markdown.
+    Convert various LaTeX delimiter formats to $...$ syntax for the chat's Markdown renderer.
 
     Handles common LLM output formats:
-    - \\text{...} → plain text (rx.markdown doesn't support \\text well)
+    - \\text{...} → plain text (the renderer doesn't handle \\text well)
     - \\[...\\] → $$...$$ (block math)
     - \\(...\\) → $...$ (inline math)
 
@@ -253,7 +253,7 @@ def convert_latex_delimiters(text: str) -> str:
     # Fixes LLM output like "wobei\text{F}" → "wobei \text{F}" → "wobei F"
     text = re.sub(r'([^\s\\])\\text\{', r'\1 \\text{', text)
 
-    # 2. Convert \text{...} to plain text (rx.markdown's KaTeX doesn't render it)
+    # 2. Convert \text{...} to plain text (the renderer's KaTeX doesn't render it)
     text = re.sub(r'\\text\{([^}]*)\}', r'\1', text)
 
     # 3. Convert \[...\] to $$...$$ (LaTeX display mode)
@@ -290,7 +290,7 @@ def format_metadata(metadata_text: str) -> str:
         '*( Inference: 1.3s    61.1 tok/s    Source: LLM )*'  # with non-breaking spaces
 
     Note:
-        Uses Markdown instead of HTML since rx.markdown() escapes inline HTML.
+        Uses Markdown instead of HTML.
         Italic formatting (*...*) signals meta-information.
         The 4-space separators between values become three non-breaking
         spaces plus one normal space: the gap keeps its width, and a narrow
@@ -681,7 +681,7 @@ def _save_html_to_assets(html_code: str, title: str = "") -> str:
     """
     Save HTML code as file in uploaded_files/html_preview/ and return URL.
 
-    IMPORTANT: Files are saved outside assets/ to avoid Reflex hot-reload!
+    IMPORTANT: Files are saved outside assets/ (under data/, served at /_upload/html_preview/).
     Implements LRU Cache: Maximum 50 files are kept, oldest are deleted.
 
     Args:
@@ -1136,7 +1136,7 @@ def format_thinking_process(
     clean_response = clean_response.strip()
 
     # Escape Markdown reference-link definitions: [LABEL]: text
-    # rx.markdown (react-markdown) interprets these as invisible reference
+    # Markdown (markdown-it) interprets these as invisible reference
     # definitions, swallowing the content entirely.
     # Pattern: line starts with [word]: followed by non-URL text
     # Real reference links like [1]: https://... are preserved.
@@ -1159,7 +1159,7 @@ def format_thinking_process(
     else:
         result = clean_response
 
-    # STEP: Convert LaTeX delimiters for rx.markdown compatibility
+    # STEP: Convert LaTeX delimiters for the Markdown renderer
     result = convert_latex_delimiters(result)
 
     return result
@@ -1373,9 +1373,9 @@ def build_tool_collapsible(block: dict[str, Any]) -> str:
     # Line breaks as the entity &#10;: the whole block is one HTML block without
     # blank lines, so Markdown never switches back on inside it (a blank line
     # made tables and **bold** render and pre-wrap spread them as big gaps).
-    # Not <pre>: Reflex renders <pre> with its code-block component, which
-    # expects a <code> child and crashed the page. No own max-height: the
-    # <details> rule in custom.css already scrolls.
+    # Not <pre>: the Reflex UI rendered <pre> with its code-block component, which
+    # expected a <code> child and crashed the page (until 08.11.2026). No own
+    # max-height: the <details> rule of /api/app/theme.css already scrolls.
     content = _html.escape(str(block.get("content", "")).rstrip()).replace("\n", "&#10;")
     # Optional performance line, italic in parentheses like the footer below an
     # answer (format_metadata); HTML here, because Markdown is off in the block.

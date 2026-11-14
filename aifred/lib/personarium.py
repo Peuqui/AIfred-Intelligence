@@ -1,4 +1,4 @@
-"""The persons of the vision for every interface (the vision page of Vue, the Reflex copy until it goes): every person
+"""The persons of the vision for every interface (the vision page of Vue): every person
 with a picture, how many embeddings it has and when it was seen last; a person renamed or deleted; a person's
 embeddings, one deleted; the faces no person is confirmed for yet, one card per crop file (the events of one sighting
 share it), assigned (and learned) or dismissed; every open face recognised again against the embeddings, a run of

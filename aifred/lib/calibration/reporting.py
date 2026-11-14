@@ -99,7 +99,7 @@ def _active_uuid_csv(split: tuple[float, ...], gpus: list[GPU]) -> str:
 
     The sentinel's tensor-split CSV lists only the ACTIVE values — the
     position info (which physical GPU each value belongs to) is lost.
-    This companion field restores it: the mixin passes it 1:1 as
+    This companion field restores it: the calibration service passes it 1:1 as
     CUDA_VISIBLE_DEVICES to the YAML variant writers, so env and
     tensor-split can never desync again. (A 5-value split with a 4-UUID
     env inherited from a 4-GPU base made llama.cpp re-normalize onto 4
@@ -121,7 +121,7 @@ def _result_sentinel(r: Result, thinks: bool, gpus: list[GPU]) -> str:
 
 
 def _speed_sentinel(r: Result, gpus: list[GPU]) -> str:
-    # Preserve legacy __SPEED__ grammar: the mixin parser does int(x) on
+    # Preserve the __SPEED__ grammar: the service's parser does int(x) on
     # every split part, so this sentinel must stay integer-formatted
     # (speed splits are integer anyway) — do NOT reuse the fractional
     # display formatter _split_str here. The UUID csv is appended as the

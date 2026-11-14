@@ -22,8 +22,8 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-# A helper, not the app: without CLI mode importing aifred loads the whole
-# Reflex app and resets the running service's live debug log.
+# A helper, not the app: without CLI mode the first log line of an imported aifred
+# resets the running service's live debug log.
 os.environ.setdefault("AIFRED_CLI_MODE", "1")
 
 from aifred.lib.calibration.vllm_flow import calibrate_vllm_checkpoint

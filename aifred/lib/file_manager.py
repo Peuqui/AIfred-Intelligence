@@ -1,7 +1,7 @@
 """Single source of truth for document filesystem + ChromaDB operations.
 
 Both the workspace tool plugin (LLM-facing API) and the document-manager
-UI (Reflex State mixin) call into this module — there is no second copy
+UI (the document-manager API) call into this module — there is no second copy
 of any path-resolution, index-sync, or write logic anywhere else.
 
 Path safety, naming validation, ChromaDB-side cleanup and on-disk

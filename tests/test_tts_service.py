@@ -3,7 +3,6 @@ Dienstes, Einheit, request_engines, Zwischenspeicher des Katalogs, Dienst nicht 
 Der Dienst ist ein httpx.MockTransport; der echte wird nie getroffen (conftest). AIfred schreibt nichts hinein."""
 
 from collections.abc import Callable
-from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -12,6 +11,7 @@ import pytest
 from aifred.lib import tts_service
 from aifred.lib.config import DEFAULT_TTS_ESCALATION, TTS_SUITE_CACHE_TTL_S, VRAM_CONTEXT_RATIO_DENSE
 from aifred.lib.research import context_utils
+from aifred.lib.runtime_settings import RuntimeSettings
 from aifred.lib.tts_client import (
     EngineInfo,
     EngineRef,
@@ -146,11 +146,14 @@ OLLAMA_CONTEXT = 100_000
 
 
 @pytest.fixture
-def ollama_state(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+def ollama_state(monkeypatch: pytest.MonkeyPatch) -> RuntimeSettings:
     monkeypatch.setattr(context_utils, "get_ollama_calibrated_max_context", lambda *_: OLLAMA_CONTEXT)
     monkeypatch.setattr(context_utils, "get_rope_factor_for_model", lambda _: 1.0)
     monkeypatch.setattr(context_utils, "is_moe_model", lambda _: False)
-    return SimpleNamespace(enable_tts=True, backend_type="ollama", agent_tuning={})
+    return RuntimeSettings(
+        backend_type="ollama", backend_url="", ui_language="de", enable_tts=True, automatik_model_id="", agent_tuning={},
+        tts_autoplay=False, tts_agents={}, max_debate_rounds=3, consensus_type="majority",
+    )
 
 
 def test_the_ollama_context_reserves_for_the_first_switched_on_local_gpu_engine(service, ollama_state) -> None:

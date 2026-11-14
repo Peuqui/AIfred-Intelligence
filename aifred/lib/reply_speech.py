@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 
 class SpeechSettings(Protocol):
-    """What the rules read: RuntimeSettings and the browser state."""
+    """What the rules read of RuntimeSettings."""
 
     enable_tts: bool
     tts_autoplay: bool

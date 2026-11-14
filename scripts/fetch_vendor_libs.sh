@@ -3,8 +3,8 @@
 #
 # Warum lokal: render_html rendert nur noch mit hart blockiertem externem Netz
 # (fail-closed, siehe browser_render.py) — Modell-Visualisierungen dürfen keine
-# externen CDNs mehr laden. Diese Libs werden über localhost (Reflex assets/)
-# ausgeliefert und bleiben damit nutzbar. Fehlt eine Lib, hier ergänzen.
+# externen CDNs mehr laden. Diese Libs werden über localhost (assets/vendor, vom Server
+# unter /vendor ausgeliefert) und bleiben damit nutzbar. Fehlt eine Lib, hier ergänzen.
 #
 # Idempotent: bereits vorhandene, valide Dateien werden übersprungen.
 set -euo pipefail

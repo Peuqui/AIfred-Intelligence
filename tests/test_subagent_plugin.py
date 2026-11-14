@@ -374,8 +374,8 @@ class TestToolLoopIntegration:
         # One HTML block without any blank line, so Markdown never switches back
         # on inside it; line breaks travel as the &#10; entity.
         assert "\n\n" not in html and "a&#10;&#10;| x | y |" in html
-        # No <pre>: Reflex renders <pre> with its code-block component, which
-        # needs a <code> child and crashed the whole page.
+        # No <pre>: the Reflex UI rendered <pre> with its code-block component, which
+        # needed a <code> child and crashed the whole page (until 08.11.2026).
         assert "<pre" not in html
         # No second scroll box inside the <details>.
         assert "max-height" not in html

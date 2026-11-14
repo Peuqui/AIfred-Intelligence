@@ -5,7 +5,7 @@ touches the YAML file or parses/emits llama-server command strings lives
 here, so the calibration algorithm stays pure.
 
 The public ``parse_llamaswap_config`` and ``update_llamaswap_*`` helpers
-are consumed by backends, state mixins and config.py — their signatures
+are consumed by backends, the calibration service and config.py — their signatures
 must stay stable.
 """
 
@@ -405,7 +405,7 @@ def set_mmproj_path(cmd: str, mmproj_path: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Public YAML mutators (consumed by backends + state mixins)
+# Public YAML mutators (consumed by backends + the calibration service)
 # ═══════════════════════════════════════════════════════════════════
 
 def _update_cmd(
@@ -834,10 +834,9 @@ def resolve_variant_suffix(
     """Resolve the variant suffix for ``base_id`` given the current toggles.
 
     Single source of truth for "which profile do we send to llama-swap".
-    All four resolver call sites (``_effective_model_id`` for agents,
-    the Automatik resolver in ``_backend_mixin``, the compression-ctx
-    lookup in ``context_utils``, and the TTS pre-check gate in
-    ``_chat_mixin``) delegate here so that the fallback rules can only
+    Every caller (the agents' models, the Automatik and the compression-ctx
+    lookup in ``context_utils``) goes through ``runtime_settings.effective_suffix``
+    and delegates here so that the fallback rules can only
     diverge in one place.
 
     Fallback order (first hit wins) — VLM combos are tried first when

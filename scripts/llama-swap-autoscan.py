@@ -23,14 +23,11 @@ from datetime import datetime
 from pathlib import Path
 
 # Dieses Skript ist ein Config-Helfer, kein App-Prozess: AIFRED_CLI_MODE
-# haelt aifred/__init__.py davon ab, die Reflex-App zu importieren. Ohne den
-# Schalter scheitert der Lazy-Import in seed_vllm_entries unter systemd, weil
-# Reflex beim App-Init ein .states-Verzeichnis im Arbeitsverzeichnis anlegen
-# will (ProtectSystem=strict → OSError 30), und die Log-Init des Pakets
-# ueberschreibt AIfreds Live-Debug-Log.
+# hält die Log-Init des Pakets davon ab, AIfreds Live-Debug-Log zu
+# überschreiben.
 os.environ.setdefault("AIFRED_CLI_MODE", "1")
 
-# Direct import of nvidia_smi module (NOT via aifred.lib — that triggers Reflex app init)
+# Direct import of nvidia_smi module (NOT via aifred.lib — that imports the whole package)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "aifred" / "lib"))
 import nvidia_smi
 
@@ -39,7 +36,7 @@ import nvidia_smi
 # ---------------------------------------------------------------------------
 
 # SSOT ist die Env-Variable AIFRED_MODELS_DIR (aifred/lib/config.py liest
-# dieselbe — direkter Import wuerde die Reflex-App-Init triggern).
+# dieselbe — direkter Import würde das ganze Paket laden).
 MODELS_DIR = Path(os.environ.get("AIFRED_MODELS_DIR", str(Path.home() / "models")))
 
 OLLAMA_PATHS = [
@@ -1206,7 +1203,7 @@ def scan_gguf_models() -> list[dict]:
 
         # Embedding-Modelle (bert-Familie) sind keine Chat-Modelle — die
         # laufen als handgepflegte -embed-Profile (llama-server --embedding).
-        # Direkt-Import wie nvidia_smi (NICHT via aifred.lib — Reflex-Init!)
+        # Direkt-Import wie nvidia_smi (NICHT via aifred.lib — lädt das ganze Paket!)
         from gguf_utils import get_gguf_architecture
         arch = get_gguf_architecture(gguf_file)
         if arch in EMBEDDING_ARCHITECTURES:

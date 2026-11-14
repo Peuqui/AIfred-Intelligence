@@ -51,11 +51,11 @@ def _face_of(store: VisionStore, event_id: int) -> int | None:
     return face
 
 
-def test_unassigned_is_the_same_set_for_list_count_ids_and_delete(store: VisionStore) -> None:
+def test_unassigned_is_the_same_set_for_list_count_and_delete(store: VisionStore) -> None:
     unconfirmed = EventFilter(face="unknown").query()
     listed = store.list_events_with_summary(**unconfirmed)
     assert set(_types(listed)) == {"person", "motion", "vehicle", "animal", "face_unsure", "face_unknown"}
-    assert store.count_events(**unconfirmed) == len(listed) == len(store.list_event_ids(**unconfirmed))
+    assert store.count_events(**unconfirmed) == len(listed)
     assert store.delete_events_filtered(**unconfirmed) == len(listed)
     assert _types(store.list_events_with_summary()) == ["face_known"]
 

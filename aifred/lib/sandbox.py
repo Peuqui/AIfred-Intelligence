@@ -675,7 +675,7 @@ def _count_user_tasks() -> int:
     """Anzahl laufender Tasks (Threads!) der eigenen UID.
 
     RLIMIT_NPROC zählt im Kernel Tasks, nicht Prozesse — der AIfred-User hat
-    typischerweise einige hundert Threads (Reflex-Worker, Torch, …). Ein
+    typischerweise einige hundert Threads (Server-Worker, Torch, …). Ein
     Budget auf Prozessbasis läge weit darunter und ließe bwraps clone() mit
     EAGAIN scheitern."""
     uid = os.getuid()

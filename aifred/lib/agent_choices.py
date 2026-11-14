@@ -1,11 +1,10 @@
 """The agents' quick choices: per agent its model, 🎩 persona, 💭 reasoning, 🧠 thinking and ⚡ speed,
-the Automatik's model and the Vision agent's (the modal of the Vue app, the agent rows of the Reflex
-settings).
+the Automatik's model and the Vision agent's (the modal of the Vue app).
 
-The rules hold for both: which thinking options a model offers (values with their labels), which
+The rules: which thinking options a model offers (values with their labels), which
 sampling a model brings along, what a model change does (model properties, speed, sampling of the
 agent and of every agent that runs on AIfred's model), and which vision models fit beside the chat
-model. The Reflex state applies them to its own fields; the server reads settings.json as
+model. The server reads settings.json as
 ``RuntimeSettings`` (``quick_choices``) and writes only what a choice changed (``save_choices``).
 """
 
@@ -26,7 +25,7 @@ from .agent_settings import (
     thinking_mode,
 )
 from .config import LLAMASWAP_BACKENDS, SAMPLING_RANGES
-from .runtime_settings import RuntimeSettings, TuningTarget, load_agent_model_params
+from .runtime_settings import RuntimeSettings, load_agent_model_params
 
 
 @dataclass(frozen=True)
@@ -40,7 +39,7 @@ class Option:
 @dataclass(frozen=True)
 class ModelOption:
     """A model of a list: its id, its label (size, context), for vision models whether it fits beside
-    the chat model (``badge`` as the Reflex UI shows it, ``fits``: no swap needed)."""
+    the chat model (``badge`` as the UI shows it, ``fits``: no swap needed)."""
 
     id: str
     label: str
@@ -87,7 +86,7 @@ class QuickChoices:
 # ── Thinking: what the model's template lets the agent choose ────────────
 
 
-def thinking_choices(target: TuningTarget, agent: str, lang: str) -> tuple[str, list[Option]]:
+def thinking_choices(target: RuntimeSettings, agent: str, lang: str) -> tuple[str, list[Option]]:
     """The agent's thinking choice on the model it runs on and the options that model offers:
     "off" where thinking can be turned off, "on" (the template's default level) and the levels where
     it thinks; a model without a thinking phase offers only "off", an unknown model (Ollama, cloud)
@@ -127,7 +126,7 @@ def thinking_choices(target: TuningTarget, agent: str, lang: str) -> tuple[str, 
     return mode, options
 
 
-def choose_thinking(target: TuningTarget, agent: str, mode: str) -> None:
+def choose_thinking(target: RuntimeSettings, agent: str, mode: str) -> None:
     """The agent's thinking choice on the model it runs on (a value of ``thinking_choices``)."""
     set_thinking_mode(target, agent, get_agent_base_model_id(target, agent), mode)
 
@@ -135,7 +134,7 @@ def choose_thinking(target: TuningTarget, agent: str, mode: str) -> None:
 # ── Sampling a model brings along ────────────────────────────────────────
 
 
-def sampling_defaults(target: TuningTarget, agent: str) -> dict[str, float]:
+def sampling_defaults(target: RuntimeSettings, agent: str) -> dict[str, float]:
     """The sampling of the model the agent runs on: llama.cpp from the llama-swap entry's flags, vLLM
     from the checkpoint's generation_config.json (the values the calibration measures with), else
     the backend's defaults; the Vision agent has its own. An unreadable generation_config.json is
@@ -202,7 +201,7 @@ def sampling_defaults(target: TuningTarget, agent: str) -> dict[str, float]:
     return vllm_defaults
 
 
-def set_sampling(target: TuningTarget, agent: str, values: dict[str, float]) -> None:
+def set_sampling(target: RuntimeSettings, agent: str, values: dict[str, float]) -> None:
     """The agent's sampling values; one outside ``config.SAMPLING_RANGES`` is refused (422), none is changed then."""
     from .user_error import Invalid
 
@@ -214,7 +213,7 @@ def set_sampling(target: TuningTarget, agent: str, values: dict[str, float]) -> 
         set_agent_setting(target, agent, field, int(value) if field == "top_k" else float(value))
 
 
-def reset_sampling(target: TuningTarget, agent: str, defaults: dict[str, float], *, include_temperature: bool) -> None:
+def reset_sampling(target: RuntimeSettings, agent: str, defaults: dict[str, float], *, include_temperature: bool) -> None:
     """``defaults`` (``sampling_defaults``) into the agent's sampling; the temperature only with
     ``include_temperature`` (a model change; at a restart it stays as saved)."""
     if include_temperature:
@@ -235,7 +234,7 @@ def chat_agents() -> list[tuple[str, str, str]]:
     return [(agent, config.display_name, config.emoji) for agent, config in selectable_agents().items()]
 
 
-def choose_model(target: TuningTarget, agent: str, model_id: str, label: str) -> list[str]:
+def choose_model(target: RuntimeSettings, agent: str, model_id: str, label: str) -> list[str]:
     """The agent's model (``""``: AIfred's; AIfred and the Vision agent always have one of their own):
     its properties from the caches, speed off where the model has no -speed variant, and the
     model's sampling for the agent; a change of AIfred's model also for every agent that runs on
@@ -263,7 +262,7 @@ def choose_model(target: TuningTarget, agent: str, model_id: str, label: str) ->
 # ── The vision models ────────────────────────────────────────────────────
 
 
-def vision_catalog(target: TuningTarget, catalog: dict[str, str], backend_url: str) -> dict[str, str]:
+def vision_catalog(target: RuntimeSettings, catalog: dict[str, str], backend_url: str) -> dict[str, str]:
     """The models (id → label) a Vision model is chosen from. The describer is a side channel
     (llama.cpp ``-visiond``, the Ollama daemon), not a citizen of the main backend: under vLLM the
     GGUF view of the llama-swap catalog joins the backend's models, else there would be none."""
@@ -274,7 +273,7 @@ def vision_catalog(target: TuningTarget, catalog: dict[str, str], backend_url: s
     return {**discover_llamaswap_models(backend_url, vllm_entries=False), **catalog}
 
 
-async def vision_candidates(target: TuningTarget, catalog: dict[str, str], backend_url: str) -> dict[str, str]:
+async def vision_candidates(target: RuntimeSettings, catalog: dict[str, str], backend_url: str) -> dict[str, str]:
     """The models of ``vision_catalog`` that can describe images: by the backend's metadata (Ollama),
     by what the llama-swap entry loads (llama.cpp), by name (vLLM's GGUF view, cloud APIs)."""
     from .vision_utils import is_vision_model, is_vision_model_sync
@@ -285,7 +284,7 @@ async def vision_candidates(target: TuningTarget, catalog: dict[str, str], backe
     return {model: label for model, label in candidates.items() if await is_vision_model(target, model)}
 
 
-def vision_options(target: TuningTarget, candidates: dict[str, str]) -> list[ModelOption]:
+def vision_options(target: RuntimeSettings, candidates: dict[str, str]) -> list[ModelOption]:
     """The vision models with whether they fit beside the chat model (the rule of the turn,
     ``vision_routing``): "🧠 Chat-LLM" — the model is AIfred's and sees itself; "⚡ No Swap" — one of
     its ``-visiond`` placements fits beside what is loaded, or it runs over the Ollama side channel;
@@ -311,7 +310,7 @@ def vision_options(target: TuningTarget, candidates: dict[str, str]) -> list[Mod
 # ── The server's view and what it writes ─────────────────────────────────
 
 
-def models_in_use(view: TuningTarget, lang: str) -> list[tuple[str, list[str]]]:
+def models_in_use(view: RuntimeSettings, lang: str) -> list[tuple[str, list[str]]]:
     """Every model the agents run on (base ids, AIfred's first) with the names of who runs on it: the
     chat agents (one without a model of its own runs on AIfred's), the Automatik and the Vision agent."""
     from .agent_config import get_agent_config
@@ -329,7 +328,7 @@ def models_in_use(view: TuningTarget, lang: str) -> list[tuple[str, list[str]]]:
     return [(model_id, names) for model_id, names in models.items() if model_id and names]
 
 
-def agent_row(view: TuningTarget, agent: str, display_name: str, emoji: str, lang: str) -> AgentChoices:
+def agent_row(view: RuntimeSettings, agent: str, display_name: str, emoji: str, lang: str) -> AgentChoices:
     from .agent_settings import get_agent_base_model_id
     from .research.context_utils import get_agent_num_ctx
 
@@ -381,7 +380,7 @@ async def quick_choices(view: RuntimeSettings, catalog: dict[str, str], lang: st
 
 def save_choices(view: RuntimeSettings, agents: list[str]) -> bool:
     """What a choice changed into settings.json: the persisted tuning of ``agents`` (``agent_tuning``)
-    and the models of the view's backend (``backend_models``, as the Reflex state writes them: every
+    and the models of the view's backend (``backend_models``: every
     agent's model and the Automatik's). Every other key stays as the file has it. False when the
     file cannot be read or written (``settings.update_settings``)."""
     from .settings import load_settings, update_settings

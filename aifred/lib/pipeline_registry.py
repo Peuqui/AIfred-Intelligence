@@ -35,7 +35,7 @@ from typing import Self
 
 # Per-session task registry. Access guarded by lock because pipelines can be
 # started/cancelled from different threads (e.g. background hub workers vs.
-# main Reflex event loop).
+# main server event loop).
 _active_pipelines: dict[str, asyncio.Task] = {}
 _lock = threading.Lock()
 

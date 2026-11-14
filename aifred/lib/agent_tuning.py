@@ -1,13 +1,12 @@
 """Per-agent runtime tuning — the dict-keyed storage model (Phase 2).
 
 One ``AgentTuning`` instance per agent id lives in
-``AIState.agent_tuning: dict[str, AgentTuning]``. Canonical agents get their
-buckets at class-definition time via :func:`default_agent_tuning`; custom
-agents get one on demand (see ``agent_settings.settings_agent``).
+``RuntimeSettings.agent_tuning: dict[str, AgentTuning]``. The permanent agents get
+their buckets from :func:`default_agent_tuning`; every other agent gets one from
+``runtime_settings.registered_agent_tuning`` (see ``agent_settings.settings_agent``).
 
-IMPORTANT (mypy SCC): this module must stay dependency-free within aifred
-(only ``config`` + reflex) so State mixins can import it at module level for
-the var annotation without rotating mypy's SCC analysis order.
+This module stays dependency-free within aifred (only ``config``), so it can be
+imported at module level everywhere.
 """
 
 from __future__ import annotations
@@ -97,8 +96,4 @@ def default_tuning(agent: str) -> AgentTuning:
 def default_agent_tuning() -> dict[str, AgentTuning]:
     """The buckets of the agents that are always there; the others come from agents.json."""
     return {agent: default_tuning(agent) for agent in PERMANENT_AGENTS}
-
-
-# ── UI row models (rendered via rx.foreach in the settings accordion) ──
-
 

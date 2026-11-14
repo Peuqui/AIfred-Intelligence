@@ -1,5 +1,4 @@
-"""The files AIfred serves under ``/_upload/``: one table for every app that serves them (the Reflex
-backend today, the server without Reflex after the switch, docs/de/architecture/vue-migration).
+"""The files AIfred serves under ``/_upload/``: one table for the app that serves them (aifred/server.py).
 
 Every folder needs the login cookie (``AuthenticatedStaticFiles``), except the shared HTML previews:
 a share link is meant to be opened without an AIfred login; its content is published by a deliberate

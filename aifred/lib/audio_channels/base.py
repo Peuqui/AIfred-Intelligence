@@ -98,8 +98,8 @@ class AudioOutputChannel(Protocol):
     async def pause(self, target_id: str, ctx: PluginContext | None = None) -> bool:
         """Pausiere den Stream am Target. False wenn nichts läuft.
 
-        ``ctx`` wird vom BrowserChannel benötigt um den Reflex-State zu
-        manipulieren (HTML5-Player wird über State-Push gesteuert).
+        ``ctx`` wird vom BrowserChannel benötigt, um die Sitzung zu finden, in
+        deren Event-Strom er pausiert (HTML5-Player wird per Push gesteuert).
         Channels die ctx nicht brauchen (Local, FreeEcho.2) ignorieren ihn.
         """
         ...

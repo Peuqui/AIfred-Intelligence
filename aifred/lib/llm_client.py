@@ -13,14 +13,14 @@ from ..backends.base import LLMBackend, LLMMessage, LLMOptions, LLMResponse
 
 if TYPE_CHECKING:
     from .context_manager import LoopCompression
-    from .runtime_settings import TuningTarget
+    from .runtime_settings import RuntimeSettings
 
 # Type alias for messages: can be Dict[str, str] or LLMMessage
 MessageType = dict[str, Any] | LLMMessage
 
 
 def build_llm_options(
-    state: "TuningTarget | None", agent: str, model_id: str, temperature: float, num_ctx: int,
+    state: "RuntimeSettings | None", agent: str, model_id: str, temperature: float, num_ctx: int,
 ) -> LLMOptions:
     """Build LLMOptions for an agent — sampling params from state or settings.json.
 

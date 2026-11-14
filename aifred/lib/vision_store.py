@@ -275,7 +275,7 @@ class VisionStore:
         **changes: Any,
     ) -> None:
         """Einzelne Top-Level-Felder einer Quelle ändern, alle übrigen
-        erhalten (SSOT für das Load-Merge-Write-Muster der Mixins).
+        erhalten (SSOT für das Load-Merge-Write-Muster).
 
         ``changes`` akzeptiert die upsert_source-Felder (prompt_context,
         position, auto_start, sensitivity, settings). Existiert die Quelle
@@ -839,7 +839,7 @@ class VisionStore:
                 cls = {}
             ts_iso = str(r["timestamp"])
             # Pre-render date + time strings so the UI doesn't have to
-            # juggle Reflex Var string ops. ISO timestamps look like
+            # format them. ISO timestamps look like
             # "2026-05-28T19:31:12.123456" — split on T, reorder the
             # date to DE format DD.MM.YYYY, trim microseconds off time.
             date_display = ""
@@ -965,23 +965,6 @@ class VisionStore:
         with self._conn() as conn:
             row = conn.execute(f"SELECT {counted} FROM events e{where}", tuple(params)).fetchone()
         return int(row[0])
-
-    def list_event_ids(
-        self,
-        *,
-        source_id: str | None = None,
-        event_types: list[str] | None = None,
-        face_id: int | None = None,
-        unknown_only: bool = False,
-    ) -> list[int]:
-        """The ids of every event ``list_events_with_summary`` lists with the same filter, in its order — for the
-        slideshow of the Reflex Casus over every page."""
-        where, params = _event_filter(
-            source_id=source_id, event_types=event_types, face_id=face_id, unknown_only=unknown_only,
-        )
-        with self._conn() as conn:
-            rows = conn.execute(f"SELECT e.id FROM events e{where} ORDER BY {_NEWEST_FIRST}", tuple(params)).fetchall()
-        return [int(r["id"]) for r in rows]
 
     def list_event_source_ids(self) -> list[str]:
         """Distinct ``source_id`` aller je gespeicherten Events. Für

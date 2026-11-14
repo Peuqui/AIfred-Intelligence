@@ -1,7 +1,7 @@
-"""lib/runtime_settings.py: one set of rules for model choice, for the Reflex state and for the paths
-without it (turn service, channels, scheduler).
+"""lib/runtime_settings.py: one set of rules for model choice, for every path (turn service, channels,
+scheduler, API).
 
-Before, the rules stood three times: _effective_model_id in the state, get_effective_model_from_settings
+Before, the rules stood three times: _effective_model_id in the Reflex state, get_effective_model_from_settings
 in config.py, and the variant lookup in get_agent_num_ctx.
 """
 

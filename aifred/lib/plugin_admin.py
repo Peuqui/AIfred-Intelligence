@@ -1,6 +1,6 @@
 """The plugins as the settings pages manage them: tool plugins on or off, channels (on, listening, answering on their
 own, their security tier) and a plugin's settings form (secrets in .env, the rest in the plugin's settings.json) with
-its OAuth connection. One place for the Reflex page and the API.
+its OAuth connection. One place for the page and the API.
 
 A password never leaves the server: the form only says whether one is set, and an empty password field keeps the
 stored one. Field texts come from the plugin's own i18n.json, the page's frame from the central one.

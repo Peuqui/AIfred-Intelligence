@@ -983,7 +983,7 @@ class CalibrationRun:
                             yield
                             # stress_prewarm_vlm logs internally via
                             # ``logger.info`` (no debug callback);
-                            # progress for the outer mixin happens
+                            # progress for the outer loop happens
                             # below in the while loop's yields.
                             _v_task = asyncio.create_task(
                                 stress_prewarm_vlm(

@@ -423,7 +423,7 @@ class CommandsMixin(BaseChannel):
         start_pos = max(0.0, saved_pos - pre_roll) if apply_pre_roll else saved_pos
 
         # Synthetischer PluginContext für den Channel — kein State,
-        # weil das nicht aus einem Reflex-Tab kommt.
+        # weil das nicht aus einem Browser-Tab kommt.
         from ....lib.plugin_base import PluginContext
         from ._shared import channel_language
         ctx = PluginContext(

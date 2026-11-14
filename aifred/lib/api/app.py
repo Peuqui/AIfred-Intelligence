@@ -51,10 +51,7 @@ async def _unreadable_request(_request: Request, error: RequestValidationError) 
                         status_code=422)
 
 
-# NOTE: CORS middleware is NOT added here.
-# Reflex handles CORS via its own middleware when using api_transformer.
-# Adding CORSMiddleware here causes "ASGI flow error: Connection already upgraded"
-# because it conflicts with Reflex's WebSocket upgrade handling.
+# NOTE: CORS middleware is NOT added here (the page and the API share one origin).
 
 
 # ============================================================

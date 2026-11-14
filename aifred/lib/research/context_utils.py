@@ -21,7 +21,7 @@ from ..model_vram_cache import (
 )
 
 if TYPE_CHECKING:
-    from ..runtime_settings import TuningTarget
+    from ..runtime_settings import RuntimeSettings
 
 
 _current_native_context: int = 0
@@ -72,7 +72,7 @@ def get_model_native_context(model_id: str, backend_type: str) -> int:
 
 
 def get_stateless_num_ctx(model_id: str, backend_type: str) -> tuple[int, str]:
-    """num_ctx for paths without Reflex State (Message Hub, hub web search).
+    """num_ctx for paths without a RuntimeSettings view (Message Hub, hub web search).
 
     ``model_id`` is the effective, variant-resolved id (base + suffix from
     get_effective_model_from_settings), so the context read matches the
@@ -90,7 +90,7 @@ def get_stateless_num_ctx(model_id: str, backend_type: str) -> tuple[int, str]:
 
 def get_agent_num_ctx(
     agent: str,
-    state: "TuningTarget",
+    state: "RuntimeSettings",
     model_id: str,
     fallback: int = MAIN_LLM_FALLBACK_CONTEXT  # Use config constant (32K) as default
 ) -> tuple[int, str]:
@@ -107,7 +107,7 @@ def get_agent_num_ctx(
         agent: Agent identifier — any registered agent (canonical or custom;
             each owns its tuning bucket, model-bound toggles resolve via
             the model owner)
-        state: Reflex state or RuntimeSettings (per-agent settings, backend, TTS toggle)
+        state: RuntimeSettings (per-agent settings, backend, TTS toggle)
         model_id: **BASE** model ID without variant suffix (e.g., "qwen3:14b" or
             "Qwen3.5-...-IQ3_XXS"). MUST NOT be a resolved variant id like
             ``<base>-speed`` or ``<base>-tts-<engine>`` — this function runs

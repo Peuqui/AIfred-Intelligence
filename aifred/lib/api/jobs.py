@@ -108,7 +108,7 @@ def _row(job: Job) -> JobRow:
 
 
 def _payload(job: JobWrite) -> dict[str, object]:
-    """What the job does, with the fields of its delivery only (as the agents' tool and the Reflex editor store it)."""
+    """What the job does, with the fields of its delivery only (as the agents' tool stores it)."""
     from ..agent_config import selectable_agents
     from ..message_processor import announces_in_rooms
     from ..scheduler import job_problem

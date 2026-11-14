@@ -1,6 +1,6 @@
 """Tests for the session RMW lock (M4) — concurrent writers on one session file.
 
-Session files are written from multiple threads (Reflex main loop, message-hub
+Session files are written from multiple threads (the server's main loop, message-hub
 worker thread, debug bus). Every read-modify-write must hold
 ``session_storage.session_rmw_lock`` for the whole load→mutate→save sequence,
 otherwise the later writer overwrites the earlier one (lost update).

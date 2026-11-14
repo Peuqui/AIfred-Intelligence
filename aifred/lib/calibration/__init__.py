@@ -3,7 +3,7 @@
 Public entry point: :func:`calibrate_llamacpp_model` (in :mod:`flow`).
 
 All YAML read/write helpers and cmd-string parsers are re-exported here
-so callers (backends, state mixins) keep a single import path:
+so callers (backends, config.py) keep a single import path:
 
     from aifred.lib.calibration import (
         calibrate_llamacpp_model,

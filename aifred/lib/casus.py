@@ -1,4 +1,4 @@
-"""The vision's events (the Casus) for every interface (the vision page of Vue, the Reflex copy until it goes): the
+"""The vision's events (the Casus) for every interface (the vision page of Vue): the
 filters a page offers, a page of the list (every event, or one row per occurrence), the choices of the filters, the
 pictures of one occurrence in order (its film), a person assigned to an event, events deleted one by one or as
 filtered; and the image model on events: one event analysed, every event without a description described. Both are

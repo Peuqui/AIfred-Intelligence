@@ -128,7 +128,7 @@ def test_a_failing_step_ends_the_run_with_its_reason(steps: dict[str, Any]) -> N
 
 
 def test_a_second_start_is_refused_while_one_runs(steps: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(calibration_gate, "_active", True)  # e.g. started in the Reflex UI
+    monkeypatch.setattr(calibration_gate, "_active", True)  # e.g. started through the API
     with pytest.raises(Conflict):
         service.start_server_run(_request())
     assert service.latest_server_run() is None

@@ -1,5 +1,5 @@
 """Images of a turn: what the user's bubble shows, what the history keeps, and how the model gets
-to see them (the browser state and the server turn both build them here).
+to see them (the server turn builds them here).
 
 The image itself never enters the history: the user turn there carries its ``/_upload/`` URL
 (``image_marker``), so a later turn can look again with ``vision_analyze``. Who looks at a new
@@ -14,10 +14,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any
 
-from .agent_tuning import AgentTuning
 from .user_error import Invalid
+
+if TYPE_CHECKING:
+    from .runtime_settings import RuntimeSettings
 
 
 @dataclass(frozen=True)
@@ -170,17 +172,7 @@ def description_block(description: str, lang: str) -> str:
     return load_prompt("vision/image_description_block", lang=lang, description=description)
 
 
-class DescribeSettings(Protocol):
-    """What a description reads: the browser state and RuntimeSettings."""
-
-    backend_type: str
-    backend_url: str
-    enable_tts: bool
-    automatik_model_id: str
-    agent_tuning: dict[str, AgentTuning]
-
-
-def tuning_row(settings: DescribeSettings, model: str) -> str:
+def tuning_row(settings: RuntimeSettings, model: str) -> str:
     """The agent_tuning row whose sampling applies when ``model`` looks at an uploaded image: the
     main model's own ("aifred") or the vision LLM's ("vision")."""
     from .runtime_settings import effective_model_id
@@ -189,7 +181,7 @@ def tuning_row(settings: DescribeSettings, model: str) -> str:
 
 
 async def describe_images(
-    images: list[TurnImage], question: str, lang: str, model: str, settings: DescribeSettings,
+    images: list[TurnImage], question: str, lang: str, model: str, settings: RuntimeSettings,
 ) -> str:
     """Describe the images ONCE for agents that answer without seeing them: a main model that
     cannot see, and a turn of several agents (one neutral description all of them discuss, one

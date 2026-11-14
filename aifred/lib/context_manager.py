@@ -106,8 +106,7 @@ def strip_thinking_blocks(text: str) -> str:
     Variante (anderer Syntax).
 
     WICHTIG — NICHT die gerenderte ``<details>``-Form strippen: Diese Funktion
-    wird teils auf bereits gerenderte Nachrichten angewandt (z.B. _chat_mixin,
-    vision_utils). Würde sie ``<details>`` entfernen, killte sie die fertigen
+    wird teils auf bereits gerenderte Nachrichten angewandt (z.B. vision_utils). Würde sie ``<details>`` entfernen, killte sie die fertigen
     Collapsibles (Denkprozess etc.) in der Bubble. Wir strippen nur die ROHEN
     Tags vor dem Rendern.
     """

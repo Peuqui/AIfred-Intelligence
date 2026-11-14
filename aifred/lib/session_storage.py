@@ -38,8 +38,8 @@ SESSION_DIR = DATA_DIR / "sessions"
 # Shared by sandbox.py and vision_utils.py for path-safety checks.
 SESSION_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 
-# M4: Session files are written from MULTIPLE threads — the Reflex main
-# loop (browser autosave), the message-hub worker thread (its own event
+# M4: Session files are written from MULTIPLE threads — the server's main
+# loop (turn service, API), the message-hub worker thread (its own event
 # loop), and the debug bus. Every read-modify-write on a session file
 # MUST hold this lock for the WHOLE load→mutate→save sequence, otherwise
 # the later writer silently overwrites the earlier one (lost update).

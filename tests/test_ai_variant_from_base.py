@@ -59,7 +59,7 @@ def test_normal_variant_all_gpus(monkeypatch):
         known_thinking=True,
     ))
     result = [ln for ln in out if ln.startswith("__RESULT__:")][-1]
-    # 8th field: active-GPU UUIDs, parallel to the split values (the mixin
+    # 8th field: active-GPU UUIDs, parallel to the split values (the calibration service
     # passes them 1:1 as CUDA_VISIBLE_DEVICES to the YAML variant writers).
     assert result == "__RESULT__:188000:99:gpu:thinks:f16:20,20,18:3:g0,g1,g2"
     assert len(cap["gpus"]) == 3  # all cards handed to the AI
@@ -108,7 +108,7 @@ def test_infeasible_speed_set_skips_ai(monkeypatch):
 def test_as_speed_emits_full_split_sentinel(monkeypatch):
     # Speed: 2 of 3 GPUs active. The AI returns a split for the 2 active
     # cards ("20,20"); __SPEED__ must carry the FULL colon split with 0 for
-    # the inactive GPU, so the mixin's parser keeps the right CUDA order.
+    # the inactive GPU, so the service's parser keeps the right CUDA order.
     gpus = [_gpu("g0", "RTX 8000", 7.5, 49152), _gpu("g1", "RTX 8000", 7.5, 49152),
             _gpu("g2", "V100", 7.0, 32768)]
     cap: dict = {}
@@ -121,7 +121,7 @@ def test_as_speed_emits_full_split_sentinel(monkeypatch):
     ))
     speed = [ln for ln in out if ln.startswith("__SPEED__:")][-1]
     # 5th comma-element: UUIDs of the ACTIVE GPUs (parallel to the split) —
-    # the mixin passes them as CUDA_VISIBLE_DEVICES so env and tensor-split
+    # the service passes them as CUDA_VISIBLE_DEVICES so env and tensor-split
     # can never desync in the YAML variant writers.
     assert speed == "__SPEED__:20:20:0,188000,2,f16,g0,g1"
     assert not any(ln.startswith("__RESULT__:") for ln in out)  # speed, not base

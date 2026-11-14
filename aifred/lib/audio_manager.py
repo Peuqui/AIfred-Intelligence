@@ -11,7 +11,7 @@ Architecture:
                                    audio_state.json
                                   (resume position SSOT)
 
-This module is async-first. The reflex State runs on an event loop, so
+This module is async-first. The server runs on an event loop, so
 plugin tools can `await audio_manager.play(...)` directly.
 """
 

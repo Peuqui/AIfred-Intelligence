@@ -203,9 +203,9 @@ def load_plugin_settings(plugin_file: str | Path) -> dict[str, str]:
 
 def save_plugin_settings(plugin_file: str | Path, settings: dict[str, str]) -> None:
     """``settings.json`` neben dem Plugin schreiben (Gegenstück zu
-    :func:`load_plugin_settings`). Der UI-Save-Pfad ruft weiterhin die
-    ``_save_settings``-Methode des Plugins (Duck-Typing-Konvention in
-    ``_settings_mixin``), die hierher delegiert — plugin-eigene
+    :func:`load_plugin_settings`). Der Save-Pfad der Plugin-Verwaltung ruft die
+    ``_save_settings``-Methode des Plugins (Duck-Typing-Konvention,
+    ``plugin_admin``), die hierher delegiert — plugin-eigene
     Nacharbeit (z.B. Cache-Reload bei bible) bleibt dort."""
     import json
     from pathlib import Path

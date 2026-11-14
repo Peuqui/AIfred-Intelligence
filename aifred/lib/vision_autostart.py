@@ -380,7 +380,7 @@ def ensure_schedule_supervisor() -> None:
 
     Muss aus einem laufenden Event-Loop gerufen werden (App-Lifespan).
     Idempotent über ein Modul-Task-Handle — ein zweiter Aufruf (z.B.
-    Granian-Worker-Respawn, der den Lifespan erneut durchläuft) ist ein
+    ein erneuter Lifespan-Durchlauf) ist ein
     No-Op, solange der Task noch lebt. Ohne diesen Launcher lief der
     Supervisor nie: der Boot-Pfad rief nur start_all_background_watchers,
     sodass Kameras am Fenster-ENDE (z.B. 06:00) nie gestoppt wurden."""

@@ -3,8 +3,6 @@
 * ``VisionStore.get_event`` — direct primary-key lookup that must find ANY
   event, not just the most recent ones (the bug that left every event beyond
   the most-recent-1000 forever undescribed).
-* ``VisionStore.list_event_ids`` — full ordered id list driving the
-  cross-page Casus slideshow.
 * ``query_events(limit=None)`` — no artificial cap.
 * ``vision_query_events`` dedup — one row per cluster (frames collapsed),
   with an image_url, plus per-happening solo events.
@@ -65,24 +63,6 @@ class TestGetEvent:
         assert oldest not in recent_ids
         # … but the direct lookup finds it regardless.
         assert store.get_event(oldest) is not None
-
-
-class TestListEventIds:
-    def test_all_ids_newest_first(self, store: VisionStore):
-        ids = [_add(store, i) for i in range(5)]
-        got = store.list_event_ids(source_id="cam/test")
-        assert got == list(reversed(ids))  # timestamp DESC
-
-    def test_filter_by_event_type(self, store: VisionStore):
-        store.add_event("cam/test", "motion", timestamp=_BASE)
-        store.add_event("cam/test", "face_known", timestamp=_BASE + timedelta(seconds=1))
-        ids = store.list_event_ids(event_types=["face_known"])
-        assert len(ids) == 1
-
-    def test_filter_by_source(self, store: VisionStore):
-        store.add_event("cam/a", "motion", timestamp=_BASE)
-        store.add_event("cam/b", "motion", timestamp=_BASE + timedelta(seconds=1))
-        assert len(store.list_event_ids(source_id="cam/a")) == 1
 
 
 class TestQueryEventsNoCap:

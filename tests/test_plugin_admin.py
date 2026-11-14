@@ -1,7 +1,7 @@
 """The plugins as the settings page manages them (lib/plugin_admin.py, /api/plugins), with stand-ins for the plugins.
 
 The Reflex page held the logic in its state and sent every stored credential, passwords too, into the browser's
-state. Now one place serves both pages, and a password never leaves the server: the form says whether one is set,
+state. Now lib/plugin_admin serves the page, and a password never leaves the server: the form says whether one is set,
 and an empty password field keeps it.
 """
 

@@ -1,7 +1,7 @@
 """Helper scripts must not reset the running service's debug log.
 
-Importing ``aifred`` without CLI mode loads the whole Reflex app, and the
-first log line re-initialises data/logs/aifred_debug.log (14.09.2026: test
+Importing ``aifred`` without CLI mode lets the
+first log line re-initialise data/logs/aifred_debug.log (14.09.2026: test
 runs and helper scripts kept wiping the live log)."""
 
 import re

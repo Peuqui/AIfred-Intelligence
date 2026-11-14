@@ -1,17 +1,15 @@
 """What a turn reads from the settings, and the rules that resolve it.
 
-``RuntimeSettings`` is the view of settings.json for every path without a Reflex state (the turn
-service, channels, scheduler). Per-session choices (active agent, multi-agent mode, incognito)
-are not settings; they come from the session's config. The functions below hold the rules once, for that view and for the
-Reflex state alike: both carry ``backend_type``, ``enable_tts``, ``automatik_model_id`` and
-``agent_tuning`` (one ``AgentTuning`` per agent), and the helpers in ``agent_settings`` read the
-per-agent values from there.
+``RuntimeSettings`` is the view of settings.json that every path reads (the turn service, channels, scheduler).
+Per-session choices (active agent, multi-agent mode, incognito) are not settings; they come from the session's
+config. The functions below hold the rules once; the helpers in ``agent_settings`` read the per-agent values from
+``agent_tuning`` (one ``AgentTuning`` per agent).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 from .agent_settings import (
     PERSISTED_TUNING_FIELDS,
@@ -25,15 +23,6 @@ from .config import (
     LLAMASWAP_BACKENDS,
     LLAMASWAP_CONFIG_PATH,
 )
-
-
-class TuningTarget(Protocol):
-    """What the resolution rules read and write: the Reflex state and RuntimeSettings."""
-
-    backend_type: str
-    enable_tts: bool
-    automatik_model_id: str
-    agent_tuning: dict[str, AgentTuning]
 
 
 @dataclass
@@ -103,7 +92,7 @@ def hold_manual_context(agent: str, enabled: bool, value: int) -> None:
     _held_manual_context[agent] = (enabled, value)
 
 
-def apply_held_manual_context(target: TuningTarget) -> None:
+def apply_held_manual_context(target: RuntimeSettings) -> None:
     for agent, (enabled, value) in _held_manual_context.items():
         bucket = target.agent_tuning.get(agent)
         if bucket is not None:
@@ -113,7 +102,7 @@ def apply_held_manual_context(target: TuningTarget) -> None:
 # ── From settings.json into the tuning buckets ──────────────────────────
 
 
-def apply_saved_tuning(target: TuningTarget, saved: dict[str, Any]) -> None:
+def apply_saved_tuning(target: RuntimeSettings, saved: dict[str, Any]) -> None:
     """Per-agent tuning values of settings.json; agents without a bucket get one on demand.
 
     Keys missing in the file keep the bucket's defaults.
@@ -128,7 +117,7 @@ def apply_saved_tuning(target: TuningTarget, saved: dict[str, Any]) -> None:
                 setattr(bucket, field, entry[field])
 
 
-def apply_saved_models(target: TuningTarget, saved: dict[str, Any]) -> bool:
+def apply_saved_models(target: RuntimeSettings, saved: dict[str, Any]) -> bool:
     """The models of settings.json's ``backend_models`` for the target's backend.
 
     Agents no longer registered are skipped. Returns whether settings.json has models for this
@@ -157,7 +146,7 @@ def apply_saved_models(target: TuningTarget, saved: dict[str, Any]) -> bool:
 ALWAYS_DEFAULTED = ("aifred", "vision")
 
 
-def apply_default_models(target: TuningTarget, had_backend_settings: bool) -> list[tuple[str, str]]:
+def apply_default_models(target: RuntimeSettings, had_backend_settings: bool) -> list[tuple[str, str]]:
     """The backend's default models of config.py where the target has none.
 
     Returns ``(agent, model)`` for every default that applied, the Automatik as ``"automatik"``;
@@ -188,7 +177,7 @@ def apply_default_models(target: TuningTarget, had_backend_settings: bool) -> li
 # ── Which variant of a model loads ───────────────────────────────────────
 
 
-def effective_suffix(target: TuningTarget, base_id: str, owner: str, *, has_speed_variant: bool) -> str:
+def effective_suffix(target: RuntimeSettings, base_id: str, owner: str, *, has_speed_variant: bool) -> str:
     """Variant suffix (``-speed``, ``-tts-<engine>``, …) llama-swap loads for ``base_id``.
 
     ``owner`` is the agent whose speed toggle applies. The TTS part follows the toggle
@@ -209,7 +198,7 @@ def effective_suffix(target: TuningTarget, base_id: str, owner: str, *, has_spee
     )
 
 
-def effective_model_id(target: TuningTarget, agent: str) -> str:
+def effective_model_id(target: RuntimeSettings, agent: str) -> str:
     """Model id with variant suffix that the agent's requests go to; empty when the agent has no
     own model (its requests then go to AIfred's, ``effective_model_id(target, "aifred")``)."""
     base_id: str = get_agent_setting(target, agent, "model_id")
@@ -220,7 +209,7 @@ def effective_model_id(target: TuningTarget, agent: str) -> str:
     )
 
 
-def effective_automatik_id(target: TuningTarget) -> str:
+def effective_automatik_id(target: RuntimeSettings) -> str:
     """Model id of the Automatik (intent detection): AIfred's unless an own model is set.
 
     The Automatik has no speed toggle of its own and follows AIfred's; whether its model has a
@@ -235,7 +224,7 @@ def effective_automatik_id(target: TuningTarget) -> str:
 # ── Model properties from the calibration caches ────────────────────────
 
 
-def load_agent_model_params(target: TuningTarget, agent: str, model_id: str) -> None:
+def load_agent_model_params(target: RuntimeSettings, agent: str, model_id: str) -> None:
     """Model properties of the agent's model (context, thinking support, speed profile) from the caches."""
     if not model_id or target.backend_type not in ("ollama", *LLAMASWAP_BACKENDS):
         return

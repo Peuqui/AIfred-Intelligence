@@ -1,10 +1,10 @@
-"""Switching the LLM backend and the cloud provider, restarting the backend's service, and the rules the Reflex state
-shares with the server: the models a backend offers, which saved models it no longer has, which vision model it falls
+"""Switching the LLM backend and the cloud provider, restarting the backend's service, and the rules on
+the models: the models a backend offers, which saved models it no longer has, which vision model it falls
 back to, what leaving a backend frees.
 
 settings.json is the truth. A switch writes the backend, then the models the new backend has for each agent
 (``backend_models``, else config.py's defaults) checked against its catalog, with the sampling those models bring.
-Notes are English debug lines: the Reflex state shows them in its console, the server writes them to its log.
+Notes are English debug lines: the server writes them to its log.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from .config import (
     OLLAMA_READY_TIMEOUT_S,
 )
 from .logging_utils import log_message
-from .runtime_settings import RuntimeSettings, TuningTarget
+from .runtime_settings import RuntimeSettings
 from .user_error import Conflict, Invalid, NotDone
 
 # One switch at a time in this process: checked and set with no await in between.
@@ -77,10 +77,10 @@ async def model_catalog(backend_type: str, cloud_provider: str, *, start_service
     return models, notes
 
 
-# ── Rules on the models of a target (the Reflex state or RuntimeSettings) ──
+# ── Rules on the models of a target (RuntimeSettings) ──
 
 
-def drop_unavailable_models(target: TuningTarget, catalog: dict[str, str]) -> list[str]:
+def drop_unavailable_models(target: RuntimeSettings, catalog: dict[str, str]) -> list[str]:
     """Forget saved models the backend does not offer (deleted, never pulled, another provider's): AIfred's is
     cleared (the user picks one; a turn without a model is refused), every other agent and the Automatik then run
     on AIfred's. The Vision agent has its own rule (``choose_vision_model``). An empty catalog clears nothing: a
@@ -101,7 +101,7 @@ def drop_unavailable_models(target: TuningTarget, catalog: dict[str, str]) -> li
     return notes
 
 
-def choose_cloud_main_model(target: TuningTarget, catalog: dict[str, str]) -> list[str]:
+def choose_cloud_main_model(target: RuntimeSettings, catalog: dict[str, str]) -> list[str]:
     """AIfred's model after a change of the cloud provider: the provider's first model unless it offers his."""
     aifred = target.agent_tuning["aifred"]
     if not catalog or aifred.model_id in catalog:
@@ -111,7 +111,7 @@ def choose_cloud_main_model(target: TuningTarget, catalog: dict[str, str]) -> li
     return [f"⚙️ AIfred: {aifred.model_id}"]
 
 
-def choose_vision_model(target: TuningTarget, candidates: dict[str, str]) -> list[str]:
+def choose_vision_model(target: RuntimeSettings, candidates: dict[str, str]) -> list[str]:
     """The Vision agent's model when it has none or one the backend does not offer: the first vision model.
     Without vision models it keeps what it has."""
     vision = target.agent_tuning["vision"]

@@ -1,7 +1,7 @@
 """Lese-SSOT für die audio_player-Plugin-Settings (settings.json).
 
 Die Datei GEHÖRT dem audio_player-Plugin, aber vier Konsumenten brauchen
-denselben Lesepfad: die Plugin-Tools selbst, das Browser-UI-Mixin, der
+denselben Lesepfad: die Plugin-Tools selbst, die Audio-Bibliothek (audio_library), der
 TTS-Listen-Filter (audio_processing) und der FreeEcho2-Voice-Resume.
 Als lib-Helper, damit kein Plugin aus einem anderen importieren muss
 (Plugin-Atomaritäts-Regel: Plugin→Plugin verboten, Plugin→lib erlaubt).

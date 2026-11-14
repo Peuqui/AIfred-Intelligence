@@ -3,7 +3,7 @@
 Sequential phases ``A`` (metadata/budget), ``1`` (base cells), ``E``
 (speed variant) and ``D`` (write), each documented inline.  The output
 protocol (``__RESULT__`` / ``__SPEED__`` strings) is preserved so that
-existing state-mixin parsers keep working without change.
+the parsers in ``service.py`` keep working without change.
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ async def calibrate_llamacpp_model(
     """Calibrate one llama.cpp model end-to-end.
 
     Yields human-readable progress strings and two sentinel lines for
-    programmatic consumers (state mixin / ``_parse_calibration_result``):
+    programmatic consumers (``service.py`` / ``_parse_calibration_result``):
 
     ``__RESULT__:{ctx}:{ngl}:{mode}:{thinks|nothink}:{kv}:{ts_csv}:{num_gpus}``
     ``__SPEED__:{split_colon},{ctx},{num_gpus},{kv}``  (only when a
@@ -867,7 +867,7 @@ async def _try_ai_calibration(
 
     Yields progress lines. AI mode is terminal: on error it yields the
     honest failure sentinel ``__RESULT__:0:0:error`` (→ "Calibration
-    failed" in the mixin). It NEVER falls back to the classic algorithm —
+    failed" in the service). It NEVER falls back to the classic algorithm —
     the toggle picks one path, not a hybrid (CLAUDE.md: no fallbacks).
     """
     from .ai_agent import calibrate_with_ai
@@ -1664,7 +1664,7 @@ async def _ai_variant_from_base(
     if as_speed:
         # __SPEED__ wants the FULL split (all GPUs, colon-separated, 0 for
         # inactive) like _split_str — map the active result back onto the
-        # full GPU list so the mixin's parser keeps the right CUDA order.
+        # full GPU list so the service's parser keeps the right CUDA order.
         full_split = [0] * len(gpus)
         for j, idx in enumerate(active):
             full_split[idx] = round(ai_split[j]) if j < len(ai_split) else 0

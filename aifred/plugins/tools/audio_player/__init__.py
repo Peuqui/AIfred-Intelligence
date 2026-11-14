@@ -47,7 +47,7 @@ def _finite_seconds(value: Any, field_name: str) -> tuple[float, str | None]:
 
 
 # Settings-Lektüre und Source-Map leben als lib-SSOT in
-# lib/audio_player_settings.py (weitere Konsumenten: UI-Mixin,
+# lib/audio_player_settings.py (weitere Konsumenten: Audio-Bibliothek,
 # TTS-Listen-Filter, FreeEcho2-Voice-Resume).
 
 

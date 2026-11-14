@@ -6,7 +6,7 @@ Provides common functions for:
 - Docker container management
 - GPU process listing
 
-This module reduces code duplication across the state mixins.
+This module reduces code duplication across its callers.
 """
 
 import subprocess

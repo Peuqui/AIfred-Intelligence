@@ -35,8 +35,8 @@ from .user_error import Invalid
 
 logger = logging.getLogger(__name__)
 
-# What a job can be: one truth for the agents' scheduler tool (its JSON-schema enums), the jobs page and the
-# Reflex editor (the SQLite CHECK in _ensure_schema stays as the database's own limit).
+# What a job can be: one truth for the agents' scheduler tool (its JSON-schema enums), the jobs page
+# (the SQLite CHECK in _ensure_schema stays as the database's own limit).
 SCHEDULE_TYPES = ("cron", "interval", "once")
 DELIVERY_MODES = ("review", "announce", "webhook")
 AUDIO_TYPES = ("notification", "alarm")   # the chime of an announcement in rooms (FreeEcho.2)

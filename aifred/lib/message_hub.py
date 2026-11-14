@@ -2,10 +2,10 @@
 
 Manages the lifecycle of channel workers (IMAP listener, Discord bot, etc.).
 Workers run in a **separate thread** with their own asyncio event loop,
-completely independent of the Reflex UI event loop. This prevents UI
+completely independent of the server's main event loop. This prevents UI
 operations (session reloads, polling) from blocking channel processing.
 
-Communication with the Reflex UI is via files (session JSON, notifications).
+Communication with the web UI is via files (session JSON) and the session events (push_hub_notification).
 
 Workers auto-restart on crash with exponential backoff (max 5 retries).
 """
@@ -49,7 +49,7 @@ class MessageHub:
     """Central registry and lifecycle manager for channel workers.
 
     Workers run in a dedicated background thread with their own asyncio
-    event loop, completely decoupled from the Reflex UI event loop.
+    event loop, completely decoupled from the server's main event loop.
     """
 
     def __init__(self) -> None:
@@ -160,7 +160,7 @@ class MessageHub:
         """Start all workers in a dedicated background thread.
 
         The thread gets its own asyncio event loop, completely independent
-        of the Reflex UI loop. This prevents UI operations from blocking
+        of the server's main loop. This prevents UI operations from blocking
         channel message processing.
         """
         if self._thread and self._thread.is_alive():

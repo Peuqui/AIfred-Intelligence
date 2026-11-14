@@ -1,5 +1,4 @@
-"""The settings of the spoken output, for every interface (the speech page of Vue, the Reflex copy until it
-goes): the rows of AIfred's list, a change of the list as one transaction, each agent's switch, language
+"""The settings of the spoken output, for every interface (the speech page of Vue): the rows of AIfred's list, a change of the list as one transaction, each agent's switch, language
 and voice per engine, the narrator's voice per engine.
 
 The list, the unit per engine, the agents' voices and the narrator's live in settings.json; what exists

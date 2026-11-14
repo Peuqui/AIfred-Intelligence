@@ -35,7 +35,6 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()  # Go up to repo r
 #
 # Benefits:
 # - All data in one place (easy backup, portable)
-# - Excluded from Reflex hot reload (REFLEX_HOT_RELOAD_EXCLUDE_PATHS=data)
 # - Excluded from git (.gitignore)
 DATA_DIR = PROJECT_ROOT / "data"
 
@@ -51,7 +50,7 @@ VENDOR_URL = "/vendor"
 # MODELS_DIR: local model directory (GGUFs, vLLM checkpoint dirs).
 # SSOT is the env var AIFRED_MODELS_DIR — scripts/llama-swap-autoscan.py
 # reads the same var independently (it must not import aifred.lib, that
-# would trigger Reflex app init).
+# would import the whole package).
 MODELS_DIR = Path(os.environ.get("AIFRED_MODELS_DIR", str(Path.home() / "models")))
 
 # HuggingFace hub cache, resolved like huggingface_hub does (HF_HUB_CACHE
@@ -146,7 +145,7 @@ DEFAULT_SETTINGS = {
     # NOTE: temperature is per-agent (agent_tuning bucket), no flat key
     "enable_thinking": False,  # Qwen3 Thinking Mode (Chain-of-Thought Reasoning)
     # Multi-agent modes: rounds of a debate/tribunal/symposion, votes that end an auto-consensus
-    # ("majority" = 2 of 3, "unanimous" = 3 of 3). The same values as the browser state's.
+    # ("majority" = 2 of 3, "unanimous" = 3 of 3).
     "max_debate_rounds": 3,
     "consensus_type": "majority",
     # Who sits as critic and judge in the debate modes when a session chooses nobody else
@@ -1262,7 +1261,7 @@ TTS_BURNIN_VRAM_POLL_S = 0.3
 LLAMACPP_CALIBRATION_DRAIN_TIMEOUT_S = 30.0
 
 def get_effective_model_from_settings(agent: str = "aifred") -> str:
-    """Effective model id from settings.json (paths without a Reflex state).
+    """Effective model id from settings.json (paths that read settings.json directly).
 
     An agent without an own model, like the Automatik without one, runs on AIfred's
     (rules: lib/runtime_settings).
@@ -1638,8 +1637,8 @@ DOCUMENT_CHUNK_OVERLAP = 80         # Overlap between chunks (tokens, ~10% of ch
 DOCUMENT_EMBED_BATCH_SIZE = 64      # Chunks pro Embed-API-Call beim Indexieren.
                                      # Wenn die ganze Datei (z.B. 2686 Bibel-Chunks)
                                      # in einem einzigen Ollama-Call landet, dauert
-                                     # der >90 s und granian killt den Reflex-Worker
-                                     # (kein WS-Heartbeat in der Zeit). Mit 64er-Batches
+                                     # der >90 s und blockiert den Event-Loop
+                                     # (unter Reflex killte granian den Worker, kein WS-Heartbeat). Mit 64er-Batches
                                      # dauert jeder Call ~3-4 s und der asyncio-Loop
                                      # bleibt responsiv. 64 ist ein Kompromiss
                                      # zwischen API-Overhead (kleinere Batches → mehr

@@ -20,16 +20,10 @@ target-version = "py312"
 ignore = ["DTZ001", "DTZ005", "DTZ006", "DTZ011"]
 
 [lint.per-file-ignores]
-# RUF012: Reflex-State-Variablen sind Klassenattribute mit veränderlichem Startwert
-# (``items: list[str] = []``); Reflex legt pro Sitzung Kopien an. ClassVar würde sie aus dem
-# State nehmen und Reflex brechen.
-#
-# I001 (Importsortierung): In diesen Dateien ist die Reihenfolge der Importe Absicht — der State
-# importiert wegen zirkulärer Abhängigkeiten teils nach Code, __init__.py-Dateien registrieren
-# Routen/Plugins in dieser Reihenfolge, die übrigen Dateien importieren nach Code (E402).
-"aifred/state/**/*.py" = ["RUF012", "I001"]
-# In __init__.py stehen Importe bewusst als Re-Exports (``from aifred.state import AIState``);
-# ihre Reihenfolge registriert Routen und Plugins.
+# I001 (Importsortierung): In diesen Dateien ist die Reihenfolge der Importe Absicht —
+# __init__.py-Dateien registrieren Routen/Plugins in dieser Reihenfolge, die übrigen Dateien
+# importieren nach Code (E402).
+# In __init__.py stehen Importe bewusst als Re-Exports; ihre Reihenfolge registriert Routen und Plugins.
 "**/__init__.py" = ["F401", "I001"]
 "aifred/backends/base.py" = ["I001"]
 "aifred/lib/audio_channels/freeecho2.py" = ["I001"]

@@ -97,7 +97,7 @@ COLORS = {
 def css_variables() -> str:
     """``:root``-Block mit einer Variable je COLORS-Eintrag (``--aifred-text-primary``, …).
 
-    custom.css, JS und HTML-Seiten lesen die Farben ausschließlich über diese Variablen;
+    Das Stylesheet der Oberfläche (/api/app/theme.css), JS und HTML-Seiten lesen die Farben ausschließlich über diese Variablen;
     geändert wird nur COLORS.
     """
     lines = (f"    --aifred-{name.replace('_', '-')}: {value};" for name, value in COLORS.items())

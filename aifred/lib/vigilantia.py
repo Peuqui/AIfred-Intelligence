@@ -1,5 +1,4 @@
-"""The eye of the vision and its general settings, for every interface (the vision page of Vue; the Reflex copy keeps
-its own setters until it goes): armed or not with its consequence (every background watcher started or stopped),
+"""The eye of the vision and its general settings, for every interface (the vision page of Vue): armed or not with its consequence (every background watcher started or stopped),
 how the image model stays (on demand or live), which model, the face and person detection, how long events are
 kept, the image model loaded or not. Everything lives in the plugin's ``settings.json`` (``vision_settings``).
 

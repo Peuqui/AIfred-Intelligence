@@ -41,7 +41,7 @@ _persisted_cache: tuple[int, dict[str, Any]] | None = None
 def persisted_settings() -> dict[str, Any]:
     """Settings as persisted: settings.json over the config defaults.
 
-    SSOT for every reader outside the browser state (prompt layers for
+    SSOT for every reader (prompt layers for
     browser, scheduler and hub alike). Re-read only when the file changed —
     get_language() runs on every UI translation. Callers must not mutate
     the returned dict.

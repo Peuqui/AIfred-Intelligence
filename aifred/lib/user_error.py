@@ -1,6 +1,6 @@
 """A refusal the user reads, in the language the UI is set to: an i18n key with its values (``error_<key>`` in
 ``i18n/de.json`` and ``en.json``). It is raised where the rule lives (lib, or an endpoint); the API's handler answers
-with its status and the text in the UI language (``api/app.py``), the Reflex copy words it with ``message(lang)``. In
+with its status and the text in the UI language (``api/app.py``); elsewhere ``message(lang)`` words it. In
 logs and ``str()`` it reads in English (debug output is English).
 
 Each kind also is the built-in exception the callers caught so far (``Missing`` a ``KeyError``, ``Invalid`` a

@@ -354,7 +354,7 @@ async def is_vision_model(state, model_name: str) -> bool:
     3. **Fallback**: Name-based pattern matching
 
     Args:
-        state: AIState instance (for backend_type and backend access)
+        state: RuntimeSettings (for backend_type and backend access)
         model_name: Model name (e.g., "qwen3-vl:30b" or "cpatonn/Qwen3-VL-8B")
 
     Returns:

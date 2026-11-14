@@ -847,7 +847,7 @@ def _mode_label(mode: str, lang: str) -> str:
 def _marker(turn_mode: str, mode: str, round_num: int | None, lang: str) -> str:
     """The line above a multi-agent step, e.g. "[Auto-Konsens: Synthese R1]"; empty for a direct
     answer. The turn's mode goes in front unless the step's label already names it. Text and look
-    as the browser's (state/_chat_mixin._build_marker): both write the same session files."""
+    as the markers already stored in the session files."""
     label = _mode_label(mode, lang)
     if not label:
         return ""

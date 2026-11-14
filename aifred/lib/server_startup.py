@@ -3,8 +3,7 @@ tasks (cleanups of audio state, lookup caches, vision, the audit log and the vLL
 vision pre-warm in live mode, the GPU detection and an empty Ollama; and the lifespans of the server: the session
 events' loop, the Message Hub with the scheduler and Vigilantia's background watchers, the service status.
 
-The server (aifred/server.py) runs them all from its lifespan (``SERVER_LIFESPANS``); the Reflex app runs
-``start_process_tasks`` on the first page load and registers the other three.
+The server (aifred/server.py) runs them all from its lifespan (``SERVER_LIFESPANS``).
 """
 
 from __future__ import annotations
@@ -127,7 +126,7 @@ async def start_process_tasks() -> None:
 async def message_hub_lifespan() -> AsyncIterator[None]:
     """Start Message Hub on ASGI startup, stop on shutdown.
 
-    A respawned worker runs the lifespan again (Reflex 0.10, granian 2.8); the Reflex on_load starts the hub too.
+    A second run of the lifespan must not start a second hub.
     """
     from .config import MESSAGE_HUB_OWNER
     from .message_hub import message_hub, register_channel_workers
@@ -154,7 +153,7 @@ async def message_hub_lifespan() -> AsyncIterator[None]:
         # Dauer-Supervisor: startet/stoppt die Watcher an den Pro-Kamera-
         # Zeitfenster-Grenzen (z.B. Stopp um 06:00). Lief bisher nie, weil
         # nur start_all aufgerufen wurde — Kameras blieben nach Fenster-Ende
-        # scharf. Idempotent (Granian-Respawn-sicher).
+        # scharf. Idempotent.
         ensure_schedule_supervisor()
     except Exception as e:  # Vigilantia must not keep AIfred from starting; logged
         import logging

@@ -624,9 +624,9 @@ class DocumentStore:
         # Batched Embedding + Upsert.
         # Bei grossen Dokumenten (z.B. Schlachter-Bibel mit ~2686 Chunks) wuerde
         # ein einzelner Embedding-Call >90 s dauern. In der Zeit kommen keine
-        # WS-Heartbeats durch → granian killt den Reflex-Worker als unresponsive
-        # → Index-Loop tot. Mit Batches a 64 Chunks dauert jeder Call ~3-4 s und
-        # der asyncio-Loop kann zwischendurch Heartbeats an den Browser senden.
+        # WS-Heartbeats durch (unter Reflex killte granian den Worker als unresponsive
+        # → Index-Loop tot). Mit Batches a 64 Chunks dauert jeder Call ~3-4 s und
+        # der asyncio-Loop bleibt zwischendurch responsiv.
         # Embed via the index-mode function (GPU + warm cache). Passing
         # the embeddings explicitly bypasses the collection's default
         # embedding_function (which is the query/CPU one) for this write.

@@ -212,8 +212,8 @@ async def process_inbound(message: InboundMessage) -> OutboundMessage | None:
     """
     # Kalibrier-Gate: Während einer GPU-Kalibrierung gehört das VRAM
     # exklusiv der Messung — eine Inferenz würde llama-swap neu starten
-    # und die Messwerte verderben. Die Hub-Kanäle laufen an Reflex vorbei,
-    # deshalb das prozessweite Flag statt is_calibrating (Session-State).
+    # und die Messwerte verderben. Die Hub-Kanäle laufen in eigenen Event-Loops,
+    # deshalb das prozessweite Flag (calibration_gate) statt eines Session-Zustands.
     # Höfliche Text-Absage statt stillem Verschlucken (der Rückgabewert
     # wird von den Aufrufern nur geloggt — gesendet wird hier). Ausnahme
     # freeecho2: eine Voice-Reply würde die TTS-Synthese anwerfen — genau

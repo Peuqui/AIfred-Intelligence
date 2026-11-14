@@ -1,4 +1,4 @@
-"""The audio player's sources for every interface (the audio page of Vue, the Reflex copy until it goes): every source
+"""The audio player's sources for every interface (the audio page of Vue): every source
 (a folder under data/media/audio/, mostly a symlink, or a stream of the plugin's settings) with how many files its index
 holds; a folder of the picker's sandbox added as a source, a source taken out, its index read anew (a run of the
 server, one at a time) or emptied; the plugin's settings the page changes: the sandbox (picker.root) and from how many

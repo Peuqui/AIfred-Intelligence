@@ -13,7 +13,7 @@ entries of a machine that does not answer stay as they are. Without a stored lis
 then the main model. Two rules are no entries of the list (lib/vision_routing): a main model that sees takes
 chat images itself, and only an explicit request may evict the chat model.
 
-For every interface (the vision page of Vue, the Reflex copy until it goes): the rows as the settings show them, a
+For every interface (the vision page of Vue): the rows as the settings show them, a
 move or switch of an entry, and the burn-in of a describer of another machine, one at a time.
 """
 

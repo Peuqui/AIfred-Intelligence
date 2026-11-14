@@ -243,8 +243,8 @@ async def _emit(
         # im Vorkommnis gesehenen Personen — bei mehreren Leuten zeigt die
         # Galerie so JEDE, nicht nur die am besten erkannte. Ungedeckelt:
         # wer zu sehen war, gehört in die Meldung. Sie stehen in der
-        # Chat-Bubble nebeneinander und brechen um (siehe ``chat-md``-Regel
-        # in custom.css), kosten also kaum Platz.
+        # Chat-Bubble nebeneinander und brechen um,
+        # kosten also kaum Platz.
         for u in [crop_url, *(extra_crop_urls or [])]:
             if u and u not in gallery:
                 gallery.append(u)

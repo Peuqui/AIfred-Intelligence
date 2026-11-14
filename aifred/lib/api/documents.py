@@ -6,7 +6,7 @@ An upload into the local folder is indexed by itself; one into a source is not: 
 behind a higher tier than the search, so indexing one stays the user's decision per file or folder.
 
 The document manager links to a source's file here (e.g. Google Drive); it streams through as it
-comes, never through Reflex state. Login cookie required like every API path (app middleware).
+comes. Login cookie required like every API path (app middleware).
 """
 import asyncio
 from datetime import datetime

@@ -651,7 +651,7 @@ async def verify(
             # KEIN stilles fits=True: eine unvollständige nvidia-smi-Antwort
             # (eine fehlende GPU reicht, s. _measured_free) würde sonst ein
             # ungeprüftes Profil akzeptieren → Betriebs-OOM. Laut scheitern —
-            # der Mixin-Handler fängt das, meldet "Calibration failed" und
+            # der Handler im Kalibrier-Service fängt das, meldet "Calibration failed" und
             # restartet llama-swap im finally.
             raise RuntimeError(
                 "VRAM measurement failed (nvidia-smi returned no complete "
