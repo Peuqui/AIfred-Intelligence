@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -33,8 +32,6 @@ from .cron import next_cron_run
 from .logging_utils import log_exception, log_message
 from .security import JOB_DEFAULT_TIER
 from .user_error import Invalid
-
-logger = logging.getLogger(__name__)
 
 # What a job can be: one truth for the agents' scheduler tool (its JSON-schema enums), the jobs page
 # (the SQLite CHECK in _ensure_schema stays as the database's own limit).
@@ -221,7 +218,8 @@ class JobStore:
 
     def _first_run(self, schedule_type: str, schedule_expr: str, after: str, ends_at: str) -> str:
         """The next run of a new or changed schedule. Raises Invalid for one that never fires (get_due_jobs filters
-        next_run IS NOT NULL) and for one whose first run already falls after its end."""
+        next_run IS NOT NULL), for an invalid cron expression (a CronError naming what is wrong) and for one whose
+        first run already falls after its end."""
         next_run = _calculate_next_run(schedule_type, schedule_expr, after)
         if next_run is None:
             raise Invalid("schedule_never_fires", kind=schedule_type, expression=schedule_expr)
@@ -471,7 +469,8 @@ async def delete_job(job_id: int) -> bool:
 
 
 def next_run_of(schedule_type: str, schedule_expr: str) -> str | None:
-    """When an expression fires next from now on; None for one that never does."""
+    """When an expression fires next from now on; None for a one-shot time that is none, a CronError for a cron
+    expression that is invalid or never fires."""
     return _calculate_next_run(schedule_type, schedule_expr, _now_iso())
 
 
@@ -503,15 +502,10 @@ def _calculate_next_run(schedule_type: str, schedule_expr: str, after: str) -> s
     return None
 
 
-def _next_cron_run(cron_expr: str, after: str) -> str | None:
-    """The next cron run time after `after`; None for an expression that is invalid or never fires (the job is then
-    rejected, never run at some other time)."""
-    try:
-        next_dt = next_cron_run(cron_expr, datetime.fromisoformat(after))
-    except ValueError as exc:
-        logger.error("Invalid cron expression '%s': %s", cron_expr, exc)
-        return None
-    return next_dt.strftime("%Y-%m-%dT%H:%M:%S")
+def _next_cron_run(cron_expr: str, after: str) -> str:
+    """The next cron run time after `after`. A CronError (Invalid) for an expression that is invalid or never fires
+    names what is wrong; a stored job never raises it, its expression was checked when it was saved."""
+    return next_cron_run(cron_expr, datetime.fromisoformat(after)).strftime("%Y-%m-%dT%H:%M:%S")
 
 
 # ============================================================

@@ -70,7 +70,7 @@ def test_a_job_keeps_the_fields_of_its_delivery_only(client: TestClient, store: 
 
 
 @pytest.mark.parametrize(("change", "key", "values"), [
-    ({"schedule_expr": "jeden Morgen"}, "schedule_never_fires", {"kind": "cron", "expression": "jeden Morgen"}),
+    ({"schedule_expr": "jeden Morgen"}, "cron_field_count", {"expression": "jeden Morgen", "found": 2}),
     ({"fixed_text": True}, "fixed_text_needs_announce", {}),
     ({"delivery": "brieftaube"}, "unknown_delivery", {"value": "brieftaube", "allowed": ", ".join(scheduler.DELIVERY_MODES)}),
     ({"agent": "sokrates"}, "job_agent_unfit", {"agent": "sokrates"}),
@@ -78,7 +78,7 @@ def test_a_job_keeps_the_fields_of_its_delivery_only(client: TestClient, store: 
      {"kind": "once", "expression": "morgen früh"}),
 ])
 def test_a_job_the_scheduler_refuses_is_not_stored(
-    client: TestClient, store: scheduler.JobStore, change: dict[str, Any], key: str, values: dict[str, str],
+    client: TestClient, store: scheduler.JobStore, change: dict[str, Any], key: str, values: dict[str, Any],
 ) -> None:
     refused = client.post("/jobs", json={**CRON, **change})
     assert (refused.status_code, refused.json()["detail"]) == (422, t(f"error_{key}").format(**values))
