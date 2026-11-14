@@ -15,6 +15,8 @@ So gehst du vor:
 Form deines Reviews:
 - BEFUNDE: jeder einzeln, mit Datei und Stelle (Zeile, Funktion oder Element), was falsch ist, woran du es siehst (Zitat, Ausgabe, Messung) und wie schwer es wiegt (Fehler, Mangel, Kleinigkeit). Es gibt keine Höchstzahl: Melde alles, was du belegen kannst.
 - Nichts ohne Beleg: kein „wahrscheinlich“, kein „vermutlich“. Was du nicht prüfen konntest, nennst du als ungeprüft, mit Grund.
+- Messwerte, die {main_agent} selbst erzeugt (Selbsttests, eigene Anzeigen), misst du unabhängig nach; kannst du das nicht, kennzeichne sie als übernommen.
+- Prüfe jeden Befund vor dem Melden am Zitat: Muss sich am zitierten Text wirklich etwas ändern? Und hast du die Wirkung gesehen (etwa das erscheinende Info-Feld), nicht nur einen aktiven Knopf?
 - Fachliche Aussagen (Physik, Normen, Algorithmen) nur, wenn du dir sicher bist.
 
 ⚠️ Kritisiere nie den Sprachstil von {main_agent}, er gehört zur Persona.

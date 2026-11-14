@@ -152,8 +152,8 @@ class ToolKit:
         self._unchanged_reads: dict[str, tuple[str, int]] = {}
         # What ran during this request, for call_note.
         self._calls: list[_ToolCall] = []
-        # Files in the documents the writing calls changed, path → new/changed/deleted
-        # (lib/document_changes.py); kept for the whole turn, the code review reads it.
+        # Files in the documents the calls changed, path → new/changed/deleted
+        # (lib/document_changes.py); kept for the whole turn, the recensio reads it.
         self._changed_documents: dict[str, str] = {}
 
     def restricted(self, names: Collection[str]) -> "ToolKit":
@@ -165,7 +165,7 @@ class ToolKit:
 
     @property
     def changed_documents(self) -> dict[str, str]:
-        """The files this toolkit's writing calls changed in the documents, in the order they changed."""
+        """The files this toolkit's calls changed in the documents, in the order they changed."""
         return dict(self._changed_documents)
 
     @property
@@ -341,7 +341,9 @@ class ToolKit:
 
         from . import document_changes
 
-        documents_before = None if reads_only else document_changes.snapshot()
+        # Every call, not only the writing ones: a read-only tool can still lead to writes (delegate_task's
+        # sub-agent writes with its own tools; 14.11.2026 the recensio saw "0 files" after a delegated build).
+        documents_before = document_changes.snapshot()
         t0 = time.perf_counter()
         result_str = ""
         success = True
@@ -417,10 +419,9 @@ class ToolKit:
             yield {"type": "tool_result", "result": result_str}
         finally:
             self._calls.append(_ToolCall(name, reads_only, args, not success or _reports_error(result_str)))
-            if documents_before is not None:
-                document_changes.merge(
-                    self._changed_documents, document_changes.changes(documents_before, document_changes.snapshot()),
-                )
+            document_changes.merge(
+                self._changed_documents, document_changes.changes(documents_before, document_changes.snapshot()),
+            )
             try:
                 from .security import audit_log
                 audit_log(

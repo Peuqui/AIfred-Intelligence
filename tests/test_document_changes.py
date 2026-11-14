@@ -4,7 +4,7 @@ Contract:
 - A writing call is bracketed by a look at the folder: new, changed and deleted files are its changes,
   whoever wrote them (execute_code_write names no file in its arguments).
 - Over the turn a file new in it stays new when changed again and leaves the list when deleted again.
-- Reading calls are not bracketed.
+- Every call is bracketed, also a read-only one: delegate_task's sub-agent writes with its own tools.
 """
 
 import asyncio
@@ -76,15 +76,20 @@ def test_a_new_file_stays_new_when_changed_and_leaves_when_deleted(documents: Pa
     assert kit.changed_documents == {"v8.html": "new"}
 
 
-def test_reading_calls_are_not_bracketed(documents: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    looks: list[int] = []
-    real = document_changes.snapshot
+def test_a_read_only_tool_that_leads_to_writes_counts(documents: Path) -> None:
+    """delegate_task is read-only by its tier, yet its sub-agent writes with its own tools (14.11.2026: the
+    recensio saw "0 files" after a delegated build)."""
+    def delegate(path: str) -> str:
+        (documents / path).write_text("vom Sub-Agenten", encoding="utf-8")
+        return "ok"
 
-    def counted() -> dict[str, int]:
-        looks.append(1)
-        return real()
+    kit = ToolKit(tools=[Tool(name="delegate_task", description="x", parameters={}, executor=delegate, tier=0)],
+                  _source="browser", _max_tier=4)
+    _run(kit, ("delegate_task", {"path": "v8_motor.html"}))
+    assert kit.changed_documents == {"v8_motor.html": "new"}
 
-    monkeypatch.setattr(document_changes, "snapshot", counted)
+
+def test_a_read_that_changes_nothing_adds_nothing(documents: Path) -> None:
     kit = _kit(documents)
     _run(kit, ("read_file", {"path": "alt.html"}))
-    assert looks == [] and kit.changed_documents == {}
+    assert kit.changed_documents == {}

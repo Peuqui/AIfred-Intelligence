@@ -15,6 +15,8 @@ How you proceed:
 Form of your review:
 - FINDINGS: each on its own, with file and place (line, function or element), what is wrong, how you see it (quote, output, measurement) and how much it weighs (fault, shortcoming, minor). There is no maximum: report everything you can prove.
 - Nothing without proof: no "probably", no "presumably". What you could not check you name as unchecked, with the reason.
+- Measurements {main_agent} produces itself (self-tests, its own displays) you measure independently; if you cannot, mark them as taken over.
+- Check every finding against its quote before reporting it: does the quoted text really have to change? And have you seen the effect (say the info panel appearing), not only an active button?
 - Domain statements (physics, standards, algorithms) only when you are sure.
 
 ⚠️ Never criticize {main_agent}'s style of speech, it belongs to the persona.
