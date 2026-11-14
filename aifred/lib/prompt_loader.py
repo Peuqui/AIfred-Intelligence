@@ -719,7 +719,7 @@ def get_direct_prompt_tokens(
     """Tokens des System-Prompts, den dieser Agent im naechsten Turn abschickt.
 
     Gemessen mit dem Tokenizer am Ergebnis von :func:`get_agent_direct_prompt`
-    — also an genau dem Text, den ``_run_agent_direct_response`` baut (die
+    — also an genau dem Text, den ``turn_service._direct_call`` baut (die
     Tools-Schicht allein wiegt rund 8.000 Tokens, bei 16k Kontext knapp die
     Haelfte des Fensters).
     """

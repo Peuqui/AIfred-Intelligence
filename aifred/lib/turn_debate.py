@@ -1,4 +1,4 @@
-"""The multi-agent modes of a server turn, without a Reflex state (port of lib/multi_agent.py).
+"""The multi-agent modes of a server turn.
 
 Seats, not names (lib/debate_seats.py): the author (the agent that answered first) refines and
 defends, the session's critic critiques and attacks, its judge mediates and judges. Each speaks with

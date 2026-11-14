@@ -25,14 +25,10 @@ def build_llm_options(
     """Build LLMOptions for an agent — sampling params from state or settings.json.
 
     Central function to ensure ALL sampling parameters are passed consistently.
-    Called from multi_agent.py, llm_engine.py, etc.
-
-    Browser path (state given): reads ``state.<agent>_top_k`` etc. — these are
-    Reflex-state attributes populated from ``settings.json`` at startup.
-    Hub path (state=None, e.g. Message Hub background worker or scheduler
-    job): reads the same keys directly from ``settings.json`` so the per-agent
-    settings of the main window (thinking, reasoning effort, sampling) apply
-    universally — no inconsistency between channels.
+    A turn (turn_service, turn_debate) passes its RuntimeSettings view, read from
+    ``settings.json`` at the turn's start; the sub-agent plugin passes None and the
+    same keys are read from ``settings.json`` directly, so the per-agent settings
+    (thinking, reasoning effort, sampling) apply alike everywhere.
 
     ``model_id`` is the model the request goes to: the thinking choice is the
     agent's choice on that model (agent_settings.thinking_mode).

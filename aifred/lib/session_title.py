@@ -63,10 +63,10 @@ async def generate_session_title(
     backend_url = BACKEND_URLS.get(backend_type, "")
 
     # Model: override > Automatik-Modell aus Settings. Title-Generation ist
-    # eine Hilfsaufgabe und gehoert zum Automatik-LLM. Wenn der User in den
-    # Einstellungen "Automatik-LLM = (wie Alfred-LLM)" gewaehlt hat, ist
-    # automatik_model leer und get_effective_model_from_settings() faellt
-    # intern auf aifred_model zurueck (siehe config.py).
+    # eine Hilfsaufgabe und gehört zum Automatik-LLM. Wenn der User in den
+    # Einstellungen "Automatik-LLM = (wie AIfred-LLM)" gewählt hat, ist
+    # automatik_model leer und get_effective_model_from_settings() fällt
+    # intern auf aifred_model zurück (siehe config.py).
     if model_override:
         model = model_override
     else:

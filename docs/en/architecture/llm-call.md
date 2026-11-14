@@ -8,57 +8,62 @@
 
 ## Overview
 
-Every LLM call in AIfred flows through a unified chunk-processing pipeline (`run_llm_stream()` in `llm_pipeline.py`). This pipeline handles TTFT measurement, tool-call tracking, URL collection, sandbox output extraction, thinking block processing, and inference metadata — regardless of whether the call comes from the chat UI, a multi-agent debate, the vision pipeline, or the Message Hub.
+Every answering call in AIfred flows through a unified chunk-processing pipeline (`run_llm_stream()` in `llm_pipeline.py`). This pipeline handles TTFT measurement, tool-call tracking, URL collection, sandbox output extraction, thinking block processing, and inference metadata, regardless of whether the turn comes from the Vue interface's chat or from a channel (email, scheduler, alert), and whether one agent answers alone or several debate. The turn itself is `run_turn()` in `turn_service.py`; the multi-agent modes live in `turn_debate.py`.
 
 ```
-                          +---------------------+
-                          |    User / E-Mail     |
-                          +----------+----------+
-                                     |
-              +----------------------+----------------------+
-              |                      |                      |
-     +--------v--------+   +--------v--------+    +--------v--------+
-     |   Chat (UI)     |   |  Vision (Image) |    |  Message Hub    |
-     |  send_message() |   | _process_vision |    | process_inbound |
-     | _chat_mixin.py  |   | _chat_mixin.py  |    |message_processor|
-     +--------+--------+   +--------+--------+    +--------+--------+
-              |                      |                      |
-              |               +------v------+        +------v------+
-              |               |  call_llm() |        |  run_turn() |
-              |               |llm_engine.py|        |turn_service |
-              |               +------+------+        +------+------+
-              |                      |                      |
-     +--------v----------+          |                      |
-     |_run_agent_direct   |         |                      |
-     |   _response()      |         |                      |
-     | multi_agent.py     |         |                      |
-     +--------+-----------+         |                      |
-              |                     |                      |
-     +--------v----------+         |                      |
-     |_stream_agent_to   |         |                      |
-     |   _history()      |         |                      |
-     | multi_agent.py    |         |                      |
-     +--------+----------+         |                      |
-              |                     |                      |
-              +---------------------+----------------------+
-                                    |
-                          +---------v---------+
-                          | run_llm_stream()  |   <-- UNIFIED PIPELINE
-                          | llm_pipeline.py   |
-                          +---------+---------+
-                                    |
-                          +---------v---------+
-                          | chat_stream()     |
-                          | llm_client.py     |
-                          +---------+---------+
-                                    |
-                          +---------v---------+
-                          |  Backend (LLM)    |
-                          | Ollama / llama.cpp|
-                          | vLLM              |
-                          | Cloud API         |
-                          +-------------------+
+                +----------------------------+
+                |   Chat (Vue)   |  Channel  |
+                | submit_turn()  | process_  |
+                |                | inbound() |
+                +-------+--------+-----+-----+
+                        |              |
+                        +------+-------+
+                               |
+                      +--------v---------+
+                      |   run_turn()     |   one turn: message up to
+                      | turn_service.py  |   the finished reply
+                      +--------+---------+
+                               |
+        intent (Automatik model), mode switch, routing,
+        images (_look_at_images), compression (_compress)
+                               |
+              +----------------+-----------------+
+              |                                  |
+     +--------v---------+              +---------v----------+
+     |   _respond()     |              |  run_symposion()   |
+     |  direct answer   |              |  turn_debate.py    |
+     +--------+---------+              +---------+----------+
+              |                                  |
+     +--------v---------+                        |
+     |   run_debate()   |  (debate modes         |
+     |  turn_debate.py  |   only)                |
+     +--------+---------+                        |
+              |                                  |
+              +----------------+-----------------+
+                               |
+                      +--------v---------+
+                      |  stream_call()   |   every model call of a turn
+                      | turn_service.py  |
+                      +--------+---------+
+                               |
+                      +--------v---------+
+                      | run_llm_stream() |   <-- UNIFIED PIPELINE
+                      | llm_pipeline.py  |
+                      +--------+---------+
+                               |
+                      +--------v---------+
+                      |  chat_stream()   |
+                      |  llm_client.py   |
+                      +--------+---------+
+                               |
+                      +--------v---------+
+                      |  Backend (LLM)   |
+                      | Ollama / llama.cpp|
+                      | vLLM / Cloud API |
+                      +------------------+
 ```
+
+Every model call of a turn runs through the same three steps: build (`AgentCall`), stream (`stream_call`), finish (`finish_call`: save the bubble and the `llm_history`, tell the clients). This holds for the direct answer (`_respond`) and for every speaker of a debate.
 
 ---
 
@@ -89,110 +94,139 @@ Every LLM call in AIfred flows through a unified chunk-processing pipeline (`run
 
 ## Call Paths in Detail
 
-### 1. Normal Chat
+### 1. A Turn (Chat and Channels)
 
-Every agent gets its full toolkit and decides itself whether to use tools (web search, calculation, documents, …).
-
-```
-_chat_mixin.py: send_message()
-  |-- Intent Detection (detect_query_intent_and_addressee)
-  |     Returns: addressee, detected_language, mode_switch_updates,
-  |              is_pure_command, raw_response, load_time
-  |-- History Compression (if >85% context utilization)
-  |-- run_generic_agent_direct_response("aifred")
-  |
-  v
-multi_agent.py: _run_agent_direct_response()
-  |-- LLMClient init (backend + URL from State)
-  |-- Agent model selection (state._effective_model_id)
-  |-- num_ctx (get_agent_num_ctx)
-  |-- System prompt (get_agent_direct_prompt)
-  |-- Toolkit: prepare_agent_toolkit(research_tools_enabled=True)
-  |     -> memory tools + all plugin tools (web_search, web_fetch, calculate,
-  |        execute_code, document tools, …); recalled memories are injected
-  |        as context before the question
-  |-- Messages (build_messages_from_llm_history with perspective)
-  |-- The agent's temperature (resolve_agent_temperature, its own per agent)
-  |-- LLM options (build_llm_options)
-  |
-  v
-multi_agent.py: _stream_agent_to_history()
-  |-- State setup: state._set_current_agent, vLLM model ensure, TTS init
-  |
-  v
-llm_pipeline.py: run_llm_stream()  <-- PIPELINE
-  |-- llm_client.chat_stream() (retry on connection and server errors in the backend: worth_retrying)
-  |-- Chunk processing with tracking
-  |-- PipelineResult
-```
-
-### 2. Vision Pipeline (Image Upload)
-
-Model selection: `_image_describer()` (rule A, see [Vision routing](vision-routing.md)).
-If the main model cannot see (or Symposion with ≥2 agents), `_describe_images()`
-describes the images once, the description goes into the user turn, and the
-normal text pipeline runs. Only when the main model sees by itself does VL
-Direct bypass `_run_agent_direct_response()` and call `call_llm()` directly:
+A turn is one message of the session up to the finished reply. It runs as a task of the server, independent of any open tab; the tabs read the session's event stream (`session_events`). A message in the chat (`submit_turn`) and one from a channel (`process_inbound`, see section 5) take the same path. If a turn is already running in the session, the message waits in the queue (`pending_messages`) and starts when it ends.
 
 ```
-_chat_mixin.py: _process_vision_request()
-  |-- Model = effective main model (AIfred)
-  |-- Acting agent = active agent (memory, tools, personality)
-  |-- Toolkit: prepare_agent_toolkit(research_tools_enabled=True)
-  |-- call_llm(agent=<acting agent>, multimodal_content=content_parts,
-  |            external_toolkit=..., vision_task_addon=...)
-  |     |-- System prompt: get_agent_system_prompt(agent, "task")
-  |     |     + vision_task_addon
-  |     |-- temperature from the AIfred bucket
-  |     |-- LLM options: build_llm_options(state, agent, ...)
-  |     v
-  |     run_llm_stream()  <-- PIPELINE
-  |
-  |-- Response saved to chat_history + llm_history
-  |-- _generate_session_title() (fire-and-forget task)
+turn_service.py: run_turn() -> _run()
+  |-- the message's images (session_images), checks: empty, calibration, model set
+  |-- the user entry goes into the session at once (chat_history + llm_history)
+  |-- _detect_intent(): addressee, language, mode switch (one Automatik call, section 7)
+  |     a system's task (job, alert): no intent; URL-only or image-only: skipped
+  |-- apply the mode switch; a pure command -> confirmation instead of an answer, turn ends
+  |-- _route(): pinned agent (wake word, job) > addressee > the session's active agent
+  |     (an explicit address sticks as the active agent)
+  |-- turn_debate.plan_turn(): who speaks (TurnPlan)
+  |-- _look_at_images(): who looks at the images (section 2)
+  |-- _compress(): history compression before the turn (section 3)
+  |-- no responder (symposion)          -> turn_debate.run_symposion()
+  |   else _respond(responder)          -> direct answer
+  |     then, in a debate mode          -> turn_debate.run_debate()
+  |-- _start_title(): session title in the background (section 6)
 ```
 
-### 3. Multi-Agent Debate Modes
+The direct answer:
 
-All debate modes use `_stream_agent_to_history()` -> `run_llm_stream()` for each agent turn. The **perspective transformation** in `build_messages_from_llm_history()` ensures each agent sees the conversation from its own point of view:
-- Own messages -> `role: "assistant"`
-- Other agents' messages -> `role: "user"` (with labels like `[SOKRATES]:`)
+```
+turn_service.py: _respond()
+  |-- _direct_call(): builds the AgentCall
+  |     |-- the agent's model (agent_model: its own, else AIfred's)
+  |     |-- num_ctx (agent_context)
+  |     |-- agent_toolkit() -> prepare_agent_toolkit(research_tools_enabled=True)
+  |     |     -> memory tools + all plugin tools; recalled memories are injected
+  |     |        as context right before the question (inject_before_question)
+  |     |-- the agent's thinking choice for this model (thinking_mode, thinking_fields)
+  |     |-- system prompt: prompt_loader.get_agent_direct_prompt(agent, lang, memory)
+  |     |-- messages: build_messages_from_llm_history(..., perspective=agent)
+  |     |-- the agent's temperature (resolve_agent_temperature, its own per agent)
+  |     |-- LLM options: build_llm_options(view, agent, model, temperature, num_ctx)
+  |-- stream_call(): run_llm_stream()  <-- PIPELINE
+  |-- finish_call(mode="direct")
+```
+
+When several agents speak, the **perspective transformation** in `build_messages_from_llm_history()` ensures each sees the conversation from its own point of view: its own replies are `role: "assistant"` (without a name label), everything else is `role: "user"`, other agents' replies under their display name. The judge of a debate reads as an observer (`observer=True`): every reply is someone else's.
+
+When the user addresses an agent ("Sokrates, what do you think?"), the intent detection returns that agent's id as addressee; `_route()` picks it, and the same turn runs with that agent as the responder.
+
+### 2. Images of a Turn
+
+Who looks at the images is decided by `turn_service._look_at_images()` with `vision_routing.chat_describer()` (rule A, see [Vision routing](vision-routing.md)):
+
+- **VL Direct**: when a single agent answers without a debate and its model can see, it gets the images in its request. `_direct_call()` builds the question (`turn_images.seeing_question`), the content (`seeing_content`, images first, then one text part) and the task in the system prompt (`seeing_task`). The images themselves never enter the history; it holds only the URL (`image_marker`), so a later turn can look again with `vision_analyze`.
+- **Description**: in every other case (debate, symposion, a model that cannot see) `turn_images.describe_images()` describes the images once; the description (`description_block`) is appended to the user turn and overwritten in the `llm_history` (`_rewrite_user_turn`). All agents of the turn thus work from the same basis. A describer of another machine loads there (`remote_describers`).
+- If no describer is found (`NoVisionModelError`), the turn goes on without a description, with a notice to the user.
+
+An uploaded image can be turned or cut before it is sent (`rotate_upload`, `crop_upload`).
+
+### 3. History Compression
+
+Two places compress, both from `HISTORY_COMPRESSION_TRIGGER` (85% of the context) down to `HISTORY_COMPRESSION_TARGET` (30%):
+
+- **Before the turn** (`turn_service._compress` → `compress_history` → `context_manager.summarize_history_if_needed`): measured against the smallest context of the turn's agents and the largest of their system prompts. The first speaker's model summarizes, so no second model has to load. In the debate modes `turn_debate._compress_before` checks again before every speaker, since the debate itself can fill the next one's context.
+- **Inside the tool loop** (`context_manager.compress_tool_loop`, `LoopCompression`): `stream_call` hands `run_llm_stream` a `LoopCompression` (client, model, language); when the loop's context reaches the trigger, it summarizes the earlier conversation and, if that is not enough, the oldest finished tool rounds. The question, the system messages and the last rounds stay. The session's histories are left untouched; the pipeline event `progress` reports the phase `compress`.
+
+Both report the phase through `debug_bus.report_phase` as a `turn_phase` event to the tabs.
+
+### 4. Multi-Agent Modes (`turn_debate.py`)
+
+The modes work with **seats**, not names (`debate_seats.py`): the author (`SEAT_MAIN`, the agent that answers first), the critic (`SEAT_CRITIC`) and the judge (`SEAT_JUDGE`). The session chooses critic and judge (default from `settings.json`, `debate_seats`; `session_seats`). Each agent speaks with its own persona; the seat's task is in `prompts/<lang>/debate/<key>.txt` (`seat_prompt`) and names the other seats, never fixed names. The code picks the round rules, not the model: `round_rules()` loads `<key>_first` for round 1 and `<key>_later` for every further one. If the agent of a seat is gone, `plan_turn` rejects the turn before anyone speaks.
+
+Flow: first the author's direct answer (`_respond`), then `run_debate(ctx, plan, answer)`:
+
+```
+run_debate()
+  |-- mode == "tribunal"  -> _tribunal()
+  |-- mode == "recensio"  -> _recensio()
+  |-- else                -> _critique()   (critical_review and auto_consensus)
+```
+
+Every speaker builds its call with `_call()` (system prompt, history from its view, the round's question for author tasks) and runs through `stream_call` → `run_llm_stream()` and `finish_call`. The system prompt is the agent's multi-agent task prompt (`_base_system`, role description `DEBATE_ROLES`) plus the seat's task (`_seat_system`).
+
+#### Critical Review (critical_review)
+
+Direct answer, then exactly one critique by the critic (`_critique`, one round). The user decides afterwards.
 
 #### Auto-Consensus
 
 ```
-run_sokrates_analysis(mode="auto_consensus")
+_critique()   (mode = auto_consensus, at most max_debate_rounds rounds)
   |
-  Loop (max_debate_rounds):
-    |-- SOKRATES critique
-    |     prompt: get_sokrates_critic_prompt(round_num=N)
-    |     _stream_agent_to_history("sokrates") -> run_llm_stream()
+  Loop per round N:
+    |-- CRITIC: task critic + round_rules("critic", N == 1) + critic_voting
+    |-- JUDGE (observer): task mediator + round_rules("mediator", N == 1)
     |
-    |-- SALOMO synthesis
-    |     prompt: get_salomo_mediator_prompt(round_num=N)
+    |-- VOTING: _agrees() per seat, _consensus(votes, consensus_type)
+    |     [LGTM] = approve; [WEITER] outweighs [LGTM]
+    |     Round 1: only critic and judge vote (the author's direct answer was
+    |     never asked for a vote); from round 2 the author votes too
+    |     "majority": more than half agree; "unanimous": all
     |
-    |-- VOTING: count_lgtm_votes(aifred, sokrates, salomo)
-    |     [LGTM] = approve, [WEITER] = override (forces re-refinement)
-    |     Consensus at 2/3 (majority) or 3/3 (unanimous)
+    |-- consensus or last round -> end
     |
-    |-- If consensus -> BREAK
-    |
-    |-- AIFRED refinement
-          prompt: get_aifred_refinement_prompt(...)
-          _stream_agent_to_history("aifred") -> run_llm_stream()
+    |-- AUTHOR: refinement (task refinement as the next round's question)
 ```
+
+The voting rule (`critic_voting`) is only in the critic's prompt in auto-consensus, not in `critical_review`. `consensus_type` and `max_debate_rounds` come from the settings.
 
 #### Tribunal
 
 ```
-run_tribunal()
+_tribunal()
   |
-  Fixed rounds (no early exit):
-    |-- SOKRATES (prosecutor): get_sokrates_tribunal_prompt(round_num=N)
-    |-- AIFRED (defense): get_aifred_defense_prompt(...)
+  Fixed number of rounds max_debate_rounds (no early exit):
+    |-- CRITIC (prosecutor): task tribunal + round_rules("tribunal", N == 1)
+    |-- AUTHOR (defense): task defense as the question (may hold or change position)
   |
   After all rounds:
-    |-- SALOMO (judge): get_salomo_judge_prompt()
+    |-- JUDGE (observer): task judge, the verdict
+```
+
+#### Recensio (Code Review)
+
+The censor (the critic's seat) reads and tests the files the auctor (the author) changed in this turn (`_author_files`, from `ToolKit.changed_documents`; lists new/changed/deleted via `_file_lists`).
+
+```
+_recensio()
+  |-- censor toolkit: toolkit.restricted(RECENSIO_CENSOR_TOOLS)  (read and test only)
+  |-- _review(round 0): review of the answer, belongs to no round
+  |     system prompt: get_seat_system_prompt(..., REVIEW_ROLES, tools=RECENSIO_CENSOR_TOOLS):
+  |     the review replaces the agent's everyday task, identity and personality stay
+  |
+  Loop per round N (at most max_debate_rounds):
+    |-- [LGTM] of the review (and no [WEITER]) -> passed, end
+    |-- AUTHOR: correction (task review_fix), changes the files itself
+    |-- _review(round N): new review
 ```
 
 #### Symposion
@@ -200,32 +234,18 @@ run_tribunal()
 ```
 run_symposion()
   |
-  For each agent in state.symposion_agents:
-    |-- System prompt + toolkit for this agent
-    |-- Messages with agent-specific perspective
-    |-- _stream_agent_to_history(agent_id) -> run_llm_stream()
+  Per round up to max_debate_rounds, per agent of the round table (re-read from the session every round):
+    |-- system prompt (direct) + rules shared/symposion (+ shared/symposion_reflection from round 2)
+    |-- messages: the whole conversation so far, own contributions as assistant
+    |-- memories in round 1 only
+    |-- stream_call() -> run_llm_stream()
 ```
 
-### 4. Direct Agent Addressing
-
-User writes "Sokrates, what do you think?" -> Intent detection recognizes `addressee="sokrates"`.
-
-```
-run_generic_agent_direct_response(agent_id="sokrates", ...)
-  |-- Agent config: get_agent_config("sokrates")
-  |     -> display_name="Sokrates", emoji, model, temperature
-  |-- _run_agent_direct_response(agent="sokrates")
-  |     -> perspective="sokrates" (own messages = assistant)
-  |     -> _stream_agent_to_history("sokrates") -> run_llm_stream()
-```
-
-Same for Salomo and custom agents.
+No winner, no vote. An agent switched off leaves the round; if only one remains, it answers directly (`plan_turn`).
 
 ### 5. Message Hub (Inbound Email, Scheduler, Alerts)
 
-Completely stateless — no Reflex State needed. Since 07.11.2026 the message runs as a turn of the
-turn service (`lib/turn_service.py`), the one the Vue interface uses for the chat: intent, mode
-switch, compression, multi-agent modes and the same bubble as in the browser.
+Completely stateless. The message runs as a turn of the turn service (`lib/turn_service.py`), the one the Vue interface uses for the chat: intent, mode switch, compression, multi-agent modes and the same bubble as in the browser.
 
 ```
 email_channel/__init__.py: listener_loop() — email received via IMAP IDLE
@@ -242,17 +262,13 @@ message_processor.py: dispatch_inbound() -> process_inbound(InboundMessage)
   |       fence stays in the llm_history), tier, trust, channel metadata,
   |       metadata["wake_agent"] as the pinned agent (only when configured)
   |-- 4. turn_service.run_turn(TurnRequest(origin=...)) in the channel's task
-  |       |-- the user entry goes into the session at once (chat + llm_history)
-  |       |-- intent: addressee, language, mode switch (a confirmation for a
-  |       |     pure command); routing: pinned agent > addressee > active_agent
-  |       |-- compression, plan (the session's multi-agent mode)
-  |       |-- per agent: agent_toolkit() -> prepare_agent_toolkit with the
-  |       |     origin's tier, trust and metadata
+  |       |-- flow as in section 1; per agent agent_toolkit() ->
+  |       |     prepare_agent_toolkit with the origin's tier, trust and metadata
   |       |-- run_llm_stream()  <-- PIPELINE (token events to open tabs; not
   |       |     read aloud in the browser, the channel speaks itself)
   |       |-- replies saved as bubbles, title in the background
   |       v
-  |       TurnOutcome: status, agent, replies (text_clean, silent)
+  |       TurnOutcome: status, agent, replies (TurnReply: text_clean, silent)
   |
   |-- 5. outbound_text(): every reply of the turn, sanitized; with a name line
   |       when another agent than AIfred, or several, spoke
@@ -260,18 +276,20 @@ message_processor.py: dispatch_inbound() -> process_inbound(InboundMessage)
   |       or its auto-reply toggle is on — email: SMTP)
 ```
 
-### 6. Session Title Generation
+### 6. Session Title
 
-Does **not** use `run_llm_stream()` — simple non-streaming `client.chat()` with a hard timeout (`SESSION_TITLE_TIMEOUT_SECONDS`, 300 s).
+Does **not** use `run_llm_stream()`: simple non-streaming `client.chat()` with a hard timeout (`SESSION_TITLE_TIMEOUT_SECONDS`, 300 s). After the first exchange `turn_service._start_title()` starts a background task (`_title`) if the session has no title yet; the finished title arrives as a `session_title` event.
 
 ```
-llm_engine.py: generate_session_title()
-  |-- Input: user_text (max 500 chars) + ai_response (max 500 chars)
+session_title.py: first_exchange() + generate_session_title()
+  |-- Input: first user message + first reply (max 500 chars each; HTML tags of the
+  |     user text and thinking blocks of the reply removed; the speaker label "[AIFRED]: " is dropped)
   |-- Prompt: load_prompt("utility/chat_title")
-  |-- Model: model_override, else the automatik model from settings
-  |     (falls back to aifred_model when "(same as AIfred-LLM)" is selected)
+  |-- Model: the model of the turn's last call with its num_ctx
+  |     (it is the loaded one, nothing reloads for the title);
+  |     without an override the automatik model from settings
   |-- Options: temperature=0.3, num_predict=SESSION_TITLE_NUM_PREDICT (2000),
-  |     enable_thinking=False, num_ctx=AUTOMATIK_LLM_NUM_CTX
+  |     enable_thinking=False, num_ctx
   |-- llm_client.chat() (NOT streaming, SESSION_TITLE_TIMEOUT_SECONDS timeout)
   |-- Cleanup: thinking blocks, quotes, trailing punctuation, max 80 chars
   |-- update_session_title(session_id, title)
@@ -279,21 +297,23 @@ llm_engine.py: generate_session_title()
 
 ### 7. Intent Detection
 
-Also does **not** use `run_llm_stream()` — uses the small automatik model.
+Also does **not** use `run_llm_stream()`: uses the small automatik model, called by `turn_service._detect_intent()`.
 
 ```
 intent_detector.py: detect_query_intent_and_addressee()
-  |-- Model: automatik_model (small, fast)
+  |-- Model: automatik model (effective_automatik_id), prompt always in English
   |-- Context: AUTOMATIK_LLM_NUM_CTX (12288) if the automatik model differs
   |     from AIfred's; with the same model AIfred's max_context (no reload)
   |-- Options: temperature=0.2, enable_thinking=False
   |-- Returns: (addressee, detected_language, mode_switch_updates,
   |            is_pure_command, raw_response, load_time)
-  |     addressee in: None, aifred, sokrates, salomo
+  |     addressee: an agent id or None
   |     language in: de, en
   |     mode_switch_updates: requested config change ({} if none)
   |     is_pure_command: message is ONLY a mode-switch command
 ```
+
+The call is skipped for a message that is only a URL or only images, and for a system's task (job, alert): the interface language applies then.
 
 ---
 
@@ -329,7 +349,7 @@ GGUF (tokenizer.chat_template)
   |     Filled lazily on first use (header read, ms) and force-refreshed
   |     during calibration (re-download may change it).
   |
-  |-- State: agent_tuning[agent].thinking_by_model {model: choice}
+  |-- Setting: agent_tuning[agent].thinking_by_model {model: choice}
   |     One choice per row AND model: "off", "on" (the level the template
   |     picks itself) or a level. The model counts as its base model
   |     (agent_settings.thinking_model_key: without llama-swap variants such
@@ -344,7 +364,8 @@ GGUF (tokenizer.chat_template)
   |     unknown level → its default) without rewriting what is stored.
   |
   v
-build_llm_options(state, agent, model_id, …) -> LLMOptions.reasoning_effort
+build_llm_options(view, agent, model, temperature, num_ctx) -> LLMOptions;
+thinking_fields(choice) -> enable_thinking, reasoning_effort
   |-- llamacpp/_build_extra_body(): chat_template_kwargs =
   |     {"enable_thinking": ..., "reasoning_effort": "<level>"}
   |-- ollama: ignores effort (bool `think` only)
@@ -363,14 +384,16 @@ positives.
 
 | Path | Entry Point | Pipeline? | Notes |
 |---|---|---|---|
-| Normal chat | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Full toolkit, agent decides |
-| Vision | `_process_vision_request` | `call_llm` -> `run_llm_stream` | Multimodal, acts as the active agent |
-| Direct Agent | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Agent-specific perspective |
-| Auto-Consensus | `run_sokrates_analysis` | `_stream_agent_to_history` -> `run_llm_stream` | Multiple rounds, voting |
-| Tribunal | `run_tribunal` | `_stream_agent_to_history` -> `run_llm_stream` | 3 agents, Salomo judges |
-| Symposion | `run_symposion` | `_stream_agent_to_history` -> `run_llm_stream` | N agents sequentially |
+| Direct answer (chat, channel, address) | `turn_service._respond` | `stream_call` -> `run_llm_stream` | Full toolkit, agent decides |
+| Image, main model sees | `turn_service._look_at_images` + `_direct_call` | `stream_call` -> `run_llm_stream` | Images in the request (VL Direct) |
+| Image, other describer | `turn_images.describe_images` | **No** — `llm_client.chat()` | One description in the user turn, then a normal turn |
+| Critical review, auto-consensus | `turn_debate._critique` | `stream_call` -> `run_llm_stream` | Critic, judge, author; voting only in auto-consensus |
+| Tribunal | `turn_debate._tribunal` | `stream_call` -> `run_llm_stream` | Rounds of attack and defense, judge last |
+| Recensio | `turn_debate._recensio` | `stream_call` -> `run_llm_stream` | Censor with a restricted toolkit, auctor corrects |
+| Symposion | `turn_debate.run_symposion` | `stream_call` -> `run_llm_stream` | N agents sequentially |
 | Message Hub | `process_inbound` | `turn_service.run_turn` -> `stream_call` -> `run_llm_stream` | Stateless, the same turn as the Vue chat, auto-reply |
-| Title Gen | `generate_session_title` | **No** — `client.chat()` | Non-streaming, 300 s timeout |
+| Compression | `turn_service.compress_history`, `compress_tool_loop` | **No** — summary by the next speaker's model | Before the turn, between speakers, in the tool loop |
+| Title | `session_title.generate_session_title` | **No** — `client.chat()` | Non-streaming, 300 s timeout |
 | Intent | `detect_query_intent_and_addressee` | **No** — `client.chat()` | Automatik model |
 
 ---
@@ -379,14 +402,17 @@ positives.
 
 | File | Role |
 |---|---|
+| `aifred/lib/turn_service.py` | The server's turn (Vue chat, channels, scheduler, alerts): `run_turn`, `TurnOrigin`, `TurnOutcome`, `stream_call`, `finish_call`, `compress_history` |
+| `aifred/lib/turn_debate.py` | Multi-agent modes: `plan_turn`, `run_debate`, `run_symposion` |
+| `aifred/lib/debate_seats.py` | Seats (author, critic, judge): `seat_prompt`, `round_rules`, `session_seats` |
+| `aifred/lib/turn_images.py` | Images of a turn: the seeing model's request, description, turning and cutting |
 | `aifred/lib/llm_pipeline.py` | Unified chunk-processing pipeline (`run_llm_stream`, `PipelineResult`) |
-| `aifred/lib/multi_agent.py` | Chat streaming (`_stream_agent_to_history`), debate modes, agent dispatch |
-| `aifred/lib/llm_engine.py` | `call_llm()` (image in the Reflex chat), `generate_session_title()` |
-| `aifred/lib/turn_service.py` | The server's turn (Vue chat, channels, scheduler, alerts): `run_turn`, `TurnOrigin`, `TurnOutcome` |
+| `aifred/lib/context_manager.py` | History compression (`summarize_history_if_needed`, `compress_tool_loop`, `LoopCompression`) |
+| `aifred/lib/session_title.py` | Session title (`first_exchange`, `generate_session_title`) |
 | `aifred/lib/message_processor.py` | Message Hub pipeline (`process_inbound`, `outbound_text`) |
 | `aifred/lib/llm_client.py` | `LLMClient`, `build_llm_options()`, backend abstraction |
 | `aifred/lib/message_builder.py` | `build_messages_from_llm_history()` — perspective transformation |
+| `aifred/lib/prompt_loader.py` | Prompt layers: `get_agent_direct_prompt`, `get_agent_system_prompt`, `get_seat_system_prompt` |
 | `aifred/lib/agent_memory.py` | `prepare_agent_toolkit()` — memory + plugin tools |
 | `aifred/lib/agent_config.py` | Agent configuration (display names, emojis, models) |
 | `aifred/lib/intent_detector.py` | Language, addressee and mode switch detection |
-| `aifred/state/_chat_mixin.py` | UI entry point (`send_message`, `_process_vision_request`) |
