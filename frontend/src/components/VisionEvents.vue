@@ -299,7 +299,7 @@ const value = (event: Event): string => (event.target as HTMLSelectElement).valu
 </template>
 
 <style scoped>
-.casus { display: flex; flex-direction: column; gap: 8px; max-width: 1100px; }
+.casus { display: flex; flex-direction: column; gap: 8px; }
 .filters, .pages { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pages { justify-content: center; font-size: 0.85rem; color: var(--aifred-text-secondary); }
 .grow { flex: 1; }

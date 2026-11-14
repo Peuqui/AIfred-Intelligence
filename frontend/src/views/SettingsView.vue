@@ -76,7 +76,7 @@ function named(event: Event): void {
 </template>
 
 <style scoped>
-.settings { overflow-y: auto; padding: 16px 0; display: flex; flex-direction: column; gap: 14px; max-width: 720px; }
+.settings { overflow-y: auto; padding: 16px 0; display: flex; flex-direction: column; gap: 14px; }
 section { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 10px; }
 .line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .name { min-width: 170px; font-weight: 600; font-size: 0.9rem; }

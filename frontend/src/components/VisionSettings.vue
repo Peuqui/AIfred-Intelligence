@@ -220,7 +220,7 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
 <style scoped>
 /* Too many columns for a phone: the table scrolls sideways in its own box instead of widening the page. */
 .table-scroll { overflow-x: auto; }
-.vision-settings { display: flex; flex-direction: column; gap: 12px; max-width: 960px; }
+.vision-settings { display: flex; flex-direction: column; gap: 12px; }
 article { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 10px; }
 .line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .name { min-width: 210px; font-weight: 600; font-size: 0.9rem; display: inline-flex; align-items: center; gap: 6px; }

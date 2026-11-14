@@ -69,7 +69,7 @@ onMounted(load);
 </template>
 
 <style scoped>
-.stored { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; max-width: 520px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 10px; }
+.stored { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 10px; }
 .line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .what { flex: 1; min-width: 120px; }
 .hint { margin: 0; font-size: 0.8rem; color: var(--aifred-text-muted); }

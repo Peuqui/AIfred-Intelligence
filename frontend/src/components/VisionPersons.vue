@@ -231,7 +231,7 @@ const value = (event: Event): string => (event.target as HTMLInputElement | HTML
 </template>
 
 <style scoped>
-.persons { display: flex; flex-direction: column; gap: 10px; max-width: 1100px; }
+.persons { display: flex; flex-direction: column; gap: 10px; }
 article.person { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 10px; }
 .line, .open-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .grow { flex: 1; }

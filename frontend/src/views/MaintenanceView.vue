@@ -118,7 +118,7 @@ async function openAudit(event: Event): Promise<void> {
 </template>
 
 <style scoped>
-.maintenance { overflow-y: auto; padding: 16px 0; display: flex; flex-direction: column; gap: 8px; max-width: 720px; }
+.maintenance { overflow-y: auto; padding: 16px 0; display: flex; flex-direction: column; gap: 8px; }
 details { padding: 10px 14px; background: var(--aifred-card-bg); border: 1px solid var(--aifred-border); border-radius: 10px; }
 summary { cursor: pointer; font-weight: 600; }
 .hint { margin: 6px 0; font-size: 0.8rem; color: var(--aifred-text-muted); }
