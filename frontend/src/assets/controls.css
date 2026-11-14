@@ -19,11 +19,16 @@
 }
 :where(button, .button):hover:not(:disabled) { background: var(--aifred-button-soft-bg-hover); }
 :where(button):disabled { opacity: 0.45; cursor: default; }
-:where(button.primary, button.on) { color: var(--aifred-radix-orange-text); background: var(--aifred-button-primary-bg); }
+:where(button.primary, button.on, .button.on) { color: var(--aifred-radix-orange-text); background: var(--aifred-button-primary-bg); }
 :where(button.danger) { color: var(--aifred-radix-red-text); background: var(--aifred-button-danger-bg); }
-:where(button.primary, button.on, button.danger) { --icon-own: currentColor; }
+:where(button.primary, button.on, .button.on, button.danger) { --icon-own: currentColor; }
 :where(button.primary, button.on):hover:not(:disabled) { background: color-mix(in srgb, var(--aifred-primary) 24%, transparent); }
 :where(button.danger):hover:not(:disabled) { background: color-mix(in srgb, var(--aifred-danger) 22%, transparent); }
+
+/* The chat's memory switch (components/MemorySwitchIcon.vue), in the chat and in its help alike (Peuqui 14.11.2026):
+   memory on is the switch that is on, orange with a rim; incognito stays plain, the hat in yellow. */
+:where(.memory-switch) { display: inline-flex; align-items: center; padding: 2px 8px; }
+:where(.memory-switch.on) { border-color: var(--aifred-accent-amber); }
 
 svg.lucide { color: var(--icon-own, var(--icon-tint, var(--aifred-icon-neutral))); }
 
@@ -33,8 +38,7 @@ svg.lucide-pencil, svg.lucide-notebook-pen, svg.lucide-crop, svg.lucide-wrench, 
 svg.lucide-trash-2, svg.lucide-x, svg.lucide-circle-x, svg.lucide-circle-stop, svg.lucide-square, svg.lucide-log-out {
   --icon-tint: var(--aifred-radix-red-text);
 }
-/* An open lock: incognito, this chat goes into no memory (Peuqui 14.11.2026). */
-svg.lucide-triangle-alert, svg.lucide-lock-open { --icon-tint: var(--aifred-radix-amber-text); }
+svg.lucide-triangle-alert, svg.lucide-hat-glasses { --icon-tint: var(--aifred-radix-amber-text); }
 svg.lucide-refresh-cw, svg.lucide-refresh-ccw-dot, svg.lucide-rotate-cw, svg.lucide-rotate-ccw, svg.lucide-power {
   --icon-tint: var(--aifred-radix-teal-text);
 }

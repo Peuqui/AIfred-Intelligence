@@ -1209,7 +1209,7 @@
   "chat_toolbar_help_menu": "Everything about the whole chat: generate its speech anew, keep it in memory, share it, download it as HTML, see the sandbox's outputs, clear it (the chat stays in the list).",
   "chat_toolbar_help_zoom": "Text of the chat bubbles and the input field smaller or larger; on this device only.",
   "chat_toolbar_help_choices": "Quick choices “Agents and models”: every agent's model, thinking and sampling in one dialog.",
-  "chat_toolbar_help_memory": "Memory: 🔒 the agents remember and learn, 🔓 incognito – no memory in this chat.",
+  "chat_toolbar_help_memory": "Memory: the notebook – the agents remember and learn; the hat with glasses – incognito, no memory in this chat.",
   "chat_toolbar_help_send": "Send (or Enter, when “Enter sends” is on); while a turn runs it waits behind it. The red square shows while an answer or a reading runs, and stops it.",
   "chat_toolbar_help_agent": "Agents: the highlighted one answers when you name no one. In the symposion you switch the participants on; the number is their order.",
   "chat_toolbar_help_mode": "Discussion mode (standard, critique, tribunal, symposion …); depending on the mode its seats (critic, judge) appear beside it.",

@@ -57,7 +57,7 @@ COLORS = {
     "button_danger_bg": "rgba(255, 23, 63, 0.14)",        # red-a3
     "radix_orange_text": "#ffa057",   # orange-11: main actions, editing
     "radix_red_text": "#ff6369",      # red-10: deleting, stopping
-    "radix_amber_text": "#ffca16",    # amber-11: warning triangle, open lock (a bright yellow; not accent_amber)
+    "radix_amber_text": "#ffca16",    # amber-11: warning triangle, incognito hat (a bright yellow; not accent_amber)
     "radix_teal_text": "#0bd8b6",     # teal-11: reloading, switching on and off
     "radix_green_text": "#3dd68c",    # green-11: adding, confirmed
     "radix_blue_text": "#70b8ff",     # blue-11: moving data (download, upload, links)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Download, FolderOpen, Lock, LockOpen, Pin, Share2, SlidersHorizontal, Trash2, TriangleAlert } from "lucide-vue-next";
+import { Download, FolderOpen, Pin, Share2, SlidersHorizontal, Trash2, TriangleAlert } from "lucide-vue-next";
 import { computed, defineAsyncComponent, nextTick, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { AgentSummary, ChatEntry, CropBox, DebateMode } from "../api/types";
@@ -13,6 +13,7 @@ import DebugConsole from "../components/DebugConsole.vue";
 import ResizeGrip from "../components/ResizeGrip.vue";
 import ImageEditor from "../components/ImageEditor.vue";
 import MediaPlayer from "../components/MediaPlayer.vue";
+import MemorySwitchIcon from "../components/MemorySwitchIcon.vue";
 import TtsIcon from "../components/TtsIcon.vue";
 import MessageBubble from "../components/MessageBubble.vue";
 import SessionList from "../components/SessionList.vue";
@@ -280,12 +281,12 @@ onMounted(() => void start());
       <div class="how">
         <DebateControls :config="chat.config" :agents="agents" :modes="modes" @configure="chat.configure" />
         <button
-          class="incognito"
+          class="memory-switch"
           :class="{ on: !chat.config.incognito }"
           :title="chat.config.incognito ? t('incognito_mode') : t('memory_active')"
           @click="chat.configure({ incognito: !chat.config.incognito })"
         >
-          <LockOpen v-if="chat.config.incognito" :size="16" /><Lock v-else :size="16" />
+          <MemorySwitchIcon :incognito="chat.config.incognito" :size="16" />
         </button>
         <button class="agent-choices" :title="t('agent_choices_title')" @click="choicesOpen = true"><SlidersHorizontal :size="16" /></button>
         <HelpButton topic="chat" />
@@ -327,9 +328,8 @@ onMounted(() => void start());
 .how { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .how .watch { margin-left: auto; }
 h2 { margin: 0; font-size: 1.1rem; }
-.incognito, .agent-choices, .zoom { padding: 2px 8px; }
+.agent-choices, .zoom { padding: 2px 8px; }
 .zoom:disabled { opacity: 0.5; cursor: default; }
-.incognito.on { border-color: var(--aifred-accent-amber); --icon-own: currentColor; }
 /* The box keeps 70 % of the screen whatever the sizes; only its content takes the chat's size (the interface's
    size, set on the page, is taken out again). */
 .messages {
