@@ -50,3 +50,13 @@ test("switching shows the other side at once", async () => {
   await wrapper.vm.$nextTick();
   expect(wrapper.find("#page").exists()).toBe(true);
 });
+
+test("off: the slot `off` shows below the hint, on: it does not", async () => {
+  const plugins = usePlugins();
+  plugins.overview = overview(false);
+  const wrapper = mount(PluginGate, { props: { name: "vision" }, slots: { default: "<p id='page'>page</p>", off: "<p id='extra'>extra</p>" } });
+  expect(wrapper.find("#extra").exists()).toBe(true);
+  plugins.overview = overview(true);
+  await wrapper.vm.$nextTick();
+  expect(wrapper.find("#extra").exists()).toBe(false);
+});

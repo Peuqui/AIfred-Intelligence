@@ -4,17 +4,20 @@
 // step into Casus last. Next to the card the eye (VigilantiaEye.vue) arms the background watch or disarms it, the 💡
 // outermost explains it (Peuqui 13.11.2026: eye inside, bulb at the edge). New events arrive over the events' stream;
 // once a minute it asks again after the time the server names, so older events leave the window. Away while the
-// vision plugin is off.
+// vision plugin is off: it neither asks nor holds the stream then (stores/plugins.ts, live), and starts again when it is on.
 import { ScrollText } from "lucide-vue-next";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { ApiError, api, apiUrl } from "../api/client";
 import type { CasusRecent } from "../api/types";
 import { formatNumber, t, tCount } from "../i18n";
 import { closeWhenBeside } from "../lib/dismiss";
+import { usePlugins } from "../stores/plugins";
 import VigilantiaEye from "./VigilantiaEye.vue";
 import HelpButton from "./help/HelpButton.vue";
 
+const plugins = usePlugins();
+const on = computed(() => plugins.toolOn("vision"));
 const state = ref<CasusRecent | null>(null);
 const open = ref(false);
 const arming = ref(false);
@@ -46,20 +49,28 @@ async function arm(): Promise<void> {
   }
 }
 
-onMounted(async () => {
+async function start(): Promise<void> {
   await load();
+  if (!on.value) return;     // switched off while the first answer was on its way
   stream = new EventSource(apiUrl("vision/casus/stream"));
   stream.addEventListener("stored", () => void load());
   refreshing = window.setInterval(() => void load(), (state.value?.refresh_seconds ?? 0) * 1000);
-});
-onBeforeUnmount(() => {
+}
+function stop(): void {
   stream?.close();
+  stream = null;
   if (refreshing !== null) window.clearInterval(refreshing);
-});
+  refreshing = null;
+  state.value = null;
+  open.value = false;
+}
+
+watch(on, (isOn) => (isOn ? void start() : stop()), { immediate: true });
+onBeforeUnmount(stop);
 </script>
 
 <template>
-  <span v-if="state?.plugin_enabled" ref="box" class="vigilantia">
+  <span v-if="on && state" ref="box" class="vigilantia">
     <button
       class="card"
       :class="{ fresh: state.recent > 0, off: !state.armed }"

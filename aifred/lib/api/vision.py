@@ -17,8 +17,8 @@ from ..user_error import BadRequest, Invalid, Missing, UpstreamFailed
 # plugin tools so popup-UI resolution and tool-call resolution match.
 from ..vision_settings import load_vision_settings, save_vision_settings
 from ..vision_utils import resolve_source_resolution as _resolve_resolution
-from .app import vision_api
-from .schemas import SystemActionResponse
+from .app import api_app, vision_api
+from .schemas import ChoiceOption, SystemActionResponse
 
 
 @vision_api.get("/vision/snapshot/{source_id:path}", tags=["Vision"])
@@ -358,7 +358,24 @@ async def vision_face_rename(face_id: int, request: FaceRenameRequest) -> System
     return SystemActionResponse(success=True, message=f"renamed to '{request.name.strip()}'")
 
 
-@vision_api.delete(
+class StoredVisionData(BaseModel):
+    events: int = Field(description="Every stored event")
+    persons: list[ChoiceOption] = Field(description="Every person (id as text, name)")
+
+
+@api_app.get("/vision/stored", response_model=StoredVisionData, tags=["Vision"])
+async def vision_stored() -> StoredVisionData:
+    """What the vision keeps (events, persons) so it can be deleted with the plugin off (data protection): this and
+    the deletions below are on ``api_app``, not on the plugin's router."""
+    from ..personarium import persons
+    from ..vision_store import VisionStore
+
+    events = await asyncio.to_thread(VisionStore().count_events)
+    return StoredVisionData(events=events, persons=[ChoiceOption(id=str(row["id"]), label=str(row["name"]))
+                                                   for row in await asyncio.to_thread(persons)])
+
+
+@api_app.delete(
     "/vision/face/{face_id}",
     response_model=SystemActionResponse,
     tags=["Vision"],

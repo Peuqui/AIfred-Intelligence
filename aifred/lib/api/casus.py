@@ -16,7 +16,7 @@ from ..casus import EventFilter
 from ..config import VISION_CASUS_PAGE_SIZE
 from ..logging_utils import log_message
 from ..server_shutdown import until_shutdown
-from .app import vision_api
+from .app import api_app, vision_api
 from .schemas import ChoiceOption
 
 
@@ -88,7 +88,6 @@ async def casus_events(
 
 
 class CasusRecent(BaseModel):
-    plugin_enabled: bool = Field(description="The vision plugin is on (without it the badge stays away)")
     armed: bool = Field(description="The eye watches in the background")
     has_watched_camera: bool = Field(description="A camera is set to be watched in the background (auto_start)")
     window_minutes: int
@@ -107,14 +106,13 @@ async def casus_recent() -> CasusRecent:
         VISION_BADGE_REFRESH_SEC,
         VISION_BADGE_WINDOW_MIN,
     )
-    from ..plugin_registry import is_plugin_enabled
     from ..vigilantia import vigilantia
     from ..vision_store import VisionStore
 
     events, count = await asyncio.to_thread(recent, VISION_BADGE_WINDOW_MIN, VISION_BADGE_EVENTS)
     sources = await asyncio.to_thread(VisionStore().list_sources)
     return CasusRecent(
-        plugin_enabled=is_plugin_enabled("vision"), armed=(await asyncio.to_thread(vigilantia)).armed,
+        armed=(await asyncio.to_thread(vigilantia)).armed,
         has_watched_camera=any(source.get("auto_start") for source in sources),
         window_minutes=VISION_BADGE_WINDOW_MIN, recent=count,
         events=[CasusEvent(**event, has_frame=bool(event["frame_path"])) for event in events],
@@ -176,7 +174,8 @@ async def casus_assign_face(event_id: int, assignment: FaceAssignment) -> None:
     log_message(f"🗂️ Casus: event {event_id} → person {assignment.face_id}")
 
 
-@vision_api.delete("/vision/casus/events/{event_id}", status_code=204, tags=["Vision"])
+# Deleting stays possible with the vision plugin off (data protection): api_app, not the plugin's router.
+@api_app.delete("/vision/casus/events/{event_id}", status_code=204, tags=["Vision"])
 async def casus_delete_event(event_id: int) -> None:
     """Delete the event with its pictures; 404 for no event."""
     from ..casus import delete_event
@@ -185,7 +184,7 @@ async def casus_delete_event(event_id: int) -> None:
     log_message(f"🗂️ Casus: event {event_id} deleted")
 
 
-@vision_api.post("/vision/casus/events/delete", response_model=Deleted, tags=["Vision"])
+@api_app.post("/vision/casus/events/delete", response_model=Deleted, tags=["Vision"])
 async def casus_delete_matching(chosen: CasusFilter) -> Deleted:
     """Delete every event the filter lists (every event without a filter) with its pictures; 422 for an unknown
     filter."""

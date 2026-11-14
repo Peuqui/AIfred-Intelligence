@@ -1519,5 +1519,9 @@
   "calibration_outcome_cancelled": "Kalibrierung von {model} abgebrochen ({time}).",
   "calibration_outcome_failed": "Kalibrierung von {model} fehlgeschlagen ({time}) — der Grund steht in den Zeilen.",
   "calibration_vlm_cache_cleared": "{count} VLM-Messwerte verworfen; die nächste Kalibrierung misst neu.",
-  "calibration_ai_mode": "🤖 KI: {model}"
+  "calibration_ai_mode": "🤖 KI: {model}",
+  "vision_stored_title": "Gespeicherte Vision-Daten löschen",
+  "vision_stored_hint": "Vision ist ausgeschaltet; gespeicherte Ereignisse und Personen lassen sich trotzdem löschen.",
+  "vision_stored_events": "{count} Ereignis gespeichert",
+  "vision_stored_events_plural": "{count} Ereignisse gespeichert"
 }

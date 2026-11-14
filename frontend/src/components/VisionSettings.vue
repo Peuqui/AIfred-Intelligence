@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // The vision's settings: the eye in the mode line (armed: every camera with its background switch watched, inside its window), the
-// image model (on demand or live, which one, loaded or not), who describes images in which order, face and person
+// image model (on demand or live, which one, loaded or not), face and person
 // detection, how long events are kept, the alert rules, and per camera everything that belongs to it: name,
 // background, alerts with their types, quiet hours, active window, event interval, zones, its connection. A change
 // of the background or the window takes effect at once.
@@ -9,7 +9,6 @@ import { onMounted, ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { AlertRules, CameraRow, LiveView, RtspCameras, VigilantiaRow } from "../api/types";
 import { t } from "../i18n";
-import DescriberList from "./DescriberList.vue";
 import RtspForm from "./RtspForm.vue";
 import VigilantiaEye from "./VigilantiaEye.vue";
 import ZoneEditor from "./ZoneEditor.vue";
@@ -110,9 +109,6 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
         <button v-if="loaded !== null" :disabled="busy || !settings.model" :class="{ on: loaded }" :title="t(loaded ? 'vision_model_unload' : 'vision_model_load')" @click="power"><Power :size="14" /></button>
       </div>
     </article>
-
-    <!-- this machine's row names the image model: another model reads the list anew -->
-    <DescriberList :key="settings.model" />
 
     <article>
       <label class="line" :title="t('vision_settings_face_recognition_help')">

@@ -328,6 +328,26 @@ def test_the_badge_over_the_api(client: TestClient, monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(plugin_registry, "is_plugin_enabled", lambda name: name == "vision")
     badge = client.get("/vision/casus/recent").json()
-    assert badge["plugin_enabled"] is True and badge["window_minutes"] == VISION_BADGE_WINDOW_MIN
+    assert "plugin_enabled" not in badge and badge["window_minutes"] == VISION_BADGE_WINDOW_MIN
     assert badge["recent"] == 0                                          # the fixture's events are from 04.11.
     assert len(badge["events"]) == min(VISION_BADGE_EVENTS, 10) and badge["refresh_seconds"] > 0
+
+
+def test_deleting_stays_possible_with_vision_off_everything_else_is_refused(client: TestClient, store: VisionStore,
+                                                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    """Data protection (Peuqui 14.11.2026): the stored events and persons can be counted and deleted with the plugin
+    off (409 for every other vision endpoint)."""
+    from aifred.lib import plugin_registry
+
+    monkeypatch.setattr(plugin_registry, "is_plugin_enabled", lambda name: name != "vision")
+    assert client.get("/vision/casus/recent").status_code == 409
+    assert client.get("/vision/casus/events").status_code == 409
+    assert client.get("/vision/face/list").status_code == 409
+    assert client.get("/vision/stored").json() == {"events": 10, "persons": [{"id": "1", "label": "Anna"}, {"id": "2", "label": "Bert"}]}
+    one = store.list_events_with_summary()[0]["id"]
+    assert client.delete(f"/vision/casus/events/{one}").status_code == 204
+    assert client.post("/vision/casus/events/delete", json={}).json() == {"deleted": 9}
+    anna = store.get_face_by_name("Anna")
+    assert anna is not None
+    assert client.delete(f"/vision/face/{anna['id']}").status_code == 200
+    assert client.get("/vision/stored").json() == {"events": 0, "persons": [{"id": "2", "label": "Bert"}]}

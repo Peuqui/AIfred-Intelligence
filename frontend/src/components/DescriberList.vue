@@ -4,7 +4,7 @@
 // it back or what it needs as measured. A describer of another machine can be burnt in there; the run is the
 // server's (one at a time, for every page), this list follows it until it ends.
 import { ChevronDown, ChevronUp, Flame, TriangleAlert } from "lucide-vue-next";
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { onActivated, onBeforeUnmount, ref } from "vue";
 import { ApiError, PROGRESS_POLL_MS, api } from "../api/client";
 import type { Describers } from "../api/types";
 import { t } from "../i18n";
@@ -34,7 +34,8 @@ function follow(describers: Describers): void {
   }
 }
 
-onMounted(() => call(() => api<Describers>("vision/describers")));
+// Read anew whenever the page is shown: this machine's row names the image model, which the vision settings change.
+onActivated(() => call(() => api<Describers>("vision/describers")));
 onBeforeUnmount(() => {
   if (polling !== null) window.clearTimeout(polling);
 });

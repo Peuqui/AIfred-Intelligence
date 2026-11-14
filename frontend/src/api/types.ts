@@ -77,6 +77,7 @@ export type RtspCamera = Schemas["RtspCamera"];
 export type RtspCameras = Schemas["RtspCameras"];
 export type AlertRules = Schemas["AlertRules"];
 export type Describers = Schemas["Describers"];
+export type StoredVisionData = Schemas["StoredVisionData"];
 export type CasusPage = Schemas["CasusPage"];
 export type CasusEvent = Schemas["CasusEvent"];
 export type CasusChoices = Schemas["CasusChoices"];

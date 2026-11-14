@@ -143,7 +143,10 @@ onMounted(async () => {
     <div class="divider" role="separator" />
     <HubNoticeToast />
     <RouterView v-slot="{ Component, route: shown }">
-      <PluginGate v-if="shown.meta.plugin" :name="shown.meta.plugin"><component :is="Component" class="page" /></PluginGate>
+      <PluginGate v-if="shown.meta.plugin" :name="shown.meta.plugin">
+        <component :is="Component" class="page" />
+        <template #off><component :is="shown.meta.whileOff" v-if="shown.meta.whileOff" /></template>
+      </PluginGate>
       <KeepAlive v-else><component :is="Component" class="page" /></KeepAlive>
     </RouterView>
   </div>
