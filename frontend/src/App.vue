@@ -118,7 +118,6 @@ onMounted(async () => {
         </div>
       </div>
       <RouterLink v-if="route.path !== '/'" to="/" class="back"><MessageSquare :size="16" :style="{ color: CHAT_COLOR }" /> {{ t("nav_chat") }}</RouterLink>
-      <span class="user">{{ auth.user }}</span>
       <button class="burger" :aria-expanded="menuOpen" :title="t('settings')" @click="menuOpen = !menuOpen"><Menu :size="22" /></button>
       <div v-if="menuOpen" class="backdrop" @click="menuOpen = false" />
       <nav v-if="menuOpen" class="menu" @click="menuOpen = false">
@@ -137,7 +136,11 @@ onMounted(async () => {
           <component :is="entry.icon" :size="16" class="menu-icon" :style="{ color: entry.color }" /> {{ t(entry.label) }}
         </RouterLink>
       </nav>
-      <button class="logout" :title="t('logout')" :aria-label="t('logout')" @click="logout"><LogOut :size="18" /></button>
+      <!-- The account as one element, set well apart from the navigation: who is logged in, and the way out. -->
+      <div class="account">
+        <span class="user">{{ auth.user }}</span>
+        <button class="logout" :title="t('logout')" :aria-label="t('logout')" @click="logout"><LogOut :size="18" /></button>
+      </div>
     </header>
     <ServiceStatusBar />
     <div class="divider" role="separator" />
@@ -206,6 +209,7 @@ h1, h2, h3, input, textarea, select { color: var(--aifred-text-primary); }
 .brand small { color: var(--aifred-text-secondary); font-style: italic; font-size: 0.75rem; display: flex; flex-direction: column; }
 
 .back { color: var(--aifred-text-secondary); text-decoration: none; white-space: nowrap; }
+.account { display: inline-flex; align-items: center; gap: 6px; margin-left: 18px; padding: 2px 4px 2px 10px; border: 1px solid color-mix(in srgb, var(--aifred-accent-amber) 45%, transparent); border-radius: 8px; }
 .user { color: var(--aifred-text-secondary); white-space: nowrap; }
 .burger { background: none; border: none; color: var(--aifred-primary); cursor: pointer; font-size: 1.3rem; padding: 0 4px; --icon-own: currentColor; }
 .backdrop { position: fixed; inset: 0; z-index: 40; }
@@ -220,7 +224,7 @@ h1, h2, h3, input, textarea, select { color: var(--aifred-text-primary); }
 .reset { align-self: flex-start; margin-top: 2px; background: none; border: 1px solid var(--aifred-border); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; padding: 2px 8px; }
 .menu a:hover, .menu a.router-link-active { color: var(--aifred-text-primary); background: var(--aifred-input-bg); }
 /* Only the exit sign, everywhere: the tooltip names it. */
-.logout { display: inline-flex; align-items: center; padding: 4px 8px; }
+.logout { display: inline-flex; align-items: center; padding: 4px 6px; background: none; border: none; }
 .page { flex: 1; }
 @media (max-width: 760px) {
   .app { padding: 0 8px; }
@@ -228,5 +232,6 @@ h1, h2, h3, input, textarea, select { color: var(--aifred-text-primary); }
   .hat { width: 34px; height: 34px; }
   .brand strong { font-size: 1.15rem; }
   .user { display: none; } /* room for the title; the name is in every bubble of the user */
+  .account { margin-left: 4px; padding-left: 4px; }
 }
 </style>
