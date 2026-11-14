@@ -11,6 +11,7 @@ import contextvars
 import secrets
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from typing import Any
 
 from .agent_config import BASE_AGENT
 from .config import MESSAGE_HUB_OWNER
@@ -695,11 +696,13 @@ def session_for_channel(channel: str, channel_id: str, owner: str = MESSAGE_HUB_
 
 def record_routed_voice_turn(
     channel: str, channel_id: str, *, sender: str, text: str, route_name: str, outcome: str,
+    metadata: dict[str, Any],
 ) -> str:
     """Documents a spoken exchange that AIfred only routed on (no LLM answer): the user's
     words and the outcome go into the channel's session — chat history AND llm_history, the
     same shapes as every other channel (user message wrapped in the external-message fence,
-    the outcome as an autonomous event). Returns the session_id.
+    the outcome as an autonomous event). ``metadata``: the channel's about the sender (a puck's device sign-in),
+    for the trust of the fence. Returns the session_id.
     """
     from datetime import datetime
 
@@ -712,7 +715,7 @@ def record_routed_voice_turn(
     # "[channel] sender — → route": the subject carries where the words went
     message = InboundMessage(
         channel=channel, channel_id=channel_id, sender=sender, text=text,
-        timestamp=datetime.now(), metadata={"subject": f"→ {route_name}"},
+        timestamp=datetime.now(), metadata={**metadata, "subject": f"→ {route_name}"},
     )
     save_inbound_to_session(
         session_id, message, message_from_user(channel, channel_id, sender),

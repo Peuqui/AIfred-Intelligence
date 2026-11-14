@@ -168,6 +168,11 @@ def first_allowlist_entry(service: str, key: str) -> str:
     return raw.split(",")[0].strip()
 
 
+# A channel's message from a device that signed in with the channel's token (FreeEcho.2 pucks): the device is the
+# owner's (_is_owner). Set by the channel plugin, which alone knows whether its devices authenticate.
+AUTHENTICATED_DEVICE_KEY = "authenticated_device"
+
+
 def _is_owner(channel: str, sender: str, metadata: dict) -> bool:
     """Check if a sender is the owner for a given channel.
 
@@ -205,9 +210,16 @@ def _is_owner(channel: str, sender: str, metadata: dict) -> bool:
         return bool(first_entry.startswith("@") and sender_email.endswith(first_entry))
 
     if channel == "discord":
-        # Discord doesn't have a simple owner concept in the whitelist.
-        # For now, all whitelisted Discord users get channel default.
-        return False
+        # As Telegram: Discord sets the author id itself, it cannot be forged in a message; the first entry of
+        # the allowlist is the owner (Peuqui 14.11.2026).
+        first_id = first_allowlist_entry("discord", "allowed_users")
+        return bool(first_id) and str(metadata.get("author_id", "")) == first_id
+
+    if channel == "freeecho2":
+        # The pucks stand in the owner's home and only he speaks to them (Peuqui 14.11.2026) — but only a puck
+        # that signed in with the token: without it any host in the network could register as one. Speaker
+        # recognition is to take this over later (several people at one puck).
+        return metadata.get(AUTHENTICATED_DEVICE_KEY) is True
 
     return False
 
@@ -218,7 +230,8 @@ def resolve_trust_label(channel: str, sender: str, metadata: dict | None = None)
     Returns "owner" or "external". This is an LLM-visible signal only —
     tool permissions are enforced by the tier (resolve_tier_for_sender),
     never by this label. It uses the SAME owner verdict as the tier
-    decision (_is_owner: telegram user-id, email SPF/DKIM/DMARC per A9),
+    decision (_is_owner: telegram and discord user-id, email SPF/DKIM/DMARC per A9,
+    a puck signed in with its token),
     so a forged From header cannot buy the "owner" label.
 
     scheduler/webhook are internal triggers: our own code (webhook behind

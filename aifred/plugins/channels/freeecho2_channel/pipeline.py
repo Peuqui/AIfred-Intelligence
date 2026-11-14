@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 from ....lib.formatting import format_number
 from ....lib.logging_utils import log_exception
-from ._shared import _pending_wake_agent
+from ._shared import _pending_wake_agent, device_metadata
 from .tts_reply import TtsReplyMixin
 from .voice_routes import forward_voice, load_voice_routes
 from .ws_bridge import WsBridgeMixin
@@ -181,6 +181,7 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                     "wav_path": wav_path,
                     "room": room,
                     "wake_agent": wake_agent,
+                    **device_metadata(),
                 },
             )
 
@@ -246,14 +247,14 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
             )
             record_routed_voice_turn(
                 "freeecho2", room, sender=room, text=text, route_name=route_name,
-                outcome=f"failed ({type(exc).__name__}: {exc})",
+                outcome=f"failed ({type(exc).__name__}: {exc})", metadata=device_metadata(),
             )
             await self.send_done(room, reason="route_failed")
             return
         self.channel_log(f"[FreeEcho.2 {room}] voice routed to '{route_name}': {outcome}")
         record_routed_voice_turn(
             "freeecho2", room, sender=room, text=text, route_name=route_name,
-            outcome=f"{outcome.get('action')} ({outcome.get('agent')})",
+            outcome=f"{outcome.get('action')} ({outcome.get('agent')})", metadata=device_metadata(),
         )
         await self.send_done(room, reason=f"routed_to_{route_name}")
 

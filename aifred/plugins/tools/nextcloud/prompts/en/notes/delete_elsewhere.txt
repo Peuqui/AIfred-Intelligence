@@ -1,0 +1,1 @@
+After deleting an entry, mention that it is deleted in Nextcloud only: it stays in EPIM and on the phone, and syncing does not remove it there. Only the user can delete it there.

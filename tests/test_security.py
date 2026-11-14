@@ -332,11 +332,20 @@ class TestResolveTrustLabel:
         assert resolve_trust_label("scheduler", "Tägliches Gebet", {}) == "owner"
         assert resolve_trust_label("webhook", "Home Assistant", {}) == "owner"
 
-    def test_channels_without_owner_concept_external(self):
-        # freeecho2 rooms and discord senders have no owner verdict — the
-        # label stays external (tools are governed by the tier, not this).
+    def test_discord_owner_by_author_id(self):
+        # As Telegram (Peuqui 14.11.2026): Discord sets the author id, the first allowlist entry is the owner.
+        with patch.dict(os.environ, {"DISCORD_ALLOWED_USERS": "111, 222"}):
+            assert resolve_trust_label("discord", "SomeUser", {"author_id": "111"}) == "owner"
+            assert resolve_trust_label("discord", "SomeUser", {"author_id": "222"}) == "external"
+            assert resolve_trust_label("discord", "SomeUser", {}) == "external"
+
+    def test_a_puck_is_the_owners_only_when_it_signed_in_with_the_token(self):
+        # Peuqui 14.11.2026: only he speaks to the pucks — but without the token any host could register as one.
+        from aifred.lib.security import AUTHENTICATED_DEVICE_KEY
+
+        assert resolve_trust_label("freeecho2", "wohnzimmer", {AUTHENTICATED_DEVICE_KEY: True}) == "owner"
+        assert resolve_trust_label("freeecho2", "wohnzimmer", {AUTHENTICATED_DEVICE_KEY: False}) == "external"
         assert resolve_trust_label("freeecho2", "wohnzimmer", {"room": "wohnzimmer"}) == "external"
-        assert resolve_trust_label("discord", "SomeUser#1234", {}) == "external"
 
 
 # ── Rate Limiting ─────────────────────────────────────────────

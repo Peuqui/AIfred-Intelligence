@@ -54,6 +54,14 @@ def _required_auth_token() -> str:
     return broker.get("freeecho2", "auth_token") or ""
 
 
+def device_metadata() -> dict[str, bool]:
+    """What a puck's message says about its device: signed in with the token (security._is_owner reads it).
+    With authentication on, only a device with the token is connected at all (connection.py)."""
+    from ....lib.security import AUTHENTICATED_DEVICE_KEY
+
+    return {AUTHENTICATED_DEVICE_KEY: bool(_required_auth_token())}
+
+
 # Wake-Word → Agent-Hint: room_name → agent_id
 # Populated by wake events, consumed by the next audio event from the same room.
 # A stale entry (wake without audio) is harmless: the FreeEcho.2 only sends audio

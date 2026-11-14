@@ -45,7 +45,7 @@ or via `.env`):
 |------------|-------------|
 | `DISCORD_BOT_TOKEN` | Bot token from the Discord Developer Portal (secret) |
 | `DISCORD_CHANNEL_IDS` | Comma-separated channel IDs to watch (empty = all channels) |
-| `DISCORD_ALLOWED_USERS` | **Mandatory** sender allowlist: comma-separated numeric user IDs. Empty = nobody; the `*` wildcard is **not** supported. **Adding a user:** have them message the bot once — their user ID appears in the AIfred log (`blocked message from user <ID>`); add it via the plugin's gear icon → *Allowed user IDs* |
+| `DISCORD_ALLOWED_USERS` | **Mandatory** sender allowlist: comma-separated numeric user IDs. Empty = nobody; the `*` wildcard is **not** supported. **Adding a user:** have them message the bot once — their user ID appears in the AIfred log (`blocked message from user <ID>`); add it via the plugin's gear icon → *Allowed user IDs*. The **first entry is the owner** (as in Telegram): it gets the owner's rights, the memory and no security boundary in the prompt |
 
 Setup:
 

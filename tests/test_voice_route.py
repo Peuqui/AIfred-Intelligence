@@ -14,6 +14,7 @@ import pytest
 from aiohttp import web
 
 import aifred.lib.message_processor as mp
+from aifred.lib.security import AUTHENTICATED_DEVICE_KEY
 from aifred.plugins.channels.freeecho2_channel import pipeline
 from aifred.plugins.channels.freeecho2_channel import FreeEchoChannel
 from aifred.plugins.channels.freeecho2_channel.voice_routes import forward_voice, load_voice_routes
@@ -143,11 +144,12 @@ def routed(monkeypatch):
 def test_success_closes_the_round_and_documents_it(routed, monkeypatch):
     channel, recorded = routed
     monkeypatch.setattr(pipeline, "forward_voice", AsyncMock(return_value={"action": "asked", "agent": "Whisper"}))
+    monkeypatch.setattr(pipeline, "device_metadata", lambda: {AUTHENTICATED_DEVICE_KEY: True})
     run(channel._route_voice("buero", "orc", ROUTE, "Whisper, committe bitte", "/tmp/a.wav"))
     channel.send_done.assert_awaited_once_with("buero", reason="routed_to_orc")
     assert recorded == [{
         "sender": "buero", "text": "Whisper, committe bitte", "route_name": "orc",
-        "outcome": "asked (Whisper)",
+        "outcome": "asked (Whisper)", "metadata": {AUTHENTICATED_DEVICE_KEY: True},   # the puck's sign-in, for the trust
     }]
 
 
@@ -196,6 +198,7 @@ def test_the_routed_exchange_lands_in_chat_and_llm_history(session_store):
     mp.record_routed_voice_turn(
         "freeecho2", "Buero-Puck-2", sender="Buero-Puck-2",
         text="Whisper, committe bitte", route_name="orc", outcome="asked (Whisper)",
+        metadata={AUTHENTICATED_DEVICE_KEY: True},
     )
     chat = session_store["chat_history"]
     # chat: who said it (user via the puck), where it went, then what came back
@@ -208,6 +211,7 @@ def test_the_routed_exchange_lands_in_chat_and_llm_history(session_store):
     llm = session_store["llm_history"]
     assert llm[0]["role"] == "user"
     assert "<external_message" in llm[0]["content"] and "Whisper, committe bitte" in llm[0]["content"]
+    assert 'trust="owner"' in llm[0]["content"]   # a puck signed in with the token is the owner's
     assert llm[1]["role"] == "assistant" and "asked (Whisper)" in llm[1]["content"]
 
 
@@ -215,5 +219,7 @@ def test_a_second_exchange_is_appended_not_replaced(session_store):
     for text in ("erstens", "zweitens"):
         mp.record_routed_voice_turn(
             "freeecho2", "buero", sender="buero", text=text, route_name="orc", outcome="sent (Hal)",
+            metadata={AUTHENTICATED_DEVICE_KEY: False},
         )
     assert len(session_store["chat_history"]) == 4 and len(session_store["llm_history"]) == 4
+    assert all('trust="external"' in entry["content"] for entry in session_store["llm_history"][::2])

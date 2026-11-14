@@ -15,6 +15,10 @@ AGENT_FOLDER_KEY = "NEXTCLOUD_AGENT_FOLDER"
 AGENT_FOLDER_DEFAULT = "AIfred-Intelligence"
 NOTES_FOLDER_KEY = "NEXTCLOUD_NOTES_FOLDER"
 NOTES_FOLDER_DEFAULT = "Notes"
+# After deleting an entry the agent says it stays in programs that sync with Nextcloud (EPIM, the phone): their
+# sync does not remove it there (Peuqui 14.11.2026: on by default, the user may switch it off).
+DELETE_NOTE_KEY = "NEXTCLOUD_DELETE_ELSEWHERE_NOTE"
+DELETE_NOTE_DEFAULT = "1"
 SETTINGS_PREFIX = "NEXTCLOUD"
 REQUEST_TIMEOUT_SEC = 20.0
 
@@ -36,6 +40,7 @@ class NextcloudSettings:
     modules: ModuleAccess = field(default_factory=lambda: ModuleAccess(dict(MODULE_DEFAULTS)))
     agent_folder: str = AGENT_FOLDER_DEFAULT
     notes_folder: str = NOTES_FOLDER_DEFAULT
+    delete_note: bool = True
 
 
 def load_raw_settings() -> dict[str, str]:
@@ -53,6 +58,7 @@ def parse_settings(raw: dict[str, str]) -> NextcloudSettings:
         modules=ModuleAccess.parse(raw, SETTINGS_PREFIX, MODULE_DEFAULTS),
         agent_folder=raw.get(AGENT_FOLDER_KEY, "").strip().strip("/") or AGENT_FOLDER_DEFAULT,
         notes_folder=raw.get(NOTES_FOLDER_KEY, "").strip().strip("/") or NOTES_FOLDER_DEFAULT,
+        delete_note=raw.get(DELETE_NOTE_KEY, DELETE_NOTE_DEFAULT) == "1",
     )
 
 

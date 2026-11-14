@@ -47,7 +47,7 @@ AIfred-Einstellungs-UI oder über `.env`):
 |------------|--------------|
 | `DISCORD_BOT_TOKEN` | Bot-Token aus dem Discord Developer Portal (geheim) |
 | `DISCORD_CHANNEL_IDS` | Kommagetrennte Channel-IDs, die überwacht werden (leer = alle Kanäle) |
-| `DISCORD_ALLOWED_USERS` | **Pflicht-Allowlist** der Absender: kommagetrennte numerische User-IDs. Leer = niemand; `*` wird **nicht** unterstützt. **Nutzer hinzufügen:** ihn den Bot einmal anschreiben lassen — seine User-ID erscheint im AIfred-Log (`blocked message from user <ID>`); über das Zahnrad des Plugins → *Erlaubte User-IDs* eintragen |
+| `DISCORD_ALLOWED_USERS` | **Pflicht-Allowlist** der Absender: kommagetrennte numerische User-IDs. Leer = niemand; `*` wird **nicht** unterstützt. **Nutzer hinzufügen:** ihn den Bot einmal anschreiben lassen — seine User-ID erscheint im AIfred-Log (`blocked message from user <ID>`); über das Zahnrad des Plugins → *Erlaubte User-IDs* eintragen. Der **erste Eintrag ist der Owner** (wie bei Telegram): Er bekommt die Owner-Rechte, sein Gedächtnis und keine Sicherheitsgrenze im Prompt |
 
 Einrichtung:
 

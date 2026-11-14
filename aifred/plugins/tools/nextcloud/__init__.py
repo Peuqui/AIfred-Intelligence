@@ -18,6 +18,8 @@ from .settings import (
     AGENT_FOLDER_DEFAULT,
     AGENT_FOLDER_KEY,
     APP_PASSWORD_KEY,
+    DELETE_NOTE_DEFAULT,
+    DELETE_NOTE_KEY,
     MODULE_DEFAULTS,
     NOTES_FOLDER_DEFAULT,
     NOTES_FOLDER_KEY,
@@ -52,6 +54,9 @@ class NextcloudPlugin:
                             default=AGENT_FOLDER_DEFAULT),
             CredentialField(env_key=NOTES_FOLDER_KEY, label_key="nextcloud_cred_notes_folder",
                             default=NOTES_FOLDER_DEFAULT),
+            CredentialField(env_key=DELETE_NOTE_KEY, label_key="nextcloud_cred_delete_note",
+                            options=[("1", "nextcloud_opt_on"), ("0", "nextcloud_opt_off")],
+                            default=DELETE_NOTE_DEFAULT),
         ]
 
     def _load_settings(self) -> dict[str, str]:
@@ -87,7 +92,7 @@ class NextcloudPlugin:
     def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
         """Tool fragments for the offered and granted tools, then the
         fragments of the readable (and, with a write tool, writable) modules."""
-        from ....lib.plugin_base import load_plugin_instructions
+        from ....lib.plugin_base import load_plugin_instructions, load_plugin_prompt
         from ....lib.prompt_loader import render_standard_placeholders
         from .store import get_store
         from .tools import get_nextcloud_tools
@@ -102,6 +107,8 @@ class NextcloudPlugin:
         lang_code = "de" if str(lang).startswith("de") else "en"
         parts = [text, *module_instructions(Path(__file__).parent, lang_code, store.modules,
                                             bool(granted & _WRITE_TOOLS))]
+        if "nextcloud_delete" in granted and store.settings.delete_note:
+            parts.append(load_plugin_prompt(__file__, "notes/delete_elsewhere", lang_code).strip())
         return render_standard_placeholders("\n\n".join(parts), lang_code)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:

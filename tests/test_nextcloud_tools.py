@@ -106,3 +106,22 @@ def test_read_only_modules_offer_no_write_tools():
     assert {t.name for t in tools} == {"nextcloud_search", "nextcloud_get"}
     assert {t.tier for t in tools} == {TIER_WRITE_DATA}  # private data stays away from external channels
     store.close()
+
+
+def test_the_note_after_deleting_follows_its_switch(monkeypatch):
+    """Peuqui 14.11.2026: after deleting, the agent says the entry stays in EPIM and on the phone — a switch of
+    the plugin, on by default, and only with the delete tool."""
+    from dataclasses import replace
+
+    from aifred.plugins.tools.nextcloud.settings import DELETE_NOTE_KEY, parse_settings
+
+    assert parse_settings({}).delete_note and not parse_settings({DELETE_NOTE_KEY: "0"}).delete_note
+    store = _store(ALL_WRITE)
+    monkeypatch.setattr(store_module, "get_store", lambda: store)
+    plugin = nextcloud_plugin.plugin
+    note = "In EPIM und auf dem Handy bleibt er stehen"
+    assert note in plugin.get_prompt_instructions("de")
+    assert note not in plugin.get_prompt_instructions("de", {"nextcloud_search", "nextcloud_create"})
+    store._settings = replace(store.settings, delete_note=False)
+    assert note not in plugin.get_prompt_instructions("de")
+    store.close()

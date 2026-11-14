@@ -1,0 +1,1 @@
+Sage nach dem Löschen eines Eintrags dazu, dass er nur in Nextcloud gelöscht ist: In EPIM und auf dem Handy bleibt er stehen, auch der Abgleich entfernt ihn dort nicht. Dort kann ihn nur der Benutzer selbst löschen.

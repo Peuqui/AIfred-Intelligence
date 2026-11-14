@@ -77,6 +77,7 @@ Einstellungen stehen in `data/epim/deletion_sync.json` (`ssh_host`, `ssh_port`, 
 | `NEXTCLOUD_URL` | Plugin-`settings.json` | Adresse, z. B. `https://cloud.example.org` oder `https://example.org/nextcloud` |
 | `NEXTCLOUD_USER` | Plugin-`settings.json` | Benutzer (empfohlen: eigener Benutzer für AIfred) |
 | `NEXTCLOUD_NOTES_FOLDER` | Plugin-`settings.json` | Ordner der Notizen-App (Standard `Notes`) |
+| `NEXTCLOUD_DELETE_ELSEWHERE_NOTE` | Plugin-`settings.json` | `1` (Standard): Nach dem Löschen sagt der Agent dazu, dass der Eintrag in Programmen, die mit Nextcloud abgleichen (EPIM, Handy), stehen bleibt; `0` ohne diesen Hinweis |
 | `NEXTCLOUD_APP_PASSWORD` | `.env` (Geheimnis, über den Credential-Broker) | App-Passwort aus Nextcloud → Einstellungen → Sicherheit |
 | `NEXTCLOUD_MODULE_CALENDAR`, `_TASKS`, `_CONTACTS`, `_FILES` | Plugin-`settings.json` | `off`, `read` (Standard) oder `write` |
 | `NEXTCLOUD_AGENT_FOLDER` | Plugin-`settings.json` | Der Ordner, in dem Agenten arbeiten (Standard `AIfred-Intelligence`) |
