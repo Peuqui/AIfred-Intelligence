@@ -135,6 +135,11 @@ def test_login_sets_a_cookie_page_script_cannot_read(monkeypatch: pytest.MonkeyP
     # Until 08.11.2026 without HttpOnly: the Reflex UI read the cookie from JavaScript.
     assert cookie.startswith(f"{USERNAME_COOKIE_NAME}=") and "HttpOnly" in cookie and "SameSite=lax" in cookie
     assert anonymous.get("/auth/me").json() == {"user": "ki"}
+    # A 204 carries no body: until 14.11.2026 the logout sent "null", and uvicorn logged "Response content longer
+    # than Content-Length" on every logout.
+    response = anonymous.post("/auth/logout")
+    assert response.status_code == 204 and response.content == b""
+    assert anonymous.get("/auth/me").json() == {"user": None}
 
 
 def test_the_agent_list_holds_the_agents_a_chat_can_address(client: TestClient) -> None:

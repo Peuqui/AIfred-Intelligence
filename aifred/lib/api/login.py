@@ -1,7 +1,7 @@
 """Login: a signed cookie (lib/auth) the browser sends with every request and page script never reads (HttpOnly)."""
 
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from ..user_error import Refused, Unauthorized
@@ -64,9 +64,9 @@ async def auth_me(request: Request) -> Me:
 
 
 @api_app.post("/auth/logout", status_code=204, tags=["Auth"])
-async def auth_logout() -> JSONResponse:
+async def auth_logout() -> Response:
     from ..auth import USERNAME_COOKIE_NAME
 
-    response = JSONResponse(None, status_code=204)
+    response = Response(status_code=204)
     response.delete_cookie(USERNAME_COOKIE_NAME, path="/")
     return response
