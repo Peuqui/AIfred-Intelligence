@@ -1209,7 +1209,7 @@
   "chat_toolbar_help_menu": "Alles zum ganzen Chat: Sprachausgabe neu erzeugen, ins Gedächtnis übernehmen, teilen, als HTML herunterladen, Ergebnisse der Sandbox ansehen, Chat leeren (der Chat bleibt in der Liste).",
   "chat_toolbar_help_zoom": "Schrift der Chat-Blasen und des Eingabefelds kleiner oder größer; gilt nur auf diesem Gerät.",
   "chat_toolbar_help_choices": "Schnellwahl „Agenten und Modelle“: Modell, Denken und Sampling jedes Agenten in einem Dialog.",
-  "chat_toolbar_help_memory": "Gedächtnis: 🔓 die Agenten erinnern sich und lernen dazu, 🔒 Inkognito – in diesem Chat kein Gedächtnis.",
+  "chat_toolbar_help_memory": "Gedächtnis: 🔒 die Agenten erinnern sich und lernen dazu, 🔓 Inkognito – in diesem Chat kein Gedächtnis.",
   "chat_toolbar_help_send": "Senden (oder Enter, wenn „Enter sendet“ an ist); läuft schon ein Zug, wartet die Nachricht dahinter. Das rote Quadrat erscheint, solange eine Antwort oder Vorlesung läuft, und hält sie an.",
   "chat_toolbar_help_agent": "Agenten: der hervorgehobene antwortet, wenn du niemanden beim Namen nennst. Im Symposion schaltest du die Teilnehmer an; die Zahl ist ihre Reihenfolge.",
   "chat_toolbar_help_mode": "Diskussionsmodus (Standard, Kritik, Tribunal, Symposion …); je nach Modus erscheinen daneben die Plätze (Kritiker, Richter).",

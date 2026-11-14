@@ -281,11 +281,11 @@ onMounted(() => void start());
         <DebateControls :config="chat.config" :agents="agents" :modes="modes" @configure="chat.configure" />
         <button
           class="incognito"
-          :class="{ on: chat.config.incognito }"
+          :class="{ on: !chat.config.incognito }"
           :title="chat.config.incognito ? t('incognito_mode') : t('memory_active')"
           @click="chat.configure({ incognito: !chat.config.incognito })"
         >
-          <Lock v-if="chat.config.incognito" :size="16" /><LockOpen v-else :size="16" />
+          <LockOpen v-if="chat.config.incognito" :size="16" /><Lock v-else :size="16" />
         </button>
         <button class="agent-choices" :title="t('agent_choices_title')" @click="choicesOpen = true"><SlidersHorizontal :size="16" /></button>
         <HelpButton topic="chat" />

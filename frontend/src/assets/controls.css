@@ -33,7 +33,7 @@ svg.lucide-pencil, svg.lucide-notebook-pen, svg.lucide-crop, svg.lucide-wrench, 
 svg.lucide-trash-2, svg.lucide-x, svg.lucide-circle-x, svg.lucide-circle-stop, svg.lucide-square, svg.lucide-log-out {
   --icon-tint: var(--aifred-radix-red-text);
 }
-/* An open lock: the chat goes into memory (not incognito), a hint to mind (Peuqui 14.11.2026). */
+/* An open lock: incognito, this chat goes into no memory (Peuqui 14.11.2026). */
 svg.lucide-triangle-alert, svg.lucide-lock-open { --icon-tint: var(--aifred-radix-amber-text); }
 svg.lucide-refresh-cw, svg.lucide-refresh-ccw-dot, svg.lucide-rotate-cw, svg.lucide-rotate-ccw, svg.lucide-power {
   --icon-tint: var(--aifred-radix-teal-text);
