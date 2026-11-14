@@ -50,7 +50,7 @@ Jobs laufen in isolierten Sessions mit Security-Tier-Enforcement.
 
 | Typ | Expression | Beschreibung |
 |-----|-----------|-------------|
-| `cron` | `0 8 * * *` | Standard 5-Feld Cron (via croniter), mit Timezone |
+| `cron` | `0 8 * * *` | Klassisches 5-Feld-Cron nach Vixie-Regeln (`lib/cron.py`), Ortszeit |
 | `interval` | `300` | Feste Intervalle in Sekunden |
 | `once` | `2026-04-01T10:00:00` | Einmalige Ausführung zu ISO-Zeitpunkt |
 

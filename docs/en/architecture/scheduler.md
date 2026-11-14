@@ -50,7 +50,7 @@ Jobs run in isolated sessions with security tier enforcement.
 
 | Type | Expression | Description |
 |------|-----------|-------------|
-| `cron` | `0 8 * * *` | Standard 5-field cron (via croniter), with timezone |
+| `cron` | `0 8 * * *` | Classic 5-field cron by Vixie rules (`lib/cron.py`), local time |
 | `interval` | `300` | Fixed intervals in seconds |
 | `once` | `2026-04-01T10:00:00` | Single execution at ISO timestamp |
 

@@ -4,7 +4,7 @@ Runs as a worker in the Message Hub. Checks every minute for due jobs
 and executes them in isolated sessions.
 
 Job types:
-- cron: Standard 5-field cron expression with timezone
+- cron: Classic 5-field cron expression in local time (lib/cron.py)
 - interval: Fixed intervals in seconds
 - once: Single execution at a specific timestamp
 
@@ -29,6 +29,7 @@ from .config import (
     SCHEDULER_CHECK_INTERVAL_SECONDS,
     SCHEDULER_WEBHOOK_TIMEOUT_SECONDS,
 )
+from .cron import next_cron_run
 from .logging_utils import log_exception, log_message
 from .security import JOB_DEFAULT_TIER
 from .user_error import Invalid
@@ -503,22 +504,14 @@ def _calculate_next_run(schedule_type: str, schedule_expr: str, after: str) -> s
 
 
 def _next_cron_run(cron_expr: str, after: str) -> str | None:
-    """Calculate the next cron run time with croniter. It is a hard dependency, there is no
-    fallback (a cron job that secretly ran hourly instead of at its configured time would be a
-    hidden error); None for an expression croniter rejects.
-    """
-    # Fail-loud statt stillem 1h-Intervall-Fallback: croniter ist eine
-    # harte Abhängigkeit — ein Cron-Job, der heimlich stündlich statt zum
-    # konfigurierten Zeitpunkt läuft, wäre ein versteckter Fehler.
-    from croniter import croniter
+    """The next cron run time after `after`; None for an expression that is invalid or never fires (the job is then
+    rejected, never run at some other time)."""
     try:
-        base = datetime.fromisoformat(after)
-        cron = croniter(cron_expr, base)
-        next_dt = cron.get_next(datetime)
-        return str(next_dt.strftime("%Y-%m-%dT%H:%M:%S"))
-    except Exception as exc:  # noqa: BLE001 — a job with a broken schedule must not stop the others
+        next_dt = next_cron_run(cron_expr, datetime.fromisoformat(after))
+    except ValueError as exc:
         logger.error("Invalid cron expression '%s': %s", cron_expr, exc)
         return None
+    return next_dt.strftime("%Y-%m-%dT%H:%M:%S")
 
 
 # ============================================================
