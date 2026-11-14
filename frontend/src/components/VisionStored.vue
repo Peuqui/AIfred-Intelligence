@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // What the vision keeps (events, persons), deletable while the plugin is off (data protection; PluginGate's slot `off`):
-// every event at once, persons one by one — each asked first. The endpoints are the plugin's own deletions, which the
+// every event at once, every person at once or one by one — each asked first. The endpoints are the plugin's own deletions, which the
 // plugin's switch does not lock (api/vision.py: /vision/stored and the deletions).
 import { Trash2, TriangleAlert } from "lucide-vue-next";
 import { onMounted, ref } from "vue";
@@ -10,7 +10,7 @@ import { formatNumber, t, tCount } from "../i18n";
 
 const stored = ref<StoredVisionData | null>(null);
 const notice = ref("");
-const confirming = ref<"events" | number | null>(null);
+const confirming = ref<"events" | "persons" | number | null>(null);
 
 async function load(): Promise<void> {
   stored.value = await api<StoredVisionData>("vision/stored");
@@ -27,6 +27,7 @@ async function remove(path: string, init: RequestInit): Promise<void> {
   }
 }
 const removeEvents = (): Promise<void> => remove("vision/casus/events/delete", { method: "POST", body: "{}" });
+const removePersons = (): Promise<void> => remove("vision/face/delete", { method: "POST" });
 const removePerson = (id: string): Promise<void> => remove(`vision/face/${id}`, { method: "DELETE" });
 
 onMounted(load);
@@ -45,6 +46,14 @@ onMounted(load);
           <button class="danger" @click="removeEvents">{{ t("delete_all_confirm") }}</button>
           <button @click="confirming = null">{{ t("delete_all_cancel") }}</button>
         </template>
+      </template>
+    </div>
+    <div v-if="stored.persons.length" class="line">
+      <span class="what">{{ tCount("vision_stored_persons", stored.persons.length, { count: formatNumber(stored.persons.length) }) }}</span>
+      <button v-if="confirming !== 'persons'" class="danger" @click="confirming = 'persons'"><Trash2 :size="16" /> {{ t("delete_all") }}</button>
+      <template v-else>
+        <button class="danger" @click="removePersons">{{ t("delete_all_confirm") }}</button>
+        <button @click="confirming = null">{{ t("delete_all_cancel") }}</button>
       </template>
     </div>
     <div v-for="person in stored.persons" :key="person.id" class="line">

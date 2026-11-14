@@ -18,6 +18,7 @@ from ..user_error import BadRequest, Invalid, Missing, UpstreamFailed
 from ..vision_settings import load_vision_settings, save_vision_settings
 from ..vision_utils import resolve_source_resolution as _resolve_resolution
 from .app import api_app, vision_api
+from .casus import Deleted
 from .schemas import ChoiceOption, SystemActionResponse
 
 
@@ -391,6 +392,17 @@ async def vision_face_delete(face_id: int) -> SystemActionResponse:
     log_message(f"👤 Person {face_id} ({name}) deleted with {embeddings_deleted} embeddings")
     return SystemActionResponse(success=True, message=t("personarium_deleted", lang=get_language(), name=name,
                                                          count=embeddings_deleted))
+
+
+@api_app.post("/vision/face/delete", response_model=Deleted, tags=["Vision"])
+async def vision_faces_delete_all() -> Deleted:
+    """Delete every person with its embeddings, each as ``DELETE /vision/face/{face_id}`` does (data protection: on
+    ``api_app``, so with the plugin off too)."""
+    from ..personarium import delete_all
+
+    deleted = await asyncio.to_thread(delete_all)
+    log_message(f"👤 {deleted} persons deleted")
+    return Deleted(deleted=deleted)
 
 
 class FaceEmbedding(BaseModel):

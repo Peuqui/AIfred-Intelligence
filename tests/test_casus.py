@@ -11,6 +11,7 @@ from collections.abc import Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 import pytest
 from starlette.testclient import TestClient
 
@@ -351,3 +352,32 @@ def test_deleting_stays_possible_with_vision_off_everything_else_is_refused(clie
     assert anna is not None
     assert client.delete(f"/vision/face/{anna['id']}").status_code == 200
     assert client.get("/vision/stored").json() == {"events": 0, "persons": [{"id": "2", "label": "Bert"}]}
+
+
+def test_deleting_every_person_with_vision_off_goes_through_the_single_delete(client: TestClient, store: VisionStore,
+                                                                               monkeypatch: pytest.MonkeyPatch) -> None:
+    """B2 (Peuqui 14.11.2026): every person at once, with its embeddings, each through the same function as the single
+    delete, with the plugin off."""
+    from aifred.lib import personarium, plugin_registry
+
+    monkeypatch.setattr(plugin_registry, "is_plugin_enabled", lambda name: name != "vision")
+    people = store.list_faces_with_summary()
+    assert len(people) == 2
+    for person in people:
+        store.add_embedding(person["id"], np.ones(512, dtype=np.float32), quality_score=0.8)
+    embeddings = [row["id"] for person in people for row in store.list_embeddings(person["id"])]
+    assert embeddings
+    deleted_ids: list[int] = []
+    single = personarium.delete
+
+    def recording_delete(face_id: int) -> tuple[str, int]:
+        deleted_ids.append(face_id)
+        return single(face_id)
+
+    monkeypatch.setattr(personarium, "delete", recording_delete)
+    assert client.post("/vision/face/delete").json() == {"deleted": 2}
+    assert sorted(deleted_ids) == sorted(person["id"] for person in people)
+    assert client.get("/vision/stored").json()["persons"] == []
+    assert store.list_faces_with_summary() == []
+    assert all(store.list_embeddings(person["id"]) == [] for person in people)
+    assert client.post("/vision/face/delete").json() == {"deleted": 0}

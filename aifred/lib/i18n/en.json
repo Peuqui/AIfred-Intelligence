@@ -1523,5 +1523,7 @@
   "vision_stored_title": "Delete stored vision data",
   "vision_stored_hint": "Vision is switched off; stored events and persons can still be deleted.",
   "vision_stored_events": "{count} event stored",
-  "vision_stored_events_plural": "{count} events stored"
+  "vision_stored_events_plural": "{count} events stored",
+  "vision_stored_persons": "{count} person stored",
+  "vision_stored_persons_plural": "{count} persons stored"
 }

@@ -42,9 +42,22 @@ test("all events: asked first, then one request", async () => {
 test("a person: asked first, then deleted by its id", async () => {
   const wrapper = await shown();
   const buttons = () => wrapper.findAll("button.danger");
-  await buttons()[1]!.trigger("click");
+  await buttons()[2]!.trigger("click");
   expect(api).toHaveBeenCalledTimes(1);
-  await buttons()[1]!.trigger("click");
+  await buttons()[2]!.trigger("click");
   await flushPromises();
   expect(api).toHaveBeenCalledWith("vision/face/7", { method: "DELETE" });
+});
+
+test("all persons: the button only with persons, asked first, then exactly one request", async () => {
+  const wrapper = await shown();
+  const buttons = () => wrapper.findAll("button.danger");
+  await buttons()[1]!.trigger("click");
+  expect(api).toHaveBeenCalledTimes(1);
+  api.mockResolvedValue({ events: 3, persons: [] });
+  await buttons()[1]!.trigger("click");   // now the confirmation
+  await flushPromises();
+  expect(api.mock.calls.filter(([path]) => path === "vision/face/delete")).toEqual([["vision/face/delete", { method: "POST" }]]);
+  expect(wrapper.text()).not.toContain("vision_stored_persons");
+  expect(buttons()).toHaveLength(1);   // only the events' button is left
 });

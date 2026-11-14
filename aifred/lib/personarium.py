@@ -62,6 +62,14 @@ def delete(face_id: int) -> tuple[str, int]:
     return str(face["name"]), int(deleted["embeddings_deleted"])
 
 
+def delete_all() -> int:
+    """Delete every person the way ``delete`` does one (embeddings, recognisers loading again); returns how many."""
+    ids = [int(row["id"]) for row in persons()]
+    for face_id in ids:
+        delete(face_id)
+    return len(ids)
+
+
 def embeddings(face_id: int) -> list[dict[str, Any]]:
     """A person's embeddings, newest first: ``id, quality, created_at, crop_url`` (not the vector). KeyError for no
     such person."""

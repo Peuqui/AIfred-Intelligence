@@ -1523,5 +1523,7 @@
   "vision_stored_title": "Gespeicherte Vision-Daten löschen",
   "vision_stored_hint": "Vision ist ausgeschaltet; gespeicherte Ereignisse und Personen lassen sich trotzdem löschen.",
   "vision_stored_events": "{count} Ereignis gespeichert",
-  "vision_stored_events_plural": "{count} Ereignisse gespeichert"
+  "vision_stored_events_plural": "{count} Ereignisse gespeichert",
+  "vision_stored_persons": "{count} Person gespeichert",
+  "vision_stored_persons_plural": "{count} Personen gespeichert"
 }
