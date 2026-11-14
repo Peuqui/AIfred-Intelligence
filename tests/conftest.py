@@ -1,4 +1,17 @@
+import atexit
 import os
+import shutil
+import tempfile
+from pathlib import Path
+
+# Before any aifred import: every test run gets its own data/ and never touches the checkout's.
+# It starts with the files the repo tracks in data/, so tests see the repo's initial state.
+_REPO_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+_TEST_DATA_DIR = Path(tempfile.mkdtemp(prefix="aifred-test-data-"))
+for _tracked in ("agents.json", "non_scrapable_domains.txt", "user_mapping.json.example"):
+    shutil.copy2(_REPO_DATA_DIR / _tracked, _TEST_DATA_DIR / _tracked)
+os.environ["AIFRED_DATA_DIR"] = str(_TEST_DATA_DIR)
+atexit.register(shutil.rmtree, _TEST_DATA_DIR, ignore_errors=True)
 
 # Before any aifred import: pytest is a helper process, not the app. Without
 # CLI mode the first log line of an imported aifred

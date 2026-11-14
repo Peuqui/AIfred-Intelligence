@@ -36,7 +36,8 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()  # Go up to repo r
 # Benefits:
 # - All data in one place (easy backup, portable)
 # - Excluded from git (.gitignore)
-DATA_DIR = PROJECT_ROOT / "data"
+# AIFRED_DATA_DIR relocates it; the test suite sets it so a test run never touches the checkout's data/.
+DATA_DIR = Path(os.environ.get("AIFRED_DATA_DIR", str(PROJECT_ROOT / "data")))
 
 # The JS libraries mirrored for sandbox artifacts (three.js, d3, plotly, chart.js): the server serves them under
 # VENDOR_URL, the render browser fulfils the same URLs from the folder. Generated HTML names them root-relative,

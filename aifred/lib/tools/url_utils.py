@@ -4,18 +4,16 @@ URL Utilities - Normalization and Deduplication
 Extracted from agent_tools.py for better modularity.
 """
 
-from pathlib import Path
 from urllib.parse import urlparse
 
-from ..config import DEBUG_LOG_RAW_MESSAGES
+from ..config import DATA_DIR, DEBUG_LOG_RAW_MESSAGES
 from ..logging_utils import log_message
 
 # ============================================================
 # NON-SCRAPABLE DOMAIN FILTER
 # ============================================================
 
-# Path to non-scrapable domains file (relative to project root)
-_NON_SCRAPABLE_DOMAINS_FILE = Path(__file__).parent.parent.parent.parent / 'data' / 'non_scrapable_domains.txt'
+_NON_SCRAPABLE_DOMAINS_FILE = DATA_DIR / 'non_scrapable_domains.txt'
 
 # Cached set of non-scrapable domains (loaded once at first access)
 _non_scrapable_domains_cache: set[str] | None = None
