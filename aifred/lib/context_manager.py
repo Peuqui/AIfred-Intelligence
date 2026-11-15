@@ -679,10 +679,10 @@ async def summarize_history_if_needed(
 
         # Build collapsible HTML for chat_history (UI display)
         # i18n labels
-        is_de = detected_language == "de"
-        thinking_label = f"\U0001f4ad Denkprozess ({model_name})" if is_de else f"\U0001f4ad Thinking Process ({model_name})"
-        messages_label = "Nachrichten" if is_de else "Messages"
-        summary_label = "Zusammenfassung" if is_de else "Summary"
+        from .i18n import t
+        thinking_label = t("compression_thinking_label", lang=detected_language, model=model_name)
+        messages_label = t("compression_messages_label", lang=detected_language)
+        summary_label = t("compression_summary_label", lang=detected_language)
 
         inner_html = ""
         if thinking_content:

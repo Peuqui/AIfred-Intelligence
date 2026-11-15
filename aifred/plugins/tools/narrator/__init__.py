@@ -310,15 +310,11 @@ class NarratorPlugin:
         return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
+        from ....lib.i18n import t
         if tool_name == "narrate_file":
-            fname = tool_args.get("filename", "?")
-            if lang == "de":
-                return f"🔊 Vertone {fname}..."
-            return f"🔊 Narrating {fname}..."
+            return t("tool_narrator_narrate", lang=lang, filename=tool_args.get("filename", "?"))
         if tool_name == "list_narrator_voices":
-            if lang == "de":
-                return "🎤 Ermittle verfügbare Stimmen..."
-            return "🎤 Listing available voices..."
+            return t("tool_narrator_voices", lang=lang)
         return ""
 
 

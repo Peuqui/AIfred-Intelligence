@@ -228,6 +228,8 @@ def _build_standard_placeholders(lang: str) -> dict:
     of a hardcoded, quickly-stale snapshot.
     """
     from datetime import datetime, timedelta
+
+    from .i18n import t
     now = datetime.now()
 
     weekday_map = {
@@ -262,9 +264,9 @@ def _build_standard_placeholders(lang: str) -> dict:
         'current_time': now.strftime('%H:%M:%S'),
         'current_weekday': weekday,
         'upcoming_week': upcoming_week,
-        'previous_years': f"{current_year_int - 2} oder {current_year_int - 1}",  # e.g., "2024 oder 2025"
+        'previous_years': t("previous_years_text", lang=lang, older=current_year_int - 2, newer=current_year_int - 1),  # e.g., "2024 oder 2025"
         'user_name': get_user_name(),
-        'user_gender': ("männlich" if get_user_gender() == "male" else "weiblich") if lang == "de" else get_user_gender(),
+        'user_gender': t("gender_male" if get_user_gender() == "male" else "gender_female", lang=lang),
     }
 
 

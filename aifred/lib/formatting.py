@@ -1289,20 +1289,14 @@ def build_sources_collapsible(used_sources: list, failed_sources: list, lang: st
     total = len(all_sources)
     failed_count = len(failed_sources)
 
-    if lang == "de":
-        if failed_count > 0:
-            summary_text = f"🔗 {total} Web-Quellen ({failed_count} fehlgeschlagen)"
-        else:
-            summary_text = f"🔗 {total} Web-Quellen"
-        words_label = "Wörter"
-        sorted_label = "Sortiert nach Relevanz"
+    from .i18n import t
+
+    if failed_count > 0:
+        summary_text = t("web_sources_summary_failed", lang=lang, total=total, failed=failed_count)
     else:
-        if failed_count > 0:
-            summary_text = f"🔗 {total} Web Sources ({failed_count} failed)"
-        else:
-            summary_text = f"🔗 {total} Web Sources"
-        words_label = "words"
-        sorted_label = "Sorted by relevance"
+        summary_text = t("web_sources_summary", lang=lang, total=total)
+    words_label = t("web_sources_words", lang=lang)
+    sorted_label = t("web_sources_sorted", lang=lang)
 
     # Build source list HTML with table-like layout
     # Number + status icon + URL (truncated) + metadata (word count or error)

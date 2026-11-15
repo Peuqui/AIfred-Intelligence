@@ -189,27 +189,15 @@ class VisionPlugin:
         from ....lib.plugin_base import load_plugin_instructions
         return load_plugin_instructions(self, lang, granted_tools)
 
+    # The tools with a status line (i18n key ``tool_<name>``).
+    _STATUS_TOOLS = frozenset({
+        "vision_list_sources", "vision_rescan_sources", "vision_capture", "vision_analyze", "vision_enroll_face",
+        "vision_start_watch", "vision_stop_watch", "vision_list_active_watches", "vision_query_events",
+    })
+
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
-        is_de = lang.startswith("de")
-        mapping = {
-            "vision_list_sources": ("Verfügbare Bildquellen werden gesucht …",
-                                    "Listing image sources …"),
-            "vision_rescan_sources": ("Bildquellen werden neu gescannt …",
-                                      "Re-scanning image sources …"),
-            "vision_capture": ("Aufnahme läuft …", "Capturing …"),
-            "vision_analyze": ("Bild wird analysiert …", "Analysing image …"),
-            "vision_enroll_face": ("Gesicht wird gespeichert …", "Storing face …"),
-            "vision_start_watch": ("Live-Überwachung wird gestartet …",
-                                   "Starting live watch …"),
-            "vision_stop_watch": ("Live-Überwachung wird gestoppt …",
-                                  "Stopping live watch …"),
-            "vision_list_active_watches": ("Aktive Überwachungen werden geprüft …",
-                                           "Listing active watches …"),
-            "vision_query_events": ("Ereignisse werden abgefragt …",
-                                    "Querying events …"),
-        }
-        de_msg, en_msg = mapping.get(tool_name, ("", ""))
-        return de_msg if is_de else en_msg
+        from ....lib.i18n import t
+        return t(f"tool_{tool_name}", lang=lang) if tool_name in self._STATUS_TOOLS else ""
 
     # Quellen, die Kamera-Bilder sehen dürfen (Capture/Analyze/Event-
     # Chronik): User am Bildschirm + Voice-Puck ("was siehst du auf der
