@@ -177,3 +177,41 @@ def test_every_change_tells_the_open_pages(memory, monkeypatch):
     asyncio.run(memory.delete("pater", memory_id))
     memory.clear("pater")
     assert told == ["memory"] * 4
+
+
+def test_a_slow_chromadb_does_not_stop_the_event_loop(memory):
+    # 15.11.2026, live: the semantic search (the embedding is fetched over the network) ran on the server's loop and
+    # stood it still for 6.6 s. The call waits in a thread; the loop serves the others meanwhile.
+    import threading
+    import time
+
+    collection = memory._collections["pater"]
+    collection.add(["a"], ["Psalm"], [{"summary": "Psalm", "content": "", "type": "t", "date": "2026-11-15"}])
+    answer_threads: list[int] = []
+    original = collection.query
+
+    def slow_query(**kwargs):
+        answer_threads.append(threading.get_ident())
+        time.sleep(0.3)
+        return original(**kwargs)
+
+    collection.query = slow_query
+
+    async def scenario() -> tuple[int, int]:
+        ticks = 0
+
+        async def heartbeat() -> None:
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.01)
+                ticks += 1
+
+        beat = asyncio.create_task(heartbeat())
+        hits = await memory.recall("pater", "Psalm")
+        beat.cancel()
+        return ticks, len(hits)
+
+    ticks, hits = asyncio.run(scenario())
+    assert hits == 1
+    assert ticks >= 10                                   # the loop kept running while the query waited
+    assert answer_threads != [threading.get_ident()]     # not on the test's (the loop's) thread

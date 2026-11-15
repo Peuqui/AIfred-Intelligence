@@ -2,6 +2,7 @@
 has, its entries, one edited (through AgentMemory.update, the path of the agents' own update_memory tool: the
 summary is embedded anew, type and session stay), one or all deleted. 503 while ChromaDB is not there."""
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from fastapi import Response
@@ -50,12 +51,17 @@ def _memory() -> "AgentMemory":
     return memory
 
 
-def _entries(agent_id: str) -> list[MemoryEntry]:
+def _read_entries(agent_id: str) -> list[MemoryEntry]:
     memory = _memory()
     # An agent without a collection has no entries; reading one would create it.
     if agent_id not in memory.counts():
         return []
     return [MemoryEntry(**entry) for entry in memory.entries(agent_id)]
+
+
+async def _entries(agent_id: str) -> list[MemoryEntry]:
+    """ChromaDB answers over the network: read it in a thread, the server's loop keeps serving."""
+    return await asyncio.to_thread(_read_entries, agent_id)
 
 
 @api_app.get("/memory", response_model=list[MemoryAgent], tags=["Memory"])
@@ -64,7 +70,7 @@ async def memory_agents() -> list[MemoryAgent]:
     and system agents) and collections of agents deleted since."""
     from ..agent_config import load_agents
 
-    counts = _memory().counts()
+    counts = await asyncio.to_thread(_memory().counts)
     agents = load_agents()
     return [
         MemoryAgent(
@@ -80,7 +86,7 @@ async def memory_agents() -> list[MemoryAgent]:
 @api_app.get("/memory/{agent_id}", response_model=list[MemoryEntry], tags=["Memory"])
 async def memory_entries(agent_id: str) -> list[MemoryEntry]:
     """An agent's memories, newest first."""
-    return _entries(agent_id)
+    return await _entries(agent_id)
 
 
 @api_app.patch("/memory/{agent_id}/{memory_id}", response_model=MemoryEntry, tags=["Memory"])
@@ -92,26 +98,30 @@ async def memory_edit(agent_id: str, memory_id: str, edit: MemoryEdit) -> Memory
     summary, content = edit.summary.strip(), edit.content.strip()
     if not summary_fits_index(summary):
         raise Invalid("memory_summary_line", limit=AGENT_MEMORY_SUMMARY_MAX_CHARS)
-    entry = next((entry for entry in _entries(agent_id) if entry.id == memory_id), None)
+    entry = next((entry for entry in await _entries(agent_id) if entry.id == memory_id), None)
     if entry is None:
         raise Missing("no_memory", memory=memory_id, agent=agent_id)
     await _memory().update(agent_id, memory_id, content, summary, memory_type=entry.type, session_id=entry.session_id)
     log_message(f"🧠 Memory {memory_id[:8]} of '{agent_id}' edited")
-    return next(entry for entry in _entries(agent_id) if entry.id == memory_id)
+    return next(entry for entry in await _entries(agent_id) if entry.id == memory_id)
 
 
 @api_app.delete("/memory/{agent_id}/{memory_id}", status_code=204, tags=["Memory"])
 async def memory_delete(agent_id: str, memory_id: str) -> Response:
     """Delete one memory."""
-    if all(entry.id != memory_id for entry in _entries(agent_id)):
+    if all(entry.id != memory_id for entry in await _entries(agent_id)):
         raise Missing("no_memory", memory=memory_id, agent=agent_id)
     await _memory().delete(agent_id, memory_id)
     return Response(status_code=204)
+
+
+def _clear(memory: "AgentMemory", agent_id: str) -> int:
+    return memory.clear(agent_id) if agent_id in memory.counts() else 0
 
 
 @api_app.delete("/memory/{agent_id}", response_model=MemoryCleared, tags=["Memory"])
 async def memory_clear(agent_id: str) -> MemoryCleared:
     """Delete every memory of an agent."""
     memory = _memory()
-    deleted = memory.clear(agent_id) if agent_id in memory.counts() else 0
+    deleted = await asyncio.to_thread(_clear, memory, agent_id)
     return MemoryCleared(deleted=deleted)

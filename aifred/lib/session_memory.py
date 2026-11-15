@@ -9,6 +9,7 @@ context, newest first, instead of being cut to its last 4,000 characters; system
 
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -74,8 +75,8 @@ async def remember_session(session_id: str) -> SessionRemembered:
 
     stored = updated = 0
     for agent in agents:
-        if memory.find_by_session(agent, session_id):
-            memory.update_by_session(agent, session_id, summary)
+        if await asyncio.to_thread(memory.find_by_session, agent, session_id):
+            await asyncio.to_thread(memory.update_by_session, agent, session_id, summary)
             updated += 1
         else:
             await memory.store(agent_id=agent, content=summary, memory_type=MEMORY_TYPE,

@@ -8,6 +8,7 @@ Uses the ChromaDB server and the embedding function from embeddings.py
 (shared with the document store).
 """
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from typing import Any, Optional
@@ -92,6 +93,9 @@ class AgentMemory:
         The summary is used as the document (embedded for search),
         the full content goes into metadata.
         """
+        return await asyncio.to_thread(self._store, agent_id, content, memory_type, summary, session_id)
+
+    def _store(self, agent_id: str, content: str, memory_type: str, summary: str, session_id: str) -> str:
         col = self._collection(agent_id)
 
         doc_id = str(uuid.uuid4())
@@ -140,6 +144,11 @@ class AgentMemory:
         memory_type: str = "", session_id: str = "",
     ) -> str:
         """Update an existing memory (referenced by ID or unique ID prefix)."""
+        return await asyncio.to_thread(self._update, agent_id, memory_id, content, summary, memory_type, session_id)
+
+    def _update(
+        self, agent_id: str, memory_id: str, content: str, summary: str, memory_type: str, session_id: str,
+    ) -> str:
         col = self._collection(agent_id)
         full_id = self._resolve_id(agent_id, memory_id)
 
@@ -166,6 +175,9 @@ class AgentMemory:
 
     async def read(self, agent_id: str, memory_id: str) -> str:
         """Full text of one memory (referenced by ID or unique ID prefix)."""
+        return await asyncio.to_thread(self._read, agent_id, memory_id)
+
+    def _read(self, agent_id: str, memory_id: str) -> str:
         col = self._collection(agent_id)
         full_id = self._resolve_id(agent_id, memory_id)
         meta = col.get(ids=[full_id], include=["metadatas"])["metadatas"][0]
@@ -176,6 +188,9 @@ class AgentMemory:
 
     async def delete(self, agent_id: str, memory_id: str) -> str:
         """Delete a memory (referenced by ID or unique ID prefix)."""
+        return await asyncio.to_thread(self._delete, agent_id, memory_id)
+
+    def _delete(self, agent_id: str, memory_id: str) -> str:
         col = self._collection(agent_id)
         full_id = self._resolve_id(agent_id, memory_id)
 
@@ -233,6 +248,9 @@ class AgentMemory:
     ) -> list[dict[str, Any]]:
         """Query an agent's memory by semantic similarity. Only the start of a long query is embedded
         (``AGENT_MEMORY_QUERY_MAX_CHARS``); the request itself is not shortened."""
+        return await asyncio.to_thread(self._recall, agent_id, query, n_results)
+
+    def _recall(self, agent_id: str, query: str, n_results: int) -> list[dict[str, Any]]:
         col = self._collection(agent_id)
         if col.count() == 0:
             return []
@@ -304,7 +322,7 @@ class AgentMemory:
         ``query`` are marked ``expanded``: their content goes into the context
         too; for the others the agent calls read_memory.
         """
-        entries = self.entries(agent_id)
+        entries = await asyncio.to_thread(self.entries, agent_id)
         if not entries:
             return []
         expanded = {e["id"] for e in entries[:n_recent]}
@@ -344,7 +362,7 @@ class AgentMemory:
 
         async def update_memory(memory_id: str, content: str, summary: str, memory_type: str = "") -> str:
             check_summary(summary)
-            check_content(content, [summary, self.stored_summary(agent_id, memory_id)])
+            check_content(content, [summary, await asyncio.to_thread(self.stored_summary, agent_id, memory_id)])
             return await self.update(
                 agent_id, memory_id, content, summary,
                 memory_type=memory_type, session_id=session_id,
