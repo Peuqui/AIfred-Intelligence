@@ -19,7 +19,7 @@ import pytest
 from _vision_fakes import blank_jpeg, noise_jpeg
 
 from aifred.lib import vision_utils
-from aifred.lib.config import VISION_OVERLAY_SUFFIX_ZOOM
+from aifred.lib.i18n import t
 from aifred.lib.frame_sources import Frame
 from aifred.lib.vision_filters.zone_mask import ZoneMask
 from aifred.lib.vision_output import OutputChain
@@ -137,7 +137,7 @@ class TestFinalizePair:
 
         monkeypatch.setattr(vision_utils, "annotate_frame", spy)
         run(OutputChain(tmp_path).finalize_pair(_frame(noise_jpeg(1)), _frame(noise_jpeg(2))))
-        assert labels == ["Testkamera", "Testkamera" + VISION_OVERLAY_SUFFIX_ZOOM]
+        assert labels == ["Testkamera", "Testkamera" + t("vision_overlay_zoom")]
 
     def test_save_false_saves_nothing(self, tmp_path):
         pair = run(OutputChain(tmp_path).finalize_pair(

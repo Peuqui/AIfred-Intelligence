@@ -15,7 +15,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .config import VISION_OVERLAY_SUFFIX_ZOOM
+from .i18n import t
 from .vision_filters.zone_mask import ZoneMask
 
 if TYPE_CHECKING:
@@ -90,7 +90,7 @@ class OutputChain:
         if zoom is wide:
             return PairOutput(wide_out, "", None)
         zoom_out = await self.finalize(
-            zoom, label_suffix=VISION_OVERLAY_SUFFIX_ZOOM, save=save,
+            zoom, label_suffix=t("vision_overlay_zoom"), save=save,
         )
         return PairOutput(wide_out, zoom_out.path, zoom_out.detect)
 

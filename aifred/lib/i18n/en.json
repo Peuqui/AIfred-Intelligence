@@ -1585,5 +1585,7 @@
   "error_vram_cards_held": "the cards are held free ({reason})",
   "error_vram_model_loading": "'{models}' is loading",
   "error_vram_blocked_describer_later": "{blocked} — a describer is only added after that.",
-  "image_gone": "Image no longer available"
+  "image_gone": "Image no longer available",
+  "vision_overlay_zoom": " · Zoom",
+  "vision_overlay_preroll": " · Pre-roll"
 }

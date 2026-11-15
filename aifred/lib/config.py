@@ -997,10 +997,9 @@ VISION_RECORD_MIN_INTERVAL_S = 0.2
 VISION_FACE_THRESHOLD_KNOWN = 0.6
 VISION_FACE_THRESHOLD_UNSURE = 0.5
 
-# Overlay-Zusätze hinter dem Quell-Label im gestempelten Bild: unterscheiden die
-# beiden Linsen einer Dual-Lens-Kamera und den Vorlauf vor dem Trigger.
-VISION_OVERLAY_SUFFIX_ZOOM = " · Zoom"
-VISION_OVERLAY_SUFFIX_PREROLL = " · Vorlauf"
+# Overlay-Zusätze hinter dem Quell-Label im gestempelten Bild (unterscheiden die beiden Linsen einer Dual-Lens-
+# Kamera und den Vorlauf vor dem Trigger) stehen in den i18n-Dateien (vision_overlay_zoom, vision_overlay_preroll):
+# das Bild trägt die Sprache, die beim Aufnehmen eingestellt war.
 
 # Beschreibung (VLM) pro Cluster: maximale Anzahl Keyframes, die als
 # zeitliche Bildfolge ans VLM gehen. Statt gleichmäßigem Sampling wird die

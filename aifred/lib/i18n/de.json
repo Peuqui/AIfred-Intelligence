@@ -1585,5 +1585,7 @@
   "error_vram_cards_held": "die Karten werden freigehalten ({reason})",
   "error_vram_model_loading": "'{models}' lädt gerade",
   "error_vram_blocked_describer_later": "{blocked} — ein Describer kommt erst danach dazu.",
-  "image_gone": "Bild nicht mehr vorhanden"
+  "image_gone": "Bild nicht mehr vorhanden",
+  "vision_overlay_zoom": " · Zoom",
+  "vision_overlay_preroll": " · Vorlauf"
 }

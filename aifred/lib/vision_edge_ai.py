@@ -19,9 +19,9 @@ from . import vision_alerts
 from .config import (
     EDGE_AI_CONFIRM,
     EDGE_AI_REACT,
-    VISION_OVERLAY_SUFFIX_PREROLL,
     VISION_SAME_SCENE_MAX_HAMMING,
 )
+from .i18n import t
 from .vision_burst import BurstRunner
 from .vision_detect import DetectionService
 from .vision_edge_source import EdgeAiEventSource
@@ -267,7 +267,7 @@ class EdgeAiHandler:
                 continue
             self._preroll_saved_until[frame.source_id] = frame.timestamp
             finalized = await self._output.finalize(
-                frame, label_suffix=VISION_OVERLAY_SUFFIX_PREROLL,
+                frame, label_suffix=t("vision_overlay_preroll"),
                 save=config.save_event_frames,
             )
             self._store.add_event(
