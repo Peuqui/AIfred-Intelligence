@@ -18,6 +18,8 @@ from xml.sax.saxutils import escape
 import httpx
 from lxml import etree
 
+from ....lib.config import NEXTCLOUD_KEEPALIVE_EXPIRY_S
+
 NS = {
     "d": "DAV:",
     "cal": "urn:ietf:params:xml:ns:caldav",
@@ -104,7 +106,10 @@ class DavClient:
         self._files_root = f"{self._root}files/{quote(user, safe='')}/"
         self._auth = (user, password)
         self._timeout = timeout
-        self._client = httpx.Client(auth=self._auth, timeout=timeout, headers={"User-Agent": "AIfred"})
+        self._client = httpx.Client(
+            auth=self._auth, timeout=timeout, headers={"User-Agent": "AIfred"},
+            limits=httpx.Limits(keepalive_expiry=NEXTCLOUD_KEEPALIVE_EXPIRY_S),
+        )
 
     def close(self) -> None:
         self._client.close()
