@@ -14,14 +14,21 @@ automatically (``path=/``, ``SameSite=Lax``), so embedded images keep working.
 
 from __future__ import annotations
 
+import os
+
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse
+from starlette.responses import PlainTextResponse, Response
 from starlette.staticfiles import StaticFiles
 from starlette.types import Receive, Scope, Send
 
 # Reuse the framework-agnostic verifier — keeps the HMAC/secret logic in one
 # place (lib/auth) instead of re-implementing the check here.
 from .auth import USERNAME_COOKIE_NAME, verify_signed_username
+
+# A page (.html) of these folders runs in a tab of its own with its scripts, but as a sandboxed document without the
+# origin of the app (no cookies, no access to the API): an agent writes such pages, and what the app serves is
+# not to carry the user's login into whatever a page does.
+PAGE_SANDBOX_POLICY = "sandbox allow-scripts"
 
 
 class AuthenticatedStaticFiles(StaticFiles):
@@ -39,3 +46,9 @@ class AuthenticatedStaticFiles(StaticFiles):
                 await response(scope, receive, send)
                 return
         await super().__call__(scope, receive, send)
+
+    def file_response(self, full_path: str | os.PathLike[str], stat_result: os.stat_result, scope: Scope, status_code: int = 200) -> Response:
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        if str(full_path).lower().endswith((".html", ".htm")):
+            response.headers["Content-Security-Policy"] = PAGE_SANDBOX_POLICY
+        return response

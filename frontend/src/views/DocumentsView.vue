@@ -90,8 +90,15 @@ async function confirmDelete(): Promise<void> {
   selected.value = [];
 }
 
+// A page (.html) opens in a tab of its own, as the browser shows it (the server sends it sandboxed: its scripts run, but
+// without access to AIfred); every other file shows as its parser reads it.
+const PAGE_FILE = /\.html?$/i;
 const preview = ref<DocumentPreview | null>(null);
 async function show(row: DocumentRow): Promise<void> {
+  if (PAGE_FILE.test(row.name) && docs.listing) {
+    window.open(docs.listing.download_prefix + encodeURIComponent(row.name), "_blank", "noopener");
+    return;
+  }
   preview.value = await docs.preview(pathOf(row));
 }
 
