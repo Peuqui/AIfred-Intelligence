@@ -462,7 +462,15 @@ async def _stream_completion(url: str, payload: dict[str, Any]) -> _Streamed:
     async with httpx.AsyncClient(timeout=VLM_CALL_TIMEOUT_S) as client, client.stream(
         "POST", url, json=payload,
     ) as response:
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as error:
+            # The server says why (context too long, too many images, a field it refuses) in the body; the status
+            # line alone does not.
+            await response.aread()
+            raise httpx.HTTPStatusError(
+                f"{error} — {response.text[:1000]}", request=error.request, response=error.response,
+            ) from error
         async for line in response.aiter_lines():
             if not line.startswith("data:"):
                 continue

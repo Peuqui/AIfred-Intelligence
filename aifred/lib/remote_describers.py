@@ -30,7 +30,7 @@ from .config import (
     VISION_REMOTE_HOSTS,
     VLM_HEADROOM_MIB,
 )
-from .gpu_orc_client import GpuOrcClient, GpuOrcError
+from .gpu_orc_client import CardStatus, GpuOrcClient, GpuOrcError
 from .user_error import UserError
 from .vision_vram_check import VRAMCheckResult
 
@@ -202,13 +202,32 @@ def check_fits(model: RemoteModel) -> VRAMCheckResult:
         card.total_mib - card.used_mib
         + sum(h.memory_mib or 0 for h in card.holders if h.consumer != GPU_ORC_MODEL_SERVER)
         for card in cards
-    )
+    ) + _swapped_out_mib(host, cards)
     if free_mb >= needed_mb:
         return VRAMCheckResult(fits=True, needed_mb=needed_mb, free_mb=free_mb, gpu_index=-1)
     return VRAMCheckResult(
         fits=False, needed_mb=needed_mb, free_mb=free_mb, gpu_index=-1,
         reason=UserError("vram_remote_needs", host=host.name, model=model.model, needed=needed_mb, free=free_mb),
     )
+
+
+def _swapped_out_mib(host: RemoteHost, cards: list[CardStatus]) -> int:
+    """What the machine's llama-swap gives back by itself when one of its other models is asked for (it has no
+    groups there: it swaps its profiles against each other, only one runs): each model of it on the cards as the
+    machine reports its memory or, when it does not (llama-swap's models carry none), as its burn-in measured it.
+    A model without a figure counts nothing, so it can only make the room look smaller."""
+    from . import vlm_vram_cache
+
+    contexts = {m.model: m.context for m in seeing_models(host)}
+    total = 0
+    for card in cards:
+        for holder in card.holders:
+            if holder.consumer != GPU_ORC_MODEL_SERVER:
+                continue
+            context = contexts.get(holder.item)
+            measured = vlm_vram_cache.get(qualified(host, holder.item), context) if context else None
+            total += holder.memory_mib if holder.memory_mib is not None else measured or 0
+    return total
 
 
 def remote_model(model_id: str) -> RemoteModel:
