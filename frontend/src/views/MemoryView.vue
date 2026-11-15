@@ -111,8 +111,9 @@ watch(() => route.query.agent, (agent) => void (typeof agent === "string" && age
 h2 { margin: 0; font-size: 1rem; }
 .notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 .split { display: grid; grid-template-columns: minmax(180px, 240px) 1fr; gap: 14px; align-items: start; }
-/* The list of agents stays in view while the page scrolls the entries (no scroll container of its own around it). */
-.agents { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 8px; }
+/* The list of agents stays in view while the page scrolls the entries (no scroll container of its own around it).
+   Opaque, with its padding reaching the page edge, so the entries do not shine through the buttons and the gap. */
+.agents { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; padding: 8px 0; background: var(--aifred-page-bg); z-index: 1; }
 .agents button { display: flex; justify-content: space-between; gap: 8px; text-align: left; }
 .agents button.active { border-color: var(--aifred-primary); }
 .count { color: var(--aifred-text-muted); font-size: 0.8rem; }
