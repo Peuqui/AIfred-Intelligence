@@ -1719,6 +1719,9 @@ WORKSPACE_WRITE_EXTENSIONS = {".txt", ".md", ".csv", ".json", ".xml", ".html", "
 # SECURITY CONFIGURATION
 # ============================================================
 SECURITY_AUDIT_DB = DATA_DIR / "security" / "audit.db"
+# Papierkorb der Chats (lib/session_trash): ein gelöschter Chat liegt so lange darin, bevor die nächtliche Aufräumung ihn
+# endgültig entfernt; vorher lässt er sich zurückholen oder von Hand leeren.
+SESSION_TRASH_RETENTION_DAYS = 7
 SECURITY_AUDIT_RETENTION_DAYS = 7       # tool_audit-Zeilen aelter als N Tage taeglich pruegen (sonst append-only unbegrenzt)
 # Max tool calls per single LLM request (counter lives on the per-request
 # ToolKit — every new user request starts at 0 again). Havarie-Deckel, kein

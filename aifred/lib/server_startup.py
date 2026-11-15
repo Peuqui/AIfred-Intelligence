@@ -59,6 +59,10 @@ async def start_process_tasks() -> None:
     from .vision_cleanup import vision_gc_task
     asyncio.create_task(vision_gc_task())
 
+    # Chat trash: what lay in the trash longer than SESSION_TRASH_RETENTION_DAYS leaves it for good at the same slot.
+    from .session_trash import session_trash_cleanup_task
+    asyncio.create_task(session_trash_cleanup_task())
+
     # Audit-Log cleanup task — prunt die append-only tool_audit-
     # Tabelle (SECURITY_AUDIT_RETENTION_DAYS) am selben Slot.
     from .security import cleanup_audit_log_task

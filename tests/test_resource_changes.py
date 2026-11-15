@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from aifred.lib import agent_config, browser_push, scheduler, session_events, session_storage
+from aifred.lib import agent_config, browser_push, scheduler, session_events, session_storage, session_trash
 
 SESSION = "test-resource-changes"
 
@@ -26,7 +26,7 @@ def _fresh_channel() -> Iterator[None]:
 def told(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """What the places of writing announce, instead of an open page."""
     announced: list[str] = []
-    for module in (scheduler, agent_config, session_storage):
+    for module in (scheduler, agent_config, session_storage, session_trash):
         monkeypatch.setattr(module, "notify_changed", announced.append)
     return announced
 
@@ -109,5 +109,6 @@ class TestSavedChatsAnnounceTheirChanges:
         session_id = session_storage.generate_session_id()
         assert session_storage.create_empty_session(session_id, "ki")
         assert told == ["sessions"]
-        assert session_storage.delete_session(session_id)
+        monkeypatch.setattr(session_trash, "TRASH_DIR", tmp_path / "trash")
+        session_trash.trash(session_id, "ki")
         assert told == ["sessions", "sessions"]

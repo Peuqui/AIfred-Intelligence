@@ -114,7 +114,7 @@ CREATE TABLE routes (
 
 - Neue Nachricht → Route nachschlagen → Session gefunden? Weiterleiten.
 - Keine Route? → Neue Session erstellen, Route anlegen.
-- Session gelöscht? → Route löschen. Bei nächster Nachricht: neue Session.
+- Session gelöscht (in den Papierkorb gelegt)? → Route löschen. Bei nächster Nachricht: neue Session. Eine Session, die aus dem Papierkorb zurückkommt, hat keine Route mehr.
 
 ---
 
@@ -201,8 +201,8 @@ aber für den Message Hub ist erstmal nur der Hauptnutzer relevant.
 ### Paket 2: Routing Table ✅
 - [x] `aifred/lib/routing_table.py` — SQLite-basiert
 - [x] CRUD: get_route(), set_route(), delete_route(), delete_routes_for_session()
-- [x] Auto-Cleanup wenn Session gelöscht wird (`session_storage.py` ruft
-  `delete_routes_for_session()`)
+- [x] Auto-Cleanup wenn Session gelöscht wird (`session_trash.py` ruft
+  `delete_routes_for_session()`, wenn es die Session in den Papierkorb legt)
 
 ### Paket 3: IMAP IDLE Listener ✅
 - [x] `aifred/plugins/channels/email_channel/` — IMAP IDLE für Push-Notifications

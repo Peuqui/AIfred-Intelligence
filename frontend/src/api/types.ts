@@ -3,6 +3,7 @@ import type { components } from "./schema";
 
 type Schemas = components["schemas"];
 export type SessionSummary = Schemas["SessionSummary"];
+export type TrashedSessionEntry = Schemas["TrashedSessionEntry"];
 export type SessionDetail = Schemas["SessionDetail"];
 export type SessionConfig = Schemas["SessionConfig"];
 export type SessionConfigUpdate = Schemas["SessionConfigUpdate"];

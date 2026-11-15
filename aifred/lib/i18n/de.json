@@ -1237,7 +1237,7 @@
   "login_password": "Passwort",
   "login_submit": "Anmelden",
   "login_failed": "Benutzername oder Passwort falsch",
-  "delete_chat": "Chat löschen",
+  "delete_chat": "Chat in den Papierkorb",
   "stop_turn": "Stopp",
   "messages_waiting": "{count} wartend",
   "error_unreadable_request": "Die Anfrage passt nicht: {fields}",
@@ -1595,5 +1595,16 @@
   "maintenance_remote_describers": "Beschreiber anderer Rechner",
   "maintenance_remote_describers_intro": "Burn-in misst den Platzbedarf eines Modells auf dem anderen Rechner (er entlädt dort alle Modelle, lädt das gewählte mit dem Stressbild und merkt sich den Spitzenwert). Entladen räumt die geladenen Modelle dort ab. Reihenfolge und Schalter stehen in den Einstellungen.",
   "maintenance_remote_describers_none": "Kein anderer Rechner mit Beschreibern eingerichtet.",
-  "maintenance_remote_loaded": "geladen"
+  "maintenance_remote_loaded": "geladen",
+  "error_session_exists": "Eine Sitzung mit dieser Kennung gibt es schon wieder.",
+  "delete_all_chats_confirm": "Wirklich alle Chats in den Papierkorb legen?",
+  "maintenance_session_trash": "Papierkorb (Chats)",
+  "maintenance_session_trash_intro": "Gelöschte Chats liegen hier, bis die nächtliche Aufräumung sie entfernt (Spalte „weg am“). Bis dahin lassen sie sich zurückholen, ohne ihre Kanal-Zuordnung. Endgültig gelöscht werden auch ihre Bilder und ihr Ton.",
+  "maintenance_session_trash_empty": "Der Papierkorb ist leer.",
+  "maintenance_session_trash_untitled": "(ohne Titel)",
+  "maintenance_session_trash_meta": "{count} Nachrichten · gelöscht {deleted} · weg am {expires}",
+  "maintenance_session_trash_restore": "Zurückholen",
+  "maintenance_session_trash_purge": "Endgültig löschen",
+  "maintenance_session_trash_empty_all": "Papierkorb leeren",
+  "maintenance_session_trash_empty_confirm": "Alle Chats im Papierkorb endgültig löschen?"
 }

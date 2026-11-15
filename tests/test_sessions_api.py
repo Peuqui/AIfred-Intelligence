@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
-from aifred.lib import session_events, session_storage, turn_service
+from aifred.lib import session_events, session_storage, session_trash, turn_service
 from aifred.lib.api.app import api_app
 from aifred.lib.auth import sign_username
 from aifred.lib.auth import USERNAME_COOKIE_NAME
@@ -23,6 +23,7 @@ THEIRS = "b" * 32
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setattr(session_storage, "SESSION_DIR", tmp_path)
+    monkeypatch.setattr(session_trash, "TRASH_DIR", tmp_path / "trash")
     session_storage._session_meta_cache.clear()
     session_storage.create_empty_session(MINE, owner="ki")
     session_storage.create_empty_session(THEIRS, owner="lord")

@@ -670,50 +670,6 @@ def clear_chat(session_id: str) -> bool:
         return save_session(session_id, session)
 
 
-def delete_session(session_id: str, expected_owner: str | None = None) -> bool:
-    """
-    Delete session completely, including associated images and audio.
-
-    Args:
-        session_id: Session identifier
-        expected_owner: If set, only delete when the session's owner field
-            matches this username (case-insensitive). Returns False on mismatch.
-
-    Returns:
-        True on success, False on owner mismatch / not found / error.
-    """
-    try:
-        session_path = get_session_path(session_id)
-
-        # Load session data before deleting to find referenced HTML files
-        if session_path.exists():
-            try:
-                session_data = json.loads(session_path.read_text(encoding="utf-8"))
-                if expected_owner is not None:
-                    actual_owner = str(session_data.get("owner", "")).lower()
-                    if actual_owner != expected_owner.lower():
-                        return False
-                from .formatting import cleanup_session_html
-                cleanup_session_html(session_data)
-            except (json.JSONDecodeError, OSError):
-                # If we cannot read the file but an owner check was requested,
-                # refuse to delete — fail safe.
-                if expected_owner is not None:
-                    return False
-            session_path.unlink()
-
-        _remove_chat_files(session_id)
-
-        # Remove routing table entries (Hub channels → this session)
-        from .routing_table import routing_table
-        routing_table.delete_routes_for_session(session_id)
-
-        notify_changed("sessions")
-        return True
-    except (OSError, ValueError):
-        return False
-
-
 # ============================================================
 # Password Hashing Functions
 # ============================================================

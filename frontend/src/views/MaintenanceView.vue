@@ -9,6 +9,7 @@ import type { AuditEntry, ManagedFile } from "../api/types";
 import CalibrationSection from "../components/CalibrationSection.vue";
 import GpuDetails from "../components/GpuDetails.vue";
 import RemoteDescribers from "../components/RemoteDescribers.vue";
+import SessionTrash from "../components/SessionTrash.vue";
 import { formatNumber, t } from "../i18n";
 
 const files = ref<ManagedFile[] | null>(null);
@@ -58,6 +59,7 @@ async function openAudit(event: Event): Promise<void> {
     <GpuDetails />
     <CalibrationSection />
     <RemoteDescribers />
+    <SessionTrash />
     <details @toggle="openFiles">
       <summary><HardDrive :size="16" /> {{ t("tab_storage") }}</summary>
       <p class="hint">{{ t("storage_intro") }}</p>

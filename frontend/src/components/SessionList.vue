@@ -34,7 +34,7 @@ function removeChosen(): void {
 }
 
 function removeAll(): void {
-  if (window.confirm(t("delete_all_confirm"))) emit("remove", sessions.list.map((session) => session.session_id));
+  if (window.confirm(t("delete_all_chats_confirm"))) emit("remove", sessions.list.map((session) => session.session_id));
   chosen.value = [];
 }
 </script>

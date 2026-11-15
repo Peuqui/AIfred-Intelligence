@@ -7,6 +7,7 @@ queue; the turn service starts it when the running one ends, with or without an 
 
 import asyncio
 import json
+from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import Form, Request, UploadFile
@@ -182,12 +183,13 @@ async def sessions_open(session_id: str, request: Request) -> SessionDetail:
 
 @api_app.delete("/sessions/{session_id}", status_code=204, tags=["Sessions"])
 async def sessions_delete(session_id: str, request: Request) -> Response:
-    from ..session_storage import delete_session
+    """Move the session to the trash (``/session-trash``); the cleanup removes it for good after a week."""
+    from ..session_trash import trash
     from ..turn_service import end_session_activity
 
     owned_session(request, session_id)
     end_session_activity(session_id)
-    delete_session(session_id, expected_owner=current_user(request))
+    await asyncio.to_thread(trash, session_id, current_user(request))
     return Response(status_code=204)
 
 
@@ -197,9 +199,9 @@ class SessionsToDelete(BaseModel):
 
 @api_app.post("/sessions/delete", status_code=204, tags=["Sessions"])
 async def sessions_delete_many(request: Request, deleting: SessionsToDelete) -> Response:
-    """Delete several of the user's sessions at once (the list's selection, or all); 404 and nothing deleted when
-    one of them is not the user's."""
-    from ..session_storage import delete_session
+    """Move several of the user's sessions to the trash at once (the list's selection, or all); 404 and nothing moved
+    when one of them is not the user's."""
+    from ..session_trash import trash
     from ..turn_service import end_session_activity
 
     for session_id in deleting.session_ids:
@@ -207,7 +209,69 @@ async def sessions_delete_many(request: Request, deleting: SessionsToDelete) -> 
     user = current_user(request)
     for session_id in deleting.session_ids:
         end_session_activity(session_id)
-        delete_session(session_id, expected_owner=user)
+        await asyncio.to_thread(trash, session_id, user)
+    return Response(status_code=204)
+
+
+# ── The trash ────────────────────────────────────────────────────────────
+
+
+class TrashedSessionEntry(BaseModel):
+    session_id: str
+    title: str | None
+    message_count: int
+    last_message_display: str
+    deleted_display: str
+    expires_display: str = Field(description="When the cleanup removes it for good")
+
+
+def _trashed_entries(user: str) -> list[TrashedSessionEntry]:
+    from ..formatting import format_stamp
+    from ..session_trash import listed
+
+    return [
+        TrashedSessionEntry(
+            session_id=entry.session_id,
+            title=entry.title,
+            message_count=entry.message_count,
+            last_message_display=format_stamp(datetime.fromisoformat(entry.last_message_at).timestamp()) if entry.last_message_at else "",
+            deleted_display=format_stamp(entry.deleted_at.timestamp()),
+            expires_display=format_stamp(entry.expires_at.timestamp()),
+        )
+        for entry in listed(user)
+    ]
+
+
+@api_app.get("/session-trash", response_model=list[TrashedSessionEntry], tags=["Sessions"])
+async def session_trash_list(request: Request) -> list[TrashedSessionEntry]:
+    """The user's deleted sessions, the one deleted last first."""
+    return await asyncio.to_thread(_trashed_entries, current_user(request))
+
+
+@api_app.post("/session-trash/{session_id}/restore", status_code=204, tags=["Sessions"])
+async def session_trash_restore(session_id: str, request: Request) -> Response:
+    """Bring a session back out of the trash (without the channel routes it had); 404 when it is not in it."""
+    from ..session_trash import restore
+
+    await asyncio.to_thread(restore, session_id, current_user(request))
+    return Response(status_code=204)
+
+
+@api_app.delete("/session-trash/{session_id}", status_code=204, tags=["Sessions"])
+async def session_trash_purge(session_id: str, request: Request) -> Response:
+    """Delete a session in the trash for good, with the files of its chat; 404 when it is not in it."""
+    from ..session_trash import purge
+
+    await asyncio.to_thread(purge, session_id, current_user(request))
+    return Response(status_code=204)
+
+
+@api_app.delete("/session-trash", status_code=204, tags=["Sessions"])
+async def session_trash_empty(request: Request) -> Response:
+    """Delete every session of the user in the trash for good."""
+    from ..session_trash import empty
+
+    await asyncio.to_thread(empty, current_user(request))
     return Response(status_code=204)
 
 

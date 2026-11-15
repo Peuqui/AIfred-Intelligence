@@ -1237,7 +1237,7 @@
   "login_password": "Password",
   "login_submit": "Log in",
   "login_failed": "Wrong user name or password",
-  "delete_chat": "Delete chat",
+  "delete_chat": "Move chat to the trash",
   "stop_turn": "Stop",
   "messages_waiting": "{count} waiting",
   "error_unreadable_request": "The request does not fit: {fields}",
@@ -1595,5 +1595,16 @@
   "maintenance_remote_describers": "Describers of other machines",
   "maintenance_remote_describers_intro": "The burn-in measures what a model needs on the other machine (it unloads every model there, loads the chosen one with the stress picture and keeps the peak). Unloading clears the models loaded there. The order and the switches are in the settings.",
   "maintenance_remote_describers_none": "No other machine with describers is set up.",
-  "maintenance_remote_loaded": "loaded"
+  "maintenance_remote_loaded": "loaded",
+  "error_session_exists": "A session with this id exists again.",
+  "delete_all_chats_confirm": "Move all chats to the trash?",
+  "maintenance_session_trash": "Trash (chats)",
+  "maintenance_session_trash_intro": "Deleted chats lie here until the nightly cleanup removes them (the \"gone on\" time). Until then they can be brought back, without their channel assignment. Their images and audio are deleted for good with them.",
+  "maintenance_session_trash_empty": "The trash is empty.",
+  "maintenance_session_trash_untitled": "(untitled)",
+  "maintenance_session_trash_meta": "{count} messages · deleted {deleted} · gone on {expires}",
+  "maintenance_session_trash_restore": "Restore",
+  "maintenance_session_trash_purge": "Delete for good",
+  "maintenance_session_trash_empty_all": "Empty the trash",
+  "maintenance_session_trash_empty_confirm": "Delete every chat in the trash for good?"
 }
