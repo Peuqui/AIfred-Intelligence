@@ -14,7 +14,7 @@ from typing import Any, Literal
 from urllib.parse import quote
 
 from fastapi import Form, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import document_indexing
@@ -26,19 +26,31 @@ from ..prompt_loader import get_language
 from ..upload_files import DOCUMENTS_URL
 from ..user_error import Invalid, Missing, Unavailable
 from .app import api_app
+from .file_download import attachment, download_response, is_page, page_download
 
 
 @api_app.get("/documents/source/{source_key}/file/{file_id:path}", tags=["Documents"])
-async def document_source_file(source_key: str, file_id: str) -> StreamingResponse:
+async def document_source_file(source_key: str, file_id: str) -> Response:
     """Download one file of a document source (409 plugin off, 404 unknown source, 502 source failed). The id may hold
     slashes: Nextcloud's is the file's path."""
     download = await get_document_source(source_key).download(file_id)
     log_message(f"📄 Document download from {source_key}: {download.name}")
-    # RFC 5987: names with umlauts arrive intact.
-    disposition = f"attachment; filename*=UTF-8''{quote(download.name)}"
-    return StreamingResponse(
-        download.chunks, media_type=download.mime, headers={"Content-Disposition": disposition},
-    )
+    if is_page(download.name):
+        return page_download(b"".join([chunk async for chunk in download.chunks]), download.name)
+    return StreamingResponse(download.chunks, media_type=download.mime, headers=attachment(download.name))
+
+
+@api_app.get("/documents/local/download", tags=["Documents"])
+async def documents_download(path: str) -> Response:
+    """A file of the documents folder as a download; an HTML page as one standalone file with the libraries it loads
+    written into it, so it works opened anywhere."""
+    file, problem = fm.safe_resolve(path)
+    if problem:
+        raise problem
+    assert file is not None
+    if not file.is_file():
+        raise Missing("file_not_found", path=path)
+    return await asyncio.to_thread(download_response, file)
 
 
 # ── The local folder ─────────────────────────────────────────────────────
@@ -59,7 +71,7 @@ class DocumentRow(BaseModel):
 class DocumentFolder(BaseModel):
     folder: str = Field(description='Relative to the documents folder, "" its root')
     items: list[DocumentRow]
-    download_prefix: str = Field(description="A file's URL: this prefix and the file's name")
+    open_prefix: str = Field(description="The URL a file opens at (in a tab): this prefix and the file's name")
 
 
 class DocumentNewFolder(BaseModel):
@@ -116,7 +128,7 @@ async def _listing(folder: str) -> DocumentFolder:
     return DocumentFolder(
         folder=folder,
         items=[DocumentRow(**item) for item in result.metadata["items"]],
-        download_prefix=f"{DOCUMENTS_URL}/{folder}/" if folder else f"{DOCUMENTS_URL}/",
+        open_prefix=f"{DOCUMENTS_URL}/{folder}/" if folder else f"{DOCUMENTS_URL}/",
     )
 
 

@@ -85,9 +85,9 @@ def test_the_listing_shows_folders_first_and_what_is_indexed(client: TestClient)
     listing = client.get("/documents/local").json()
     assert _names(listing) == [("projekt", "folder"), ("bericht.txt", "file"), ("daten.xyz", "file")]
     report = next(item for item in listing["items"] if item["name"] == "bericht.txt")
-    assert report["indexed"] and report["chunks"] == 3 and listing["download_prefix"] == "/_upload/documents/"
+    assert report["indexed"] and report["chunks"] == 3 and listing["open_prefix"] == "/_upload/documents/"
     inner = client.get("/documents/local", params={"folder": "projekt"}).json()
-    assert _names(inner) == [("plan.md", "file")] and inner["download_prefix"] == "/_upload/documents/projekt/"
+    assert _names(inner) == [("plan.md", "file")] and inner["open_prefix"] == "/_upload/documents/projekt/"
     assert client.get("/documents/local", params={"folder": "../"}).status_code == 422
 
 
@@ -178,3 +178,29 @@ def test_the_index_care_finds_orphans_and_removes_only_those(client: TestClient,
     after = client.post("/documents/index/orphans/remove", json={"filenames": ["weg.txt", "bericht.txt"]}).json()
     assert after["orphans"] == [] and index.chunks == {"bericht.txt": 3}     # the file on disk keeps its entry
     assert client.post("/documents/index/clear").json() == {"chunks_removed": 3} and index.chunks == {}
+
+
+# ── the download: an HTML page as one standalone file ──────────────
+
+def test_a_page_downloads_as_one_file_with_what_it_loads_from_the_vendor_folder(tmp_path, monkeypatch) -> None:
+    from starlette.testclient import TestClient
+
+    from aifred.lib import file_manager as fm
+    from aifred.lib.api.app import api_app
+    from aifred.lib.auth import USERNAME_COOKIE_NAME, sign_username
+
+    monkeypatch.setattr(fm, "DOCUMENTS_DIR", tmp_path)
+    (tmp_path / "seite.html").write_text('<script src="/vendor/three.min.js"></script><p id="x">3D</p>', encoding="utf-8")
+    (tmp_path / "notiz.txt").write_text("keine Seite", encoding="utf-8")
+    client = TestClient(api_app)
+    client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))
+
+    page = client.get("/documents/local/download", params={"path": "seite.html"})
+    assert page.status_code == 200 and page.headers["content-type"].startswith("text/html")
+    assert "attachment" in page.headers["content-disposition"] and "seite.html" in page.headers["content-disposition"]
+    assert "REVISION" in page.text and "/vendor/" not in page.text and '<p id="x">3D</p>' in page.text
+
+    note = client.get("/documents/local/download", params={"path": "notiz.txt"})
+    assert note.status_code == 200 and note.text == "keine Seite"
+    assert client.get("/documents/local/download", params={"path": "fehlt.html"}).status_code == 404
+    assert client.get("/documents/local/download", params={"path": "../README.md"}).status_code in (404, 422)

@@ -13,6 +13,7 @@ import type { DocumentPreview, DocumentRow } from "../api/types";
 import IndexCare from "../components/IndexCare.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import SourceBrowser from "../components/SourceBrowser.vue";
+import { apiUrl } from "../api/client";
 import { t, tCount } from "../i18n";
 import { LOCAL, useDocuments } from "../stores/documents";
 
@@ -96,7 +97,7 @@ const PAGE_FILE = /\.html?$/i;
 const preview = ref<DocumentPreview | null>(null);
 async function show(row: DocumentRow): Promise<void> {
   if (PAGE_FILE.test(row.name) && docs.listing) {
-    window.open(docs.listing.download_prefix + encodeURIComponent(row.name), "_blank", "noopener");
+    window.open(docs.listing.open_prefix + encodeURIComponent(row.name), "_blank", "noopener");
     return;
   }
   preview.value = await docs.preview(pathOf(row));
@@ -236,7 +237,7 @@ const runOutcome = computed(() => {
             <td class="dates">{{ row.created }}<br />{{ row.modified }}</td>
             <td><span v-if="row.indexed" class="indexed">{{ tCount("doc_chunk_count", row.chunks) }}</span></td>
             <td class="row-actions">
-              <a v-if="row.type === 'file'" :href="docs.listing.download_prefix + encodeURIComponent(row.name)" :title="t('doc_download')" download><Download :size="16" /></a>
+              <a v-if="row.type === 'file'" :href="apiUrl('documents/local/download?path=' + encodeURIComponent(pathOf(row)))" :title="t('doc_download')" download><Download :size="16" /></a>
               <button v-if="row.type === 'file'" :title="t('doc_copy_path')" @click="copyPath(row)"><Copy :size="16" /></button>
               <button v-if="row.indexed" :title="t('doc_deindex')" @click="deindex(row)"><BookMinus :size="16" /></button>
               <button

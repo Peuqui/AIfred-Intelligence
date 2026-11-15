@@ -10,13 +10,14 @@ import asyncio
 from pathlib import Path
 
 from fastapi import Form, Query, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..file_ops import FolderOps
 from ..logging_utils import log_message
 from ..user_error import Invalid
 from .app import api_app
+from .file_download import download_response
 from .sessions import current_user
 
 _SIZES = {"small": (0, 1 << 20), "medium": (1 << 20, 10 << 20), "large": (10 << 20, None)}   # VueFinder's search filter
@@ -231,9 +232,10 @@ async def files_preview(http: Request, area: str, path: str = Query(...)) -> Fil
 
 
 @api_app.get("/files/{area}/download", tags=["Files"])
-async def files_download(http: Request, area: str, path: str = Query(...)) -> FileResponse:
+async def files_download(http: Request, area: str, path: str = Query(...)) -> Response:
+    """The file as a download; an HTML page as one standalone file (lib/api/file_download.py)."""
     target = await asyncio.to_thread(_file, http, area, "download", path)
-    return FileResponse(target, filename=target.name)
+    return await asyncio.to_thread(download_response, target)
 
 
 @api_app.get("/files/{area}/search", response_model=SearchResult, tags=["Files"])
