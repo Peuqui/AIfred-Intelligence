@@ -171,19 +171,19 @@ def check_fits(model: RemoteModel) -> VRAMCheckResult:
     host = model.host
     if model.loaded:
         return VRAMCheckResult(fits=True, needed_mb=0, free_mb=0, gpu_index=-1,
-                               message=f"'{model.qualified}' ist bereits geladen.")
+                               message=f"'{model.qualified}' is already loaded.")
     if model.context is None:
         return VRAMCheckResult(
             fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
-            message=(f"'{model.qualified}' war dort noch nie geladen (Kontext unbekannt) und ist nicht "
-                     "vermessen — Platzbedarf unbekannt."),
+            message=(f"'{model.qualified}' was never loaded there (context unknown) and is not "
+                     "measured — space needed unknown."),
         )
     peak_mb = vlm_vram_cache.get(model.qualified, model.context)
     if peak_mb is None:
         return VRAMCheckResult(
             fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
-            message=(f"'{model.qualified}' ist bei {model.context} Kontext nicht vermessen "
-                     "(Burn-in fehlt) — Platzbedarf unbekannt."),
+            message=(f"'{model.qualified}' is not measured at {model.context} context "
+                     "(burn-in missing) — space needed unknown."),
         )
     needed_mb = peak_mb + VLM_HEADROOM_MIB
     try:
@@ -192,13 +192,13 @@ def check_fits(model: RemoteModel) -> VRAMCheckResult:
         cards = [] if light.red else client.card_status()
     except GpuOrcError as error:
         return VRAMCheckResult(fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
-                               message=f"{host.name}: Belegung der Karten unbekannt — {error}")
+                               message=f"{host.name}: card usage unknown — {error}")
     if light.held is not None:
         return VRAMCheckResult(fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
-                               message=f"{host.name}: die Karten werden freigehalten ({light.held['reason']}).")
+                               message=f"{host.name}: the cards are held free ({light.held['reason']}).")
     if light.loading:
         return VRAMCheckResult(fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
-                               message=f"{host.name}: '{', '.join(light.loading)}' lädt gerade.")
+                               message=f"{host.name}: '{', '.join(light.loading)}' is loading.")
     free_mb = sum(
         card.total_mib - card.used_mib
         + sum(h.memory_mib or 0 for h in card.holders if h.consumer != GPU_ORC_MODEL_SERVER)
@@ -208,7 +208,7 @@ def check_fits(model: RemoteModel) -> VRAMCheckResult:
         return VRAMCheckResult(fits=True, needed_mb=needed_mb, free_mb=free_mb, gpu_index=-1)
     return VRAMCheckResult(
         fits=False, needed_mb=needed_mb, free_mb=free_mb, gpu_index=-1,
-        message=f"{host.name}: '{model.model}' braucht {needed_mb} MiB, frei sind {free_mb} MiB.",
+        message=f"{host.name}: '{model.model}' needs {needed_mb} MiB, {free_mb} MiB are free.",
     )
 
 

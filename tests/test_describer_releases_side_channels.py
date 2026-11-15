@@ -67,7 +67,7 @@ def test_without_gpu_orc_the_room_is_unknown_and_said(fake, monkeypatch):
     monkeypatch.setattr(gpu_orc_client, "_default_client", gpu_orc_client.GpuOrcClient("http://127.0.0.1:9"))
     result = vision_vram_check.check_visiond_fits(PROFILE)
     assert not result.fits and result.gpu_index == -1
-    assert "Belegung der Karten unbekannt" in result.message
+    assert "card usage unknown" in result.message
 
 
 def test_the_describer_has_gpu_orc_clear_its_cards(fake):

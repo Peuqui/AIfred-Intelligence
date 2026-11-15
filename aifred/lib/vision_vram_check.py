@@ -105,7 +105,7 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
     if profile in loaded_llamaswap_profiles():
         return VRAMCheckResult(
             fits=True, needed_mb=0, free_mb=0, gpu_index=-1,
-            message=f"VLM-Profil '{profile}' ist bereits geladen.",
+            message=f"VLM profile '{profile}' is already loaded.",
         )
 
     from .vlm_naming import VISIOND_SUFFIX, visiond_home
@@ -118,8 +118,8 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
         return VRAMCheckResult(
             fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
             message=(
-                f"VLM '{base}' ist bei {num_ctx} Kontext nicht vermessen "
-                "(Burn-in fehlt) — Platzbedarf unbekannt."
+                f"VLM '{base}' is not measured at {num_ctx} context "
+                "(burn-in missing) — space needed unknown."
             ),
         )
     needed_mb = peak_mb + VLM_HEADROOM_MIB
@@ -136,7 +136,7 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
         # above), and the reason is shown instead of an error in the page.
         return VRAMCheckResult(
             fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
-            message=f"VLM-Profil '{profile}': Belegung der Karten unbekannt — {error}",
+            message=f"VLM profile '{profile}': card usage unknown — {error}",
         )
     releasable = {
         card.uuid: sum(
@@ -159,8 +159,8 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
             return VRAMCheckResult(
                 fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
                 message=(
-                    f"VLM-Profil '{profile}' ist auf eine nicht vorhandene "
-                    f"GPU gepinnt ({', '.join(missing)})."
+                    f"VLM profile '{profile}' is pinned to a GPU that does not exist "
+                    f"({', '.join(missing)})."
                 ),
             )
         candidates = [free_by_uuid[u] for u in pinned]
@@ -169,7 +169,7 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
     if not candidates:
         return VRAMCheckResult(
             fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
-            message="nvidia-smi liefert keine GPUs.",
+            message="nvidia-smi reports no GPUs.",
         )
     free_mb = sum(free for _, free in candidates)
     gpu_index = candidates[0][0] if len(candidates) == 1 else -1
@@ -180,8 +180,8 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
     return VRAMCheckResult(
         fits=False, needed_mb=needed_mb, free_mb=free_mb, gpu_index=gpu_index,
         message=(
-            f"VLM '{base}' braucht {needed_mb} MiB, frei sind {free_mb} MiB "
-            f"auf {len(candidates)} GPU(s)."
+            f"VLM '{base}' needs {needed_mb} MiB, {free_mb} MiB are free "
+            f"on {len(candidates)} GPU(s)."
         ),
     )
 

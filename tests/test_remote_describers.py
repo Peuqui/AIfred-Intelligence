@@ -91,7 +91,7 @@ def test_only_models_that_see_are_listed(monkeypatch):
 def test_a_model_never_loaded_there_does_not_fit(box):
     [host] = remote_describers.remote_hosts()
     fit = remote_describers.check_fits(RemoteModel(host, BIG, None, False))
-    assert fit.fits is False and "noch nie geladen" in fit.message
+    assert fit.fits is False and "never loaded" in fit.message
 
 
 def test_a_machine_that_does_not_answer_is_not_reachable(monkeypatch):
