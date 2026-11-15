@@ -304,6 +304,11 @@ LLAMASWAP_READY_TIMEOUT_S = 20.0
 # Machine-specific values go to .env (AIFRED_SERVER_HOST, AIFRED_SERVER_PORT).
 AIFRED_SERVER_HOST = os.environ.get("AIFRED_SERVER_HOST", "0.0.0.0")
 AIFRED_SERVER_PORT = int(os.environ.get("AIFRED_SERVER_PORT", "8002"))
+# The watchdog of the server's event loop (lib/loop_watchdog): it asks the loop every LOOP_WATCHDOG_INTERVAL_S
+# whether it still answers; when it does not within LOOP_WATCHDOG_STALL_S, the debug log gets the stack of the loop's
+# thread (15.11.2026: the whole page stood for almost a minute, twice, while the server's CPU was idle).
+LOOP_WATCHDOG_INTERVAL_S = 0.5
+LOOP_WATCHDOG_STALL_S = 2.0
 # AIfred's own systemd unit, and how long a restart waits: the answer to the click reaches the browser first.
 AIFRED_SERVICE_NAME = "aifred-intelligence"
 AIFRED_RESTART_DELAY_S = 1.0

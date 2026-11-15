@@ -94,6 +94,28 @@ def test_camera_aifreds_own_seeing_model_describes_when_vlm_does_not_fit(world, 
     assert (d.model, d.evicts_chat_model) == (MAIN_SEEING, False)
 
 
+def test_camera_says_which_describers_it_skipped(world, monkeypatch):
+    """15.11.2026: the main model described camera images for minutes and nothing said why the describers before
+    it in the list did not."""
+    world(fits=False, loaded=[MAIN_SEEING])
+    monkeypatch.setattr(config, "get_effective_model_from_settings",
+                        lambda role: f"{VISION_LLM}-tts" if role == "vision" else MAIN_SEEING)
+    said: list[str] = []
+    monkeypatch.setattr(vision_routing, "debug", said.append)
+    camera_describer(VLM, explicit=False)
+    assert len(said) == 1
+    assert f"describing with {MAIN_SEEING}" in said[0]
+    assert "local: does not fit" in said[0]
+
+
+def test_camera_says_nothing_when_the_first_describer_works(world, monkeypatch):
+    world(fits=True, loaded=[MAIN_SEEING])
+    said: list[str] = []
+    monkeypatch.setattr(vision_routing, "debug", said.append)
+    camera_describer(VLM, explicit=False)
+    assert said == []
+
+
 def test_camera_never_uses_another_sessions_seeing_model(world):
     """14.11.2026: a seeing model of another session (vllm-research's test model) is no "main model"."""
     world(fits=False, loaded=[MAIN_SEEING])   # AIfred's own model is MAIN, which is not loaded

@@ -1,7 +1,7 @@
 """What AIfred starts once per process, with or without a browser: the debug log and the platform line, the background
 tasks (cleanups of audio state, lookup caches, vision, the audit log and the vLLM compile cache; the audio index), the
-vision pre-warm in live mode, the GPU detection and an empty Ollama; and the lifespans of the server: the session
-events' loop, the Message Hub with the plugins' background parts and Vigilantia's background watchers, the service status.
+vision pre-warm in live mode, the GPU detection and an empty Ollama; and the lifespans of the server: the event loop's
+watchdog, the session events' loop, the Message Hub with the plugins' background parts and Vigilantia's background watchers, the service status.
 
 The server (aifred/server.py) runs them all from its lifespan (``SERVER_LIFESPANS``).
 """
@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import os
 import subprocess
+import threading
 from collections.abc import AsyncIterator
 
 from .gpu_utils import total_actual_vram_gb
@@ -178,6 +179,23 @@ async def service_status_lifespan() -> AsyncIterator[None]:
 
 
 @contextlib.asynccontextmanager
+async def loop_watchdog_lifespan() -> AsyncIterator[None]:
+    """Watch the loop this lifespan runs on (lib/loop_watchdog): a freeze of the page leaves its stack in the debug log."""
+    from .config import LOOP_WATCHDOG_INTERVAL_S, LOOP_WATCHDOG_STALL_S
+    from .loop_watchdog import LoopWatchdog
+
+    watchdog = LoopWatchdog(
+        asyncio.get_running_loop(), threading.get_ident(),
+        interval_s=LOOP_WATCHDOG_INTERVAL_S, stall_s=LOOP_WATCHDOG_STALL_S,
+    )
+    watchdog.start()
+    try:
+        yield
+    finally:
+        watchdog.stop()
+
+
+@contextlib.asynccontextmanager
 async def session_events_lifespan() -> AsyncIterator[None]:
     """The event hub belongs to this loop; publishes from the hub thread are handed over to it."""
     from . import session_events
@@ -193,6 +211,6 @@ async def process_tasks_lifespan() -> AsyncIterator[None]:
     yield
 
 
-# The server's lifespan, in this order: the session events' loop first (the hub publishes into it), then the
-# process tasks, the Message Hub, the service status.
-SERVER_LIFESPANS = (session_events_lifespan, process_tasks_lifespan, message_hub_lifespan, service_status_lifespan)
+# The server's lifespan, in this order: the loop's watchdog first (a freeze while starting shows too), the session
+# events' loop (the hub publishes into it), then the process tasks, the Message Hub, the service status.
+SERVER_LIFESPANS = (loop_watchdog_lifespan, session_events_lifespan, process_tasks_lifespan, message_hub_lifespan, service_status_lifespan)

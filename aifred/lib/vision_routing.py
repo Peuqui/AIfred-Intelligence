@@ -298,7 +298,13 @@ def _from_list(vlm_model: str, *, camera: bool) -> tuple[Describer | None, str]:
     Seitenkanal."""
     from .describer_list import LOCAL, MAIN, stored
     from .remote_describers import check_remote
-    reasons: list[str] = []
+    skipped: list[str] = []
+
+    def chosen(describer: Describer) -> tuple[Describer, str]:
+        if skipped:
+            debug(f"ℹ️ Vision: describing with {describer.model} — skipped: {'; '.join(skipped)}")
+        return describer, ""
+
     for entry in stored():
         if not entry.enabled:
             continue
@@ -307,22 +313,22 @@ def _from_list(vlm_model: str, *, camera: bool) -> tuple[Describer | None, str]:
                 continue
             seeing = loaded_seeing_profile()
             if seeing is not None:
-                return Describer(seeing, evicts_chat_model=False), ""
-            reasons.append("no loaded model sees")
+                return chosen(Describer(seeing, evicts_chat_model=False))
+            skipped.append(f"{entry.source}: no loaded model sees")
         elif entry.source == LOCAL:
             if not vlm_model:
-                reasons.append("no VLM is set for this machine")
+                skipped.append(f"{entry.source}: no VLM is set for this machine")
                 continue
             describer, reason = _local_describer(vlm_model, side_channel=camera)
             if describer is not None:
-                return describer, ""
-            reasons.append(reason)
+                return chosen(describer)
+            skipped.append(f"{entry.source}: {reason}")
         else:
             fits, reason = check_remote(entry.source)
             if fits:
-                return Describer(entry.source, evicts_chat_model=False), ""
-            reasons.append(reason)
-    return None, "; ".join(reasons) or "no describer is switched on"
+                return chosen(Describer(entry.source, evicts_chat_model=False))
+            skipped.append(f"{entry.source}: {reason}")
+    return None, "; ".join(skipped) or "no describer is switched on"
 
 
 def chat_describer(main_model: str) -> Describer:
