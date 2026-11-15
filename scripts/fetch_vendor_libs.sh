@@ -173,5 +173,59 @@ print(f"  ✅ three/ geschrieben, alle relativen Imports lösen auf ({len(list(a
 PYEOF
 fi
 
+# Rapier (3D-Physik-Engine, Apache-2.0) in der "compat"-Fassung: das WebAssembly steckt als base64 in der einen Datei,
+# es wird nichts nachgeladen. Aus dem npm-Tarball, gegen dist.integrity der Registry geprüft (nur Datei und Lizenz).
+RAPIER_MODULE="$VENDOR_DIR/rapier/rapier.module.js"
+if [ -s "$RAPIER_MODULE" ]; then
+  echo "✓ rapier/rapier.module.js (0.21.0) bereits vorhanden — übersprungen"
+else
+  echo "↓ rapier3d-compat 0.21.0 ← registry.npmjs.org"
+  python3 -I - "$VENDOR_DIR/rapier" <<'PYEOF'
+import base64
+import hashlib
+import json
+import shutil
+import sys
+import tarfile
+import tempfile
+import urllib.request
+from pathlib import Path
+
+target = Path(sys.argv[1])
+META_URL = "https://registry.npmjs.org/@dimforge/rapier3d-compat/0.21.0"
+
+
+def fail(message: str) -> None:
+    print(f"  ❌ {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def fetch(url: str) -> bytes:
+    with urllib.request.urlopen(url, timeout=180) as response:
+        return response.read()
+
+
+meta = json.loads(fetch(META_URL))
+tarball = fetch(meta["dist"]["tarball"])
+algorithm, _, expected = meta["dist"]["integrity"].partition("-")
+if algorithm != "sha512" or base64.b64encode(hashlib.sha512(tarball).digest()).decode() != expected:
+    fail("Integritätsprüfung des rapier-Tarballs fehlgeschlagen — nichts geschrieben")
+
+work = Path(tempfile.mkdtemp())
+try:
+    (work / "rapier.tgz").write_bytes(tarball)
+    unpacked = work / "unpacked"
+    unpacked.mkdir()
+    with tarfile.open(work / "rapier.tgz") as tar:
+        tar.extractall(unpacked, filter="data")
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(unpacked / "package" / "dist" / "rapier.mjs", target / "rapier.module.js")
+    shutil.copy2(unpacked / "package" / "LICENSE", target / "LICENSE")
+finally:
+    shutil.rmtree(work, ignore_errors=True)
+print(f"  ✅ rapier/rapier.module.js geschrieben ({(target / 'rapier.module.js').stat().st_size} bytes)")
+PYEOF
+fi
+
 echo "Fertig. Vendor-Libs in: $VENDOR_DIR"
 ls -la "$VENDOR_DIR"

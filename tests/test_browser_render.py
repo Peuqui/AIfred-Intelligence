@@ -178,3 +178,27 @@ def test_a_page_loads_three_and_its_add_ons_as_local_modules(tmp_path, monkeypat
     assert result.error == "" and not result.timed_out
     assert result.console_messages == ["log: modules: three 160, function"]
 
+
+_PHYSICS_PAGE = """<!DOCTYPE html><html><body>
+<script type="importmap">{"imports":{"rapier":"/vendor/rapier/rapier.module.js"}}</script>
+<script type="module">
+import RAPIER from "rapier";
+await RAPIER.init();
+const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+const ball = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(0, 10, 0));
+world.createCollider(RAPIER.ColliderDesc.ball(0.5), ball);
+for (let i = 0; i < 60; i++) world.step();
+console.log("fell: " + (ball.translation().y < 10 && ball.translation().y > 0));
+</script></body></html>"""
+
+
+@pytest.mark.skipif(_chrome_missing, reason="google-chrome not installed")
+def test_a_page_runs_the_local_physics_engine(tmp_path, monkeypatch):
+    from aifred.lib import config
+    out_root = tmp_path / "sandbox_output"
+    monkeypatch.setattr(config, "SANDBOX_OUTPUT_DIR", out_root)
+    fname = _write_html(out_root, _PHYSICS_PAGE)
+    result = asyncio.run(render_html_in_browser(f"/_upload/sandbox_output/{SESSION}/{fname}", SESSION, wait_ms=1000))
+    assert result.error == "" and not result.timed_out
+    assert result.console_messages == ["log: fell: true"]
+
