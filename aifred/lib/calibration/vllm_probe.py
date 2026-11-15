@@ -581,7 +581,7 @@ async def cleanup_vllm_compile_cache_task() -> None:
     gib = 1024**3
     log_message(
         f"🧹 vLLM compile cache cleanup task started "
-        f"(slot: {GARBAGE_COLLECTION_HOUR:02d}:00 lokal, "
+        f"(slot: {GARBAGE_COLLECTION_HOUR:02d}:00 local, "
         f"max age {VLLM_PRODUCTION_CACHE_MAX_AGE_DAYS}d, "
         f"cap {VLLM_PRODUCTION_CACHE_MAX_GIB} GiB, {VLLM_PRODUCTION_CACHE_ROOT})"
     )

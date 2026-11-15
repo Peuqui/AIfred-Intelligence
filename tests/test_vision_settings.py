@@ -27,13 +27,13 @@ def test_valid_file_is_loaded(settings_path: Path) -> None:
 
 def test_broken_json_raises(settings_path: Path) -> None:
     settings_path.write_text("{kaputt", encoding="utf-8")
-    with pytest.raises(ValueError, match="unlesbar"):
+    with pytest.raises(ValueError, match="unreadable"):
         vision_settings.load_vision_settings()
 
 
 def test_non_object_raises(settings_path: Path) -> None:
     settings_path.write_text("[1, 2]", encoding="utf-8")
-    with pytest.raises(ValueError, match="JSON-Objekt"):
+    with pytest.raises(ValueError, match="JSON object"):
         vision_settings.load_vision_settings()
 
 

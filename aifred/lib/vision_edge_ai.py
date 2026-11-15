@@ -86,7 +86,7 @@ class EdgeAiHandler:
         Gesichts-Identität, die die Kamera nicht liefern kann."""
         edge = config.edge_ai
         if edge is None:
-            raise ValueError("Edge-AI-Trigger ohne WatchConfig.edge_ai")
+            raise ValueError("Edge-AI trigger without WatchConfig.edge_ai")
         source_id = frame.source_id
         # Synchronisierter Dual-Lens-Snap: Wide + Zoom FRISCH und parallel mit
         # EINEM gemeinsamen Zeitstempel. Das stale RTSP-Frame verpasst das
@@ -298,7 +298,7 @@ async def run_edge_ai_cycle(
     Detektion macht die Kamera selbst."""
     edge = config.edge_ai
     if edge is None:
-        raise ValueError("Edge-AI-Zyklus ohne WatchConfig.edge_ai")
+        raise ValueError("Edge-AI cycle without WatchConfig.edge_ai")
     # Zeitstempel des zuletzt befeuerten Frames — gegen eingefrorene RTSP-
     # Streams: friert der Stream ein, bleibt ``live.latest`` stehen (gleicher
     # Timestamp), während die Kamera-Edge-AI nachts im IR-Bild weiter Person/
@@ -327,8 +327,8 @@ async def run_edge_ai_cycle(
             # Eingefrorener Stream: derselbe Frame wie beim letzten Feuern →
             # kein echtes Ereignis, skip.
             logger.warning(
-                "edge-ai: eingefrorenes Frame für %s (Stream steht?) — "
-                "Trigger verworfen", source_id,
+                "edge-ai: frozen frame for %s (stream stalled?) — "
+                "trigger discarded", source_id,
             )
             continue
         last_fired_ts = frame.timestamp

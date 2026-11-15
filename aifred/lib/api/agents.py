@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..agent_config import AGENT_COLOR_PATTERN
 from ..config import AGENT_DEFAULT_COLOR
+from ..i18n import t
 from ..logging_utils import log_exception, log_message
 from ..user_error import BadRequest, Invalid, Missing, NotDone, UserError
 from .app import api_app
@@ -141,14 +142,14 @@ async def oauth_callback(provider: str, request: Request, code: str = "", state:
 
     if error:
         return HTMLResponse(
-            f"<html><body><h2>❌ OAuth abgebrochen</h2><p>{_html.escape(error)}</p>"
-            "<p>Du kannst dieses Fenster schließen.</p></body></html>",
+            f"<html><body><h2>{t('oauth_cancelled_title')}</h2><p>{_html.escape(error)}</p>"
+            f"<p>{t('oauth_close_window')}</p></body></html>",
             status_code=400,
         )
     if not code or not state:
         return HTMLResponse(
-            "<html><body><h2>❌ Ungültiger Callback</h2>"
-            "<p>Fehlende Parameter. Starte den Login-Flow neu.</p></body></html>",
+            f"<html><body><h2>{t('oauth_invalid_callback_title')}</h2>"
+            f"<p>{t('oauth_invalid_callback_text')}</p></body></html>",
             status_code=400,
         )
 
@@ -156,14 +157,14 @@ async def oauth_callback(provider: str, request: Request, code: str = "", state:
         await oauth_broker.handle_callback(state, code, expected_provider=provider)
         return HTMLResponse(
             f"<html><body style='font-family:sans-serif;padding:2rem'>"
-            f"<h2>✅ {_html.escape(provider.capitalize())} verbunden!</h2>"
-            "<p>Tokens gespeichert. Du kannst dieses Fenster schließen.</p>"
+            f"<h2>{t('oauth_connected_title', provider=_html.escape(provider.capitalize()))}</h2>"
+            f"<p>{t('oauth_connected_text')}</p>"
             "</body></html>"
         )
     except Exception as exc:  # noqa: BLE001 — the login window shows why; the log keeps the traceback
         log_exception(f"OAuth callback for {provider} failed", exc)
         return HTMLResponse(
-            f"<html><body><h2>❌ Fehler</h2><p>{_html.escape(str(exc))}</p></body></html>",
+            f"<html><body><h2>{t('oauth_error_title')}</h2><p>{_html.escape(str(exc))}</p></body></html>",
             status_code=400,
         )
 

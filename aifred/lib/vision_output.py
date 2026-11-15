@@ -112,7 +112,7 @@ class OutputChain:
         )
         if arr is None:
             raise ValueError(
-                f"blackout: Frame von {frame.source_id} nicht dekodierbar"
+                f"blackout: frame from {frame.source_id} not decodable"
             )
         ok, buf = cv2.imencode(
             ".jpg", mask.blackout(arr),
@@ -120,7 +120,7 @@ class OutputChain:
         )
         if not ok:
             raise ValueError(
-                f"blackout: Frame von {frame.source_id} nicht kodierbar"
+                f"blackout: frame from {frame.source_id} not encodable"
             )
         return replace(frame, image_bytes=buf.tobytes())
 

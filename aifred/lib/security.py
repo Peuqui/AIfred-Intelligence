@@ -864,7 +864,7 @@ async def cleanup_audit_log_task() -> None:
 
     log_message(
         f"🗑️ Audit-Log cleanup task started "
-        f"(slot: {GARBAGE_COLLECTION_HOUR:02d}:00 lokal, "
+        f"(slot: {GARBAGE_COLLECTION_HOUR:02d}:00 local, "
         f"retention: {SECURITY_AUDIT_RETENTION_DAYS}d)"
     )
     while True:
@@ -872,6 +872,6 @@ async def cleanup_audit_log_task() -> None:
             await asyncio.sleep(seconds_until_next_run(GARBAGE_COLLECTION_HOUR))
             removed = prune_audit_log()
             if removed > 0:
-                log_message(f"🗑️ Audit-Log cleanup: {removed} alte Einträge entfernt")
+                log_message(f"🗑️ Audit-Log cleanup: {removed} old entries removed")
         except Exception as exc:  # noqa: BLE001 — the nightly task must not end; logged
             log_exception("⚠️ Audit-Log cleanup task error", exc)

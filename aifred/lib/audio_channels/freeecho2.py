@@ -156,7 +156,7 @@ class FreeEcho2Channel:
             target_id = f"{TARGET_PREFIX}{room}"
             log_message(
                 f"FreeEcho2Channel[{room}]: send failed → orc.stop() "
-                f"(state-sync mit Puck)"
+                f"(state sync with the puck)"
             )
             await self.stop(target_id)
         return _cb

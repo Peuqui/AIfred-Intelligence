@@ -42,8 +42,8 @@ WEBCAM = VisionProfile(
     name="webcam",
     allow_local_detection=True,
     description=(
-        "Dumme Webcam: AIfred macht Motion (MOG2), Person (YOLO), "
-        "Gesichtserkennung und VLM selbst."
+        "Plain webcam: AIfred does motion (MOG2), person (YOLO), "
+        "face recognition and VLM itself."
     ),
 )
 
@@ -51,9 +51,9 @@ AI_CAMERA = VisionProfile(
     name="ai_camera",
     allow_local_detection=False,
     description=(
-        "Intelligente Kamera: Person/Fahrzeug/Tier + Tracking erkennt die "
-        "Kamera on-device. AIfred konsumiert nur die Edge-AI-Events und "
-        "ergänzt Gesichts-Identität, VLM-Beschreibung und Alerts."
+        "Smart camera: the camera detects person/vehicle/animal and tracks "
+        "on-device. AIfred only consumes the edge-AI events and adds "
+        "face identity, VLM description and alerts."
     ),
 )
 

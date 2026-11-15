@@ -67,7 +67,7 @@ def retention_days() -> int:
     low, high = RETENTION_DAYS_RANGE
     if isinstance(days, bool) or not isinstance(days, (int, float)) or not low <= days <= high:
         raise ValueError(
-            f"face_recognition.retention_days muss eine Zahl {low}..{high} sein, ist {days!r}"
+            f"face_recognition.retention_days must be a number {low}..{high}, is {days!r}"
         )
     return int(days)
 
@@ -199,10 +199,10 @@ def _prune_expired() -> None:
     if crops_removed or frames_removed or films_removed or db_removed:
         log_message(
             f"🗑️ Vision cleanup: "
-            f"{crops_removed} crop-Tagesordner, "
-            f"{frames_removed} motion-Tagesordner, "
-            f"{films_removed} film-Tagesordner, "
-            f"{db_removed} DB-Events entfernt "
+            f"{crops_removed} crop day folders, "
+            f"{frames_removed} motion day folders, "
+            f"{films_removed} film day folders, "
+            f"{db_removed} DB events removed "
             f"(TTL {ttl_days}d)"
         )
 
@@ -223,8 +223,8 @@ async def vision_gc_task() -> None:
 
     log_message(
         f"🗑️ Vision garbage collection started "
-        f"(slot: {GARBAGE_COLLECTION_HOUR:02d}:00 lokal, "
-        f"TTL: aus face_recognition.retention_days, Default "
+        f"(slot: {GARBAGE_COLLECTION_HOUR:02d}:00 local, "
+        f"TTL: from face_recognition.retention_days, default "
         f"{DEFAULT_RETENTION_DAYS}d)"
     )
 

@@ -599,8 +599,8 @@ def extract_text_tool_calls(
             name = parsed["name"]
             if name not in valid_names:
                 debug_messages.append(
-                    f"⚠️ Halluzinierter Tool-Call ({format_name}): '{name}' "
-                    f"nicht im Toolkit, ignoriert. Body: {preview!r}"
+                    f"⚠️ Hallucinated tool call ({format_name}): '{name}' "
+                    f"not in the toolkit, ignored. Body: {preview!r}"
                 )
                 continue
 
@@ -614,8 +614,8 @@ def extract_text_tool_calls(
             })
             cleaned = cleaned.replace(full_tag, "")
             debug_messages.append(
-                f"⚠️ Tool-Call als Text ausgegeben (Format: {format_name}, "
-                f"erwartet: API). Tool: {name}"
+                f"⚠️ Tool call emitted as text (format: {format_name}, "
+                f"expected: API). Tool: {name}"
             )
 
     return extracted, cleaned, debug_messages

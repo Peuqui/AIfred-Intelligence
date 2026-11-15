@@ -110,9 +110,9 @@ class LlamaCppBackend(OpenAICompatibleBackend):
                 await writer.wait_closed()
             except (TimeoutError, OSError) as e:
                 raise BackendConnectionError(
-                    f"RPC-Server {host}:{port} nicht erreichbar ({type(e).__name__}). "
-                    f"Ist der Remote-Rechner eingeschaltet und der RPC-Server gestartet? "
-                    f"Alternativ das lokale Modell (ohne '-rpc') verwenden."
+                    f"RPC server {host}:{port} not reachable ({type(e).__name__}). "
+                    f"Is the remote machine on and its RPC server started? "
+                    f"Alternatively use the local model (without '-rpc')."
                 )
 
     # === Hook overrides ===

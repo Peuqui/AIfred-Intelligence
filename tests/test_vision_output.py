@@ -170,7 +170,7 @@ class TestBlackout:
     def test_undecodable_image_raises_instead_of_passing_through(self, tmp_path):
         chain = OutputChain(tmp_path)
         chain.set_zone_mask(SOURCE, _BlackoutMask())
-        with pytest.raises(ValueError, match="nicht dekodierbar"):
+        with pytest.raises(ValueError, match="not decodable"):
             run(chain.finalize(_frame(b"kaputt")))
         assert _saved(tmp_path) == []
 

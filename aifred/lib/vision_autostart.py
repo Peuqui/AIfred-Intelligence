@@ -45,8 +45,8 @@ def _resolve_edge_ai(
     ``rtsp_cameras``."""
     if not cam_cfg:
         logger.warning(
-            "autostart: %s hat Profil ai_camera, aber keinen rtsp_cameras-"
-            "Eintrag — Edge-AI-Trigger nicht möglich", source_id,
+            "autostart: %s has profile ai_camera but no rtsp_cameras "
+            "entry — edge-AI trigger not possible", source_id,
         )
         return None
     if not str(cam_cfg.get("host", "")).strip():
@@ -238,14 +238,14 @@ async def start_background_watcher(source_id: str) -> bool:
         logger.warning("autostart: source %s not in store", source_id)
         return False
     if _device_not_connected(record):
-        logger.info("autostart: %s ist nicht angesteckt — nicht gestartet", source_id)
+        logger.info("autostart: %s is not plugged in — not started", source_id)
         return False
     plugin = load_vision_settings()
     watcher = get_default_watcher()
     # Pro-Kamera-Zeitplan: außerhalb des Aktiv-Fensters nicht starten
     # (der schedule_supervisor zieht sie hoch, sobald das Fenster beginnt).
     if not _schedule_active_now(record.get("settings") or {}):
-        logger.info("autostart: %s außerhalb des Zeitplan-Fensters — nicht gestartet", source_id)
+        logger.info("autostart: %s outside its schedule window — not started", source_id)
         await watcher.stop(source_id)
         return True
     cfg = _build_background_config(record, plugin)
@@ -297,11 +297,11 @@ async def start_all_background_watchers() -> int:
         if not source_id:
             continue
         if _device_not_connected(record):
-            logger.info("autostart: %s ist nicht angesteckt — übersprungen", source_id)
+            logger.info("autostart: %s is not plugged in — skipped", source_id)
             continue
         # Pro-Kamera-Zeitplan: außerhalb des Aktiv-Fensters überspringen.
         if not _schedule_active_now(record.get("settings") or {}):
-            logger.info("autostart: %s außerhalb des Zeitplan-Fensters — übersprungen", source_id)
+            logger.info("autostart: %s outside its schedule window — skipped", source_id)
             continue
         cfg = _build_background_config(record, plugin)
         try:
@@ -323,7 +323,7 @@ async def _start_newly_plugged_cameras(records: list[dict[str, Any]]) -> None:
         if not record.get("auto_start") or not source_id or not _device_not_connected(record):
             continue
         if await asyncio.to_thread(connect_device, source_id):
-            logger.info("autostart: %s wurde angesteckt — Watcher wird gestartet", source_id)
+            logger.info("autostart: %s was plugged in — starting the watcher", source_id)
             await start_background_watcher(source_id)
 
 

@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Any
 
 from .config import VISION_QUIET_HOURS_DEFAULT
+from .i18n import t
 from .vision_settings import load_vision_settings
 
 logger = logging.getLogger(__name__)
@@ -113,14 +114,14 @@ def _others_suffix(names: list[str], person_count: int) -> str:
     others = max(0, int(person_count) - len(names))
     if not names or others <= 0:
         return ""
-    return (f" + {others} weitere Person" if others == 1
-            else f" + {others} weitere Personen")
+    return t("vision_alert_others", count=others)
 
 
 # Zusatz in Meldungen, die die Kamera ausgelöst hat, ohne dass unser YOLO die Klasse im Bild
 # fand (Nacht, Bewegungsunschärfe, weit weg): gilt trotzdem als echte Meldung, die Auswertung
 # bekommt den Befund mit.
-YOLO_UNCONFIRMED_NOTE = "⚠️ Von der Kamera gemeldet, vom Bilderkenner (YOLO) nicht bestätigt."
+def yolo_unconfirmed_note() -> str:
+    return t("vision_alert_yolo_unconfirmed")
 
 
 def _source_line(alias: str, ts: datetime, end: datetime | None = None) -> str:
@@ -163,20 +164,16 @@ def _compose(
         unnamed_suffix = _range_suffix(sims)
     if event_type == "face_known":
         if names_str:
-            title = f"👤 {names_str} erkannt{_others_suffix(names, person_count)}"
+            title = t("vision_alert_face_named", names=names_str, others=_others_suffix(names, person_count))
         else:
-            title = (f"👤 {count} bekannte Personen erkannt" if count > 1
-                     else "👤 Bekannte Person erkannt") + unnamed_suffix
+            title = t("vision_alert_face_known", count=count) + unnamed_suffix
     elif event_type == "face_unsure":
         if names_str:
-            title = (f"👤 Mögliche Person(en): {names_str}"
-                     f"{_others_suffix(names, person_count)}")
+            title = t("vision_alert_face_possible", names=names_str, others=_others_suffix(names, person_count))
         else:
-            title = (f"👤 {count} unsichere Erkennungen" if count > 1
-                     else "👤 Unsichere Erkennung") + unnamed_suffix
+            title = t("vision_alert_face_unsure", count=count) + unnamed_suffix
     else:  # face_unknown
-        title = (f"🚨 {count} unbekannte Personen erkannt" if count > 1
-                 else "🚨 Unbekannte Person erkannt")
+        title = t("vision_alert_face_unknown", count=count)
     return title, _source_line(alias, ts, ts_end)
 
 
@@ -415,7 +412,7 @@ async def emit_person_alert(
         return
     ts = timestamp or datetime.now()
     alias = _source_alias(source_id, store)
-    title = "🚶 Person erkannt" if count == 1 else f"🚶 {count} Personen erkannt"
+    title = t("vision_alert_person", count=count)
     meta: dict[str, Any] = {}
     if cluster_id:
         meta["cluster_id"] = cluster_id
@@ -428,7 +425,7 @@ async def emit_person_alert(
     body = _source_line(alias, ts, timestamp_end)
     if yolo_unconfirmed:
         meta["yolo_unconfirmed"] = True
-        body = f"{body}\n{YOLO_UNCONFIRMED_NOTE}"
+        body = f"{body}\n{yolo_unconfirmed_note()}"
     await _emit(
         source_id=source_id,
         category="person",
@@ -493,7 +490,7 @@ async def emit_object_alert(
     body = _source_line(alias, ts)
     if yolo_unconfirmed:
         meta["yolo_unconfirmed"] = True
-        body = f"{body}\n{YOLO_UNCONFIRMED_NOTE}"
+        body = f"{body}\n{yolo_unconfirmed_note()}"
     await _emit(
         source_id=source_id,
         category=object_type,

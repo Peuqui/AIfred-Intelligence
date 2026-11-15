@@ -136,7 +136,7 @@ class BurstRunner:
     ) -> None:
         edge = config.edge_ai
         if edge is None:
-            raise ValueError("Burst ohne WatchConfig.edge_ai gestartet")
+            raise ValueError("Burst started without WatchConfig.edge_ai")
         interval = max(VISION_BURST_MIN_INTERVAL_SEC, float(config.burst_interval_sec))
         linger = max(0.0, float(config.burst_linger_sec))
         deadline = max(VISION_BURST_MIN_DEADLINE_SEC, float(config.burst_report_deadline_sec))

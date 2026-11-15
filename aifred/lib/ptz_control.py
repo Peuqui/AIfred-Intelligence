@@ -342,7 +342,7 @@ class PtzDriver:
             await client.ptz_goto_guard(int(cam.get("channel", 0)))
         except ReolinkAIError as e:
             raise PTZError("ptz_failed", camera=source_id, reason=str(e)) from e
-        log_message(f"PTZ home (Wächterposition) {source_id}")
+        log_message(f"PTZ home (guard position) {source_id}")
 
     async def stop(self, source_id: str) -> None:
         """Sofort anhalten (auch ohne laufende Bewegung)."""
@@ -361,7 +361,7 @@ class PtzDriver:
         try:
             await self.stop(source_id)
         except PTZError:
-            logger.exception("PTZ-Sicherheitsstopp für %s fehlgeschlagen", source_id)
+            logger.exception("PTZ safety stop failed for %s", source_id)
 
 
 ptz_driver = PtzDriver()

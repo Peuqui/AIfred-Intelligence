@@ -112,6 +112,6 @@ def create_event_source(
     if edge.event_source == "poll":
         return ReolinkPollSource(source_id, client, edge.channel, edge.poll_interval_sec)
     raise ValueError(
-        f"edge_ai_event_source {edge.event_source!r} unbekannt "
-        f"(erlaubt: {', '.join(VISION_EDGE_AI_EVENT_SOURCES)})"
+        f"edge_ai_event_source {edge.event_source!r} unknown "
+        f"(allowed: {', '.join(VISION_EDGE_AI_EVENT_SOURCES)})"
     )

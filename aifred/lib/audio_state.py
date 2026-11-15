@@ -176,7 +176,7 @@ async def cleanup_audio_state_task() -> None:
 
     log_message(
         f"🗑️ AudioState cleanup task started "
-        f"(slot: {GARBAGE_COLLECTION_HOUR:02d}:00 lokal, "
+        f"(slot: {GARBAGE_COLLECTION_HOUR:02d}:00 local, "
         f"age: {AUDIO_STATE_CLEANUP_AGE_DAYS}d)"
     )
 

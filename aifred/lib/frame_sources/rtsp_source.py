@@ -501,4 +501,4 @@ def discover() -> None:
 try:
     discover()
 except ValueError:
-    logger.exception("RTSP-Quellen nicht geladen: Einstellungsdatei unlesbar")
+    logger.exception("RTSP sources not loaded: settings file unreadable")

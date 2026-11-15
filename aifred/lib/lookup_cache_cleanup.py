@@ -38,8 +38,8 @@ async def cleanup_lookup_cache_task() -> None:
     max_mb = LOOKUP_CACHE_MAX_BYTES / (1024 * 1024)
     log_message(
         f"🗑️ Lookup-Cache cleanup task started "
-        f"(slot: {GARBAGE_COLLECTION_HOUR:02d}:00 lokal, "
-        f"max: {max_mb:.0f} MB pro Datei)"
+        f"(slot: {GARBAGE_COLLECTION_HOUR:02d}:00 local, "
+        f"max: {max_mb:.0f} MB per file)"
     )
 
     while True:
@@ -62,7 +62,7 @@ async def cleanup_lookup_cache_task() -> None:
                         )
                     except OSError as exc:
                         log_message(
-                            f"⚠️ Lookup-Cache loeschen fehlgeschlagen: {path}: {exc}"
+                            f"⚠️ Lookup cache delete failed: {path}: {exc}"
                         )
         except Exception as exc:  # noqa: BLE001 — the nightly task must not end; logged
             log_exception("⚠️ Lookup-Cache cleanup task error", exc)

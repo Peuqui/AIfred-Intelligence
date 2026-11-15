@@ -29,6 +29,7 @@ from .config import (
     SCHEDULER_WEBHOOK_TIMEOUT_SECONDS,
 )
 from .cron import next_cron_run
+from .i18n import t
 from .logging_utils import log_exception, log_message
 from .security import JOB_DEFAULT_TIER
 from .user_error import Invalid
@@ -808,7 +809,7 @@ async def _deliver_announce(job: Job, response_text: str, session_id: str) -> No
         from .message_processor import push_hub_notification
         push_hub_notification(
             session_id=session_id,
-            session_title=f"Job: {job.name} — Zustellung fehlgeschlagen",
+            session_title=t("job_delivery_failed_title", name=job.name),
             channel=channel_name,
             sender="system",
             status="error",

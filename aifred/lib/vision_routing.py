@@ -164,7 +164,7 @@ def fitting_visiond(name: str) -> tuple[str | None, VRAMCheckResult | None]:
     if blocked is not None:
         return None, VRAMCheckResult(
             fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
-            message=f"{blocked} — ein Describer kommt erst danach dazu.",
+            message=f"{blocked} — a describer is only added after that.",
         )
     checks = [(profile, check_visiond_fits(profile)) for profile in placements]
     home_check = checks[0][1]
@@ -488,10 +488,10 @@ def load_in_progress() -> str | None:
         light = get_gpu_orc_client().traffic_light()
     except GpuOrcError as error:
         logger.warning("GPU-Orc says nothing about loading models: %s", error)
-        return f"GPU-Orc gibt keine Auskunft: {error}"
+        return f"GPU-Orc gives no information: {error}"
     if light.held is not None:
-        return f"die Karten werden freigehalten ({light.held['reason']})"
-    return f"'{', '.join(light.loading)}' lädt gerade" if light.loading else None
+        return f"the cards are held free ({light.held['reason']})"
+    return f"'{', '.join(light.loading)}' is loading" if light.loading else None
 
 
 # Local on-prem backends where the optional Ollama side-channel makes sense.

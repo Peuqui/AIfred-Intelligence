@@ -201,7 +201,7 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
     if not target:
         return VRAMCheckResult(
             fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
-            message="Kein VLM-Modell konfiguriert.",
+            message="No VLM model configured.",
         )
 
     # llama.cpp-Describer-Pfad: Existiert ein -visiond-Profil, entscheidet
@@ -256,7 +256,7 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
     if any(_norm_model(b["name"]) == _norm_model(target) for b in running):
         return VRAMCheckResult(
             fits=True, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
-            message=f"VLM '{target}' ist bereits geladen — kein VRAM-Check nötig.",
+            message=f"VLM '{target}' is already loaded — no VRAM check needed.",
         )
 
     free_per_gpu = _query_free_vram_per_gpu()
@@ -264,7 +264,7 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
         # Ohne nvidia-smi können wir nicht prüfen → optimistisch starten.
         return VRAMCheckResult(
             fits=True, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
-            message="nvidia-smi nicht verfügbar — Check übersprungen.",
+            message="nvidia-smi not available — check skipped.",
         )
 
     blocker_str = ", ".join(
@@ -293,10 +293,10 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
             fits=False, needed_mb=needed_mb, free_mb=free_on_target,
             gpu_index=target_gpu, blockers=running,
             message=(
-                f"VLM-Modell '{target}' braucht ~{needed_mb} MiB (+ Reserve), "
-                f"aber nur {free_on_target} MiB frei auf der VLM-GPU "
-                f"{target_gpu}. Bitte mindestens eines entladen: {blocker_str}. "
-                f"VLM_NUM_CTX={VLM_NUM_CTX} ist fix in config.py."
+                f"VLM model '{target}' needs ~{needed_mb} MiB (+ reserve), "
+                f"but only {free_on_target} MiB are free on the VLM GPU "
+                f"{target_gpu}. Please unload at least one: {blocker_str}. "
+                f"VLM_NUM_CTX={VLM_NUM_CTX} is fixed in config.py."
             ),
         )
 
@@ -314,9 +314,9 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
         fits=False, needed_mb=needed_mb, free_mb=free_per_gpu[best_gpu],
         gpu_index=best_gpu, blockers=running,
         message=(
-            f"VLM-Modell '{target}' braucht ~{needed_mb} MiB (+ Reserve), aber "
-            f"höchster freier VRAM: {free_per_gpu[best_gpu]} MiB auf GPU "
-            f"{best_gpu}. Bitte mindestens eines der folgenden Modelle "
-            f"entladen: {blocker_str}. VLM_NUM_CTX={VLM_NUM_CTX} ist fix in config.py."
+            f"VLM model '{target}' needs ~{needed_mb} MiB (+ reserve), but "
+            f"the most free VRAM is {free_per_gpu[best_gpu]} MiB on GPU "
+            f"{best_gpu}. Please unload at least one of these models: "
+            f"{blocker_str}. VLM_NUM_CTX={VLM_NUM_CTX} is fixed in config.py."
         ),
     )

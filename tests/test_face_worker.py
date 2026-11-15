@@ -79,7 +79,7 @@ def test_a_worker_that_died_is_replaced_by_the_next_frame(workers: list[FaceWork
 def test_while_the_light_is_red_it_starts_on_the_cpu_and_moves_to_the_card_once_green(
     workers: list[FaceWorker], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    light: dict[str, str | None] = {"refusal": "'GLM' lädt gerade"}
+    light: dict[str, str | None] = {"refusal": "'GLM' is loading"}
     monkeypatch.setattr(face_worker, "_light_refusal", lambda: light["refusal"])
     monkeypatch.setattr(face_worker, "_uuid_of_card", lambda index: pytest.fail("no card while the light is red"))
     worker = _cpu_worker(workers, card=2)

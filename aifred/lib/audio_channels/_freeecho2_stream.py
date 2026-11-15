@@ -721,8 +721,8 @@ class FreeEcho2Stream:
             )
         except TimeoutError:
             log_message(
-                f"FreeEcho2Stream[{self.room}]: mpv hat FIFO nicht "
-                f"innerhalb 10 s geöffnet — Source/Codec-Fehler?",
+                f"FreeEcho2Stream[{self.room}]: mpv did not open the FIFO "
+                f"within 10 s — source/codec error?",
                 "error",
             )
             return

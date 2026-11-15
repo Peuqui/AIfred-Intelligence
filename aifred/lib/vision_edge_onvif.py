@@ -81,7 +81,7 @@ class OnvifPullPointSource:
             # Die Pull-Schleife darf nur durch Abbruch enden; ein anderer Grund
             # ist ein Programmfehler und wird sichtbar.
             self._task.result()
-            raise RuntimeError(f"ONVIF-Pull-Schleife von {self._source_id} beendet")
+            raise RuntimeError(f"ONVIF pull loop of {self._source_id} ended")
         rising = [await self._rising.get()]
         while not self._rising.empty():
             cls = self._rising.get_nowait()

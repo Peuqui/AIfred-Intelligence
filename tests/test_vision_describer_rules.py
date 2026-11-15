@@ -44,7 +44,7 @@ def world(monkeypatch):
         )
         monkeypatch.setattr(vision_routing, "loaded_llamaswap_profiles", lambda: loaded or [])
         monkeypatch.setattr(vision_routing, "load_in_progress",
-                            lambda: f"'{loading}' lädt gerade" if loading else None)
+                            lambda: f"'{loading}' is loading" if loading else None)
         monkeypatch.setattr(vision_routing, "settings_model",
                             lambda role: vision_llm if role == "vision" else MAIN)
         monkeypatch.setattr(config, "get_effective_model_from_settings",
@@ -219,10 +219,10 @@ def test_the_traffic_light_is_gpu_orcs(monkeypatch) -> None:
     install_fake_gpu_orc(monkeypatch, fake)
     assert vision_routing.load_in_progress() is None
     fake.loading = [MAIN]
-    assert vision_routing.load_in_progress() == f"'{MAIN}' lädt gerade"
+    assert vision_routing.load_in_progress() == f"'{MAIN}' is loading"
 
 
 def test_a_gpu_orc_that_says_nothing_is_no_green_light(monkeypatch) -> None:
     monkeypatch.setattr(gpu_orc_client, "_default_client", gpu_orc_client.GpuOrcClient("http://127.0.0.1:9"))
     progress = vision_routing.load_in_progress()
-    assert progress is not None and "GPU-Orc gibt keine Auskunft" in progress
+    assert progress is not None and "GPU-Orc gives no information" in progress

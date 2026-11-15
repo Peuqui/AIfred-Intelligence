@@ -340,8 +340,8 @@ class VisionWatcher:
         client = vision_snap.get_client(source_id)
         if client is None:
             raise ValueError(
-                f"edge-ai: kein Kamera-Client für {source_id} "
-                "(Zugangsdaten in rtsp_cameras fehlen?)"
+                f"edge-ai: no camera client for {source_id} "
+                "(credentials missing in rtsp_cameras?)"
             )
         events = create_event_source(source_id, edge, client)
         try:

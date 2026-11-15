@@ -400,7 +400,7 @@ class TestPreroll:
 
         prerolls = _events(store, src, "motion", trigger="edge_ai_preroll")
         stamps = [e["timestamp"] for e in prerolls]
-        assert stamps, "Vorlauf erwartet"
+        assert stamps, "pre-roll expected"
         # Jeder Stream-Frame höchstens einmal abgelegt, obwohl der Ringpuffer
         # beim zweiten Trigger die Frames des ersten noch enthielt.
         assert len(stamps) == len(set(stamps))
@@ -635,7 +635,7 @@ class TestFrozenStream:
         _run_edge(store, frames_dir, src, _edge_config(), scenario, source=frozen)
 
         assert len(_events(store, src, "person")) == 1
-        assert any("eingefrorenes Frame" in r.getMessage() for r in caplog.records)
+        assert any("frozen frame" in r.getMessage() for r in caplog.records)
 
 
 # ── 7. vehicle / animal (EDGE_AI_CONFIRM) ─────────────────────────────

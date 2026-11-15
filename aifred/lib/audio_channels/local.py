@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from ..i18n import t
 from .base import AudioFormat, AudioOutputChannel, TargetInfo
 
 if TYPE_CHECKING:
@@ -33,7 +34,7 @@ class LocalChannel(AudioOutputChannel):
         return [
             TargetInfo(
                 id="local",
-                label="Lokale Lautsprecher (am AIfred-Server)",
+                label=t("audio_target_local_speakers"),
                 ready=True,
             ),
         ]

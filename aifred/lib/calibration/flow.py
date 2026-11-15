@@ -193,10 +193,10 @@ async def calibrate_llamacpp_model(
 
     yield (
         f"Model: {model.model_id} "
-        f"({format_number(model.file_size_mb / 1024, 1)} GB Datei"
+        f"({format_number(model.file_size_mb / 1024, 1)} GB file"
         + (
-            f", davon {format_number(model.size_mb / 1024, 1)} GB im VRAM "
-            f"— Rest wird lazy von der Platte gelesen"
+            f", of which {format_number(model.size_mb / 1024, 1)} GB in VRAM "
+            f"— the rest is read lazily from disk"
             if model.file_size_mb - model.size_mb > 1.0 else ""
         )
         + f"), native context: {format_number(model.native_context)} "
