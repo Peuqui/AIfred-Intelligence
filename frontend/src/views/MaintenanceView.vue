@@ -55,9 +55,9 @@ async function openAudit(event: Event): Promise<void> {
 <template>
   <main class="maintenance">
     <p v-if="notice" class="notice">{{ notice }}</p>
+    <GpuDetails />
     <CalibrationSection />
     <RemoteDescribers />
-    <GpuDetails />
     <details @toggle="openFiles">
       <summary><HardDrive :size="16" /> {{ t("tab_storage") }}</summary>
       <p class="hint">{{ t("storage_intro") }}</p>
