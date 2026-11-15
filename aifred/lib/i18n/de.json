@@ -36,6 +36,7 @@
   "automatic_decision": "Automatik-Entscheidung ...",
   "web_scraping": "Web-Scraping",
   "compressing_context": "Komprimiere Kontext ...",
+  "waiting_for_model": "Warte, bis ein anderes Modell fertig ist ...",
   "generating_answer": "Generiere Antwort ...",
   "describing_images": "Bildbeschreibung ...",
   "image_uploading": "Bild wird hochgeladen ...",

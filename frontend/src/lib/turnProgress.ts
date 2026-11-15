@@ -22,6 +22,7 @@ const PHASES: Record<string, { icon: string; text: () => string }> = {
   intent: { icon: "🤖", text: () => t("automatic_decision") },
   images: { icon: "📷", text: () => t("describing_images") },
   compress: { icon: "🗜️", text: () => t("compressing_context") },
+  model_wait: { icon: "⏳", text: () => t("waiting_for_model") },
   scraping: { icon: "🔍", text: () => t("web_scraping") },
 };
 

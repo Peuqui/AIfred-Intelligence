@@ -56,7 +56,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
                              "titles": [], "block": None, "view": view, "requests": [], "options": [], "title_calls": [],
                              "memory": []}
 
-    async def intent(_view: Any, _client: Any, _text: str) -> turn_service._Intent:
+    async def intent(_session_id: str, _view: Any, _client: Any, _text: str) -> turn_service._Intent:
         return world.get("intent") or turn_service._Intent(None, "de", {}, False, 0.0)
 
     async def no_compression(*_args: Any) -> None:

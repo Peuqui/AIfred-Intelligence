@@ -36,6 +36,7 @@
   "automatic_decision": "Automatic decision ...",
   "web_scraping": "Web Scraping",
   "compressing_context": "Compressing Context ...",
+  "waiting_for_model": "Waiting for another model to finish ...",
   "generating_answer": "Generating Answer ...",
   "describing_images": "Image description ...",
   "image_uploading": "Uploading image ...",

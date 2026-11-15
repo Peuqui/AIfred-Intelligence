@@ -91,13 +91,13 @@ def test_the_automatik_call_is_a_phase_that_ends_with_it(session: None, monkeypa
         return None, "de", {}, False, "", 0.0
 
     monkeypatch.setattr(intent_detector, "detect_query_intent_and_addressee", detect)
-    _in_session(turn_service._detect_intent(_view(), None, "Wie wird das Wetter?"))
+    _in_session(turn_service._detect_intent(SESSION, _view(), None, "Wie wird das Wetter?"))
     assert seen == ["intent"]
     assert _phase() == ""
 
 
 def test_a_message_without_an_automatik_call_reports_no_phase(session: None) -> None:
-    _in_session(turn_service._detect_intent(_view(), None, "https://example.org/seite"))
+    _in_session(turn_service._detect_intent(SESSION, _view(), None, "https://example.org/seite"))
     assert _phase() is None
 
 
@@ -164,3 +164,25 @@ def test_the_pages_of_a_web_search_are_counted_and_the_phase_ends(session: None,
         ("scraping", 0, 3, 0), ("scraping", 1, 3, 0), ("scraping", 1, 3, 1),
     ]
     assert _phase() == ""
+
+
+def test_a_turn_waiting_for_other_models_shows_the_wait_and_ends_it(session: None) -> None:
+    from aifred.lib.model_gate import model_gate
+
+    async def scenario() -> list[str | None]:
+        seen: list[str | None] = []
+        async with model_gate().hold(frozenset({"running"}), label="other"):
+            waiting = asyncio.create_task(_enter_slot(seen))
+            for _ in range(5):
+                await asyncio.sleep(0)
+            seen.append(_phase())   # waits: the page is told
+            seen.append("released")
+        await waiting
+        return seen
+
+    async def _enter_slot(seen: list[str | None]) -> None:
+        with debug_bus.session_scope(SESSION):
+            async with turn_service._model_slot(SESSION, frozenset({"wanted"})):
+                seen.append(_phase())   # the turn runs: the phase is over
+
+    assert asyncio.run(scenario()) == ["model_wait", "released", ""]

@@ -33,6 +33,8 @@ import asyncio
 import re
 import time
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
@@ -42,6 +44,7 @@ from .config import LLAMASWAP_BACKENDS, TURN_TOKEN_EVENT_INTERVAL_S
 from .debate_seats import session_seats
 from .debug_bus import debug, report_phase, session_scope
 from .logging_utils import log_exception, log_message
+from .model_gate import ModelKey, model_gate
 from .prompt_loader import get_language
 from .runtime_settings import (
     RuntimeSettings,
@@ -293,7 +296,7 @@ async def _run(request: TurnRequest, turn_id: str, routing: _Routing) -> None:
             debug(f"🎯 Intent skipped (a task of the system), Lang: {view.ui_language.upper()} (UI)")
             intent = _Intent(None, view.ui_language, {}, False, 0.0)
         else:
-            intent = await _detect_intent(view, llm_client, user_text)
+            intent = await _detect_intent(session_id, view, llm_client, user_text)
         turn_language.set(intent.language)
         config = get_session_config(session_id)
         if intent.mode_switch:
@@ -305,30 +308,60 @@ async def _run(request: TurnRequest, turn_id: str, routing: _Routing) -> None:
         routing.agent = agent
         mode = config["multi_agent_mode"]
         plan = turn_debate.plan_turn(mode, agent, intent.addressed_to, config["symposion_agents"], session_seats(config))
-        seen: tuple[TurnImage, ...] = ()
-        if images:
-            seen, llm_user_text = await _look_at_images(session_id, view, plan, images, user_text, llm_user_text, intent.language)
-        memory_enabled = not config["incognito"]
-        if not memory_enabled:
-            debug("🔒 Incognito mode (no memory)")
-        ctx = TurnContext(
-            session_id, view, llm_client, user_text, llm_user_text, intent, request.source, mode, memory_enabled, stamp,
-            origin, routing.replies, seen,
-        )
-        await _compress(ctx, plan.agents, plan.responder is None)
-        if plan.responder is None:
-            await turn_debate.run_symposion(ctx, plan)
-        else:
-            answer = await _respond(ctx, plan.responder)
-            # The debate starts from the answer; without one there is nothing to critique.
-            if answer is not None and plan.debate:
-                await turn_debate.run_debate(ctx, plan, answer.text)
-        last_call = ctx.calls[-1] if ctx.calls else None
+        models = turn_models(view, plan)
+        async with _model_slot(session_id, models):
+            seen: tuple[TurnImage, ...] = ()
+            if images:
+                seen, llm_user_text = await _look_at_images(session_id, view, plan, images, user_text, llm_user_text, intent.language)
+            memory_enabled = not config["incognito"]
+            if not memory_enabled:
+                debug("🔒 Incognito mode (no memory)")
+            ctx = TurnContext(
+                session_id, view, llm_client, user_text, llm_user_text, intent, request.source, mode, memory_enabled, stamp,
+                origin, routing.replies, seen,
+            )
+            await _compress(ctx, plan.agents, plan.responder is None)
+            if plan.responder is None:
+                await turn_debate.run_symposion(ctx, plan)
+            else:
+                answer = await _respond(ctx, plan.responder)
+                # The debate starts from the answer; without one there is nothing to critique.
+                if answer is not None and plan.debate:
+                    await turn_debate.run_debate(ctx, plan, answer.text)
+            last_call = ctx.calls[-1] if ctx.calls else None
     finally:
         turn_language.reset(language_token)
         await llm_client.close()
     if last_call is not None:
-        _start_title(session_id, view, last_call)
+        _start_title(session_id, view, last_call, models)
+
+
+# ── The models of a turn ─────────────────────────────────────────────────
+
+
+def turn_models(view: RuntimeSettings, plan: TurnPlan) -> ModelKey:
+    """The models the turn calls: its agents' and the Automatik's (the title). The agent a sub-agent
+    delegates to may call another model; the plan cannot know it."""
+    return frozenset({effective_automatik_id(view), *(agent_model(view, agent) for agent in plan.agents)})
+
+
+@asynccontextmanager
+async def _model_slot(session_id: str, models: ModelKey) -> AsyncIterator[None]:
+    """Run as one of the turns that call ``models`` (lib/model_gate.py): a turn with other big models waits
+    here until the running ones are done, so the backend does not swap the models with every request."""
+    waited = False
+
+    def on_wait(blockers: tuple[str, ...]) -> None:
+        nonlocal waited
+        waited = True
+        report_phase("model_wait")
+        debug(f"⏳ Waiting for the models {', '.join(sorted(models))}: turns with other models run ({', '.join(blockers)})")
+
+    async with model_gate().hold(models, label=session_id[:8], on_wait=on_wait):
+        if waited:
+            report_phase("")
+            debug(f"▶️ Models {', '.join(sorted(models))} are free")
+        yield
 
 
 # ── Intent, language, mode switch ────────────────────────────────────────
@@ -343,7 +376,7 @@ class _Intent:
     load_time: float
 
 
-async def _detect_intent(view: RuntimeSettings, llm_client: Any, user_text: str) -> _Intent:
+async def _detect_intent(session_id: str, view: RuntimeSettings, llm_client: Any, user_text: str) -> _Intent:
     """Addressee, language and a requested mode switch in one Automatik call.
 
     A URL-only message and one of images only skip the call: the UI language applies.
@@ -363,12 +396,13 @@ async def _detect_intent(view: RuntimeSettings, llm_client: Any, user_text: str)
     # Same model as AIfred: the same context as its preload, or the backend reloads it twice.
     same_model = automatik == effective_model_id(view, "aifred")
     num_ctx = (view.agent_tuning["aifred"].max_context or None) if same_model else AUTOMATIK_LLM_NUM_CTX
-    report_phase("intent")
-    await _announce_cold_start(view, automatik)
-    addressed_to, language, mode_switch, pure, _raw, load_time = await detect_query_intent_and_addressee(
-        user_text, automatik, llm_client, automatik_num_ctx=num_ctx,
-    )
-    report_phase("")
+    async with _model_slot(session_id, frozenset({automatik})):
+        report_phase("intent")
+        await _announce_cold_start(view, automatik)
+        addressed_to, language, mode_switch, pure, _raw, load_time = await detect_query_intent_and_addressee(
+            user_text, automatik, llm_client, automatik_num_ctx=num_ctx,
+        )
+        report_phase("")
     switch = format_mode_switch_summary(mode_switch, lang="en") if mode_switch else "–"   # a debug line: English
     debug(f"🎯 {format_intent_result(addressed_to, language)}, Switch: {switch}, PureCmd: {'yes' if pure else 'no'}")
     return _Intent(addressed_to, language, mode_switch, pure, load_time)
@@ -1017,7 +1051,7 @@ def _append(session_id: str, *, chat: list[dict[str, Any]], llm: list[dict[str, 
         )
 
 
-def _start_title(session_id: str, view: RuntimeSettings, last_call: AgentCall) -> None:
+def _start_title(session_id: str, view: RuntimeSettings, last_call: AgentCall, models: ModelKey) -> None:
     """After the first exchange the session gets a title, in the background, from the model of the
     turn's last call with its context: that model is the loaded one, nothing reloads for the title."""
     from .session_storage import get_session_title, load_session
@@ -1027,19 +1061,20 @@ def _start_title(session_id: str, view: RuntimeSettings, last_call: AgentCall) -
         return
     exchange = first_exchange((load_session(session_id) or {}).get("data", {}).get("llm_history", []))
     if exchange is not None:
-        asyncio.create_task(_title(session_id, view, last_call, *exchange), name=f"title-{session_id[:8]}")
+        asyncio.create_task(_title(session_id, view, last_call, models, *exchange), name=f"title-{session_id[:8]}")
 
 
-async def _title(session_id: str, view: RuntimeSettings, call: AgentCall, user_text: str, reply: str) -> None:
+async def _title(session_id: str, view: RuntimeSettings, call: AgentCall, models: ModelKey, user_text: str, reply: str) -> None:
     from .session_title import generate_session_title
 
     with session_scope(session_id):
         debug("Generating session title...")
         try:
-            title = await generate_session_title(
-                user_text, reply, session_id, lang=view.ui_language,
-                model_override=call.model, num_ctx_override=call.options.num_ctx or 0,
-            )
+            async with model_gate().hold(models, label=session_id[:8]):
+                title = await generate_session_title(
+                    user_text, reply, session_id, lang=view.ui_language,
+                    model_override=call.model, num_ctx_override=call.options.num_ctx or 0,
+                )
         except Exception as error:  # noqa: BLE001 — background task: a missing title is logged, the turn is done
             log_exception("Session title failed", error)
             return

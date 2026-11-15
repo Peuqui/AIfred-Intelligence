@@ -12,6 +12,7 @@ test("no turn, no line", () => {
 test("a reported phase shows, also inside a bubble that has text", () => {
   expect(progressLine(true, phase("intent"), true)).toMatchObject({ icon: "🤖", text: "automatic_decision", count: "" });
   expect(progressLine(true, phase("compress"), false)).toMatchObject({ text: "compressing_context" });
+  expect(progressLine(true, phase("model_wait"), true)).toMatchObject({ icon: "⏳", text: "waiting_for_model" });
 });
 
 test("scraping counts the pages read and the unreachable ones; the bar covers both", () => {
