@@ -18,8 +18,6 @@ from xml.sax.saxutils import escape
 import httpx
 from lxml import etree
 
-from ....lib.config import NEXTCLOUD_KEEPALIVE_EXPIRY_S
-
 NS = {
     "d": "DAV:",
     "cal": "urn:ietf:params:xml:ns:caldav",
@@ -106,9 +104,13 @@ class DavClient:
         self._files_root = f"{self._root}files/{quote(user, safe='')}/"
         self._auth = (user, password)
         self._timeout = timeout
+        # No connection is kept for the next request: one that the server (or the way to it) had closed meanwhile failed
+        # now and then with "Server disconnected without sending a response" (15.11.2026, about 2 runs in 100 of a
+        # test against the live Nextcloud, the request never reached nginx). The files are fetched now and then, the
+        # new connection costs milliseconds.
         self._client = httpx.Client(
             auth=self._auth, timeout=timeout, headers={"User-Agent": "AIfred"},
-            limits=httpx.Limits(keepalive_expiry=NEXTCLOUD_KEEPALIVE_EXPIRY_S),
+            limits=httpx.Limits(max_keepalive_connections=0),
         )
 
     def close(self) -> None:

@@ -1,4 +1,4 @@
-"""The Nextcloud client does not reuse a connection the server has already closed (a live-Nextcloud test failed now and
+"""The Nextcloud client keeps no connection for the next request, so it never meets one the server has closed (a live test failed now and
 then with "Server disconnected without sending a response")."""
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from aifred.plugins.tools.nextcloud import dav
 from aifred.plugins.tools.nextcloud.dav import DavClient
 
 SERVER_IDLE_TIMEOUT_S = 1.0
@@ -40,8 +39,7 @@ def server() -> Iterator[str]:
     httpd.server_close()
 
 
-def test_a_request_after_the_server_closed_the_idle_connection_goes_through(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(dav, "NEXTCLOUD_KEEPALIVE_EXPIRY_S", SERVER_IDLE_TIMEOUT_S / 2)
+def test_a_request_after_the_server_closed_the_idle_connection_goes_through(server: str) -> None:
     client = DavClient(server, "ki", "secret", timeout=5.0)
     client.delete_file("a.txt")
     time.sleep(SERVER_IDLE_TIMEOUT_S * 1.3)   # the server has closed the connection by now

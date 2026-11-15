@@ -1598,10 +1598,6 @@ BROWSER_RENDER_DEFAULT_WAIT_MS = 2000        # settle time after load (real time
 BROWSER_CONSOLE_IGNORE_PATTERNS = (
     r"GL Driver Message \(OpenGL, Performance, .*\): GPU stall due to ReadPixels",   # Auslesen der Zeichenfläche für den Screenshot
 )
-# The Nextcloud client (plugins/tools/nextcloud/dav.py) keeps its connections open for this long, shorter than the
-# 5 s after which a server closes an idle one: a request on a connection the server has just closed failed with
-# "Server disconnected without sending a response" (15.11.2026, in a test against the live Nextcloud).
-NEXTCLOUD_KEEPALIVE_EXPIRY_S = 2.0
 BROWSER_RENDER_ACTION_TIMEOUT_MS = 5000      # per-action timeout (missing selector
                                              # fails fast instead of hanging)
 
