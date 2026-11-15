@@ -1627,5 +1627,8 @@
   "tool_vision_start_watch": "Starting live watch …",
   "tool_vision_stop_watch": "Stopping live watch …",
   "tool_vision_list_active_watches": "Listing active watches …",
-  "tool_vision_query_events": "Querying events …"
+  "tool_vision_query_events": "Querying events …",
+  "doc_page_hint": "HTML pages open in a tab of their own with a click on the name. To save or pass one on, please use the download arrow: only it writes all libraries, models and fonts into the file, so it works anywhere. The browser's \"Save as\" leaves them out, and the page then only works with AIfred.",
+  "doc_open_page": "Open in a new tab",
+  "doc_download_page": "Download (one standalone file)"
 }

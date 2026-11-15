@@ -94,6 +94,7 @@ async function confirmDelete(): Promise<void> {
 // A page (.html) opens in a tab of its own, as the browser shows it (the server sends it sandboxed: its scripts run, but
 // without access to AIfred); every other file shows as its parser reads it.
 const PAGE_FILE = /\.html?$/i;
+const hasPages = computed(() => !!docs.listing?.items.some((row) => row.type === "file" && PAGE_FILE.test(row.name)));
 const preview = ref<DocumentPreview | null>(null);
 async function show(row: DocumentRow): Promise<void> {
   if (PAGE_FILE.test(row.name) && docs.listing) {
@@ -216,6 +217,7 @@ const runOutcome = computed(() => {
         <button type="button" @click="naming = null">{{ t("doc_cancel") }}</button>
       </form>
 
+      <p v-if="hasPages" class="page-hint"><Download :size="16" /> {{ t("doc_page_hint") }}</p>
       <table v-if="docs.listing && docs.listing.items.length" class="list">
         <thead>
           <tr>
@@ -231,13 +233,13 @@ const runOutcome = computed(() => {
             <td><input type="checkbox" :checked="selected.includes(row.name)" @change="toggle(row.name)" /></td>
             <td class="name">
               <button v-if="row.type === 'folder'" class="link" @click="go(pathOf(row))"><Folder :size="16" /> {{ row.name }}</button>
-              <button v-else class="link" :title="t('doc_preview')" @click="show(row)"><FileText :size="16" /> {{ row.name }}</button>
+              <button v-else class="link" :title="PAGE_FILE.test(row.name) ? t('doc_open_page') : t('doc_preview')" @click="show(row)"><FileText :size="16" /> {{ row.name }}</button>
               <span class="size">{{ row.type === "folder" ? tCount("doc_file_count", row.file_count) : row.size }}</span>
             </td>
             <td class="dates">{{ row.created }}<br />{{ row.modified }}</td>
             <td><span v-if="row.indexed" class="indexed">{{ tCount("doc_chunk_count", row.chunks) }}</span></td>
             <td class="row-actions">
-              <a v-if="row.type === 'file'" :href="apiUrl('documents/local/download?path=' + encodeURIComponent(pathOf(row)))" :title="t('doc_download')" download><Download :size="16" /></a>
+              <a v-if="row.type === 'file'" :href="apiUrl('documents/local/download?path=' + encodeURIComponent(pathOf(row)))" :title="PAGE_FILE.test(row.name) ? t('doc_download_page') : t('doc_download')" download><Download :size="16" /></a>
               <button v-if="row.type === 'file'" :title="t('doc_copy_path')" @click="copyPath(row)"><Copy :size="16" /></button>
               <button v-if="row.indexed" :title="t('doc_deindex')" @click="deindex(row)"><BookMinus :size="16" /></button>
               <button
@@ -312,6 +314,7 @@ input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .row-actions { white-space: nowrap; text-align: right; }
 .row-actions a { text-decoration: none; padding: 2px 4px; color: inherit; }
 .empty { color: var(--aifred-text-muted); }
+.page-hint { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 8px; padding: 8px 10px; font-size: 0.8rem; color: var(--aifred-text-secondary); background: var(--aifred-input-bg); border: 1px solid var(--aifred-border); border-radius: 8px; --icon-own: currentColor; }
 .targets { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; max-width: 60ch; overflow-wrap: anywhere; color: var(--aifred-text-secondary); }
 .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; }
 .preview-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
