@@ -54,7 +54,7 @@ def test_missed_appointments_lapse_without_a_run(store: JobStore) -> None:
 
 
 def test_the_plugin_lets_missed_appointments_lapse_when_switched_on(store: JobStore) -> None:
-    from aifred.plugins.tools.scheduler_tool import plugin
+    from aifred.plugins.tools.horarium import plugin
 
     job = store.add("morning", "cron", "0 7 * * *", {"message": "x"})
     _due(store, job.job_id)
@@ -63,7 +63,7 @@ def test_the_plugin_lets_missed_appointments_lapse_when_switched_on(store: JobSt
 
 
 def test_the_scheduler_is_a_background_part_of_its_plugin() -> None:
-    from aifred.plugins.tools.scheduler_tool import plugin
+    from aifred.plugins.tools.horarium import plugin
 
     parts = plugin.background_parts()
     assert list(parts) == ["scheduler"] and parts["scheduler"].in_hub and parts["scheduler"].factory is sched.scheduler_loop

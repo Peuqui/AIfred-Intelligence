@@ -1,1 +1,0 @@
-"Lösche Job X" / "stoppe die Erinnerung" → scheduler_delete.

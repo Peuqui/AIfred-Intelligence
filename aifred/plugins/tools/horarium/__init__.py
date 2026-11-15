@@ -1,4 +1,4 @@
-"""Scheduler plugin — create, list, update, and delete scheduled jobs via chat.
+"""Horarium plugin — create, list, update, and delete scheduled jobs via chat.
 
 Allows the user to say things like:
 - "Fasse jeden Morgen um 7 meine E-Mails zusammen und schick es an Telegram"
@@ -18,10 +18,10 @@ from ....lib.scheduler import DELIVERY_MODES, SCHEDULE_TYPES
 
 
 @dataclass
-class SchedulerPlugin:
+class HorariumPlugin:
     # MUST equal the folder name (see plugin_registry) — otherwise the plugin
     # is invisible to the Plugin-Manager UI (no gear/lightbulb).
-    name: str = "scheduler_tool"
+    name: str = "horarium"
 
     def is_available(self) -> bool:
         return True
@@ -121,9 +121,9 @@ class SchedulerPlugin:
             except ValueError as exc:
                 # Fail-loud: without next_run the job would NEVER fire — an invalid
                 # cron expression must not be reported as success.
-                log_message(f"Scheduler: job '{name}' rejected — {exc}", "warning")
+                log_message(f"Horarium: job '{name}' rejected — {exc}", "warning")
                 return json.dumps({"error": f"{exc} — job not created"})
-            log_message(f"Scheduler: job '{name}' created (id={job.job_id}, next={job.next_run})")
+            log_message(f"Horarium: job '{name}' created (id={job.job_id}, next={job.next_run})")
             return json.dumps({
                 "success": True,
                 "job_id": job.job_id,
@@ -223,7 +223,7 @@ class SchedulerPlugin:
                 except ValueError as exc:   # the schedule has run to its end
                     return json.dumps({"error": f"{exc} — job {job_id} changed but not switched on"})
                 updated.enabled = enabled
-            log_message(f"Scheduler: job '{updated.name}' (id={job_id}) updated")
+            log_message(f"Horarium: job '{updated.name}' (id={job_id}) updated")
             return json.dumps({
                 "success": True,
                 "job_id": updated.job_id,
@@ -245,38 +245,38 @@ class SchedulerPlugin:
                 return json.dumps({"error": f"Job {job_id} not found"})
             name = job.name
             await delete_job(job_id)
-            log_message(f"Scheduler: job '{name}' (id={job_id}) deleted")
+            log_message(f"Horarium: job '{name}' (id={job_id}) deleted")
             return json.dumps({"success": True, "deleted": job_id, "name": name})
 
         return [
             Tool(
-                name="scheduler_create",
+                name="horarium_create",
                 tier=TIER_WRITE_DATA,
                 description=(
-                    load_tool_description(__file__, "scheduler_create")
+                    load_tool_description(__file__, "horarium_create")
                 ),
-                parameters=load_tool_parameters(__file__, "scheduler_create", enums={"schedule_type": list(SCHEDULE_TYPES), "delivery": list(DELIVERY_MODES)}),
+                parameters=load_tool_parameters(__file__, "horarium_create", enums={"schedule_type": list(SCHEDULE_TYPES), "delivery": list(DELIVERY_MODES)}),
                 executor=_create,
             ),
             Tool(
-                name="scheduler_list",
+                name="horarium_list",
                 tier=TIER_READONLY,
-                description=load_tool_description(__file__, "scheduler_list"),
-                parameters=load_tool_parameters(__file__, "scheduler_list"),
+                description=load_tool_description(__file__, "horarium_list"),
+                parameters=load_tool_parameters(__file__, "horarium_list"),
                 executor=_list,
             ),
             Tool(
-                name="scheduler_update",
+                name="horarium_update",
                 tier=TIER_WRITE_DATA,
-                description=load_tool_description(__file__, "scheduler_update"),
-                parameters=load_tool_parameters(__file__, "scheduler_update", enums={"schedule_type": list(SCHEDULE_TYPES), "delivery": list(DELIVERY_MODES)}),
+                description=load_tool_description(__file__, "horarium_update"),
+                parameters=load_tool_parameters(__file__, "horarium_update", enums={"schedule_type": list(SCHEDULE_TYPES), "delivery": list(DELIVERY_MODES)}),
                 executor=_update,
             ),
             Tool(
-                name="scheduler_delete",
+                name="horarium_delete",
                 tier=TIER_WRITE_DATA,
-                description=load_tool_description(__file__, "scheduler_delete"),
-                parameters=load_tool_parameters(__file__, "scheduler_delete"),
+                description=load_tool_description(__file__, "horarium_delete"),
+                parameters=load_tool_parameters(__file__, "horarium_delete"),
                 executor=_delete,
             ),
         ]
@@ -288,15 +288,15 @@ class SchedulerPlugin:
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
         from ....lib.i18n import t
-        if tool_name == "scheduler_create":
-            return t("tool_scheduler_create", lang=lang, name=tool_args.get("name", ""))
-        if tool_name == "scheduler_update":
-            return t("tool_scheduler_update", lang=lang, job_id=tool_args.get("job_id", ""))
-        if tool_name == "scheduler_delete":
-            return t("tool_scheduler_delete", lang=lang, job_id=tool_args.get("job_id", ""))
-        if tool_name == "scheduler_list":
-            return t("tool_scheduler_list", lang=lang)
+        if tool_name == "horarium_create":
+            return t("tool_horarium_create", lang=lang, name=tool_args.get("name", ""))
+        if tool_name == "horarium_update":
+            return t("tool_horarium_update", lang=lang, job_id=tool_args.get("job_id", ""))
+        if tool_name == "horarium_delete":
+            return t("tool_horarium_delete", lang=lang, job_id=tool_args.get("job_id", ""))
+        if tool_name == "horarium_list":
+            return t("tool_horarium_list", lang=lang)
         return ""
 
 
-plugin = SchedulerPlugin()
+plugin = HorariumPlugin()

@@ -1,8 +1,8 @@
 # Horarium Plugin
 
-> **English version:** [scheduler.md](../../../en/guides/plugins/scheduler.md)
+> **English version:** [horarium.md](../../../en/guides/plugins/horarium.md)
 
-**Datei:** `aifred/plugins/tools/scheduler_tool/`
+**Datei:** `aifred/plugins/tools/horarium/`
 
 Geplante Aufgaben und Cron-Jobs, die AIfred automatisch zu definierten Zeitpunkten ausführt.
 Zum geplanten Zeitpunkt wird die `message` des Jobs wie ein normaler Prompt verarbeitet und
@@ -12,12 +12,12 @@ das Ergebnis an den konfigurierten Delivery-Modus übergeben.
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
-| `scheduler_create` | Neuen geplanten Job anlegen | WRITE_DATA |
-| `scheduler_list` | Alle geplanten Jobs mit Status, nächstem Lauf, Delivery-Modus und Auftragstext auflisten | READONLY |
-| `scheduler_update` | Geplanten Job an Ort und Stelle ändern (nur die übergebenen Felder; auch ein-/ausschalten) | WRITE_DATA |
-| `scheduler_delete` | Geplanten Job anhand seiner ID löschen | WRITE_DATA |
+| `horarium_create` | Neuen geplanten Job anlegen | WRITE_DATA |
+| `horarium_list` | Alle geplanten Jobs mit Status, nächstem Lauf, Delivery-Modus und Auftragstext auflisten | READONLY |
+| `horarium_update` | Geplanten Job an Ort und Stelle ändern (nur die übergebenen Felder; auch ein-/ausschalten) | WRITE_DATA |
+| `horarium_delete` | Geplanten Job anhand seiner ID löschen | WRITE_DATA |
 
-## `scheduler_create`-Parameter
+## `horarium_create`-Parameter
 
 | Parameter | Pflicht | Beschreibung |
 |-----------|---------|--------------|
@@ -30,7 +30,7 @@ das Ergebnis an den konfigurierten Delivery-Modus übergeben.
 | `channel` | nein | Zielkanal für `announce` (z.B. `telegram`, `discord`, `email`) |
 | `recipient` | nein | Empfänger für `announce` (E-Mail-Adresse usw.) |
 | `webhook_url` | nein | URL für `webhook`-Delivery |
-| `end_date` | nein | Ende eines `cron`-/`interval`-Jobs: `JJJJ-MM-TT` (der Tag läuft noch mit) oder `JJJJ-MM-TTTHH:MM`; ohne Angabe läuft der Job unbegrenzt. `scheduler_update` setzt oder entfernt es (leerer Wert) |
+| `end_date` | nein | Ende eines `cron`-/`interval`-Jobs: `JJJJ-MM-TT` (der Tag läuft noch mit) oder `JJJJ-MM-TTTHH:MM`; ohne Angabe läuft der Job unbegrenzt. `horarium_update` setzt oder entfernt es (leerer Wert) |
 
 ## Features
 
@@ -56,11 +56,11 @@ gibt 404.
 Gesprochene bzw. Chat-Anfragen, die AIfred auf die Tools abbildet:
 
 - „Fasse jeden Morgen um 7 meine E-Mails zusammen und schick es an Telegram"
-  → `scheduler_create(name="Morgen-Mail-Digest", schedule_type="cron", schedule_expr="0 7 * * *", message="Fasse meine neuen E-Mails zusammen", delivery="announce", channel="telegram")`
+  → `horarium_create(name="Morgen-Mail-Digest", schedule_type="cron", schedule_expr="0 7 * * *", message="Fasse meine neuen E-Mails zusammen", delivery="announce", channel="telegram")`
 - „Erinnere mich morgen um 10 an den Arzttermin“
-  → `scheduler_create(name="Arzt-Reminder", schedule_type="once", schedule_expr="2026-03-31T10:00:00", message="Erinnere mich an den Arzttermin", delivery="review")`
+  → `horarium_create(name="Arzt-Reminder", schedule_type="once", schedule_expr="2026-03-31T10:00:00", message="Erinnere mich an den Arzttermin", delivery="review")`
 - „Prüfe die Black-Week-Angebote 3x täglich bis Ende November“
-  → `scheduler_create(name="Black Week", schedule_type="cron", schedule_expr="0 8,14,20 * * *", end_date="2026-11-30", message="…")` (EIN Job mit einer Liste von Uhrzeiten)
-- „Zeig mir meine geplanten Jobs“ → `scheduler_list()`
-- „Verschieb Job 3 auf 7:05“ → `scheduler_update(job_id=3, schedule_expr="5 7 * * *")`
-- „Lösche Job 3“ → `scheduler_delete(job_id=3)`
+  → `horarium_create(name="Black Week", schedule_type="cron", schedule_expr="0 8,14,20 * * *", end_date="2026-11-30", message="…")` (EIN Job mit einer Liste von Uhrzeiten)
+- „Zeig mir meine geplanten Jobs“ → `horarium_list()`
+- „Verschieb Job 3 auf 7:05“ → `horarium_update(job_id=3, schedule_expr="5 7 * * *")`
+- „Lösche Job 3“ → `horarium_delete(job_id=3)`

@@ -85,7 +85,7 @@ async function runNow(job: JobRow): Promise<void> {
     <JobForm v-if="editing && jobs.options" :job="editing.job" :options="jobs.options" @close="editing = null" />
 
     <ModalDialog v-if="deleting" @close="deleting = null">
-      <strong><Clock :size="16" /> {{ deleting.name }}: {{ t("scheduler_delete_confirm") }}</strong>
+      <strong><Clock :size="16" /> {{ deleting.name }}: {{ t("horarium_delete_confirm") }}</strong>
       <div class="dialog-actions">
         <button @click="deleting = null">{{ t("agent_editor_cancel") }}</button>
         <button class="danger" @click="confirmDelete">{{ t("agent_editor_delete") }}</button>

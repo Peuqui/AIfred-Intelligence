@@ -15,7 +15,7 @@ test("every tab of the vision page and the menu's link to it name the vision plu
 });
 
 test("the jobs page names its plugin, other pages none", () => {
-  expect(router.resolve("/jobs").meta.plugin).toBe("scheduler_tool");
+  expect(router.resolve("/jobs").meta.plugin).toBe("horarium");
   expect(router.resolve("/agents").meta.plugin).toBeUndefined();
 });
 

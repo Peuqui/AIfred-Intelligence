@@ -446,7 +446,7 @@ aifred/
         ├── narrator/          # Liest Textdateien in eine Audiodatei ein
         ├── research/          # web_search, web_fetch
         ├── sandbox/           # execute_code, render_html
-        ├── scheduler_tool/    # Geplante Aufgaben und Erinnerungen
+        ├── horarium/    # Geplante Aufgaben und Erinnerungen
         ├── subagent/          # delegate_task an Sub-Agenten
         ├── system_monitor/    # system_status (CPU, RAM, VRAM, Platten, …)
         ├── translator/        # DeepL translate, translate_file

@@ -205,7 +205,7 @@ async def jobs_switch(job_id: int, switch: JobSwitch) -> JobRow:
 
     _job(job_id)
     get_job_store().enable(job_id, switch.enabled)
-    log_message(f"Scheduler: job {job_id} switched {'on' if switch.enabled else 'off'}")
+    log_message(f"Horarium: job {job_id} switched {'on' if switch.enabled else 'off'}")
     return _row(_job(job_id))
 
 
@@ -220,7 +220,7 @@ async def jobs_run_now(job_id: int, background_tasks: BackgroundTasks) -> JobSta
     from ..plugin_registry import require_plugin_enabled
     from ..scheduler import claim_job, run_job_now
 
-    require_plugin_enabled("scheduler_tool")
+    require_plugin_enabled("horarium")
     job = _job(job_id)
     if not claim_job(job.job_id):
         raise Conflict("job_already_running", job=job.name)

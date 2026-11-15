@@ -28,7 +28,7 @@ export const router = createRouter({
     { path: "/agents", component: AgentsView },
     { path: "/documents", component: DocumentsView },
     { path: "/memory", component: MemoryView },
-    { path: "/jobs", component: JobsView, meta: { plugin: "scheduler_tool" } },
+    { path: "/jobs", component: JobsView, meta: { plugin: "horarium" } },
     { path: "/audio", component: AudioView },
     { path: "/maintenance", component: MaintenanceView },
     // The parent carries the plugin for the pages below it and for the menu's link to "/vision" (resolve takes no redirect).

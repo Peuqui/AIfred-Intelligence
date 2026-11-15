@@ -1,0 +1,1 @@
+"Was habe ich geplant?" / "zeig meine Jobs" → horarium_list (liefert je Job auch den Auftragstext "message").

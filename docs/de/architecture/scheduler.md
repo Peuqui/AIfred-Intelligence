@@ -4,7 +4,7 @@
 
 **Stand:** 2026-03-29
 
-Das Plugin heißt im Code `scheduler_tool`; in der Oberfläche heißt es **Horarium** (de und en gleich).
+Das Plugin heißt überall **Horarium** (`plugins/tools/horarium`, Werkzeuge `horarium_*`); die Engine dahinter liegt in `lib/scheduler.py`.
 
 AIfred kann zeitgesteuert eigenständig handeln — ohne dass ein User eine Nachricht schickt.
 Jobs laufen in isolierten Sessions mit Security-Tier-Enforcement.

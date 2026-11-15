@@ -1,1 +1,0 @@
-"Delete job X" / "stop the reminder" → scheduler_delete.

@@ -1,4 +1,4 @@
-JOB ANLEGEN (scheduler_create), wenn der Benutzer etwas plant ("erinnere mich", "jeden Morgen", "in 2 Stunden"):
+JOB ANLEGEN (horarium_create), wenn der Benutzer etwas plant ("erinnere mich", "jeden Morgen", "in 2 Stunden"):
 1. schedule_type passend wählen:
    - "jeden Tag um 8" → cron "0 8 * * *"
    - "alle 30 Minuten" → interval "1800"
@@ -18,10 +18,10 @@ JOB ANLEGEN (scheduler_create), wenn der Benutzer etwas plant ("erinnere mich", 
 
 TYPISCHE JOBS (schlage sie vor, wenn es passt): morgendliche Zusammenfassung der E-Mails, Termine des Tages, einmalige Erinnerungen, ein regelmäßiger Status-Check, der nur Probleme meldet. Zwei Beispiele:
 
-  scheduler_create(name="email_summary", schedule_type="cron", schedule_expr="0 7 * * *",
+  horarium_create(name="email_summary", schedule_type="cron", schedule_expr="0 7 * * *",
     message="Sieh meine letzten ungelesenen E-Mails durch und fasse die wichtigsten Punkte kurz zusammen.",
     delivery="announce", channel="telegram", recipient="Lord Helmchen")
 
-  scheduler_create(name="arzttermin_reminder", schedule_type="once", schedule_expr="2026-03-30T09:30:00",
+  horarium_create(name="arzttermin_reminder", schedule_type="once", schedule_expr="2026-03-30T09:30:00",
     message="Erinnerung: Arzttermin um 10:00 Uhr!", fixed_text=true,
     delivery="announce", channel="telegram")

@@ -252,7 +252,7 @@ class JobStore:
             conn.commit()
             self._changed()
             job_id = cursor.lastrowid or 0
-        log_message(f"Scheduler: added job '{name}' (type={schedule_type}, next={next_run})")
+        log_message(f"Horarium: added job '{name}' (type={schedule_type}, next={next_run})")
         return self.get(job_id)  # type: ignore[return-value]
 
     def update(
@@ -289,7 +289,7 @@ class JobStore:
             if cursor.rowcount == 0:
                 return None
         self._changed()
-        log_message(f"Scheduler: updated job '{name}' (id={job_id}, next={next_run})")
+        log_message(f"Horarium: updated job '{name}' (id={job_id}, next={next_run})")
         return self.get(job_id)
 
     def get(self, job_id: int) -> Job | None:
@@ -337,7 +337,7 @@ class JobStore:
             conn.commit()
         if lapsed:
             self._changed()
-            log_message(f"Scheduler: {len(lapsed)} appointment(s) of the time off lapsed: {[job.name for job in lapsed]}")
+            log_message(f"Horarium: {len(lapsed)} appointment(s) of the time off lapsed: {[job.name for job in lapsed]}")
         return len(lapsed)
 
     def mark_executed(self, job_id: int) -> None:
@@ -369,7 +369,7 @@ class JobStore:
                 )
                 conn.commit()
                 self._changed()
-            log_message(f"Scheduler: job '{job.name}' (id={job_id}) ended after its last run ({job.ends_at})")
+            log_message(f"Horarium: job '{job.name}' (id={job_id}) ended after its last run ({job.ends_at})")
             return
         with self._connect() as conn:
             conn.execute(
@@ -407,7 +407,7 @@ class JobStore:
                 )
                 conn.commit()
                 self._changed()
-            log_message(f"Scheduler: job '{job.name}' (id={job_id}) ended with a failed last run ({job.ends_at})")
+            log_message(f"Horarium: job '{job.name}' (id={job_id}) ended with a failed last run ({job.ends_at})")
             return
         with self._connect() as conn:
             conn.execute(
@@ -547,13 +547,13 @@ def release_job(job_id: int) -> None:
 async def _run_due_job(store: JobStore, job: Job) -> None:
     """One job from its start to its mark in the store. The loop claimed the job before scheduling
     this task (an earlier loop's task or a run-now may still hold it)."""
-    log_message(f"Scheduler: executing job '{job.name}' (id={job.job_id})")
+    log_message(f"Horarium: executing job '{job.name}' (id={job.job_id})")
     try:
         await _execute_job(job)
         store.mark_executed(job.job_id)
-        log_message(f"Scheduler: job '{job.name}' completed")
+        log_message(f"Horarium: job '{job.name}' completed")
     except Exception as exc:  # noqa: BLE001 — one failing job must not end the loop
-        log_exception(f"Scheduler: job '{job.name}' failed", exc)
+        log_exception(f"Horarium: job '{job.name}' failed", exc)
         store.mark_failed(job.job_id)
     finally:
         release_job(job.job_id)
@@ -565,12 +565,12 @@ async def run_job_now(job: Job) -> None:
     next appointment stays where it is and a one-shot job is not consumed by the trial run. The
     caller (the run-now endpoint) claimed the job; released in the finally. Success and failure
     go to the log only; the run itself lands in the job's run history (add_run, by _execute_job)."""
-    log_message(f"Scheduler: running job '{job.name}' (id={job.job_id}) now")
+    log_message(f"Horarium: running job '{job.name}' (id={job.job_id}) now")
     try:
         await _execute_job(job)
-        log_message(f"Scheduler: job '{job.name}' completed (run now)")
+        log_message(f"Horarium: job '{job.name}' completed (run now)")
     except Exception as exc:  # noqa: BLE001 — the failure shows in the log, nothing to mark
-        log_exception(f"Scheduler: job '{job.name}' failed (run now)", exc)
+        log_exception(f"Horarium: job '{job.name}' failed (run now)", exc)
     finally:
         release_job(job.job_id)
 
@@ -582,7 +582,7 @@ async def scheduler_loop() -> None:
     not cancel the job that is running: it runs to its end and marks itself; the loop only stops starting new ones.
     """
     store = get_job_store()
-    log_message("Scheduler: started")
+    log_message("Horarium: started")
 
     while True:
         try:
@@ -593,10 +593,10 @@ async def scheduler_loop() -> None:
                 await asyncio.shield(asyncio.ensure_future(_run_due_job(store, job)))
 
         except asyncio.CancelledError:
-            log_message("Scheduler: shutting down")
+            log_message("Horarium: shutting down")
             return
         except Exception as exc:  # noqa: BLE001 — the loop outlives every error
-            log_message(f"Scheduler: loop error: {exc}", "error")
+            log_message(f"Horarium: loop error: {exc}", "error")
 
         await asyncio.sleep(SCHEDULER_CHECK_INTERVAL_SECONDS)
 
@@ -620,7 +620,7 @@ async def _execute_job(job: Job) -> None:
     agent = job.agent
 
     if not message_text:
-        log_message(f"Scheduler: job '{job.name}' has no message, skipping", "warning")
+        log_message(f"Horarium: job '{job.name}' has no message, skipping", "warning")
         return
     from .agent_config import selectable_agents
     if agent not in selectable_agents():   # also a fixed text: it speaks in the agent's name
@@ -739,7 +739,7 @@ async def _deliver_result(job: Job, response_text: str, session_id: str) -> None
     - "webhook":  HTTP POST to an external URL
     """
     delivery = job.payload.get("delivery", "review")
-    log_message(f"Scheduler: delivering job '{job.name}' result via '{delivery}'")
+    log_message(f"Horarium: delivering job '{job.name}' result via '{delivery}'")
 
     # Always show toast notification (user should know a job ran)
     _deliver_review(job, response_text, session_id)
@@ -795,7 +795,7 @@ async def _deliver_announce(job: Job, response_text: str, session_id: str) -> No
     """Send the result of a run to its channel; a failure shows up in the UI."""
     channel_name = _delivery_channel(job)
     if not channel_name:
-        log_message(f"Scheduler: job '{job.name}' announce has no channel configured", "warning")
+        log_message(f"Horarium: job '{job.name}' announce has no channel configured", "warning")
         return
     ok = await _send_announcement(job, response_text, session_id)
     if not ok:
@@ -803,7 +803,7 @@ async def _deliver_announce(job: Job, response_text: str, session_id: str) -> No
         # hat seinen Bericht erzeugt, ihn aber nicht zugestellt — das muss
         # sichtbar werden.
         log_message(
-            f"Scheduler: announce for job '{job.name}' did not deliver "
+            f"Horarium: announce for job '{job.name}' did not deliver "
             f"(channel {channel_name!r})", "error",
         )
         from .message_processor import push_hub_notification
@@ -826,7 +826,7 @@ def _deliver_review(job: Job, response_text: str, session_id: str) -> None:
         sender="system",
         status="done",
     )
-    log_message(f"Scheduler: job '{job.name}' result ready for review in session {session_id[:8]}")
+    log_message(f"Horarium: job '{job.name}' result ready for review in session {session_id[:8]}")
 
 
 async def _deliver_webhook(job: Job, response_text: str) -> None:
@@ -837,14 +837,14 @@ async def _deliver_webhook(job: Job, response_text: str) -> None:
 
     url = job.payload.get("webhook_url", "")
     if not url:
-        log_message(f"Scheduler: job '{job.name}' webhook has no URL configured", "warning")
+        log_message(f"Horarium: job '{job.name}' webhook has no URL configured", "warning")
         return
 
     # SSRF protection: schema + private/loopback/reserved-IP rejection.
     try:
         validate_external_url(url)
     except UnsafeURLError as e:
-        log_message(f"Scheduler: webhook URL rejected: {e}", "error")
+        log_message(f"Horarium: webhook URL rejected: {e}", "error")
         return
 
     payload = {
@@ -863,6 +863,6 @@ async def _deliver_webhook(job: Job, response_text: str) -> None:
             url, json=payload, allow_redirects=False,
             timeout=aiohttp.ClientTimeout(total=SCHEDULER_WEBHOOK_TIMEOUT_SECONDS),
         ) as resp:
-            log_message(f"Scheduler: webhook POST to {url} → {resp.status}")
+            log_message(f"Horarium: webhook POST to {url} → {resp.status}")
     except Exception as exc:  # noqa: BLE001 — reported in the log, the job itself succeeded
-        log_message(f"Scheduler: webhook POST to {url} failed: {exc}", "error")
+        log_message(f"Horarium: webhook POST to {url} failed: {exc}", "error")

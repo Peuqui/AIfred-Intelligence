@@ -178,23 +178,23 @@ Audio-Wiedergabe auf dem Server.
 
 ### Horarium
 
-**Datei:** `plugins/tools/scheduler_tool/`
+**Datei:** `plugins/tools/horarium/`
 
 Geplante Aufgaben für AIfred.
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
-| `scheduler_create` | Zeitgesteuerten Job anlegen | WRITE_DATA |
-| `scheduler_list` | Alle geplanten Jobs auflisten | READONLY |
-| `scheduler_update` | Job ändern | WRITE_DATA |
-| `scheduler_delete` | Job löschen | WRITE_DATA |
+| `horarium_create` | Zeitgesteuerten Job anlegen | WRITE_DATA |
+| `horarium_list` | Alle geplanten Jobs auflisten | READONLY |
+| `horarium_update` | Job ändern | WRITE_DATA |
+| `horarium_delete` | Job löschen | WRITE_DATA |
 
 **Features:**
 - Drei Schedule-Typen: `cron`, `interval` (Sekunden), `once` (ISO-Timestamp)
 - Delivery-Modi: `review`, `announce`, `webhook`
 - Isolierte Sessions pro Job
 
-> **Details:** [Horarium Plugin](plugins/scheduler.md)
+> **Details:** [Horarium Plugin](plugins/horarium.md)
 
 ---
 
@@ -447,7 +447,7 @@ aifred/plugins/
 │   ├── sandbox/            # Code-Ausführung
 │   ├── calculator/         # Mathematik
 │   ├── audio_player/       # Audio-Wiedergabe
-│   ├── scheduler_tool/     # Geplante Aufgaben
+│   ├── horarium/     # Geplante Aufgaben
 │   ├── translator/         # DeepL-Übersetzung
 │   ├── narrator/           # Dokument → MP3 (narrate_file)
 │   ├── printer/            # Drucken + Druckerstatus (CUPS)

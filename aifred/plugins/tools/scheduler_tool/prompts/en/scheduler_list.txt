@@ -1,1 +1,0 @@
-"What did I schedule?" / "show my jobs" → scheduler_list (returns each job's stored prompt as "message" too).

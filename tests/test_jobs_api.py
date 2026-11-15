@@ -171,7 +171,7 @@ def test_run_now_rejected_when_horarium_is_off(
 
     monkeypatch.setattr(plugin_registry, "is_plugin_enabled", lambda name: False)
     job_id = client.post("/jobs", json=CRON).json()["job_id"]
-    path = plugin_registry._plugin_dir("scheduler_tool")
+    path = plugin_registry._plugin_dir("horarium")
     assert path is not None
     name = plugin_registry.plugin_i18n_text(path, plugin_registry.PLUGIN_DISPLAY_NAME_KEY, get_language())
     refused = client.post(f"/jobs/{job_id}/run")
