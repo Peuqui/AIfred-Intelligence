@@ -208,7 +208,7 @@ h1, h2, h3, input, textarea, select { color: var(--aifred-text-primary); }
 .brand strong { font-size: 1.5rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .brand small { color: var(--aifred-text-secondary); font-style: italic; font-size: 0.75rem; display: flex; flex-direction: column; }
 
-.back { color: var(--aifred-text-secondary); text-decoration: none; white-space: nowrap; }
+.back { color: var(--aifred-text-secondary); text-decoration: none; white-space: nowrap; margin-right: 10px; }
 .account { display: inline-flex; align-items: center; gap: 6px; margin-left: 18px; padding: 2px 4px 2px 10px; border: 1px solid color-mix(in srgb, var(--aifred-accent-amber) 45%, transparent); border-radius: 8px; }
 .user { color: var(--aifred-text-secondary); white-space: nowrap; }
 .burger { background: none; border: none; color: var(--aifred-primary); cursor: pointer; font-size: 1.3rem; padding: 0 4px; --icon-own: currentColor; }
