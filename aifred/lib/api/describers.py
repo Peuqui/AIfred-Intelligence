@@ -21,6 +21,7 @@ class DescriberRow(BaseModel):
     note: str = Field(description="An entry of another machine: what holds it back, or what it needs as measured")
     warn: bool = Field(description="The note says why the entry is skipped")
     remote: bool = Field(description="A describer of another machine: it can be burnt in")
+    loaded: bool = Field(description="It is loaded on that machine now: it can be unloaded")
 
 
 class Describers(BaseModel):
@@ -41,6 +42,11 @@ class DescriberSwitch(BaseModel):
 
 
 class DescriberBurnIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: str
+
+
+class DescriberUnload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source: str
 
@@ -86,4 +92,16 @@ async def describers_burn_in(burn_in: DescriberBurnIn) -> Describers:
     from ..describer_list import start_burn_in
 
     start_burn_in(burn_in.source)
+    return await asyncio.to_thread(_describers)
+
+
+@api_app.post("/describers/unload", response_model=Describers, tags=["Describers"])
+async def describers_unload(unload: DescriberUnload) -> Describers:
+    """Unload what is loaded on the machine of a describer of another machine (its llama-swap loads again at the
+    next request). 409 while a burn-in runs, 422 for a source of no other machine, 502 when the machine does not
+    answer."""
+    from ..describer_list import unload as unload_machine_of
+
+    await asyncio.to_thread(unload_machine_of, unload.source)
+    log_message(f"🖼️ Describer list: models on the machine of {unload.source} unloaded")
     return await asyncio.to_thread(_describers)

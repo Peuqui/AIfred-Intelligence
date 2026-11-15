@@ -1587,5 +1587,13 @@
   "error_vram_blocked_describer_later": "{blocked} — ein Describer kommt erst danach dazu.",
   "image_gone": "Bild nicht mehr vorhanden",
   "vision_overlay_zoom": " · Zoom",
-  "vision_overlay_preroll": " · Vorlauf"
+  "vision_overlay_preroll": " · Vorlauf",
+  "vision_settings_remote_unload": "Entladen",
+  "vision_settings_remote_unload_tooltip": "Entlädt die Modelle, die auf dem Rechner geladen sind (sein llama-swap lädt beim nächsten Bedarf wieder).",
+  "error_remote_unload_failed": "{host}: Entladen fehlgeschlagen — {error}",
+  "vision_settings_remote_maintenance_link": "Messen (Burn-in) und Entladen der Modelle anderer Rechner: Wartung → Beschreiber anderer Rechner",
+  "maintenance_remote_describers": "Beschreiber anderer Rechner",
+  "maintenance_remote_describers_intro": "Burn-in misst den Platzbedarf eines Modells auf dem anderen Rechner (er entlädt dort alle Modelle, lädt das gewählte mit dem Stressbild und merkt sich den Spitzenwert). Entladen räumt die geladenen Modelle dort ab. Reihenfolge und Schalter stehen in den Einstellungen.",
+  "maintenance_remote_describers_none": "Kein anderer Rechner mit Beschreibern eingerichtet.",
+  "maintenance_remote_loaded": "geladen"
 }

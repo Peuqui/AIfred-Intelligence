@@ -31,7 +31,7 @@ from .config import (
     VLM_HEADROOM_MIB,
 )
 from .gpu_orc_client import CardStatus, GpuOrcClient, GpuOrcError
-from .user_error import UserError
+from .user_error import UpstreamFailed, UserError
 from .vision_vram_check import VRAMCheckResult
 
 logger = logging.getLogger(__name__)
@@ -228,6 +228,15 @@ def _swapped_out_mib(host: RemoteHost, cards: list[CardStatus]) -> int:
             measured = vlm_vram_cache.get(qualified(host, holder.item), context) if context else None
             total += measured or 0
     return total
+
+
+def unload_machine(host: RemoteHost) -> None:
+    """Unload what the machine's llama-swap has loaded (its next request loads a model again). The machine's cards
+    are not touched otherwise. :class:`UpstreamFailed` when it does not answer or refuses."""
+    try:
+        httpx.post(f"{host.llamaswap_url}/api/models/unload", timeout=GPU_ORC_STATUS_TIMEOUT_S * 6).raise_for_status()
+    except httpx.HTTPError as error:
+        raise UpstreamFailed("remote_unload_failed", host=host.name, error=repr(error)) from error
 
 
 def remote_model(model_id: str) -> RemoteModel:

@@ -1,65 +1,34 @@
 <script setup lang="ts">
 // The describer list: who describes images, in which order (the first one switched on that can right now). This
 // machine's image model, the main model when it sees itself, and the models of other machines, each with what holds
-// it back or what it needs as measured. A describer of another machine can be burnt in there; the run is the
-// server's (one at a time, for every page), this list follows it until it ends.
-import { ChevronDown, ChevronUp, Flame, TriangleAlert } from "lucide-vue-next";
-import { onActivated, onBeforeUnmount, ref } from "vue";
-import { ApiError, PROGRESS_POLL_MS, api } from "../api/client";
-import type { Describers } from "../api/types";
+// it back or what it needs as measured. Burning in and unloading a model of another machine is on the maintenance
+// page (RemoteDescribers.vue); the list follows its burn-in.
+import { ChevronDown, ChevronUp, TriangleAlert } from "lucide-vue-next";
+import { onActivated, onBeforeUnmount } from "vue";
 import { t } from "../i18n";
+import { useDescribers } from "../stores/describers";
 
-const list = ref<Describers | null>(null);
-const notice = ref("");
-let polling: number | null = null;
-
-async function call(work: () => Promise<Describers>): Promise<void> {
-  notice.value = "";
-  try {
-    follow(await work());
-  } catch (error) {
-    notice.value = error instanceof ApiError ? error.detail : String(error);
-  }
-}
-const post = (path: string, body: object): Promise<Describers> => api<Describers>(`describers${path}`, { method: "POST", body: JSON.stringify(body) });
-
-// While a burn-in runs the list is asked again; its end brings the row's new note.
-function follow(describers: Describers): void {
-  list.value = describers;
-  if (describers.measuring && polling === null) {
-    polling = window.setTimeout(() => {
-      polling = null;
-      void call(() => api<Describers>("describers"));
-    }, PROGRESS_POLL_MS);
-  }
-}
+const describers = useDescribers();
 
 // Read anew whenever the page is shown: this machine's row names the image model, which the vision settings change.
-onActivated(() => call(() => api<Describers>("describers")));
-onBeforeUnmount(() => {
-  if (polling !== null) window.clearTimeout(polling);
-});
+onActivated(() => describers.load());
+onBeforeUnmount(() => describers.stop());
 </script>
 
 <template>
   <article class="describers">
     <strong>{{ t("vision_settings_describers_label") }}</strong>
     <p class="hint">{{ t("vision_settings_remote_help") }}</p>
-    <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
-    <template v-if="list">
-      <div v-for="row in list.rows" :key="`${row.index}-${row.source}`" class="entry" :class="{ off: !row.enabled }">
+    <p class="hint"><RouterLink to="/maintenance">{{ t("vision_settings_remote_maintenance_link") }}</RouterLink></p>
+    <p v-if="describers.notice" class="notice"><TriangleAlert :size="16" /> {{ describers.notice }}</p>
+    <template v-if="describers.list">
+      <div v-for="row in describers.list.rows" :key="`${row.index}-${row.source}`" class="entry" :class="{ off: !row.enabled }">
         <span class="order">
-          <button :title="t('tts_entry_up')" :disabled="row.index === 0" @click="call(() => post('/move', { index: row.index, delta: -1 }))"><ChevronUp :size="14" /></button>
-          <button :title="t('tts_entry_down')" :disabled="row.index === list.rows.length - 1" @click="call(() => post('/move', { index: row.index, delta: 1 }))"><ChevronDown :size="14" /></button>
+          <button :title="t('tts_entry_up')" :disabled="row.index === 0" @click="describers.post('/move', { index: row.index, delta: -1 })"><ChevronUp :size="14" /></button>
+          <button :title="t('tts_entry_down')" :disabled="row.index === describers.list.rows.length - 1" @click="describers.post('/move', { index: row.index, delta: 1 })"><ChevronDown :size="14" /></button>
         </span>
-        <input type="checkbox" :checked="row.enabled" @change="call(() => post('/switch', { index: row.index, enabled: !row.enabled }))" />
+        <input type="checkbox" :checked="row.enabled" @change="describers.post('/switch', { index: row.index, enabled: !row.enabled })" />
         <span class="label" :title="row.label">{{ row.label }}</span>
-        <button
-          v-if="row.remote"
-          :disabled="list.measuring !== ''"
-          :title="t('vision_settings_remote_measure_tooltip')"
-          @click="call(() => post('/burn-in', { source: row.source }))"
-        ><Flame :size="16" /> {{ t(list.measuring === row.source ? "vision_settings_remote_measuring" : "vision_settings_remote_measure") }}</button>
         <span v-if="row.note" class="note" :class="{ warn: row.warn }">{{ row.note }}</span>
       </div>
     </template>

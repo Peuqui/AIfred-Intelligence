@@ -6,6 +6,9 @@ import { HardDrive, RefreshCw, ShieldCheck, Trash2, Tv } from "lucide-vue-next";
 import { ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { AuditEntry, ManagedFile } from "../api/types";
+import CalibrationSection from "../components/CalibrationSection.vue";
+import GpuDetails from "../components/GpuDetails.vue";
+import RemoteDescribers from "../components/RemoteDescribers.vue";
 import { formatNumber, t } from "../i18n";
 
 const files = ref<ManagedFile[] | null>(null);
@@ -52,6 +55,9 @@ async function openAudit(event: Event): Promise<void> {
 <template>
   <main class="maintenance">
     <p v-if="notice" class="notice">{{ notice }}</p>
+    <CalibrationSection />
+    <RemoteDescribers />
+    <GpuDetails />
     <details @toggle="openFiles">
       <summary><HardDrive :size="16" /> {{ t("tab_storage") }}</summary>
       <p class="hint">{{ t("storage_intro") }}</p>

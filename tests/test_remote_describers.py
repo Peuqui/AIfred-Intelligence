@@ -18,6 +18,7 @@ from aifred.lib.describer_list import LOCAL, MAIN
 from aifred.lib.frame_sources import Frame
 from aifred.lib.gpu_orc_client import GpuOrcClient, GpuOrcError
 from aifred.lib.remote_describers import RemoteHost, RemoteModel
+from aifred.lib.user_error import Invalid, UpstreamFailed
 from aifred.lib.vision_routing import Describer, describe_via, describe_with_second_attempt
 from aifred.lib.vision_vram_check import VRAMCheckResult
 
@@ -420,3 +421,36 @@ def test_the_main_model_entry_is_only_aifreds_own_model(monkeypatch):
     assert vision_routing.loaded_seeing_profile() is None
     monkeypatch.setattr(vision_routing, "loaded_llamaswap_profiles", lambda: ["GLM-5.3-Flash-test-vllm", "Qwen3.6-35B-A3B"])
     assert vision_routing.loaded_seeing_profile() == "Qwen3.6-35B-A3B"
+
+
+# ── unloading what is loaded on a machine ────────────────────────────
+
+def test_unloading_a_machine_asks_its_llama_swap(box, monkeypatch):
+    asked: list[str] = []
+
+    def post(url: str, timeout: float) -> httpx.Response:
+        asked.append(url)
+        return httpx.Response(200, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(httpx, "post", post)
+    describer_list.unload(f"Box/{BIG}")
+    assert asked == ["http://box.test:11435/api/models/unload"]
+
+
+def test_a_machine_that_refuses_to_unload_says_so(box, monkeypatch):
+    monkeypatch.setattr(httpx, "post", lambda url, timeout: httpx.Response(500, request=httpx.Request("POST", url)))
+    with pytest.raises(UpstreamFailed) as refused:
+        describer_list.unload(f"Box/{BIG}")
+    assert refused.value.key == "remote_unload_failed" and refused.value.values["host"] == "Box"
+
+
+def test_nothing_is_unloaded_while_a_burn_in_runs(box, monkeypatch):
+    monkeypatch.setattr(describer_list, "_measuring", f"Box/{SMALL}")
+    with pytest.raises(describer_list.BurnInRunning):
+        describer_list.unload(f"Box/{BIG}")
+
+
+@pytest.mark.parametrize("source", [LOCAL, MAIN, "NoSuchMachine/Model"])
+def test_only_the_models_of_another_machine_can_be_unloaded(box, source):
+    with pytest.raises(Invalid):
+        describer_list.unload(source)

@@ -105,6 +105,7 @@ class Row:
     note: str       # an entry of another machine: what holds it back, or what it needs as measured
     warn: bool      # the note says why the entry is skipped
     remote: bool    # a describer of another machine (it can be burnt in)
+    loaded: bool    # it is loaded there now (it can be unloaded)
 
 
 def rows(lang: str) -> list[Row]:
@@ -120,7 +121,7 @@ def rows(lang: str) -> list[Row]:
     by_host = {machine.host.name: machine for machine in machines}
     listed = []
     for index, entry in enumerate(matched(stored(), machines)):
-        note, warn, remote = "", False, False
+        note, warn, remote, loaded = "", False, False, False
         if entry.source == LOCAL:
             label = f"{vigilantia().model or '—'} · {t('vision_describer_this_machine', lang=lang)}"
         elif entry.source == MAIN:
@@ -131,6 +132,7 @@ def rows(lang: str) -> list[Row]:
             machine = by_host.get(host.name) if host else None
             label = f"{model_id} · {host.name if host else '?'}"
             model = next((m for m in machine.models if m.model == model_id), None) if machine else None
+            loaded = model is not None and model.loaded
             if entry.source in _failed:
                 note, warn = t("vision_remote_measure_failed", lang=lang, error=_failed[entry.source]), True
             elif machine is None or not machine.reachable:
@@ -148,7 +150,7 @@ def rows(lang: str) -> list[Row]:
                 else:
                     note = t("vision_remote_measured", lang=lang, ctx=ctx, mib=format_number(measured[0], 0),
                              when=format_stamp(when.timestamp()))
-        listed.append(Row(index, entry.source, label, entry.enabled, note, warn, remote))
+        listed.append(Row(index, entry.source, label, entry.enabled, note, warn, remote, loaded))
     return listed
 
 
@@ -200,6 +202,20 @@ _run: asyncio.Task[None] | None = None
 def measuring() -> str:
     """The source being burnt in now, "" when none is."""
     return _measuring
+
+
+def unload(source: str) -> None:
+    """Unload what is loaded on the machine of ``<machine>/<model>`` (not while a burn-in runs: it unloads and loads
+    there itself). :class:`BurnInRunning`; ValueError for a source of no other machine; ``UpstreamFailed`` when the
+    machine does not answer."""
+    from .remote_describers import split, unload_machine
+
+    if _measuring:
+        raise BurnInRunning("burn_in_running", source=_measuring)
+    remote = split(source) if source not in (LOCAL, MAIN) else None
+    if remote is None:
+        raise Invalid("not_a_remote_describer", source=source)
+    unload_machine(remote[0])
 
 
 def start_burn_in(source: str) -> asyncio.Task[None]:

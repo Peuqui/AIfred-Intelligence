@@ -1587,5 +1587,13 @@
   "error_vram_blocked_describer_later": "{blocked} — a describer is only added after that.",
   "image_gone": "Image no longer available",
   "vision_overlay_zoom": " · Zoom",
-  "vision_overlay_preroll": " · Pre-roll"
+  "vision_overlay_preroll": " · Pre-roll",
+  "vision_settings_remote_unload": "Unload",
+  "vision_settings_remote_unload_tooltip": "Unloads the models loaded on that machine (its llama-swap loads again when one is needed).",
+  "error_remote_unload_failed": "{host}: unloading failed — {error}",
+  "vision_settings_remote_maintenance_link": "Burning in and unloading the models of other machines: Maintenance → Describers of other machines",
+  "maintenance_remote_describers": "Describers of other machines",
+  "maintenance_remote_describers_intro": "The burn-in measures what a model needs on the other machine (it unloads every model there, loads the chosen one with the stress picture and keeps the peak). Unloading clears the models loaded there. The order and the switches are in the settings.",
+  "maintenance_remote_describers_none": "No other machine with describers is set up.",
+  "maintenance_remote_loaded": "loaded"
 }
