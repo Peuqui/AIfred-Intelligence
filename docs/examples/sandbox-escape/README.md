@@ -258,6 +258,12 @@ Damit ist Befund 1 geschlossen. Kosten null: die gängigen JS-Libs (Chart.js, D3
 Plotly, Three.js) liegen jetzt **lokal gespiegelt** unter `assets/vendor/`
 (via `scripts/fetch_vendor_libs.sh`) und werden über localhost ausgeliefert; die
 Tool-Prompts weisen das Modell an, diese statt externer CDNs zu nutzen.
+Three.js r160 liegt zusätzlich als ES-Modul mit Zusatzteilen (OrbitControls,
+Nachbearbeitung, lil-gui, stats ...) unter `assets/vendor/three/`, ebenfalls lokal
+und ohne CDN; eingebunden über eine Import-Map (`three` →
+`/vendor/three/three.module.min.js`, `three/addons/` → `/vendor/three/addons/`).
+Bewusst nicht enthalten: WebGPU/Knoten-Materialien, große Wasm-Bibliotheken,
+Exporter, WebXR.
 Retrieval-Egress über render_html ist damit tot, self-contained Visualisierungen
 funktionieren weiter.
 

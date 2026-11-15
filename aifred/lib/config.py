@@ -1592,6 +1592,12 @@ BROWSER_RENDER_TIMEOUT_SECONDS = 60          # hard cap for the whole render ses
 BROWSER_RENDER_WINDOW_SIZE = "1280,800"      # viewport for screenshots
 BROWSER_RENDER_DEFAULT_WAIT_MS = 2000        # settle time after load (real time —
                                              # animations run live before the shot)
+# Meldungen der Browser-Konsole, die der Render-Browser dem Modell nicht weitergibt (Regex, gesucht im Text): Hinweise
+# des Grafiktreibers oder einer Bibliothek ohne Bedeutung für die Seite; jede Rückmeldung kostet das Modell sonst Token
+# und nimmt ihm das Zeichen „keine Meldungen“.
+BROWSER_CONSOLE_IGNORE_PATTERNS = (
+    r"GL Driver Message \(OpenGL, Performance, .*\): GPU stall due to ReadPixels",   # Auslesen der Zeichenfläche für den Screenshot
+)
 BROWSER_RENDER_ACTION_TIMEOUT_MS = 5000      # per-action timeout (missing selector
                                              # fails fast instead of hanging)
 

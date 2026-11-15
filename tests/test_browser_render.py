@@ -7,8 +7,10 @@ import uuid
 import pytest
 
 from aifred.lib.browser_render import (
+    console_message_ignored,
     render_html_in_browser,
     resolve_sandbox_html_path,
+    vendor_file,
 )
 from aifred.plugins.tools.sandbox import _looks_like_html_document
 
@@ -134,3 +136,45 @@ def test_render_with_actions(session_html):
     assert len(result.screenshot_urls) == 2  # intermediate + final
     assert len(result.action_errors) == 1
     assert "does-not-exist" in result.action_errors[0]
+
+
+# ── the local libraries and the console the model gets ───────────
+
+def test_the_vendor_folder_is_read_with_its_sub_folders() -> None:
+    for path in ("/vendor/three.min.js", "/vendor/three/three.module.min.js", "/vendor/three/addons/controls/OrbitControls.js"):
+        assert vendor_file(path) is not None, path
+
+
+@pytest.mark.parametrize("path", [
+    "/vendor/../README.md", "/vendor/three/../../../etc/passwd", "/vendor/%2e%2e/%2e%2e/README.md",
+    "/vendor/three/nothing.js", "/vendor/three", "/elsewhere/three.min.js",
+])
+def test_a_path_that_leaves_the_vendor_folder_or_leads_to_nothing_is_no_library(path: str) -> None:
+    assert vendor_file(path) is None
+
+
+def test_the_drivers_hint_about_reading_the_canvas_does_not_reach_the_model() -> None:
+    hint = "[.WebGL-0x27d4007a0600]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels"
+    assert console_message_ignored(hint)
+    assert not console_message_ignored("Uncaught TypeError: x is not a function")
+
+
+_MODULE_PAGE = """<!DOCTYPE html><html><body>
+<script type="importmap">{"imports":{"three":"/vendor/three/three.module.min.js","three/addons/":"/vendor/three/addons/"}}</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+console.log("modules: three " + THREE.REVISION + ", " + typeof OrbitControls);
+</script></body></html>"""
+
+
+@pytest.mark.skipif(_chrome_missing, reason="google-chrome not installed")
+def test_a_page_loads_three_and_its_add_ons_as_local_modules(tmp_path, monkeypatch):
+    from aifred.lib import config
+    out_root = tmp_path / "sandbox_output"
+    monkeypatch.setattr(config, "SANDBOX_OUTPUT_DIR", out_root)
+    fname = _write_html(out_root, _MODULE_PAGE)
+    result = asyncio.run(render_html_in_browser(f"/_upload/sandbox_output/{SESSION}/{fname}", SESSION, wait_ms=500))
+    assert result.error == "" and not result.timed_out
+    assert result.console_messages == ["log: modules: three 160, function"]
+

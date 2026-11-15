@@ -14,12 +14,14 @@ browser downloads involved.
 from __future__ import annotations
 
 import asyncio
+import re
 import shutil
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .config import BROWSER_CONSOLE_IGNORE_PATTERNS
 from .logging_utils import log_message
 
 
@@ -30,6 +32,29 @@ class RenderResult:
     screenshot_urls: list[str] = field(default_factory=list)
     error: str = ""
     timed_out: bool = False
+
+
+_IGNORED_CONSOLE = tuple(re.compile(pattern) for pattern in BROWSER_CONSOLE_IGNORE_PATTERNS)
+
+
+def console_message_ignored(text: str) -> bool:
+    """Is this console message one the model does not get to see (``BROWSER_CONSOLE_IGNORE_PATTERNS``)?"""
+    return any(pattern.search(text) for pattern in _IGNORED_CONSOLE)
+
+
+def vendor_file(url_path: str) -> Path | None:
+    """The file of the local libraries (``VENDOR_DIR``, with its sub folders: ``/vendor/three/addons/…``) that a page
+    asks for under ``VENDOR_URL``; None for a path that leads out of the folder or to nothing."""
+    from urllib.parse import unquote
+
+    from .config import VENDOR_DIR, VENDOR_URL
+
+    prefix = f"{VENDOR_URL}/"
+    if not url_path.startswith(prefix):
+        return None
+    root = VENDOR_DIR.resolve()
+    file = (root / unquote(url_path[len(prefix):])).resolve()
+    return file if file.is_relative_to(root) and file.is_file() else None
 
 
 def resolve_sandbox_html_path(html_url: str, session_id: str) -> Path | None:
@@ -156,7 +181,7 @@ async def render_html_in_browser(
             try:
                 page = await browser.new_page(viewport={"width": width, "height": height})
                 page.set_default_timeout(BROWSER_RENDER_ACTION_TIMEOUT_MS)
-                page.on("console", lambda m: result.console_messages.append(f"{m.type}: {m.text}"))
+                page.on("console", lambda m: None if console_message_ignored(m.text) else result.console_messages.append(f"{m.type}: {m.text}"))
                 page.on("pageerror", lambda e: result.console_messages.append(f"pageerror: {e}"))
 
                 async def take_screenshot() -> None:
@@ -178,7 +203,7 @@ async def render_html_in_browser(
                 # from VENDOR_DIR (basename only, no traversal).
                 from urllib.parse import urlparse as _urlparse
 
-                from .config import VENDOR_DIR, VENDOR_URL
+                from .config import VENDOR_URL
 
                 _vendor_types = {".js": "text/javascript", ".css": "text/css"}
 
@@ -186,11 +211,13 @@ async def render_html_in_browser(
                     parsed = _urlparse(route.request.url)
                     host = (parsed.hostname or "").lower()
                     if parsed.path.startswith(f"{VENDOR_URL}/"):
-                        lib = VENDOR_DIR / Path(parsed.path).name
-                        if lib.is_file():
+                        lib = vendor_file(parsed.path)
+                        if lib is not None:
+                            # A module script is fetched with CORS: the page (file:) is another origin.
                             await route.fulfill(
                                 body=lib.read_bytes(),
                                 content_type=_vendor_types.get(lib.suffix, "application/octet-stream"),
+                                headers={"access-control-allow-origin": "*"},
                             )
                         else:
                             await route.abort()
