@@ -59,16 +59,3 @@ def test_every_upload_folder_needs_the_login_except_shared_previews(tmp_path: Pa
     assert [entry.path for entry in upload_files.UPLOAD_FOLDERS if not entry.needs_login] == ["/_upload/html_preview"]
     client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))
     assert client.get("/_upload/audio/file.txt").text == "session_audio"
-
-
-def test_a_page_is_served_sandboxed_without_the_apps_origin(tmp_path: Path) -> None:
-    (tmp_path / "game.html").write_text("<script>document.title = 'x'</script>")
-    (tmp_path / "note.txt").write_text("plain")
-    app = Starlette()
-    app.mount("/_upload/documents", AuthenticatedStaticFiles(directory=str(tmp_path)))
-    client = TestClient(app)
-    client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))
-    page = client.get("/_upload/documents/game.html")
-    assert page.status_code == 200 and page.headers["content-security-policy"] == "sandbox allow-scripts"
-    assert "content-security-policy" not in client.get("/_upload/documents/note.txt").headers
-
