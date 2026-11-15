@@ -70,7 +70,7 @@ def test_the_standalone_page_runs_in_the_sandbox_frame_without_a_server(tmp_path
 
         from aifred.lib.config import BROWSER_RENDER_CHANNEL
 
-        async def only_local(route) -> None:  # type: ignore[no-untyped-def]
+        async def only_local(route) -> None:
             if route.request.url.split(":", 1)[0] in ("file", "data", "blob", "about"):
                 await route.continue_()
             else:
