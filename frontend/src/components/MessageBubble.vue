@@ -72,6 +72,18 @@ function enlarge(event: MouseEvent): void {
   pictures.value = [...bubble.querySelectorAll("img")].map((image) => image.src).filter((src) => src.includes("/_upload/"));
   shownAt.value = pictures.value.indexOf(picture.src);
 }
+
+// An uploaded picture that is gone (its event deleted, its file cleaned up) says so, instead of the browser's
+// broken-image icon with the alt text; the bubble itself stays in the history. The error of an <img> does not bubble,
+// so the bubble listens in the capture phase.
+function pictureGone(event: Event): void {
+  const picture = event.target;
+  if (!(picture instanceof HTMLImageElement) || !picture.src.includes("/_upload/")) return;
+  const note = document.createElement("span");
+  note.className = "gone";
+  note.textContent = t("image_gone");
+  picture.replaceWith(note);
+}
 </script>
 
 <template>
@@ -100,7 +112,7 @@ function enlarge(event: MouseEvent): void {
       <span v-if="entry.tts_note" class="note">{{ entry.tts_note }}</span>
     </header>
     <!-- eslint-disable-next-line vue/no-v-html -- sanitized by renderMarkdown (DOMPurify) -->
-    <div ref="content" class="content" :class="{ folded }" @click="enlarge" v-html="html" />
+    <div ref="content" class="content" :class="{ folded }" @click="enlarge" @error.capture="pictureGone" v-html="html" />
     <button v-if="pinned && stuck && (overflowing || unfolded)" type="button" class="more" @click="unfolded = !unfolded">
       {{ unfolded ? t("question_less") : t("question_more") }}
     </button>
@@ -169,5 +181,6 @@ header { font-size: var(--text-small); font-weight: 600; color: var(--aifred-pri
 .content :deep(td), .content :deep(th) { border: 1px solid var(--aifred-border); padding: 2px 6px; }
 .content :deep(img) { max-width: 100%; }
 .content :deep(img[src*="/_upload/"]) { cursor: zoom-in; }
+.content :deep(.gone) { display: inline-block; margin: 2px 0; color: var(--aifred-text-muted); font-style: italic; font-size: 0.85rem; }
 .content :deep(a) { color: var(--aifred-accent-blue); }
 </style>

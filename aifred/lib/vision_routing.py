@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 from .debug_bus import debug
 from .formatting import format_number
 from .ollama_models import list_ollama_vlm_models
+from .user_error import UserError
 
 if TYPE_CHECKING:
     from .vision_vram_check import VRAMCheckResult
@@ -164,7 +165,7 @@ def fitting_visiond(name: str) -> tuple[str | None, VRAMCheckResult | None]:
     if blocked is not None:
         return None, VRAMCheckResult(
             fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
-            message=f"{blocked} — a describer is only added after that.",
+            reason=UserError("vram_blocked_describer_later", blocked=blocked),
         )
     checks = [(profile, check_visiond_fits(profile)) for profile in placements]
     home_check = checks[0][1]
@@ -474,7 +475,7 @@ def loaded_describer_placements(name: str) -> list[str] | None:
     return [profile for profile in loaded_llamaswap_profiles() if visiond_home(profile) == home]
 
 
-def load_in_progress() -> str | None:
+def load_in_progress() -> UserError | None:
     """Warum gerade nichts Neues auf die Karten darf, ``None`` wenn doch (GPU-Orcs Ampel: ein großes
     Modell lädt, oder jemand hält die Karten frei).
 
@@ -488,10 +489,10 @@ def load_in_progress() -> str | None:
         light = get_gpu_orc_client().traffic_light()
     except GpuOrcError as error:
         logger.warning("GPU-Orc says nothing about loading models: %s", error)
-        return f"GPU-Orc gives no information: {error}"
+        return UserError("vram_gpu_orc_silent", error=error)
     if light.held is not None:
-        return f"the cards are held free ({light.held['reason']})"
-    return f"'{', '.join(light.loading)}' is loading" if light.loading else None
+        return UserError("vram_cards_held", reason=light.held["reason"])
+    return UserError("vram_model_loading", models=", ".join(light.loading)) if light.loading else None
 
 
 # Local on-prem backends where the optional Ollama side-channel makes sense.

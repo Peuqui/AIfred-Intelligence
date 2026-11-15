@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 
 from aifred.lib.frame_sources import Frame
+from aifred.lib.user_error import UserError
 from aifred.lib.vision_filters import face_worker
 from aifred.lib.vision_filters.face_detect import CPU_PROVIDER, CUDA_PROVIDER, AnalyzerSettings
 from aifred.lib.vision_filters.face_worker import FaceWorker, FaceWorkerEnded
@@ -79,7 +80,7 @@ def test_a_worker_that_died_is_replaced_by_the_next_frame(workers: list[FaceWork
 def test_while_the_light_is_red_it_starts_on_the_cpu_and_moves_to_the_card_once_green(
     workers: list[FaceWorker], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    light: dict[str, str | None] = {"refusal": "'GLM' is loading"}
+    light: dict[str, UserError | None] = {"refusal": UserError("vram_model_loading", models="GLM")}
     monkeypatch.setattr(face_worker, "_light_refusal", lambda: light["refusal"])
     monkeypatch.setattr(face_worker, "_uuid_of_card", lambda index: pytest.fail("no card while the light is red"))
     worker = _cpu_worker(workers, card=2)

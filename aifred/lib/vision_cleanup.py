@@ -177,7 +177,7 @@ async def _describe_before_pruning() -> None:
     # whole backfill. A partial run is idempotent anyway.
     described = await run_bulk_describe(check_vram=False)
     if described.aborted_vram:
-        log_message(f"🌙 Vision GC describe skipped: {described.vram_message}")
+        log_message(f"🌙 Vision GC describe skipped: {described.vram_reason}")
     elif described.total_events:
         log_message(
             f"🌙 Vision GC describe: {described.total_clusters} clusters "

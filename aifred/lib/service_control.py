@@ -65,7 +65,7 @@ def describer_to_load() -> tuple[str, str]:
         return DESCRIBER_BACKEND, profile
     if fit is None:
         raise ServiceControlRefused("service_control_describer_no_profile", model=vision)
-    raise ServiceControlRefused("service_control_describer_does_not_fit", reason=fit.message)
+    raise ServiceControlRefused("service_control_describer_does_not_fit", reason=fit.reason)
 
 
 # ---- Doing it -------------------------------------------------------------------------

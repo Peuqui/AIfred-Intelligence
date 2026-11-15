@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .logging_utils import log_message
+from .user_error import UserError
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ class BulkDescribeResult:
     failed: int = 0
     cancelled: bool = False
     aborted_vram: bool = False
-    vram_message: str = ""
+    vram_reason: UserError | None = None
     skipped: bool = False  # another bulk run was already in flight
 
 
@@ -166,7 +167,7 @@ async def _bulk_describe_impl(
             vram = await check_vlm_fits()
             if not vram.fits:
                 return BulkDescribeResult(
-                    aborted_vram=True, vram_message=vram.message
+                    aborted_vram=True, vram_reason=vram.reason
                 )
         except Exception as e:  # the pre-check only advises: the run goes on, logged
             logger.warning("VRAM check failed (continuing anyway): %s", e, exc_info=True)

@@ -39,13 +39,14 @@ def patched_settings(monkeypatch, tmp_path: Path):
     # llama-swap-Zweig setzen state["visiond"] auf einen Profilnamen,
     # state["visiond_fits"] False = keine Platzierung passt.
     import aifred.lib.vision_routing as vr
+    from aifred.lib.user_error import UserError
     from aifred.lib.vision_vram_check import VRAMCheckResult
 
     def fitting(name):
         if state["visiond"] is None:
             return None, None
         fit = VRAMCheckResult(fits=state["visiond_fits"], needed_mb=0, free_mb=0, gpu_index=-1,
-                              message="does not fit")
+                              reason=UserError("vram_no_gpus"))
         return (state["visiond"] if state["visiond_fits"] else None), fit
 
     monkeypatch.setattr(vr, "fitting_visiond", fitting)

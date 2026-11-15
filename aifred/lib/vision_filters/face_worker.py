@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING
 
 from ..config import FACE_WORKER_END_TIMEOUT_S, FACE_WORKER_PROOF_POLL_S, PROJECT_ROOT
 from ..gpu_release import GpuReleaseResult
+from ..user_error import UserError
 from .face_detect import CPU_PROVIDER, AnalyzerSettings, FaceAnalyzer, FaceDetection
 
 if TYPE_CHECKING:
@@ -179,7 +180,7 @@ class FaceWorker:
         return running
 
 
-def _light_refusal() -> str | None:
+def _light_refusal() -> UserError | None:
     """Why nothing may go on a card right now (GPU-Orc's traffic light), None when it may."""
     from ..vision_routing import load_in_progress
 

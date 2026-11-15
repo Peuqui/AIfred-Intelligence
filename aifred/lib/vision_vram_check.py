@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .ollama_models import OLLAMA_ERRORS
+from .user_error import UserError
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,12 @@ class VRAMCheckResult:
     free_mb: int
     gpu_index: int
     blockers: list[dict[str, Any]] = field(default_factory=list)
-    message: str = ""
+    reason: UserError | None = None  # why it does not fit (or what was skipped): ``reason.message(lang)`` for a page
+
+    @property
+    def message(self) -> str:
+        """The reason in English, for logs and the debug console."""
+        return str(self.reason) if self.reason else ""
 
 
 def _norm_model(name: str) -> str:
@@ -105,7 +111,7 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
     if profile in loaded_llamaswap_profiles():
         return VRAMCheckResult(
             fits=True, needed_mb=0, free_mb=0, gpu_index=-1,
-            message=f"VLM profile '{profile}' is already loaded.",
+            reason=UserError("vram_profile_loaded", profile=profile),
         )
 
     from .vlm_naming import VISIOND_SUFFIX, visiond_home
@@ -117,10 +123,7 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
     if peak_mb is None:
         return VRAMCheckResult(
             fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
-            message=(
-                f"VLM '{base}' is not measured at {num_ctx} context "
-                "(burn-in missing) — space needed unknown."
-            ),
+            reason=UserError("vram_not_measured", model=base, context=num_ctx),
         )
     needed_mb = peak_mb + VLM_HEADROOM_MIB
 
@@ -136,7 +139,7 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
         # above), and the reason is shown instead of an error in the page.
         return VRAMCheckResult(
             fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
-            message=f"VLM profile '{profile}': card usage unknown — {error}",
+            reason=UserError("vram_card_usage_unknown", profile=profile, error=error),
         )
     releasable = {
         card.uuid: sum(
@@ -158,10 +161,7 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
         if missing:
             return VRAMCheckResult(
                 fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
-                message=(
-                    f"VLM profile '{profile}' is pinned to a GPU that does not exist "
-                    f"({', '.join(missing)})."
-                ),
+                reason=UserError("vram_pinned_gpu_missing", profile=profile, gpus=", ".join(missing)),
             )
         candidates = [free_by_uuid[u] for u in pinned]
     else:
@@ -169,7 +169,7 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
     if not candidates:
         return VRAMCheckResult(
             fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
-            message="nvidia-smi reports no GPUs.",
+            reason=UserError("vram_no_gpus"),
         )
     free_mb = sum(free for _, free in candidates)
     gpu_index = candidates[0][0] if len(candidates) == 1 else -1
@@ -179,10 +179,7 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
         )
     return VRAMCheckResult(
         fits=False, needed_mb=needed_mb, free_mb=free_mb, gpu_index=gpu_index,
-        message=(
-            f"VLM '{base}' needs {needed_mb} MiB, {free_mb} MiB are free "
-            f"on {len(candidates)} GPU(s)."
-        ),
+        reason=UserError("vram_needs", model=base, needed=needed_mb, free=free_mb, gpus=len(candidates)),
     )
 
 
@@ -191,7 +188,7 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
     der verfügbaren GPUs? Aus Sicht des Ollama-VLM-Daemons.
 
     Wenn ``fits=False``: Caller sollte den User informieren mit
-    ``message`` + ``blockers`` und nicht starten.
+    ``reason`` + ``blockers`` und nicht starten.
     """
     from . import vlm_vram_cache
     from .config import VLM_NUM_CTX, resolve_vlm_host
@@ -201,7 +198,7 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
     if not target:
         return VRAMCheckResult(
             fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
-            message="No VLM model configured.",
+            reason=UserError("vram_no_vlm_configured"),
         )
 
     # llama.cpp-Describer-Pfad: Existiert ein -visiond-Profil, entscheidet
@@ -256,7 +253,7 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
     if any(_norm_model(b["name"]) == _norm_model(target) for b in running):
         return VRAMCheckResult(
             fits=True, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
-            message=f"VLM '{target}' is already loaded — no VRAM check needed.",
+            reason=UserError("vram_vlm_loaded", model=target),
         )
 
     free_per_gpu = _query_free_vram_per_gpu()
@@ -264,7 +261,7 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
         # Ohne nvidia-smi können wir nicht prüfen → optimistisch starten.
         return VRAMCheckResult(
             fits=True, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
-            message="nvidia-smi not available — check skipped.",
+            reason=UserError("vram_smi_unavailable"),
         )
 
     blocker_str = ", ".join(
@@ -292,11 +289,9 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
         return VRAMCheckResult(
             fits=False, needed_mb=needed_mb, free_mb=free_on_target,
             gpu_index=target_gpu, blockers=running,
-            message=(
-                f"VLM model '{target}' needs ~{needed_mb} MiB (+ reserve), "
-                f"but only {free_on_target} MiB are free on the VLM GPU "
-                f"{target_gpu}. Please unload at least one: {blocker_str}. "
-                f"VLM_NUM_CTX={VLM_NUM_CTX} is fixed in config.py."
+            reason=UserError(
+                "vram_vlm_needs_unload_target", model=target, needed=needed_mb, free=free_on_target,
+                gpu=target_gpu, blockers=blocker_str, num_ctx=VLM_NUM_CTX,
             ),
         )
 
@@ -313,10 +308,8 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
     return VRAMCheckResult(
         fits=False, needed_mb=needed_mb, free_mb=free_per_gpu[best_gpu],
         gpu_index=best_gpu, blockers=running,
-        message=(
-            f"VLM model '{target}' needs ~{needed_mb} MiB (+ reserve), but "
-            f"the most free VRAM is {free_per_gpu[best_gpu]} MiB on GPU "
-            f"{best_gpu}. Please unload at least one of these models: "
-            f"{blocker_str}. VLM_NUM_CTX={VLM_NUM_CTX} is fixed in config.py."
+        reason=UserError(
+            "vram_vlm_needs_unload_best", model=target, needed=needed_mb, free=free_per_gpu[best_gpu],
+            gpu=best_gpu, blockers=blocker_str, num_ctx=VLM_NUM_CTX,
         ),
     )

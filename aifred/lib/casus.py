@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass, replace
 from typing import Any
 
-from .user_error import Conflict, Invalid, Missing
+from .user_error import Conflict, Invalid, Missing, UserError
 from .vision_store import VisionStore
 
 logger = logging.getLogger(__name__)
@@ -160,7 +160,7 @@ class DescribeAll:
     processed: int = 0
     failed: int = 0
     outcome: str = ""      # after a run: done, cancelled, nothing, busy (another caller's run), no_room, error
-    detail: str = ""       # no_room: what the model needs; error: the error
+    detail: str | UserError = ""  # no_room: what the model needs; error: the error
     cancelling: bool = False
 
     def message(self, lang: str) -> str:
@@ -176,7 +176,8 @@ class DescribeAll:
             key = f"casus_bulk_{self.outcome}"
         else:
             return ""
-        return t(key, lang=lang, detail=self.detail, events=format_number(self.events, 0),
+        detail = self.detail.message(lang) if isinstance(self.detail, UserError) else self.detail
+        return t(key, lang=lang, detail=detail, events=format_number(self.events, 0),
                  clusters=format_number(self.clusters, 0), processed=format_number(self.processed, 0),
                  failed=format_number(self.failed, 0))
 
@@ -274,6 +275,6 @@ async def _describe_every_event() -> None:
         outcome = "nothing"
     else:
         outcome = "cancelled" if result.cancelled else "done"
-    _describe_all = replace(_describe_all, running=False, cancelling=False, outcome=outcome, detail=result.vram_message,
+    _describe_all = replace(_describe_all, running=False, cancelling=False, outcome=outcome, detail=result.vram_reason or "",
                             events=result.total_events, clusters=result.total_clusters, processed=result.processed,
                             failed=result.failed)

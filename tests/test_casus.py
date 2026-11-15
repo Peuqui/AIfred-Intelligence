@@ -16,6 +16,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from aifred.lib import casus, vision_store
+from aifred.lib.user_error import UserError
 from aifred.lib.casus import EventFilter
 from aifred.lib.vision_store import VisionStore
 
@@ -275,7 +276,8 @@ def test_describing_every_event_reports_its_progress_and_stops_when_asked(runs: 
     ({"total_events": 30, "total_clusters": 5, "processed": 5, "failed": 2}, "done", "Fertig — 5 Cluster analysiert, 2 Fehler"),
     ({}, "nothing", "Keine Ereignisse ohne Beschreibung"),
     ({"skipped": True}, "busy", "Läuft bereits (Nachtlauf oder Chat) — bitte warten"),
-    ({"aborted_vram": True, "vram_message": "VLM braucht 7.735 MiB"}, "no_room", "⚠️ VLM braucht 7.735 MiB"),
+    ({"aborted_vram": True, "vram_reason": UserError("vram_needs", model="Q", needed="7.735", free="1", gpus=1)}, "no_room",
+     "⚠️ VLM 'Q' braucht 7.735 MiB, frei sind 1 MiB auf 1 GPU(s)."),
 ])
 def test_how_a_run_of_every_event_ended(runs: None, monkeypatch: pytest.MonkeyPatch, result: dict, outcome: str, message: str) -> None:
     from aifred.lib import vision_bulk

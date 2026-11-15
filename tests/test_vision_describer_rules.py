@@ -10,6 +10,7 @@ from aifred.lib.vision_routing import (
     camera_describer,
     chat_describer,
 )
+from aifred.lib.user_error import UserError
 from aifred.lib.vision_vram_check import VRAMCheckResult
 
 MAIN = "Big-Text-Model"
@@ -39,12 +40,12 @@ def world(monkeypatch):
             lambda p: VRAMCheckResult(
                 fits=fits.get(p, False) if isinstance(fits, dict) else fits,
                 needed_mb=9488, free_mb=(free or {}).get(p, 0), gpu_index=-1,
-                message="does not fit",
+                reason=UserError("vram_needs", model=p, needed=9488, free=0, gpus=1),
             ),
         )
         monkeypatch.setattr(vision_routing, "loaded_llamaswap_profiles", lambda: loaded or [])
         monkeypatch.setattr(vision_routing, "load_in_progress",
-                            lambda: f"'{loading}' is loading" if loading else None)
+                            lambda: UserError("vram_model_loading", models=loading) if loading else None)
         monkeypatch.setattr(vision_routing, "settings_model",
                             lambda role: vision_llm if role == "vision" else MAIN)
         monkeypatch.setattr(config, "get_effective_model_from_settings",
@@ -105,7 +106,7 @@ def test_camera_says_which_describers_it_skipped(world, monkeypatch):
     camera_describer(VLM, explicit=False)
     assert len(said) == 1
     assert f"describing with {MAIN_SEEING}" in said[0]
-    assert "local: does not fit" in said[0]
+    assert "local: VLM 'Small-VL-4B-visiond' needs 9488 MiB" in said[0]
 
 
 def test_camera_says_nothing_when_the_first_describer_works(world, monkeypatch):
@@ -219,10 +220,10 @@ def test_the_traffic_light_is_gpu_orcs(monkeypatch) -> None:
     install_fake_gpu_orc(monkeypatch, fake)
     assert vision_routing.load_in_progress() is None
     fake.loading = [MAIN]
-    assert vision_routing.load_in_progress() == f"'{MAIN}' is loading"
+    assert str(vision_routing.load_in_progress()) == f"'{MAIN}' is loading"
 
 
 def test_a_gpu_orc_that_says_nothing_is_no_green_light(monkeypatch) -> None:
     monkeypatch.setattr(gpu_orc_client, "_default_client", gpu_orc_client.GpuOrcClient("http://127.0.0.1:9"))
     progress = vision_routing.load_in_progress()
-    assert progress is not None and "GPU-Orc gives no information" in progress
+    assert progress is not None and "GPU-Orc gives no information" in str(progress)

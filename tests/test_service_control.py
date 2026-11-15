@@ -21,10 +21,12 @@ from aifred.lib.gpu_release import GpuReleaseResult
 from aifred.lib.i18n import t
 from aifred.lib.service_control import ServiceControlRefused
 from aifred.lib.service_status import ModelStatus, ServiceSnapshot
+from aifred.lib.user_error import UserError
 
 MAIN = "DeepSeek-vllm"
 VISION = "Qwen3VL-4B"
 PLACEMENT = "Qwen3VL-4B-visiond-gpu0"
+NO_ROOM = UserError("vram_needs", model=VISION, needed=900, free=500, gpus=1)
 
 
 def settings(monkeypatch: pytest.MonkeyPatch, backend_type: str, main: str) -> None:
@@ -66,8 +68,7 @@ def test_the_describer_is_the_placement_that_fits_next_to_what_is_loaded(monkeyp
     [
         ("", (None, None), "service_control_no_describer", {}),
         (VISION, (None, None), "service_control_describer_no_profile", {"model": VISION}),
-        (VISION, (None, SimpleNamespace(message="GPU 0: 900 MiB frei")), "service_control_describer_does_not_fit",
-         {"reason": "GPU 0: 900 MiB frei"}),
+        (VISION, (None, SimpleNamespace(reason=NO_ROOM)), "service_control_describer_does_not_fit", {"reason": NO_ROOM}),
     ],
 )
 def test_a_describer_that_would_push_the_main_model_out_is_not_loaded(

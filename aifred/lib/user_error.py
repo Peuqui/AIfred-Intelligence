@@ -25,7 +25,8 @@ class UserError(Exception):
     def message(self, lang: str | None = None) -> str:
         from .i18n import t
 
-        return t(f"error_{self.key}", lang=lang, **self.values)
+        values: dict[str, Any] = {name: value.message(lang) if isinstance(value, UserError) else value for name, value in self.values.items()}
+        return t(f"error_{self.key}", lang=lang, **values)
 
     def __str__(self) -> str:
         return self.message("en")
