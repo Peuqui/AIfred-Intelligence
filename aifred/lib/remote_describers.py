@@ -213,9 +213,9 @@ def check_fits(model: RemoteModel) -> VRAMCheckResult:
 
 def _swapped_out_mib(host: RemoteHost, cards: list[CardStatus]) -> int:
     """What the machine's llama-swap gives back by itself when one of its other models is asked for (it has no
-    groups there: it swaps its profiles against each other, only one runs): each model of it on the cards as the
-    machine reports its memory or, when it does not (llama-swap's models carry none), as its burn-in measured it.
-    A model without a figure counts nothing, so it can only make the room look smaller."""
+    groups there: it swaps its profiles against each other, only one runs): the burn-in's measurement of each model
+    of it on the cards (the machine's GPU-Orc reports no memory for a single llama-swap model, only the card's
+    total). A model without a measurement counts nothing, so it can only make the room look smaller."""
     from . import vlm_vram_cache
 
     contexts = {m.model: m.context for m in seeing_models(host)}
@@ -226,7 +226,7 @@ def _swapped_out_mib(host: RemoteHost, cards: list[CardStatus]) -> int:
                 continue
             context = contexts.get(holder.item)
             measured = vlm_vram_cache.get(qualified(host, holder.item), context) if context else None
-            total += holder.memory_mib if holder.memory_mib is not None else measured or 0
+            total += measured or 0
     return total
 
 

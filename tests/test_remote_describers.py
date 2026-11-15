@@ -164,13 +164,6 @@ def test_a_loaded_model_without_a_figure_gives_back_nothing(box):
     assert remote_describers.check_remote(f"Box/{BIG}")[0] is False
 
 
-def test_the_memory_a_machine_reports_for_its_model_is_taken_as_it_says(box):
-    box["models"] = [(BIG, False), (SMALL, True)]
-    vlm_vram_cache.put(f"Box/{BIG}", 24576, 20769)
-    box["gpu_orc"].cards = [_card(24564, 12601, ("llama-swap", SMALL, 10300))]
-    assert remote_describers.check_remote(f"Box/{BIG}")[0] is True
-
-
 def test_the_measurement_belongs_to_the_context(box):
     box["models"] = [(BIG, False)]
     vlm_vram_cache.put(f"Box/{BIG}", 8192, 15000)  # measured at another context
