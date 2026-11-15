@@ -262,7 +262,8 @@ Three.js r160 liegt zusätzlich als ES-Modul mit Zusatzteilen (OrbitControls,
 Nachbearbeitung, lil-gui, stats ...) unter `assets/vendor/three/`, ebenfalls lokal
 und ohne CDN; eingebunden über eine Import-Map (`three` →
 `/vendor/three/three.module.min.js`, `three/addons/` → `/vendor/three/addons/`).
-Dazu die 3D-Physik-Engine Rapier (`assets/vendor/rapier/`, „compat“-Fassung mit eingebettetem
+Dazu Schriften für 3D-Text (`assets/vendor/three/fonts/`, MgOpen) und eine freie Figur
+(`assets/vendor/models/RobotExpressive/`, CC0, mit 14 Animationen). Dazu die 3D-Physik-Engine Rapier (`assets/vendor/rapier/`, „compat“-Fassung mit eingebettetem
 WebAssembly, Import-Map-Name `rapier`). Bewusst nicht enthalten: WebGPU/Knoten-Materialien,
 große Wasm-Bibliotheken, Exporter, WebXR; die Physik-Beispiele von three.js fehlen, weil sie ihre
 Engine zur Laufzeit aus dem Netz laden.

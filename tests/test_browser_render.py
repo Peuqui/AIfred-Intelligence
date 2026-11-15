@@ -202,3 +202,27 @@ def test_a_page_runs_the_local_physics_engine(tmp_path, monkeypatch):
     assert result.error == "" and not result.timed_out
     assert result.console_messages == ["log: fell: true"]
 
+
+_FIGURE_PAGE = """<!DOCTYPE html><html><body>
+<script type="importmap">{"imports":{"three":"/vendor/three/three.module.min.js","three/addons/":"/vendor/three/addons/"}}</script>
+<script type="module">
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { FontLoader } from "three/addons/loaders/FontLoader.js";
+import { TextGeometry } from "three/addons/geometries/TextGeometry.js";
+const gltf = await new GLTFLoader().loadAsync("/vendor/models/RobotExpressive/RobotExpressive.glb");
+console.log("clips: " + gltf.animations.length + ", " + gltf.animations.some(clip => clip.name === "Walking"));
+const font = await new FontLoader().loadAsync("/vendor/three/fonts/helvetiker_regular.typeface.json");
+console.log("text: " + (new TextGeometry("V8", { font, size: 1, depth: 0.2 }).attributes.position.count > 0));
+</script></body></html>"""
+
+
+@pytest.mark.skipif(_chrome_missing, reason="google-chrome not installed")
+def test_a_page_loads_the_free_figure_and_a_font(tmp_path, monkeypatch):
+    from aifred.lib import config
+    out_root = tmp_path / "sandbox_output"
+    monkeypatch.setattr(config, "SANDBOX_OUTPUT_DIR", out_root)
+    fname = _write_html(out_root, _FIGURE_PAGE)
+    result = asyncio.run(render_html_in_browser(f"/_upload/sandbox_output/{SESSION}/{fname}", SESSION, wait_ms=1000))
+    assert result.error == "" and not result.timed_out
+    assert result.console_messages == ["log: clips: 14, true", "log: text: true"]
+

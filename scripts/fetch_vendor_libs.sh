@@ -149,6 +149,13 @@ try:
         shutil.copy2(jsm / "libs" / lib, addons / "libs" / lib)
     (addons / "capabilities").mkdir(parents=True, exist_ok=True)
     shutil.copy2(jsm / "capabilities" / "WebGL.js", addons / "capabilities" / "WebGL.js")
+    # Schriften für TextGeometry (MgOpen, frei weitergebbar, solange der Lizenztext dabei bleibt)
+    fonts = target / "fonts"
+    fonts.mkdir(parents=True, exist_ok=True)
+    for font in ["helvetiker_regular", "helvetiker_bold", "optimer_regular", "optimer_bold"]:
+        shutil.copy2(package / "examples" / "fonts" / f"{font}.typeface.json", fonts / f"{font}.typeface.json")
+    for notice in ["LICENSE", "README.md"]:
+        shutil.copy2(package / "examples" / "fonts" / notice, fonts / notice)
 finally:
     shutil.rmtree(work, ignore_errors=True)
 
@@ -224,6 +231,41 @@ try:
 finally:
     shutil.rmtree(work, ignore_errors=True)
 print(f"  ✅ rapier/rapier.module.js geschrieben ({(target / 'rapier.module.js').stat().st_size} bytes)")
+PYEOF
+fi
+
+# Freie Figur (CC0 1.0, Tomás Laulhé/Quaternius; README des Ordners nennt die Lizenz): der Roboter aus den
+# three.js-Beispielen, am Tag r160 geholt und gegen die Git-Blob-Prüfsumme des Repositorys geprüft.
+ROBOT_DIR="$VENDOR_DIR/models/RobotExpressive"
+if [ -s "$ROBOT_DIR/RobotExpressive.glb" ]; then
+  echo "✓ models/RobotExpressive (CC0) bereits vorhanden — übersprungen"
+else
+  echo "↓ RobotExpressive (CC0) ← github.com/mrdoob/three.js (r160)"
+  python3 -I - "$ROBOT_DIR" <<'PYEOF'
+import hashlib
+import json
+import sys
+import urllib.request
+from pathlib import Path
+
+target = Path(sys.argv[1])
+LIST_URL = "https://api.github.com/repos/mrdoob/three.js/contents/examples/models/gltf/RobotExpressive?ref=r160"
+
+
+def fetch(url: str) -> bytes:
+    request = urllib.request.Request(url, headers={"User-Agent": "aifred-vendor-fetch"})
+    with urllib.request.urlopen(request, timeout=120) as response:
+        return response.read()
+
+
+target.mkdir(parents=True, exist_ok=True)
+for item in json.loads(fetch(LIST_URL)):
+    data = fetch(item["download_url"])
+    if hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest() != item["sha"]:
+        print(f"  ❌ Prüfsumme von {item['name']} stimmt nicht — nichts geschrieben", file=sys.stderr)
+        sys.exit(1)
+    (target / item["name"]).write_bytes(data)
+print(f"  ✅ models/RobotExpressive geschrieben ({sum(1 for _ in target.iterdir())} Dateien)")
 PYEOF
 fi
 
