@@ -23,6 +23,7 @@ from typing import Any
 
 from .config import BROWSER_CONSOLE_IGNORE_PATTERNS
 from .logging_utils import log_message
+from .vendor_files import vendor_file
 
 
 @dataclass
@@ -40,21 +41,6 @@ _IGNORED_CONSOLE = tuple(re.compile(pattern) for pattern in BROWSER_CONSOLE_IGNO
 def console_message_ignored(text: str) -> bool:
     """Is this console message one the model does not get to see (``BROWSER_CONSOLE_IGNORE_PATTERNS``)?"""
     return any(pattern.search(text) for pattern in _IGNORED_CONSOLE)
-
-
-def vendor_file(url_path: str) -> Path | None:
-    """The file of the local libraries (``VENDOR_DIR``, with its sub folders: ``/vendor/three/addons/…``) that a page
-    asks for under ``VENDOR_URL``; None for a path that leads out of the folder or to nothing."""
-    from urllib.parse import unquote
-
-    from .config import VENDOR_DIR, VENDOR_URL
-
-    prefix = f"{VENDOR_URL}/"
-    if not url_path.startswith(prefix):
-        return None
-    root = VENDOR_DIR.resolve()
-    file = (root / unquote(url_path[len(prefix):])).resolve()
-    return file if file.is_relative_to(root) and file.is_file() else None
 
 
 def resolve_sandbox_html_path(html_url: str, session_id: str) -> Path | None:

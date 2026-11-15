@@ -10,8 +10,8 @@ from aifred.lib.browser_render import (
     console_message_ignored,
     render_html_in_browser,
     resolve_sandbox_html_path,
-    vendor_file,
 )
+from aifred.lib.vendor_files import vendor_file
 from aifred.plugins.tools.sandbox import _looks_like_html_document
 
 SESSION = uuid.uuid4().hex  # 32-hex like real session ids

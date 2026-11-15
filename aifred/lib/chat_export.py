@@ -5,8 +5,9 @@ collapsible); downloaded, it is a file to pass on. The page itself is ``chat_exp
 
 Ported from the Reflex export (state/_export_mixin.py, 7cbf8178). Changed on the way: an agent's bubble is headed with
 its own name and emoji (the old export knew Sokrates and Salomo by name); an embedded sandbox page keeps its
-``sandbox`` attribute (without it the page's script ran in AIfred's origin, next to the API) and carries the JS
-libraries it loads from /vendor/ (a standalone file has no server behind it); the texts come from the translations.
+``sandbox`` attribute (without it the page's script ran in AIfred's origin, next to the API) and carries what it
+loads from /vendor/ (JS libraries, ES modules, models, fonts: a standalone file has no server behind it, see
+``standalone_page``); the texts come from the translations.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ from datetime import datetime
 from pathlib import Path
 from string import Template
 from typing import Any
+
+from .standalone_page import standalone_page
 
 TEMPLATE_FILE = Path(__file__).with_name("chat_export.html")
 SANDBOX_OUTPUT_PATH = "/_upload/sandbox_output/"
@@ -211,25 +214,10 @@ def _embed_sandbox_pages(body: str, session_id: str) -> str:
         path = _sandbox_file(match.group(1), session_id)
         if path is None:
             return match.group(0)
-        page = _with_vendor_scripts(path.read_text(encoding="utf-8"))
+        page = standalone_page(path.read_text(encoding="utf-8"))
         return f'<iframe srcdoc="{html_module.escape(page)}"{match.group(2)}>'
 
     return re.sub(rf'<iframe\s+src="({re.escape(SANDBOX_OUTPUT_PATH)}[^"]+)"([^>]*)>', embed, body)
-
-
-def _with_vendor_scripts(page: str) -> str:
-    """The libraries a sandbox page loads from /vendor/ written into it: the standalone file has no server behind it.
-    A ``</script`` inside a library would end its script element early, so it is written as ``<\\/script``."""
-    from .config import VENDOR_DIR, VENDOR_URL
-
-    def inline(match: re.Match[str]) -> str:
-        library = VENDOR_DIR / Path(match.group(1)).name
-        if not library.is_file():
-            return match.group(0)
-        code = library.read_text(encoding="utf-8").replace("</script", "<\\/script")
-        return f"<script>{code}</script>"
-
-    return re.sub(rf'<script\s+src="{re.escape(VENDOR_URL)}/([^"]+)"\s*>\s*</script>', inline, page)
 
 
 def _embed_sandbox_images(body: str, session_id: str) -> str:
