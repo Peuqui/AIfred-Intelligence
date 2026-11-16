@@ -26,6 +26,9 @@ const html = computed(() => (isUser.value ? "" : renderMarkdown(props.entry.cont
 const images = computed(() => props.entry.metadata?.images ?? []);
 const preview = computed(() => clip(props.entry.content, USER_PREVIEW_CHARS, USER_PREVIEW_LINES));
 const tooLong = computed(() => isUser.value && preview.value !== props.entry.content.trim());
+// Shown in full: opened by its link in the history, or by the link of the question that sticks (which keeps it open
+// there, so that it does not shrink the moment it leaves the top edge).
+const expanded = ref(false);
 const metadata = computed(() => props.entry.metadata ?? { audio_urls: [], browser_speech: [] });
 const canReplay = computed(() => (metadata.value.audio_urls?.length ?? 0) + (metadata.value.browser_speech?.length ?? 0) > 0);
 
@@ -34,8 +37,20 @@ const content = ref<HTMLElement>();
 const unfolded = ref(false);
 const overflowing = ref(false);
 const folded = computed(() => !!props.pinned && !!props.stuck && !unfolded.value);
-const userText = computed(() => (unfolded.value ? props.entry.content : preview.value));
-// Back in the history it shows in full again; the next time it sticks it starts folded.
+const userText = computed(() => (expanded.value ? props.entry.content : preview.value));
+// The link under the question: the one of the question that sticks folds it to a few lines or opens it; in the history it
+// shows the beginning or all. Opened while it sticks, it stays open in the history.
+const linkShown = computed(() => (props.pinned && props.stuck ? overflowing.value || unfolded.value : tooLong.value));
+const linkOpen = computed(() => (props.stuck ? unfolded.value : expanded.value));
+function toggleMore(): void {
+  if (props.stuck) {
+    unfolded.value = !unfolded.value;
+    if (unfolded.value) expanded.value = true;
+  } else {
+    expanded.value = !expanded.value;
+  }
+}
+// Back in the history the clamp is gone; the next time it sticks it starts folded.
 watch(() => props.stuck, (stuck) => {
   if (!stuck) unfolded.value = false;
 });
@@ -127,8 +142,8 @@ function pictureGone(event: Event): void {
     <p v-if="isUser" ref="content" class="content plain" :class="{ folded }">{{ userText }}</p>
     <!-- eslint-disable-next-line vue/no-v-html -- sanitized by renderMarkdown (DOMPurify) -->
     <div v-else ref="content" class="content" :class="{ folded }" @click="enlarge" @error.capture="pictureGone" v-html="html" />
-    <button v-if="tooLong || (pinned && stuck && (overflowing || unfolded))" type="button" class="more" @click="unfolded = !unfolded">
-      {{ unfolded ? t("question_less") : t("question_more") }}
+    <button v-if="linkShown" type="button" class="more" @click="toggleMore">
+      {{ linkOpen ? t("question_less") : t("question_more") }}
     </button>
     <ImageLightbox
       v-if="shownAt !== null"
