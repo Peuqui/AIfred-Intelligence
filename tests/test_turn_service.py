@@ -23,6 +23,7 @@ from aifred.lib import (
     vision_utils,
 )
 from aifred.lib.llm_pipeline import PipelineResult
+from aifred.lib.model_gate import model_gate
 from aifred.lib.runtime_settings import RuntimeSettings
 
 SESSION = "d" * 32
@@ -54,7 +55,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     view.agent_tuning["aifred"].model_id = "qwen3:8b"
     world: dict[str, Any] = {"chunks": [{"type": "content", "text": "Hallo "}, {"type": "content", "text": "Peuqui."}],
                              "titles": [], "block": None, "view": view, "requests": [], "options": [], "title_calls": [],
-                             "memory": []}
+                             "memory": [], "order": []}
 
     async def intent(_session_id: str, _view: Any, _client: Any, _text: str) -> turn_service._Intent:
         return world.get("intent") or turn_service._Intent(None, "de", {}, False, 0.0)
@@ -85,6 +86,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
 
     async def title(user_text: str, reply: str, *_args: Any, **kwargs: Any) -> str:
         world["titles"].append((user_text, reply))
+        world["order"].append("title")
         world["title_calls"].append((kwargs["model_override"], kwargs["num_ctx_override"]))
         return "Begrüßung"
 
@@ -120,7 +122,6 @@ def _data() -> dict[str, Any]:
 
 async def _turn(text: str) -> None:
     await turn_service.run_turn(turn_service.TurnRequest(SESSION, text))
-    await asyncio.sleep(0)   # the title task
 
 
 def test_a_turn_saves_both_entries_and_tells_the_clients(world: dict[str, Any]) -> None:
@@ -144,6 +145,29 @@ def test_the_first_exchange_gets_a_title(world: dict[str, Any]) -> None:
     asyncio.run(_turn("Hallo AIfred"))
     assert world["titles"] == [(_data()["llm_history"][0]["content"], "Hallo Peuqui.")]
     assert "session_title" in _kinds()
+
+
+def test_the_title_is_made_before_a_waiting_turn_with_other_models_gets_its_place(world: dict[str, Any]) -> None:
+    """A title that queued up again behind another session's turn made the backend swap the models twice
+    (16.11.2026: 8:54 min lost): the turn keeps its place until its title is made."""
+    async def other_session() -> None:
+        async with model_gate().hold(frozenset({"fremdes-modell"}), label="other"):
+            world["order"].append("other turn")
+
+    async def scenario() -> None:
+        world["block"] = asyncio.Event()
+        world["streamed"] = asyncio.Event()
+        task = turn_service.start_turn(turn_service.TurnRequest(SESSION, "Hallo AIfred"))
+        await world["streamed"].wait()
+        waiting = asyncio.create_task(other_session())   # arrives while the turn answers, waits at the gate
+        await asyncio.sleep(0)
+        world["block"].set()
+        await task
+        await waiting
+
+    asyncio.run(scenario())
+    assert world["order"] == ["title", "other turn"]
+    assert not model_gate()._running
 
 
 def test_the_title_comes_from_the_model_that_just_answered(world: dict[str, Any]) -> None:

@@ -347,19 +347,20 @@ async def _run(request: TurnRequest, turn_id: str, routing: _Routing) -> None:
                 # The debate starts from the answer; without one there is nothing to critique.
                 if answer is not None and plan.debate:
                     await turn_debate.run_debate(ctx, plan, answer.text)
-            last_call = ctx.calls[-1] if ctx.calls else None
+            if ctx.calls:
+                # Inside the turn's place at the gate: the model of its last call is the loaded one. A title that queued up
+                # behind another session's turn later made the backend swap the models twice (16.11.2026: 8:54 min lost).
+                await _title(session_id, view, ctx.calls[-1])
     finally:
         turn_language.reset(language_token)
         await llm_client.close()
-    if last_call is not None:
-        _start_title(session_id, view, last_call, models)
 
 
 # ── The models of a turn ─────────────────────────────────────────────────
 
 
 def turn_models(view: RuntimeSettings, plan: TurnPlan) -> ModelKey:
-    """The models the turn calls: its agents' and the Automatik's (the title). The agent a sub-agent
+    """The models the turn calls: its agents' and the Automatik's (its helper steps). The agent a sub-agent
     delegates to may call another model; the plan cannot know it."""
     return frozenset({effective_automatik_id(view), *(agent_model(view, agent) for agent in plan.agents)})
 
@@ -1072,31 +1073,26 @@ def _append(session_id: str, *, chat: list[dict[str, Any]], llm: list[dict[str, 
         )
 
 
-def _start_title(session_id: str, view: RuntimeSettings, last_call: AgentCall, models: ModelKey) -> None:
-    """After the first exchange the session gets a title, in the background, from the model of the
-    turn's last call with its context: that model is the loaded one, nothing reloads for the title."""
+async def _title(session_id: str, view: RuntimeSettings, call: AgentCall) -> None:
+    """After the first exchange the session gets a title, from the model of the turn's last call with its context:
+    that model is the loaded one, nothing reloads for the title. Runs inside the turn's place at the model gate (after
+    the reply is out), so no other turn gets in between and the title never makes the models swap."""
     from .session_storage import get_session_title, load_session
-    from .session_title import first_exchange
+    from .session_title import first_exchange, generate_session_title
 
     if get_session_title(session_id):
         return
     exchange = first_exchange((load_session(session_id) or {}).get("data", {}).get("llm_history", []))
-    if exchange is not None:
-        asyncio.create_task(_title(session_id, view, last_call, models, *exchange), name=f"title-{session_id[:8]}")
-
-
-async def _title(session_id: str, view: RuntimeSettings, call: AgentCall, models: ModelKey, user_text: str, reply: str) -> None:
-    from .session_title import generate_session_title
-
+    if exchange is None:
+        return
     with session_scope(session_id):
         debug("Generating session title...")
         try:
-            async with model_gate().hold(models, label=session_id[:8]):
-                title = await generate_session_title(
-                    user_text, reply, session_id, lang=view.ui_language,
-                    model_override=call.model, num_ctx_override=call.options.num_ctx or 0,
-                )
-        except Exception as error:  # noqa: BLE001 — background task: a missing title is logged, the turn is done
+            title = await generate_session_title(
+                *exchange, session_id, lang=view.ui_language,
+                model_override=call.model, num_ctx_override=call.options.num_ctx or 0,
+            )
+        except Exception as error:  # noqa: BLE001 — a missing title is logged, the turn is done
             log_exception("Session title failed", error)
             return
     if title:
