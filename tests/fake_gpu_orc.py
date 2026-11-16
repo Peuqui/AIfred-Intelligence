@@ -1,5 +1,5 @@
-"""A GPU-Orc stand-in for tests: answers /health, /status, /loading, /free and /hold as set up, records every
-/free and /hold."""
+"""A GPU-Orc stand-in for tests: answers /health, /status, /loading, /free, /hold and /work as set up, records every
+/free, /hold and /work."""
 
 from __future__ import annotations
 
@@ -25,6 +25,8 @@ class FakeGpuOrc:
         self.loading: list[str] = []  # what GET /loading names
         self.held: dict[str, str] | None = None  # the hold GET /loading names (POST /hold sets it)
         self.holds: list[str] = []  # the reason of each POST /hold
+        self.work: dict[str, dict[str, Any]] = {}  # the leases POST /work holds, by owner
+        self.work_calls: list[str] = []  # "begin <owner>" / "end <owner>" in the order they came
         self.refusal: tuple[int, str] | None = None  # (HTTP status, error) every /free answers instead
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -50,6 +52,16 @@ class FakeGpuOrc:
         if path == "/hold" and request.method == "DELETE":
             self.held = None
             return httpx.Response(200, json={"held": None})
+        if path == "/work" and request.method == "POST":
+            body = json.loads(request.content)
+            self.work[body["owner"]] = body
+            self.work_calls.append(f"begin {body['owner']}")
+            return httpx.Response(200, json={"work": list(self.work.values())})
+        if path.startswith("/work/") and request.method == "DELETE":
+            owner = path.removeprefix("/work/")
+            self.work_calls.append(f"end {owner}")
+            ended = self.work.pop(owner, None) is not None
+            return httpx.Response(200, json={"ended": ended, "work": list(self.work.values())})
         if path == "/free":
             self.frees.append(json.loads(request.content))
             self.free_timeouts.append(request.extensions["timeout"]["read"])

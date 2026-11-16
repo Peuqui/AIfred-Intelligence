@@ -183,6 +183,19 @@ async def service_status_lifespan() -> AsyncIterator[None]:
 
 
 @contextlib.asynccontextmanager
+async def gpu_orc_work_lifespan() -> AsyncIterator[None]:
+    """Report running turns to GPU-Orc (lib/gpu_orc_work), so the machine's reboot leaves a running job alone."""
+    from .gpu_orc_work import make_work_reporter
+
+    task = asyncio.create_task(make_work_reporter().run())
+    try:
+        yield
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)  # its cancellation ends the lease
+
+
+@contextlib.asynccontextmanager
 async def loop_watchdog_lifespan() -> AsyncIterator[None]:
     """Watch the loop this lifespan runs on (lib/loop_watchdog): a freeze of the page leaves its stack in the debug log."""
     from .config import LOOP_WATCHDOG_INTERVAL_S, LOOP_WATCHDOG_STALL_S
@@ -216,5 +229,5 @@ async def process_tasks_lifespan() -> AsyncIterator[None]:
 
 
 # The server's lifespan, in this order: the loop's watchdog first (a freeze while starting shows too), the session
-# events' loop (the hub publishes into it), then the process tasks, the Message Hub, the service status.
-SERVER_LIFESPANS = (loop_watchdog_lifespan, session_events_lifespan, process_tasks_lifespan, message_hub_lifespan, service_status_lifespan)
+# events' loop (the hub publishes into it), then the process tasks, the Message Hub, the service status, the work report to GPU-Orc.
+SERVER_LIFESPANS = (loop_watchdog_lifespan, session_events_lifespan, process_tasks_lifespan, message_hub_lifespan, service_status_lifespan, gpu_orc_work_lifespan)

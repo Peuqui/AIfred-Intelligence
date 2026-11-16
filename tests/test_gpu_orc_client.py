@@ -144,3 +144,11 @@ def test_a_gpu_orc_that_does_not_answer_is_said_and_the_calibration_goes_on() ->
     said: list[str] = []
     _free_cards_for_calibration(said.append)  # conftest points the client at a dead address
     assert len(said) == 1 and "GPU-Orc could not clear the cards for the calibration" in said[0]
+
+
+def test_work_is_reported_with_a_lease_and_ended_by_owner(fake) -> None:
+    client = get_gpu_orc_client()
+    client.work_begin("aifred/1", "a job", 60)
+    assert fake.work == {"aifred/1": {"owner": "aifred/1", "reason": "a job", "ttl_s": 60}}
+    client.work_end("aifred/1")
+    assert fake.work == {} and fake.work_calls == ["begin aifred/1", "end aifred/1"]

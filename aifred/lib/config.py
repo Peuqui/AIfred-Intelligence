@@ -1337,6 +1337,12 @@ GPU_ORC_MODEL_SERVER = os.environ.get("GPU_ORC_MODEL_SERVER", "llama-swap")
 # /health and /status: GPU-Orc runs nvidia-smi and asks every consumer, all in parallel. A /free takes
 # as long as GPU-Orc's own limit; /health reports the caller timeout that fits it.
 GPU_ORC_STATUS_TIMEOUT_S = 15
+# While a turn runs (every channel, the chat, the scheduler), AIfred reports work to GPU-Orc (lib/gpu_orc_work.py)
+# so that nothing restarts the machine under it. The report is a lease: GPU-Orc ends it by itself after
+# ``GPU_ORC_WORK_TTL_S`` without renewal (AIfred crashed), AIfred renews it every ``GPU_ORC_WORK_POLL_S``.
+GPU_ORC_WORK_OWNER = "aifred"
+GPU_ORC_WORK_POLL_S = 15
+GPU_ORC_WORK_TTL_S = 60
 
 # Describers on other machines (lib/remote_describers.py): each machine runs its own llama-swap and its
 # own GPU-Orc. A JSON list, one object per machine with ``name``, ``llamaswap_url``, ``gpu_orc_url`` and

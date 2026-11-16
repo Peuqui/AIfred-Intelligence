@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -110,6 +111,15 @@ class GpuOrcClient:
     def release_hold(self) -> None:
         """Let go of the cards (``DELETE /hold``)."""
         self._call("DELETE", "/hold", GPU_ORC_STATUS_TIMEOUT_S)
+
+    def work_begin(self, owner: str, reason: str, ttl_s: float) -> None:
+        """Report work on this machine (``POST /work``), or renew the lease of ``owner``: GPU-Orc ends it by itself
+        after ``ttl_s`` without a renewal."""
+        self._call("POST", "/work", GPU_ORC_STATUS_TIMEOUT_S, {"owner": owner, "reason": reason, "ttl_s": ttl_s})
+
+    def work_end(self, owner: str) -> None:
+        """End the work of ``owner`` (``DELETE /work/<owner>``); no error when the lease is gone already."""
+        self._call("DELETE", f"/work/{quote(owner, safe='')}", GPU_ORC_STATUS_TIMEOUT_S)
 
     def card_status(self) -> list[CardStatus]:
         """Who holds what on each card, as the consumers' own services report it."""
