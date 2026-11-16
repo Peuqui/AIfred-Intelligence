@@ -25,7 +25,8 @@ import { answerStartTop, isAtEnd } from "../lib/followScroll";
 import { useSessionsColumn } from "../lib/sessionsColumn";
 import HelpButton from "../components/help/HelpButton.vue";
 import { saveAs } from "../lib/download";
-import { renderMarkdown } from "../lib/markdown";
+import { type StreamSection, renderStream } from "../lib/streamBlocks";
+import { throttledText } from "../lib/throttledText";
 import { successorSession } from "../lib/sessionSuccessor";
 import { progressLine } from "../lib/turnProgress";
 import { useChat } from "../stores/chat";
@@ -43,7 +44,12 @@ const modes = ref<DebateMode[]>([]);
 const messages = ref<HTMLElement | null>(null);
 const MESSAGES_MIN_HEIGHT = 120; // px: a box the grip cannot shrink to nothing
 const agentRow = ref<HTMLElement | null>(null);
-const streamingHtml = computed(() => (chat.streaming ? renderMarkdown(chat.streaming.text) : ""));
+// The answer being written, section by section: with every piece only its last section is rendered again, the finished
+// ones keep their HTML and their DOM (a long text rendered whole with every piece stopped the page on an old tablet).
+// Drawn at most five times a second: the pieces come every 50 ms.
+const STREAM_DRAW_INTERVAL_MS = 200;
+const streamingText = throttledText(() => chat.streaming?.text ?? "", STREAM_DRAW_INTERVAL_MS);
+const streamingSections = computed<StreamSection[]>((previous) => (chat.streaming ? renderStream(streamingText.value, previous ?? []) : []));
 const hasReplies = computed(() => chat.history.some((entry) => entry.role === "assistant"));
 // The history in turns: a question with the answers after it. The question stays at the top edge of the box while its
 // answers scroll beneath it, until the next turn's question pushes it out (sticky within its turn).
@@ -244,7 +250,7 @@ onMounted(() => void start());
         <article v-if="chat.streaming" class="streaming" :style="colors[chat.streaming.agent] ? { '--agent-color': colors[chat.streaming.agent] } : undefined">
           <header>{{ chat.streaming.emoji }} {{ chat.streaming.displayName }}</header>
           <!-- eslint-disable-next-line vue/no-v-html -- sanitized by renderMarkdown (DOMPurify) -->
-          <div v-html="streamingHtml" />
+          <div v-for="(section, at) in streamingSections" :key="at" v-html="section.html" />
           <p v-if="chat.toolStatus" class="tool">{{ chat.toolStatus }}</p>
           <TurnProgress v-if="progress" :line="progress" />
         </article>
