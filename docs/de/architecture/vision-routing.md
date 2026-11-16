@@ -68,24 +68,25 @@ Neues kommt ausgeschaltet ans Ende, ein Modell, das ein antwortender Rechner nic
 die Einträge eines Rechners, der nicht antwortet, bleiben. Ohne gespeicherte Liste: dieser Rechner, dann das
 Hauptmodell. Zwei Regeln sind fest und keine Einträge (Begründung unten).
 
-**Regel A — `chat_describer(main_model)`** (Chat-Uploads, Symposion) und
-**`tool_image_describer(main_model)`** (Werkzeugbilder: Sandbox-Screenshots, hochgeladene Bilder im
-Vision-Tool; seit 16.11.2026): beide laufen durch dieselben Stufen
-(`vision_routing._image_describer`), nur das Hauptmodell steht anders. Beim Chat-Bild steht es **vor** der Liste
-(Stufe 1), bei Werkzeugbildern **hinter** ihr (zwischen Stufe 2 und 3): Aus einem Werkzeugbild entsteht nur ein
-Text für das Ergebnis, das Hauptmodell bekommt das Bild nie selbst und wäre dort ein Beschreiber unter anderen, der
-sich mit der eigenen Anfrage selbst ausbremst (vLLM mit `max-num-seqs 1`: Screenshot-Beschreibungen von 10 bis
-28 min, während die Kamerabeschreibung hinten wartet). Ein Modell eines anderen Rechners, das antwortet, geht also vor.
+**Regel A — `image_describer(main_model)`** (ein Bild wird zu Text: blindes Hauptmodell, Debatte, Symposion,
+Sandbox-Screenshots, hochgeladene Bilder im Vision-Tool):
 
-1. Sieht das Hauptmodell selbst (`has_native_vision`), beschreibt es selbst und wird nie
-   verdrängt. Fest: Es beantwortet den Turn ohnehin, sieht es, bekommt es das Bild direkt mit Verlauf und
-   Werkzeugen; jeder andere Beschreiber gäbe ihm nur eine Textbeschreibung, und Umladen kostet mehr.
-2. Sonst der erste eingeschaltete Eintrag der Liste, der jetzt kann (der Eintrag „Hauptmodell“ zählt hier
-   nicht; „dieser Rechner“ nur über ein `-visiond`-Profil).
+1. Der erste eingeschaltete Eintrag der Liste, der jetzt kann (der Eintrag „Hauptmodell“ zählt hier
+   nicht; „dieser Rechner“ nur über ein `-visiond`-Profil): ein Modell eines anderen Rechners, wenn es antwortet.
+2. Sonst das Hauptmodell, wenn es selbst sieht (`sees_images_itself`), ohne Umladen.
 3. Sonst das Vision-LLM der Haupteinstellungen über sein `-visiond`-Profil,
    wenn es daneben passt (`check_visiond_fits`, siehe unten).
 4. Sonst die effektive Variante des Vision-LLM — sie verdrängt das Chat-LLM.
 5. Ist kein Vision-LLM eingestellt: `NoVisionModelError`.
+
+Das Hauptmodell steht hinter der Liste, weil hier nur ein Text entsteht: Es bekommt das Bild nie selbst, ist ein
+Beschreiber unter anderen und bremst sich mit der eigenen Anfrage selbst aus (vLLM mit `max-num-seqs 1`:
+Screenshot-Beschreibungen von 10 bis 28 min am 16.11.2026, die Kamerabeschreibung wartete dahinter).
+
+**Direkt zum Modell** geht ein Bild nur im Zug eines einzelnen sehenden Agenten ohne Debatte
+(`turn_service._look_at_images`, VL Direct): Es bekommt das Bild mit Verlauf und Werkzeugen, jeder Beschreiber
+gäbe ihm nur Text. Dort wird kein Beschreiber gewählt. In einer Debatte oder im Symposion bekommt kein Agent das
+Bild; alle lesen dieselbe Beschreibung, und die Wahl ist Regel A.
 
 **Regel B — `camera_describer(vlm_model, explicit=…)`** (Vigilantia-Watcher,
 Event-Analyse, Bulk, Vision-Tool mit Kamera-Quelle):
@@ -174,28 +175,18 @@ Profil dort erscheint von selbst, ausgeschaltet am Ende.
 
 ### Chat-Bilder: VL Direct oder zwei Schritte
 
-`send_message` ([`aifred/state/_chat_mixin.py`](../../../aifred/state/_chat_mixin.py))
-fragt `_image_describer` ([`aifred/state/_agent_config_mixin.py`](../../../aifred/state/_agent_config_mixin.py)),
-die Regel A auf das effektive Hauptmodell anwendet:
+`turn_service._look_at_images` entscheidet je Zug:
 
-- **Hauptmodell sieht, ein Agent:** VL Direct — das Hauptmodell bekommt die
-  Bilder und antwortet als Agent (`_process_vision_request`).
-- **Sonst (oder Symposion mit ≥2 Agenten):** `_describe_images` beschreibt die
-  Bilder einmal neutral (`vision/task_instruction_handoff`, mit Nutzerfrage `…_handoff_question`), die Beschreibung
-  wird als `[Bildinhalt: …]` an den Nutzer-Turn gehängt, und die normale
+- **Hauptmodell sieht, ein Agent, keine Debatte:** VL Direct — das Hauptmodell bekommt die
+  Bilder in seine Anfrage und antwortet als Agent (`_direct_call`). Kein Beschreiber wird gewählt.
+- **Sonst (Debatte, Symposion, blindes Hauptmodell):** `turn_images.describe_images` beschreibt die
+  Bilder einmal neutral mit dem Beschreiber aus Regel A, die Beschreibung
+  wird an den Nutzer-Turn gehängt, und die normale
   Text-Pipeline antwortet — das Hauptmodell mit vollem Prompt, Werkzeugen und
   Verlauf, bzw. alle Symposion-Agenten auf derselben Grundlage. Folgefragen
   beantwortet der Agent bei Bedarf mit einem neuen Blick per `vision_analyze`
   (die `/_upload/`-URL steht im Turn).
-- **Kein Vision-LLM:** Das Bild geht ohne Beschreibung weiter, mit Hinweis in
-  der Debug-Konsole.
-
-**Denken beim Beschreiben:** Jede Beschreibung (`_describe_images`, `analyze_sequence` →
-`_analyze_via_llamacpp`) ist ein Auftrag an den Agenten „Vision“. Sie denkt, wie die
-Vision-Zeile es für das beschreibende Modell sagt (`agent_settings.thinking_mode`, je Modell
-gespeichert), und schickt die Stufe wie die Chat-Backends in `chat_template_kwargs`. Der
-4B bleibt so ohne Denken, GLM als Hauptmodell beschreibt mit der Stufe, die für GLM in der
-Vision-Zeile steht. VL Direct folgt der Zeile des antwortenden Agenten.
+- **Kein Vision-LLM:** Das Bild geht ohne Beschreibung weiter, mit Hinweis an den Nutzer.
 
 ## Entlade-Semantik (llama-swap-Gruppen)
 

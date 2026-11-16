@@ -324,8 +324,9 @@ def picture(world: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 def _seeing(monkeypatch: pytest.MonkeyPatch, model: str | None) -> None:
     """``model`` describes the images; None: the model that answers sees them itself."""
+    monkeypatch.setattr(vision_routing, "sees_images_itself", lambda _main: model is None)
     monkeypatch.setattr(
-        vision_routing, "chat_describer", lambda main: vision_routing.Describer(model or main, evicts_chat_model=False),
+        vision_routing, "image_describer", lambda main: vision_routing.Describer(model or main, evicts_chat_model=False),
     )
 
 
@@ -351,6 +352,30 @@ def test_an_agent_that_sees_gets_the_image_in_its_request_and_the_history_only_i
     assert reply["content"] == "[AIFRED]: Hallo Peuqui."
     assert '<img src="' + picture in _data()["chat_history"][0]["content"]
     assert _data()["chat_history"][0]["metadata"]["images"] == [{"name": "hund.jpg", "url": picture}]
+
+
+def test_an_agent_that_sees_alone_gets_no_describer_chosen(
+    picture: str, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seeing(monkeypatch, None)
+
+    def never(_main: str) -> vision_routing.Describer:
+        raise AssertionError("the agent sees the image itself, nobody is asked to describe it")
+
+    monkeypatch.setattr(vision_routing, "image_describer", never)
+    _image_turn("Was ist das?", picture)
+    assert world["described"] == []
+
+
+def test_a_debate_hands_the_description_to_the_describer_list_even_when_the_main_model_sees(
+    picture: str, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """In a debate no agent gets the image, the describer is only a describer: the list goes before the main model."""
+    _seeing(monkeypatch, None)
+    monkeypatch.setattr(vision_routing, "image_describer", lambda _main: vision_routing.Describer("Box/Big-VL", False))
+    session_storage.update_session_config(SESSION, multi_agent_mode="critical_review")
+    _image_turn("Was ist das?", picture)
+    assert [model for model, _question in world["described"]] == ["Box/Big-VL"]
 
 
 def test_a_model_that_cannot_see_answers_from_a_description_in_the_user_turn(
@@ -396,7 +421,8 @@ def test_without_a_model_that_can_see_the_message_goes_on_and_the_user_is_told(
     def nobody(_main: str) -> vision_routing.Describer:
         raise vision_routing.NoVisionModelError("no vision LLM is configured")
 
-    monkeypatch.setattr(vision_routing, "chat_describer", nobody)
+    monkeypatch.setattr(vision_routing, "sees_images_itself", lambda _main: False)
+    monkeypatch.setattr(vision_routing, "image_describer", nobody)
     _image_turn("", picture)
     assert "notice" in _kinds() and "message_added" in _kinds()
     assert picture in _data()["llm_history"][0]["content"]

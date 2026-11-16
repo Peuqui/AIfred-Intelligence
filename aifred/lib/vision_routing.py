@@ -1,8 +1,8 @@
 """Vision-Routing — WER ein Bild beschreibt (SSOT für alle Bildpfade).
 
-* :func:`chat_describer` — Regel A für Bilder, die das Hauptmodell selbst bekommt (Chat-Upload, Symposion).
-* :func:`tool_image_describer` — Regel A für Werkzeugbilder, aus denen nur ein Text wird (Sandbox-Screenshots,
-  hochgeladene Bilder in ``vision_analyze``): die Liste vor dem Hauptmodell.
+* :func:`image_describer` — Regel A (Bild als Text: blindes Hauptmodell, Debatte, Symposion, Sandbox-Screenshots,
+  hochgeladene Bilder in ``vision_analyze``): die Liste vor dem sehenden Hauptmodell. Direkt zum Modell geht ein
+  Bild nur im Zug eines einzelnen sehenden Agenten (:func:`sees_images_itself`).
 * :func:`camera_describer` — Regel B (Vigilantia: Watcher, Alarme,
   Casus, Bulk, Kamerabilder in ``vision_analyze``).
 * :func:`eviction_notice` — die Ansage, bevor ein Bildpfad das Chat-LLM
@@ -334,36 +334,28 @@ def _from_list(vlm_model: str, *, camera: bool) -> tuple[Describer | None, str]:
     return None, "; ".join(skipped) or "no describer is switched on"
 
 
-def _image_describer(main_model: str, *, main_first: bool) -> Describer:
-    """Die Stufen von Regel A in einer Reihenfolge: das sehende Hauptmodell, der erste eingeschaltete Describer
-    der Beschreiber-Liste, der jetzt kann (der Eintrag „Hauptmodell“ zählt hier nicht, das Hauptmodell hat seine
-    eigene Stufe), sonst das Vision-LLM der Haupteinstellungen (der User hat das Bild ausdrücklich
-    geschickt, es darf also verdrängen). ``main_first`` setzt das Hauptmodell vor die Liste."""
+def sees_images_itself(main_model: str) -> bool:
+    """Sieht ``main_model`` Bilder selbst (SSOT ``vision_utils.is_vision_model_sync``)? Nur dann bekommt es sie direkt
+    in seine Anfrage; die Beschreiber-Stufe unten nimmt es als einen unter mehreren."""
     from .vision_utils import is_vision_model_sync
-    main = Describer(main_model, evicts_chat_model=False) if main_model and is_vision_model_sync(main_model) else None
-    if main is not None and main_first:
-        return main
+    return bool(main_model) and is_vision_model_sync(main_model)
+
+
+def image_describer(main_model: str) -> Describer:
+    """Regel A: wer ein Bild als Text beschreibt, wenn es nicht direkt zum Modell geht (blindes Hauptmodell, eine
+    Debatte oder das Symposion, jedes Werkzeugbild wie Sandbox-Screenshots und ``vision_analyze`` ohne Kamera).
+
+    Der erste eingeschaltete Describer der Beschreiber-Liste, der jetzt kann (der Eintrag „Hauptmodell“ zählt hier
+    nicht, das Hauptmodell hat seine eigene Stufe): ein Modell eines anderen Rechners, wenn es antwortet. Sonst
+    das Hauptmodell, wenn es sieht (kein Umladen), sonst das Vision-LLM der Haupteinstellungen (der User hat das
+    Bild ausdrücklich geschickt, es darf also verdrängen). Dass ein einzelner Agent ein Bild direkt bekommt, ist
+    nicht Sache dieser Wahl: das entscheidet der Zug (``turn_service``) mit :func:`sees_images_itself`."""
     describer, reason = _from_list(camera_vlm(), camera=False)
     if describer is not None:
         return describer
-    if main is not None:
-        return main
+    if sees_images_itself(main_model):
+        return Describer(main_model, evicts_chat_model=False)
     return _vision_llm_describer(f"main model '{main_model}' cannot see; {reason}")
-
-
-def chat_describer(main_model: str) -> Describer:
-    """Regel A für Bilder, die das Hauptmodell selbst bekommt (Chat-Bilder, Symposion): sieht ``main_model`` —
-    das Modell, das den Turn rechnet —, beschreibt es selbst (fest: es beantwortet den Turn ohnehin, und
-    Umladen kostet mehr als jede Beschreibung); sonst die Liste, sonst das Vision-LLM."""
-    return _image_describer(main_model, main_first=True)
-
-
-def tool_image_describer(main_model: str) -> Describer:
-    """Regel A für Bilder, aus denen ein Werkzeug nur einen Text macht (Sandbox-Screenshots, ``vision_analyze``
-    ohne Kamera): das Modell sieht das Bild nie selbst, ein Beschreiber ist nur ein Beschreiber, und das
-    Hauptmodell bremst sich mit einer eigenen Anfrage selbst aus. Zuerst die Liste (ein Modell eines anderen
-    Rechners, wenn es antwortet), dann das sehende Hauptmodell, dann das Vision-LLM."""
-    return _image_describer(main_model, main_first=False)
 
 
 def camera_describer(vlm_model: str, *, explicit: bool) -> Describer:

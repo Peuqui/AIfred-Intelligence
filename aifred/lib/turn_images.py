@@ -3,9 +3,9 @@ to see them (the server turn builds them here).
 
 The image itself never enters the history: the user turn there carries its ``/_upload/`` URL
 (``image_marker``), so a later turn can look again with ``vision_analyze``. Who looks at a new
-image is ``vision_routing.chat_describer``: the model that answers when it can see (it gets the
-image in its request, ``seeing_question`` and ``seeing_content``), else a describer once, whose description joins the
-user turn (``describe_images``) for every agent of the turn.
+image is the turn (``turn_service``): the one agent that answers alone when its model can see (it gets the
+image in its request, ``seeing_question`` and ``seeing_content``), else a describer once (``vision_routing.image_describer``),
+whose description joins the user turn (``describe_images``) for every agent of the turn.
 
 Before it is sent, an uploaded image can be turned or cut (``rotate_upload``, ``crop_upload``).
 """

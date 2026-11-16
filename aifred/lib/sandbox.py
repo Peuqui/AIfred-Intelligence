@@ -209,7 +209,7 @@ async def describe_sandbox_screenshots(
     A text-only model cannot see the screenshots/plots that render_html and
     execute_code produce — the tool result only carries their URLs for the
     UI embed. This feeds the model a text description instead. Describer
-    choice: rule A for tool images (``vision_routing.tool_image_describer``) —
+    choice: rule A (``vision_routing.image_describer``) —
     the describer list first, then the running model when it can see, then
     the vision LLM. None available →
     an explicit note in the tool result so the model tells the user that
@@ -255,17 +255,17 @@ async def describe_sandbox_screenshots(
         yield {"type": "result", "text": result_text}
         return
 
-    # Wer beschreibt: Regel A für Werkzeugbilder (SSOT vision_routing.tool_image_describer) —
+    # Wer beschreibt: Regel A (SSOT vision_routing.image_describer) —
     # die Beschreiber-Liste, dann das laufende Modell, wenn es sieht, dann das Vision-LLM.
     from .vision_routing import (
         Describer,
         NoVisionModelError,
         describe_with_second_attempt,
         eviction_notice,
-        tool_image_describer,
+        image_describer,
     )
     try:
-        chosen = await asyncio.to_thread(tool_image_describer, main_model)
+        chosen = await asyncio.to_thread(image_describer, main_model)
     except NoVisionModelError as e:
         yield {"type": "debug", "message": (
             f"⚠️ Sandbox screenshot description unavailable: {e}"
@@ -323,7 +323,7 @@ async def describe_sandbox_screenshots(
         # max_pixels=0: no downscale — rendered UI text/layout detail
         # matters and the render viewport bounds the size anyway.
         def choose_again() -> Describer:
-            again = tool_image_describer(main_model)
+            again = image_describer(main_model)
             if again.evicts_chat_model:
                 log_message(eviction_notice(again.model))
             return again

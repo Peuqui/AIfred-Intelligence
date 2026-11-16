@@ -117,7 +117,7 @@ der neue Dienst entsteht daneben und ersetzt beim Wechsel beide alten Pfade.
   (`POST /api/sessions/{id}/images`, geprüft und verkleinert wie jeder Upload, im Upload-Ordner der
   Sitzung), die Nachricht nennt sie per URL; eine Nachricht, die hinter einem laufenden Zug wartet,
   behält ihre Bilder (`session_storage.PendingMessage`). Wer hinsieht, entscheidet weiter
-  `vision_routing.chat_describer`: Antwortet EIN Agent ohne Debatte und sieht sein Modell selbst,
+  `turn_service._look_at_images` (Beschreiber: `vision_routing.image_describer`): Antwortet EIN Agent ohne Debatte und sieht sein Modell selbst,
   bekommt er die Bilder in seine Anfrage (die Frage läuft durch denselben Aufbau wie jede andere,
   mit der Stil-Erinnerung der Persona). Jeder andere Zug (Debatte, Symposion, Modell ohne Augen)
   bekommt EINE Beschreibung im Nutzer-Turn, alle Agenten arbeiten von derselben Grundlage. Die

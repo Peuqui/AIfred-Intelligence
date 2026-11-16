@@ -144,7 +144,7 @@ When the user addresses an agent ("Sokrates, what do you think?"), the intent de
 
 ### 2. Images of a Turn
 
-Who looks at the images is decided by `turn_service._look_at_images()` with `vision_routing.chat_describer()` (rule A, see [Vision routing](vision-routing.md)):
+Who looks at the images is decided by `turn_service._look_at_images()`; who describes them, by `vision_routing.image_describer()` (rule A, see [Vision routing](vision-routing.md)):
 
 - **VL Direct**: when a single agent answers without a debate and its model can see, it gets the images in its request. `_direct_call()` builds the question (`turn_images.seeing_question`), the content (`seeing_content`, images first, then one text part) and the task in the system prompt (`seeing_task`). The images themselves never enter the history; it holds only the URL (`image_marker`), so a later turn can look again with `vision_analyze`.
 - **Description**: in every other case (debate, symposion, a model that cannot see) `turn_images.describe_images()` describes the images once; the description (`description_block`) is appended to the user turn and overwritten in the `llm_history` (`_rewrite_user_turn`). All agents of the turn thus work from the same basis. A describer of another machine loads there (`remote_describers`).

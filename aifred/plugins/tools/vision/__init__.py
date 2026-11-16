@@ -462,13 +462,13 @@ class VisionPlugin:
             )
             # Wer beschreibt (SSOT vision_routing): Kamerabilder nach Regel B
             # — der Agent ruft im Auftrag des Users, darf also verdrängen;
-            # hochgeladene/gespeicherte Bilder nach Regel A für Werkzeugbilder
-            # (Beschreiber-Liste, dann das Hauptmodell, wenn es sieht, dann das
-            # Vision-LLM der Haupteinstellungen).
+            # hochgeladene/gespeicherte Bilder nach Regel A (Beschreiber-Liste,
+            # dann das Hauptmodell, wenn es sieht, dann das Vision-LLM der
+            # Haupteinstellungen).
             from ....lib.config import get_effective_model_from_settings
             from ....lib.logging_utils import log_message
             from ....lib.vision_routing import (
-                Describer, NoVisionModelError, camera_describer, describe_via, tool_image_describer,
+                Describer, NoVisionModelError, camera_describer, describe_via, image_describer,
             )
 
             def pick() -> Describer:
@@ -476,7 +476,7 @@ class VisionPlugin:
                     camera_describer(
                         str(vlm_cfg.get("model", DEFAULT_MODEL)), explicit=True,
                     )
-                    if source_id else tool_image_describer(
+                    if source_id else image_describer(
                         get_effective_model_from_settings(ctx.agent_id)
                     )
                 )

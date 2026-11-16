@@ -493,12 +493,13 @@ async def _look_at_images(
     llm_user_text: str,
     lang: str,
 ) -> tuple[tuple[TurnImage, ...], str]:
-    """Who looks at the turn's images (rule A, ``vision_routing.chat_describer``).
+    """Who looks at the turn's images.
 
-    When one agent answers alone and its model can see, it gets the images in its request. Every
-    other turn (a debate, the symposion, a model that cannot see) gets ONE description in the user
-    turn, so all its agents work from the same basis. Returns the images the answering agent sees
-    itself and the user turn as the history keeps it.
+    When one agent answers alone and its model can see (``vision_routing.sees_images_itself``), it gets the
+    images in its request. Every other turn (a debate, the symposion, a model that cannot see) gets ONE
+    description in the user turn, so all its agents work from the same basis; who writes it is rule A
+    (``vision_routing.image_describer``): the describer list first, then the seeing main model.
+    Returns the images the answering agent sees itself and the user turn as the history keeps it.
     """
     from .i18n import t
     from .remote_describers import endpoint
@@ -506,15 +507,19 @@ async def _look_at_images(
     from .vision_routing import (
         Describer,
         NoVisionModelError,
-        chat_describer,
         describe_with_second_attempt,
         eviction_notice,
+        image_describer,
+        sees_images_itself,
     )
 
     main_model = agent_model(view, plan.responder or "aifred")
+    if plan.responder is not None and not plan.debate and await asyncio.to_thread(sees_images_itself, main_model):
+        debug(f"📷 VL Direct ({len(images)} image(s)) → {main_model}")
+        return tuple(images), llm_user_text
 
     def choose() -> Describer:
-        describer = chat_describer(main_model)
+        describer = image_describer(main_model)
         if describer.evicts_chat_model:
             debug(eviction_notice(describer.model))
         return describer
@@ -525,9 +530,6 @@ async def _look_at_images(
         debug(f"⚠️ Vision: {error} — the image goes on without a description")
         session_events.publish(session_id, "notice", {"level": "warning", "text": t("vision_no_describer", lang=view.ui_language)})
         return (), llm_user_text
-    if plan.responder is not None and not plan.debate and describer.model == main_model:
-        debug(f"📷 VL Direct ({len(images)} image(s)) → {main_model}")
-        return tuple(images), llm_user_text
     report_phase("images")
     if endpoint(describer.model) is None:   # a describer of another machine loads there
         await _announce_cold_start(view, describer.model)

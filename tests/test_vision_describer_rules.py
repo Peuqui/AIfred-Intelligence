@@ -1,4 +1,4 @@
-"""Regel A (chat_describer) und Regel B (camera_describer) aus vision_routing."""
+"""Regel A (image_describer) und Regel B (camera_describer) aus vision_routing."""
 
 import pytest
 from fake_gpu_orc import FakeGpuOrc, install_fake_gpu_orc
@@ -8,7 +8,8 @@ from aifred.lib.calibration import llamaswap_io
 from aifred.lib.vision_routing import (
     NoVisionModelError,
     camera_describer,
-    chat_describer,
+    image_describer,
+    sees_images_itself,
 )
 from aifred.lib.user_error import UserError
 from aifred.lib.vision_vram_check import VRAMCheckResult
@@ -55,28 +56,35 @@ def world(monkeypatch):
 
 # ── Regel A ──────────────────────────────────────────────────────────
 
-def test_chat_seeing_main_model_describes_itself(world):
+def test_chat_seeing_main_model_describes_itself_when_the_list_has_nobody(world):
     world()
-    d = chat_describer(MAIN_SEEING)
+    d = image_describer(MAIN_SEEING)
     assert (d.model, d.evicts_chat_model) == (MAIN_SEEING, False)
+
+
+def test_a_model_sees_images_itself_only_when_it_has_eyes(world):
+    world()
+    assert sees_images_itself(MAIN_SEEING) is True
+    assert sees_images_itself(MAIN) is False
+    assert sees_images_itself("") is False
 
 
 def test_chat_blind_main_uses_vision_llm_in_parallel_when_it_fits(world):
     world(fits=True, visiond_for={VISION_LLM: f"{VISION_LLM}-visiond"})
-    d = chat_describer(MAIN)
+    d = image_describer(MAIN)
     assert (d.model, d.evicts_chat_model) == (f"{VISION_LLM}-visiond", False)
 
 
 def test_chat_blind_main_evicts_with_effective_vision_variant_when_not_fitting(world):
     world(fits=False, visiond_for={VISION_LLM: f"{VISION_LLM}-visiond"})
-    d = chat_describer(MAIN)
+    d = image_describer(MAIN)
     assert (d.model, d.evicts_chat_model) == (f"{VISION_LLM}-tts", True)
 
 
 def test_chat_blind_main_without_vision_llm_raises(world):
     world(vision_llm="")
     with pytest.raises(NoVisionModelError):
-        chat_describer(MAIN)
+        image_describer(MAIN)
 
 
 # ── Regel B ──────────────────────────────────────────────────────────
@@ -212,7 +220,7 @@ def test_explicit_request_does_not_evict_a_loading_model(world):
 def test_chat_image_does_not_evict_a_loading_model(world):
     world(fits=True, loading=MAIN)
     with pytest.raises(NoVisionModelError, match=MAIN):
-        chat_describer(MAIN)
+        image_describer(MAIN)
 
 
 def test_the_traffic_light_is_gpu_orcs(monkeypatch) -> None:

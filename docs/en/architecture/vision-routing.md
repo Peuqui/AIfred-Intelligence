@@ -64,24 +64,25 @@ shown and saved is always matched with what is there: new sources come switched 
 answering machine no longer has drops out, the entries of a machine that does not answer stay. Without a
 stored list: this machine, then the main model. Two rules are fixed and no entries (reasons below).
 
-**Rule A — `chat_describer(main_model)`** (chat uploads, Symposion) and
-**`tool_image_describer(main_model)`** (tool images: sandbox screenshots, uploaded images in the vision tool;
-since 2026-11-16): both run through the same steps (`vision_routing._image_describer`), only the main model
-stands elsewhere. For a chat image it comes **before** the list (step 1), for a tool image **after** it (between
-steps 2 and 3): a tool image only becomes a text for the result, the main model never gets the image itself and
-would be one describer among others there, slowing itself down with its own request (vLLM with `max-num-seqs 1`:
-screenshot descriptions of 10 to 28 min while the camera description waits behind). A model of another machine
-that answers therefore goes first.
+**Rule A — `image_describer(main_model)`** (an image becomes text: blind main model, debate, Symposion,
+sandbox screenshots, uploaded images in the vision tool):
 
-1. If the main model can see (`has_native_vision`), it describes itself and is never evicted. Fixed: it
-   answers the turn anyway; if it sees, it gets the image directly with history and tools; any other
-   describer would hand it only a text description, and reloading costs more.
-2. Otherwise the first entry of the list switched on that can right now (the entry "main model" does not
-   count here; "this machine" only through a `-visiond` profile).
+1. The first entry of the list switched on that can right now (the entry "main model" does not
+   count here; "this machine" only through a `-visiond` profile): a model of another machine, if it answers.
+2. Otherwise the main model, if it can see itself (`sees_images_itself`), without reloading.
 3. Otherwise the vision LLM from the main settings via its `-visiond`
    profile, if it fits alongside (`check_visiond_fits`, see below).
 4. Otherwise the effective variant of the vision LLM — it evicts the chat LLM.
 5. No vision LLM configured: `NoVisionModelError`.
+
+The main model stands behind the list because only a text results here: it never gets the image itself, is one
+describer among others and slows itself down with its own request (vLLM with `max-num-seqs 1`: screenshot
+descriptions of 10 to 28 min on 2026-11-16, the camera description waited behind).
+
+**Directly to the model** an image goes only in the turn of a single seeing agent without a debate
+(`turn_service._look_at_images`, VL Direct): it gets the image with history and tools, any describer would give
+it only text. No describer is chosen there. In a debate or the Symposion no agent gets the image; all read the
+same description, and the choice is rule A.
 
 **Rule B — `camera_describer(vlm_model, explicit=…)`** (Vigilantia watcher,
 event analysis, bulk, vision tool with a camera source):
@@ -167,28 +168,18 @@ off at the end.
 
 ### Chat images: VL Direct or two steps
 
-`send_message` ([`aifred/state/_chat_mixin.py`](../../../aifred/state/_chat_mixin.py))
-asks `_image_describer` ([`aifred/state/_agent_config_mixin.py`](../../../aifred/state/_agent_config_mixin.py)),
-which applies rule A to the effective main model:
+`turn_service._look_at_images` decides per turn:
 
-- **Main model can see, one agent:** VL Direct — the main model receives the
-  images and answers as the agent (`_process_vision_request`).
-- **Otherwise (or Symposion with ≥2 agents):** `_describe_images` describes
-  the images once, neutrally (`vision/task_instruction_handoff`, with a user question `…_handoff_question`); the
-  description is appended to the user turn as `[Image content: …]`, and the
+- **Main model can see, one agent, no debate:** VL Direct — the main model receives the
+  images in its request and answers as the agent (`_direct_call`). No describer is chosen.
+- **Otherwise (debate, Symposion, blind main model):** `turn_images.describe_images` describes
+  the images once, neutrally, with the describer of rule A; the
+  description is appended to the user turn, and the
   normal text pipeline answers — the main model with its full prompt, tools
   and history, or all Symposion agents from the same basis. For follow-up
   questions the agent takes another look via `vision_analyze` when needed
   (the `/_upload/` URL is in the turn).
-- **No vision LLM:** the image goes on without a description, with a note in
-  the debug console.
-
-**Thinking while describing:** every description (`_describe_images`, `analyze_sequence` →
-`_analyze_via_llamacpp`) is a task of the agent "Vision". It thinks as the vision row says
-for the model that describes (`agent_settings.thinking_mode`, stored per model) and sends
-the level in `chat_template_kwargs` like the chat backends. The 4B thus stays without
-thinking, GLM as main model describes with the level set for GLM in the vision row. VL
-Direct follows the row of the agent that answers.
+- **No vision LLM:** the image goes on without a description, with a notice to the user.
 
 ## Unload semantics (llama-swap groups)
 

@@ -250,29 +250,23 @@ def test_nothing_on_the_list_can_and_no_explicit_request_means_no_description(bo
         vision_routing.camera_describer("Local-VL", explicit=False)
 
 
-def test_a_main_model_that_sees_keeps_chat_images(box, local):
+def test_a_blind_main_model_hands_images_to_the_list(box, local):
+    local(MAIN, f"Box/{BIG}", LOCAL)  # the main model entry does not count for images
+    box["models"] = [(BIG, True)]
+    assert vision_routing.image_describer("Blind-Main") == Describer(f"Box/{BIG}", False)
+
+
+def test_a_machine_of_the_list_describes_before_a_seeing_main_model(box, local):
+    """The image becomes a text (a tool, a debate): the main model is only a describer there, so a machine that answers goes first."""
     local(f"Box/{BIG}", LOCAL, MAIN)
     box["models"] = [(BIG, True)]
-    assert vision_routing.chat_describer("Seeing-Main") == Describer("Seeing-Main", False)
+    assert vision_routing.image_describer("Seeing-Main") == Describer(f"Box/{BIG}", False)
 
 
-def test_a_blind_main_model_hands_chat_images_to_the_list(box, local):
-    local(MAIN, f"Box/{BIG}", LOCAL)  # the main model entry does not count for chat images
-    box["models"] = [(BIG, True)]
-    assert vision_routing.chat_describer("Blind-Main") == Describer(f"Box/{BIG}", False)
-
-
-def test_a_screenshot_goes_to_the_list_before_a_seeing_main_model(box, local):
-    """A tool turns the image into text: the main model is only a describer there, so a machine that answers goes first."""
-    local(f"Box/{BIG}", LOCAL, MAIN)
-    box["models"] = [(BIG, True)]
-    assert vision_routing.tool_image_describer("Seeing-Main") == Describer(f"Box/{BIG}", False)
-
-
-def test_a_screenshot_goes_to_the_seeing_main_model_when_nobody_on_the_list_can(box, local):
+def test_a_seeing_main_model_describes_when_nobody_on_the_list_can(box, local):
     local(f"Box/{BIG}")
     box["reachable"] = False
-    assert vision_routing.tool_image_describer("Seeing-Main") == Describer("Seeing-Main", False)
+    assert vision_routing.image_describer("Seeing-Main") == Describer("Seeing-Main", False)
 
 
 # ── the list as the settings show it ─────────────────────────────────

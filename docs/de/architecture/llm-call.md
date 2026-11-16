@@ -144,7 +144,7 @@ Spricht der Nutzer einen Agenten an ("Sokrates, was meinst du?"), liefert die Ab
 
 ### 2. Bilder eines Zuges
 
-Wer die Bilder ansieht, entscheidet `turn_service._look_at_images()` mit `vision_routing.chat_describer()` (Regel A, siehe [Vision-Routing](vision-routing.md)):
+Wer die Bilder ansieht, entscheidet `turn_service._look_at_images()`; wer sie beschreibt, `vision_routing.image_describer()` (Regel A, siehe [Vision-Routing](vision-routing.md)):
 
 - **VL Direct**: Antwortet ein einzelner Agent ohne Debatte und kann sein Modell sehen, bekommt er die Bilder in seiner Anfrage. `_direct_call()` baut dazu die Frage (`turn_images.seeing_question`), den Inhalt (`seeing_content`, Bilder zuerst, dann ein Text) und die Aufgabe im System-Prompt (`seeing_task`). Die Bilder selbst kommen nie in die History; dort steht nur die URL (`image_marker`), damit ein späterer Zug mit `vision_analyze` noch einmal hinsehen kann.
 - **Beschreibung**: In jedem anderen Fall (Debatte, Symposion, Modell ohne Sicht) beschreibt `turn_images.describe_images()` die Bilder einmal; die Beschreibung (`description_block`) wird an den Nutzer-Turn gehängt und in der `llm_history` überschrieben (`_rewrite_user_turn`). So arbeiten alle Agenten des Zuges auf derselben Grundlage. Ein Beschreiber eines anderen Rechners lädt dort (`remote_describers`).
