@@ -262,6 +262,19 @@ def test_a_blind_main_model_hands_chat_images_to_the_list(box, local):
     assert vision_routing.chat_describer("Blind-Main") == Describer(f"Box/{BIG}", False)
 
 
+def test_a_screenshot_goes_to_the_list_before_a_seeing_main_model(box, local):
+    """A tool turns the image into text: the main model is only a describer there, so a machine that answers goes first."""
+    local(f"Box/{BIG}", LOCAL, MAIN)
+    box["models"] = [(BIG, True)]
+    assert vision_routing.tool_image_describer("Seeing-Main") == Describer(f"Box/{BIG}", False)
+
+
+def test_a_screenshot_goes_to_the_seeing_main_model_when_nobody_on_the_list_can(box, local):
+    local(f"Box/{BIG}")
+    box["reachable"] = False
+    assert vision_routing.tool_image_describer("Seeing-Main") == Describer("Seeing-Main", False)
+
+
 # ── the list as the settings show it ─────────────────────────────────
 
 def _overview(models: list[str], *, up: bool = True) -> list[remote_describers.HostOverview]:

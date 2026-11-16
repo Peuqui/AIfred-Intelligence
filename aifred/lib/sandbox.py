@@ -209,8 +209,9 @@ async def describe_sandbox_screenshots(
     A text-only model cannot see the screenshots/plots that render_html and
     execute_code produce — the tool result only carries their URLs for the
     UI embed. This feeds the model a text description instead. Describer
-    choice: rule A (``vision_routing.chat_describer``) — the running model
-    itself when it can see, otherwise the vision LLM. Neither available →
+    choice: rule A for tool images (``vision_routing.tool_image_describer``) —
+    the describer list first, then the running model when it can see, then
+    the vision LLM. None available →
     an explicit note in the tool result so the model tells the user that
     visual verification is not possible right now.
 
@@ -254,17 +255,17 @@ async def describe_sandbox_screenshots(
         yield {"type": "result", "text": result_text}
         return
 
-    # Wer beschreibt: Regel A (SSOT vision_routing.chat_describer) —
-    # das laufende Modell selbst, wenn es sieht, sonst das Vision-LLM.
+    # Wer beschreibt: Regel A für Werkzeugbilder (SSOT vision_routing.tool_image_describer) —
+    # die Beschreiber-Liste, dann das laufende Modell, wenn es sieht, dann das Vision-LLM.
     from .vision_routing import (
         Describer,
         NoVisionModelError,
-        chat_describer,
         describe_with_second_attempt,
         eviction_notice,
+        tool_image_describer,
     )
     try:
-        chosen = await asyncio.to_thread(chat_describer, main_model)
+        chosen = await asyncio.to_thread(tool_image_describer, main_model)
     except NoVisionModelError as e:
         yield {"type": "debug", "message": (
             f"⚠️ Sandbox screenshot description unavailable: {e}"
@@ -322,7 +323,7 @@ async def describe_sandbox_screenshots(
         # max_pixels=0: no downscale — rendered UI text/layout detail
         # matters and the render viewport bounds the size anyway.
         def choose_again() -> Describer:
-            again = chat_describer(main_model)
+            again = tool_image_describer(main_model)
             if again.evicts_chat_model:
                 log_message(eviction_notice(again.model))
             return again

@@ -68,8 +68,14 @@ Neues kommt ausgeschaltet ans Ende, ein Modell, das ein antwortender Rechner nic
 die Einträge eines Rechners, der nicht antwortet, bleiben. Ohne gespeicherte Liste: dieser Rechner, dann das
 Hauptmodell. Zwei Regeln sind fest und keine Einträge (Begründung unten).
 
-**Regel A — `chat_describer(main_model)`** (Chat-Uploads, Symposion,
-Sandbox-Screenshots, hochgeladene Bilder im Vision-Tool):
+**Regel A — `chat_describer(main_model)`** (Chat-Uploads, Symposion) und
+**`tool_image_describer(main_model)`** (Werkzeugbilder: Sandbox-Screenshots, hochgeladene Bilder im
+Vision-Tool; seit 16.11.2026): beide laufen durch dieselben Stufen
+(`vision_routing._image_describer`), nur das Hauptmodell steht anders. Beim Chat-Bild steht es **vor** der Liste
+(Stufe 1), bei Werkzeugbildern **hinter** ihr (zwischen Stufe 2 und 3): Aus einem Werkzeugbild entsteht nur ein
+Text für das Ergebnis, das Hauptmodell bekommt das Bild nie selbst und wäre dort ein Beschreiber unter anderen, der
+sich mit der eigenen Anfrage selbst ausbremst (vLLM mit `max-num-seqs 1`: Screenshot-Beschreibungen von 10 bis
+28 min, während die Kamerabeschreibung hinten wartet). Ein Modell eines anderen Rechners, das antwortet, geht also vor.
 
 1. Sieht das Hauptmodell selbst (`has_native_vision`), beschreibt es selbst und wird nie
    verdrängt. Fest: Es beantwortet den Turn ohnehin, sieht es, bekommt es das Bild direkt mit Verlauf und

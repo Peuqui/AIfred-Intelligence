@@ -64,8 +64,14 @@ shown and saved is always matched with what is there: new sources come switched 
 answering machine no longer has drops out, the entries of a machine that does not answer stay. Without a
 stored list: this machine, then the main model. Two rules are fixed and no entries (reasons below).
 
-**Rule A — `chat_describer(main_model)`** (chat uploads, Symposion, sandbox
-screenshots, uploaded images in the vision tool):
+**Rule A — `chat_describer(main_model)`** (chat uploads, Symposion) and
+**`tool_image_describer(main_model)`** (tool images: sandbox screenshots, uploaded images in the vision tool;
+since 2026-11-16): both run through the same steps (`vision_routing._image_describer`), only the main model
+stands elsewhere. For a chat image it comes **before** the list (step 1), for a tool image **after** it (between
+steps 2 and 3): a tool image only becomes a text for the result, the main model never gets the image itself and
+would be one describer among others there, slowing itself down with its own request (vLLM with `max-num-seqs 1`:
+screenshot descriptions of 10 to 28 min while the camera description waits behind). A model of another machine
+that answers therefore goes first.
 
 1. If the main model can see (`has_native_vision`), it describes itself and is never evicted. Fixed: it
    answers the turn anyway; if it sees, it gets the image directly with history and tools; any other

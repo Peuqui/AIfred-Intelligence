@@ -1,7 +1,7 @@
 """VLM-Analyzer — Bild → Beschreibungstext.
 
 ``analyze_sequence`` führt nur aus; WER beschreibt, entscheiden die Aufrufer
-über ``vision_routing`` (Regel A ``chat_describer``, Regel B
+über ``vision_routing`` (Regel A ``chat_describer`` und ``tool_image_describer``, Regel B
 ``camera_describer``). Dispatch rein über das übergebene Modell:
 
 * Lädt es laut llama-swap-Config einen eigenen Vision-Encoder (SSOT
