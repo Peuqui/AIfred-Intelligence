@@ -112,7 +112,7 @@ turn_service.py: run_turn() -> _run()
   |-- keine Antwort-Rolle (Symposion)   -> turn_debate.run_symposion()
   |   sonst _respond(Antwortender)      -> direkte Antwort
   |     danach, in einem Debattenmodus  -> turn_debate.run_debate()
-  |-- _start_title(): Sitzungstitel im Hintergrund (Abschnitt 6)
+  |-- _title(): Sitzungstitel, noch im Platz des Zuges an der Modell-Sperre (Abschnitt 6)
 ```
 
 Die direkte Antwort:
@@ -284,7 +284,7 @@ message_processor.py: dispatch_inbound() -> process_inbound(InboundMessage)
 
 ### 6. Sitzungstitel
 
-Verwendet **nicht** `run_llm_stream()`: einfaches, nicht streamendes `client.chat()` mit hartem Timeout (`SESSION_TITLE_TIMEOUT_SECONDS`, 300 s). Nach dem ersten Austausch startet `turn_service._start_title()` einen Hintergrund-Task (`_title`), wenn die Sitzung noch keinen Titel hat; der fertige Titel kommt als Ereignis `session_title`.
+Verwendet **nicht** `run_llm_stream()`: einfaches, nicht streamendes `client.chat()` mit hartem Timeout (`SESSION_TITLE_TIMEOUT_SECONDS`, 300 s). Nach dem ersten Austausch erzeugt `turn_service._title()` den Titel, wenn die Sitzung noch keinen hat, und zwar direkt nach dem letzten Aufruf des Zuges, solange der Zug seinen Platz an der Modell-Sperre hält und dessen Modell das geladene ist (als eigene Aufgabe hinter der Sperre wechselte das Backend die Modelle mit, 16.11.2026); der fertige Titel kommt als Ereignis `session_title`, `turn_finished` folgt um die Titelzeit später.
 
 ```
 session_title.py: first_exchange() + generate_session_title()

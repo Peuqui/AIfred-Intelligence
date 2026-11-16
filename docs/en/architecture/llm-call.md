@@ -112,7 +112,7 @@ turn_service.py: run_turn() -> _run()
   |-- no responder (symposion)          -> turn_debate.run_symposion()
   |   else _respond(responder)          -> direct answer
   |     then, in a debate mode          -> turn_debate.run_debate()
-  |-- _start_title(): session title in the background (section 6)
+  |-- _title(): session title, still in the turn's place at the model gate (section 6)
 ```
 
 The direct answer:
@@ -284,7 +284,7 @@ message_processor.py: dispatch_inbound() -> process_inbound(InboundMessage)
 
 ### 6. Session Title
 
-Does **not** use `run_llm_stream()`: simple non-streaming `client.chat()` with a hard timeout (`SESSION_TITLE_TIMEOUT_SECONDS`, 300 s). After the first exchange `turn_service._start_title()` starts a background task (`_title`) if the session has no title yet; the finished title arrives as a `session_title` event.
+Does **not** use `run_llm_stream()`: simple non-streaming `client.chat()` with a hard timeout (`SESSION_TITLE_TIMEOUT_SECONDS`, 300 s). After the first exchange `turn_service._title()` makes the title if the session has none yet, right after the turn's last call, while the turn still holds its place at the model gate and that call's model is the loaded one (as a task of its own behind the gate the backend swapped the models with it, 2026-11-16); the finished title arrives as a `session_title` event, `turn_finished` follows by the time the title took.
 
 ```
 session_title.py: first_exchange() + generate_session_title()
