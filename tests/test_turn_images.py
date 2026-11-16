@@ -45,13 +45,15 @@ def test_only_uploads_of_the_own_session_are_images_of_a_message(uploads: Path) 
             turn_images.session_images(MINE, [url])
 
 
-def test_the_history_keeps_the_url_and_the_bubble_the_thumbnail(uploads: Path) -> None:
+def test_the_history_keeps_the_url_and_the_bubble_the_text_as_typed(uploads: Path) -> None:
     images = turn_images.session_images(MINE, [f"/_upload/images/{MINE}/hund.jpg"])
     history = turn_images.history_text("Was ist das?", images)
     assert history.startswith("Was ist das?\n\n") and f"/_upload/images/{MINE}/hund.jpg" in history
     assert "\n" not in turn_images.history_text("", images)          # image only: the anchor alone
     bubble = turn_images.bubble_text("", images, "de")
-    assert '<img src="/_upload/images/' in bubble and bubble.endswith("📷 hund.jpg")
+    assert bubble == "📷 hund.jpg"                                   # no text: the image name; the images are metadata
+    typed = "Zeige <script>x</script> und <b>fett</b>"
+    assert turn_images.bubble_text(typed, images, "de") == typed      # as typed: the page shows it as plain text
 
 
 def test_a_model_that_sees_gets_the_images_first_and_one_text_part(uploads: Path) -> None:

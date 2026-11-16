@@ -107,19 +107,22 @@ def _message(entry: dict[str, Any], session_id: str, user_name: str, lang: str, 
     if not content.strip():
         return ""
     if entry.get("role") == "user":
-        return _user_message(content, session_id, user_name, lang, markdown)
+        return _user_message(entry, content, session_id, user_name, lang)
     return _agent_message(entry, content, session_id, lang, markdown)
 
 
-def _user_message(content: str, session_id: str, user_name: str, lang: str, markdown: Callable[[str], str]) -> str:
+def _user_message(entry: dict[str, Any], content: str, session_id: str, user_name: str, lang: str) -> str:
+    """The user's bubble as the page shows it: the images of the message above its text, which stays plain text."""
+    from .formatting import build_thumbnail_row
     from .i18n import t
     from .vision_utils import load_image_url_as_base64
 
-    body = _markdown_keeping_html(content, markdown)
-    for url in re.findall(r'<img\s+src="([^"]*/_upload/[^"]+)"', body):
+    thumbnails = build_thumbnail_row([image["url"] for image in entry.get("metadata", {}).get("images", [])])
+    for url in re.findall(r'<img\s+src="([^"]*/_upload/[^"]+)"', thumbnails):
         embedded = load_image_url_as_base64(url, session_id)
         if embedded:
-            body = body.replace(f'src="{url}"', f'src="{embedded}"')
+            thumbnails = thumbnails.replace(f'src="{url}"', f'src="{embedded}"')
+    body = f'{thumbnails}<div class="user-text">{html_module.escape(content)}</div>'
     name = html_module.escape(user_name or t("chat_export_user", lang=lang))
     return (f'<div class="message user-message"><div class="message-header">{name} 🙋</div>'
             f'<div class="message-content">{body}</div></div>')

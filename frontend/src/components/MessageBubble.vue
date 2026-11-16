@@ -3,6 +3,7 @@ import { RefreshCw } from "lucide-vue-next";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { ChatEntry } from "../api/types";
 import { t } from "../i18n";
+import { clip } from "../lib/clip";
 import { renderMarkdown } from "../lib/markdown";
 import { isSpeaking, toggleReading } from "../lib/speech";
 import TtsIcon from "./TtsIcon.vue";
@@ -15,8 +16,16 @@ import ImageLightbox from "./ImageLightbox.vue";
 const props = defineProps<{ entry: ChatEntry; speechOn: boolean; color?: string; pinned?: boolean; stuck?: boolean }>();
 const settings = useSettings();
 const emit = defineEmits<{ readAgain: [timestamp: string] }>();
-const html = computed(() => renderMarkdown(props.entry.content));
 const isUser = computed(() => props.entry.role === "user");
+// The user's text is shown as typed, plain (tags in it are text, not markup); the images of their message above it,
+// from the entry's metadata. A long text shows its beginning, "more" the rest. An answer is Markdown with the
+// server's own HTML parts.
+const USER_PREVIEW_CHARS = 600;
+const USER_PREVIEW_LINES = 8;
+const html = computed(() => (isUser.value ? "" : renderMarkdown(props.entry.content)));
+const images = computed(() => props.entry.metadata?.images ?? []);
+const preview = computed(() => clip(props.entry.content, USER_PREVIEW_CHARS, USER_PREVIEW_LINES));
+const tooLong = computed(() => isUser.value && preview.value !== props.entry.content.trim());
 const metadata = computed(() => props.entry.metadata ?? { audio_urls: [], browser_speech: [] });
 const canReplay = computed(() => (metadata.value.audio_urls?.length ?? 0) + (metadata.value.browser_speech?.length ?? 0) > 0);
 
@@ -25,6 +34,7 @@ const content = ref<HTMLElement>();
 const unfolded = ref(false);
 const overflowing = ref(false);
 const folded = computed(() => !!props.pinned && !!props.stuck && !unfolded.value);
+const userText = computed(() => (unfolded.value ? props.entry.content : preview.value));
 // Back in the history it shows in full again; the next time it sticks it starts folded.
 watch(() => props.stuck, (stuck) => {
   if (!stuck) unfolded.value = false;
@@ -111,9 +121,13 @@ function pictureGone(event: Event): void {
       </button>
       <span v-if="entry.tts_note" class="note">{{ entry.tts_note }}</span>
     </header>
+    <div v-if="isUser && images.length" class="thumbs" @click="enlarge" @error.capture="pictureGone">
+      <img v-for="image in images" :key="image.url" :src="image.url" :alt="image.name" :title="image.name" />
+    </div>
+    <p v-if="isUser" ref="content" class="content plain" :class="{ folded }">{{ userText }}</p>
     <!-- eslint-disable-next-line vue/no-v-html -- sanitized by renderMarkdown (DOMPurify) -->
-    <div ref="content" class="content" :class="{ folded }" @click="enlarge" @error.capture="pictureGone" v-html="html" />
-    <button v-if="pinned && stuck && (overflowing || unfolded)" type="button" class="more" @click="unfolded = !unfolded">
+    <div v-else ref="content" class="content" :class="{ folded }" @click="enlarge" @error.capture="pictureGone" v-html="html" />
+    <button v-if="tooLong || (pinned && stuck && (overflowing || unfolded))" type="button" class="more" @click="unfolded = !unfolded">
       {{ unfolded ? t("question_less") : t("question_more") }}
     </button>
     <ImageLightbox
@@ -150,6 +164,9 @@ header { font-size: var(--text-small); font-weight: 600; color: var(--aifred-pri
 .replay:has(.tts-icon) { opacity: 1; }
 .replay :deep(.tts-icon) { height: 2.2em; width: 2.2em; vertical-align: middle; }
 .note { color: var(--aifred-text-secondary); font-weight: 400; font-size: var(--text-small); align-self: center; }
+.plain { margin: 0; white-space: pre-wrap; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.thumbs img { width: 50px; height: 50px; object-fit: cover; border-radius: 4px; cursor: zoom-in; }
 .content.folded { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--pinned-question-lines); overflow: hidden; }
 .more { background: none; border: none; padding: 0; margin-top: 2px; font: inherit; font-size: var(--text-small); color: var(--aifred-text-muted); text-decoration: underline; cursor: pointer; }
 .content :deep(p) { margin: 0.5em 0; }
@@ -181,6 +198,6 @@ header { font-size: var(--text-small); font-weight: 600; color: var(--aifred-pri
 .content :deep(td), .content :deep(th) { border: 1px solid var(--aifred-border); padding: 2px 6px; }
 .content :deep(img) { max-width: 100%; }
 .content :deep(img[src*="/_upload/"]) { cursor: zoom-in; }
-.content :deep(.gone) { display: inline-block; margin: 2px 0; color: var(--aifred-text-muted); font-style: italic; font-size: 0.85rem; }
+.thumbs :deep(.gone), .content :deep(.gone) { display: inline-block; margin: 2px 0; color: var(--aifred-text-muted); font-style: italic; font-size: 0.85rem; }
 .content :deep(a) { color: var(--aifred-accent-blue); }
 </style>

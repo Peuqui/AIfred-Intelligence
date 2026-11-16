@@ -80,14 +80,23 @@ class Utterance(BaseModel):
     pitch: float | None = None
 
 
+class BubbleImage(BaseModel):
+    """An image the user sent with a message (lib/turn_images.py ``bubble_images``)."""
+
+    name: str
+    url: str
+
+
 class EntryMetadata(BaseModel):
     """What a bubble keeps besides its text: what was spoken of it (lib/session_storage.py
-    ``keep_reply_audio``), and more the client does not read yet."""
+    ``keep_reply_audio``), the images of the user's message (shown above its text), and more the client
+    does not read yet."""
 
     model_config = ConfigDict(extra="allow")
 
     audio_urls: list[str] = Field(default_factory=list)
     browser_speech: list[Utterance] = Field(default_factory=list)
+    images: list[BubbleImage] = Field(default_factory=list)
 
 
 class ChatEntry(BaseModel):

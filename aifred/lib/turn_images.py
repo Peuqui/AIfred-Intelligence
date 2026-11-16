@@ -94,19 +94,16 @@ def _replace_upload(session_id: str, image: TurnImage, content: bytes, extension
 
 
 def bubble_text(text: str, images: list[TurnImage], lang: str) -> str:
-    """The user's bubble: thumbnails above the text; without text the image names."""
-    from .formatting import build_thumbnail_row
+    """The text of the user's bubble, as typed (the page shows it as plain text); without text the image names.
+    The images themselves are the entry's metadata (``bubble_images``), the page shows them above the text."""
     from .i18n import t
 
-    if not images:
+    if text.strip() or not images:
         return text
-    thumbnails = build_thumbnail_row([image.url for image in images])
-    if text.strip():
-        return f"{thumbnails}\n\n{text}"
     if len(images) == 1:
-        return f"{thumbnails}\n\n📷 {images[0].name}"
+        return f"📷 {images[0].name}"
     names = ", ".join(image.name for image in images)
-    return f"{thumbnails}\n\n📷 {t('images_attached', lang=lang, count=len(images), names=names)}"
+    return f"📷 {t('images_attached', lang=lang, count=len(images), names=names)}"
 
 
 def bubble_images(images: list[TurnImage]) -> list[dict[str, str]]:

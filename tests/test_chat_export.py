@@ -60,7 +60,8 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
         f'<img src="/_upload/sandbox_output/{SESSION}/plot-1.png" alt="Plot" />'
     )
     session_storage.update_chat_data(SESSION, [
-        {"role": "user", "content": f'<img src="/_upload/images/{SESSION}/foto.jpg"> Was ist das?'},
+        {"role": "user", "content": "Was ist das? <script>x</script>",
+         "metadata": {"images": [{"name": "foto.jpg", "url": f"/_upload/images/{SESSION}/foto.jpg"}]}},
         {"role": "assistant", "content": reply, "agent": "pater", "agent_display_name": "Pater Tuck",
          "agent_emoji": "🍺", "metadata": {"audio_urls": [f"/_upload/audio/{SESSION}/reply.wav"],
                                          "playback_rate": "1.25x"}},
@@ -87,7 +88,8 @@ def test_the_page_holds_the_chat_with_its_markdown_and_the_bubbles_html(world: P
 
 def test_images_audio_and_plots_are_in_the_file(world: Path) -> None:
     page = _page(world)
-    assert 'src="data:image/jpeg;base64,' in page                  # the user's image
+    assert 'src="data:image/jpeg;base64,' in page                  # the user's image, from the entry's metadata
+    assert "Was ist das? &lt;script&gt;x&lt;/script&gt;" in page   # the user's text as typed: tags are text, not markup
     assert 'src="data:image/png;base64,' in page                   # the sandbox plot
     assert 'src="data:audio/wav;base64,' in page and "this.playbackRate=1.25" in page
 

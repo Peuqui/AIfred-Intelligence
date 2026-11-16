@@ -350,7 +350,7 @@ def test_an_agent_that_sees_gets_the_image_in_its_request_and_the_history_only_i
     user, reply = _data()["llm_history"]
     assert picture in user["content"] and "base64" not in user["content"]
     assert reply["content"] == "[AIFRED]: Hallo Peuqui."
-    assert '<img src="' + picture in _data()["chat_history"][0]["content"]
+    assert _data()["chat_history"][0]["content"] == "Was ist das?"       # the text as typed, no markup of the image
     assert _data()["chat_history"][0]["metadata"]["images"] == [{"name": "hund.jpg", "url": picture}]
 
 

@@ -411,8 +411,8 @@ def performance_footer_text(metadata: dict) -> str:
 def build_user_chat_entry(content: str, images: list[dict[str, str]] | None = None) -> dict:
     """Build a chat_history dict for the user's own message (bubble on the right).
 
-    ``content`` is the display text (thumbnails already in front of it); ``images`` are the
-    attached images as ``{name, url}`` for export and replay.
+    ``content`` is the text as typed, shown as plain text; ``images`` are the attached images as
+    ``{name, url}``, shown above it and put into the export.
     """
     return {
         "role": "user",

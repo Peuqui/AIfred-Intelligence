@@ -34,3 +34,42 @@ describe("MessageBubble pictures", () => {
     expect(wrapper.find(".gone").exists()).toBe(false);
   });
 });
+
+function userBubble(content: string, images: { name: string; url: string }[] = []): ReturnType<typeof mount> {
+  setActivePinia(createPinia());
+  return mount(MessageBubble, {
+    props: { entry: {
+      role: "user", content, agent: "", agent_display_name: "", agent_emoji: "", mode: "", timestamp: "",
+      time_display: "12:43", has_audio: false, tts_note: "", metadata: { images },
+    }, speechOn: false },
+  });
+}
+
+describe("MessageBubble user text", () => {
+  it("shows tags in the user's text as text, and all of it", () => {
+    const text = 'Dann <script type="module"> mit\nimport * as THREE from "three";\nABLAUF: acht Phasen';
+    const wrapper = userBubble(text);
+    expect(wrapper.find(".content").text()).toBe(text);
+    expect(wrapper.find("script").exists()).toBe(false);
+  });
+
+  it("shows the images of the message above the text and keeps the text as typed", () => {
+    const wrapper = userBubble("Was ist das?", [{ name: "hund.jpg", url: "/_upload/images/s/hund.jpg" }]);
+    expect(wrapper.find(".thumbs img").attributes("src")).toBe("/_upload/images/s/hund.jpg");
+    expect(wrapper.find(".content").text()).toBe("Was ist das?");
+  });
+
+  it("shows a long text clipped, with a link that shows all of it and one that folds it again", async () => {
+    const lines = Array.from({ length: 30 }, (_, at) => `Zeile ${at + 1}`);
+    const wrapper = userBubble(lines.join("\n"));
+    expect(wrapper.find(".content").text()).toBe(`${lines.slice(0, 8).join("\n")}…`);
+    await wrapper.find(".more").trigger("click");
+    expect(wrapper.find(".content").text()).toBe(lines.join("\n"));
+    await wrapper.find(".more").trigger("click");
+    expect(wrapper.find(".content").text()).toBe(`${lines.slice(0, 8).join("\n")}…`);
+  });
+
+  it("has no link for a short text", () => {
+    expect(userBubble("Kurz").find(".more").exists()).toBe(false);
+  });
+});
