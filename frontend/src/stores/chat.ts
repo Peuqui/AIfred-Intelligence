@@ -98,6 +98,8 @@ export const useChat = defineStore("chat", () => {
     streaming.value = null;
     toolStatus.value = "";
     phase.value = null;
+    // A turn that runs now: the answer so far (the stream sent it before this page asked) is handled like events that arrive.
+    for (const event of detail.live_events) handle(event.kind, event.data);
     source = followSession(id, detail.last_event_id, handle);
   }
 

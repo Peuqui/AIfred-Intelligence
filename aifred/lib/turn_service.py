@@ -132,6 +132,25 @@ def submit_turn(request: TurnRequest) -> bool:
     return False
 
 
+def running_turn_events(session_id: str) -> list[session_events.SessionEvent]:
+    """What a page that opens in the middle of a turn needs to show the answer being written, from the replay: the
+    phase, and what the speaking agent has produced since the history last grew (``agent_started``, its ``token``
+    pieces joined into one event, the state of its tools). The history holds everything up to the last
+    ``turn_started`` / ``message_added``. The page feeds them to the handler of its stream and follows the stream
+    from ``last_event_id`` on."""
+    events = session_events.replay_after(session_id, 0)
+    saved = max((at for at, event in enumerate(events) if event.kind in ("turn_started", "message_added")), default=-1)
+    live = [event for event in events if event.kind == "turn_phase"]
+    for event in events[saved + 1:]:
+        if event.kind not in ("agent_started", "token", "tool_status"):
+            continue
+        if event.kind == "token" and live and live[-1].kind == "token":
+            event = session_events.SessionEvent(event.id, "token", {"text": live[-1].data["text"] + event.data["text"]})
+            live.pop()
+        live.append(event)
+    return live
+
+
 def end_session_activity(session_id: str) -> None:
     """The session's turn, its reading aloud and what its tabs play end (before its chat is cleared or it goes)."""
     from . import reply_speech

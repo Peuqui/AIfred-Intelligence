@@ -10,7 +10,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from aifred.lib import browser_push, session_events
+from aifred.lib import browser_push, session_events, turn_service
 from aifred.lib.audio_channels.browser import _push_media
 from aifred.lib.config import AUDIO_POSITION_SAVE_SEC, AUDIO_RESUME_PRE_ROLL_SEC
 
@@ -143,3 +143,44 @@ def test_a_publish_from_another_thread_is_handed_to_the_home_loop() -> None:
             return event.kind, len(session_events.replay_after(SESSION, 0)), seen_from[0]
 
     assert asyncio.run(scenario()) == ("token", 1, True)
+
+
+def _kinds_and_texts(events: list[session_events.SessionEvent]) -> list[tuple[str, str]]:
+    return [(event.kind, str(event.data.get("text", event.data.get("agent", event.data.get("phase", ""))))) for event in events]
+
+
+def test_a_page_opened_in_the_middle_of_a_turn_gets_the_answer_so_far_in_one_piece() -> None:
+    session_events.publish(SESSION, "turn_started", {"user_entry": {}})
+    session_events.publish(SESSION, "agent_started", {"agent": "codine"})
+    for piece in ("Ein ", "brauner ", "Hund"):
+        session_events.publish(SESSION, "token", {"text": piece})
+    session_events.publish(SESSION, "tool_status", {"text": "Suche"}, replaces=frozenset({"tool_status"}))
+    session_events.publish(SESSION, "debug", {"line": "x"})
+    assert _kinds_and_texts(turn_service.running_turn_events(SESSION)) == [
+        ("agent_started", "codine"), ("token", "Ein brauner Hund"), ("tool_status", "Suche"),
+    ]
+
+
+def test_only_the_answer_of_the_agent_that_speaks_now_is_replayed() -> None:
+    """The history holds the finished replies of the earlier agents of a debate."""
+    session_events.publish(SESSION, "turn_started", {"user_entry": {}})
+    session_events.publish(SESSION, "agent_started", {"agent": "sokrates"})
+    session_events.publish(SESSION, "token", {"text": "erste Antwort"})
+    session_events.publish(SESSION, "message_added", {"entry": {}})
+    session_events.publish(SESSION, "agent_started", {"agent": "salomo"})
+    session_events.publish(SESSION, "token", {"text": "zweite"})
+    assert _kinds_and_texts(turn_service.running_turn_events(SESSION)) == [("agent_started", "salomo"), ("token", "zweite")]
+
+
+def test_the_phase_of_a_turn_without_text_yet_is_replayed() -> None:
+    session_events.publish(SESSION, "turn_started", {"user_entry": {}})
+    session_events.publish(SESSION, "turn_phase", {"phase": "images"}, replaces=frozenset({"turn_phase"}))
+    assert _kinds_and_texts(turn_service.running_turn_events(SESSION)) == [("turn_phase", "images")]
+
+
+def test_a_finished_answer_is_not_replayed() -> None:
+    session_events.publish(SESSION, "turn_started", {"user_entry": {}})
+    session_events.publish(SESSION, "agent_started", {"agent": "codine"})
+    session_events.publish(SESSION, "token", {"text": "fertig"})
+    session_events.publish(SESSION, "message_added", {"entry": {}})
+    assert turn_service.running_turn_events(SESSION) == []

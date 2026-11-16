@@ -138,6 +138,13 @@ def _config_of(session_id: str) -> SessionConfig:
     return SessionConfig(**{**{key: config[key] for key in DEFAULT_SESSION_CONFIG}, "debate_seats": session_seats(config)})
 
 
+class LiveEvent(BaseModel):
+    """An event of the turn that runs now, as the stream sent it (the page handles it like one that arrives)."""
+
+    kind: str
+    data: dict[str, Any]
+
+
 class SessionDetail(BaseModel):
     session_id: str
     title: str | None
@@ -146,6 +153,9 @@ class SessionDetail(BaseModel):
     debug_messages: list[str]
     running: bool
     speech_regenerating: bool = Field(description="Every reply is being read into new audio")
+    live_events: list[LiveEvent] = Field(
+        description="The answer being written, a turn that runs now: what the stream sent before last_event_id and the history lacks",
+    )
     last_event_id: int = Field(description="Open the event stream after this id: nothing is missed")
 
 
@@ -174,18 +184,21 @@ async def sessions_open(session_id: str, request: Request) -> SessionDetail:
     from .. import reply_speech
     from ..pipeline_registry import is_pipeline_running
     from ..session_storage import touch_session
+    from ..turn_service import running_turn_events
 
     session = owned_session(request, session_id)
     touch_session(session_id)
     data = session.get("data", {})
+    running = is_pipeline_running(session_id)
     return SessionDetail(
         session_id=session_id,
         title=data.get("title"),
         config=_config_of(session_id),
         chat_history=data.get("chat_history", []),
         debug_messages=data.get("debug_messages", []),
-        running=is_pipeline_running(session_id),
+        running=running,
         speech_regenerating=reply_speech.regenerating(session_id),
+        live_events=[LiveEvent(kind=event.kind, data=event.data) for event in running_turn_events(session_id)] if running else [],
         last_event_id=session_events.last_event_id(session_id),
     )
 

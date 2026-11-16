@@ -55,6 +55,23 @@ def test_opening_a_session_gives_history_config_and_the_event_position(client: T
     assert body["last_event_id"] == session_events.last_event_id(MINE) > 0
 
 
+def test_a_session_with_a_turn_that_runs_gives_the_answer_so_far(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("aifred.lib.pipeline_registry.is_pipeline_running", lambda _session: True)
+    session_events.publish(MINE, "turn_started", {"user_entry": {}})
+    session_events.publish(MINE, "agent_started", {"agent": "aifred", "display_name": "AIfred", "emoji": "🎩"})
+    session_events.publish(MINE, "token", {"text": "Hallo "})
+    session_events.publish(MINE, "token", {"text": "Welt"})
+    body = client.get(f"/sessions/{MINE}").json()
+    assert [(event["kind"], event["data"].get("text")) for event in body["live_events"]] == [("agent_started", None), ("token", "Hallo Welt")]
+    assert body["last_event_id"] == session_events.last_event_id(MINE)   # the stream goes on after what was handed over
+
+
+def test_a_session_without_a_turn_has_no_live_events(client: TestClient) -> None:
+    session_events.publish(MINE, "agent_started", {"agent": "aifred"})
+    session_events.publish(MINE, "token", {"text": "übrig"})
+    assert client.get(f"/sessions/{MINE}").json()["live_events"] == []
+
+
 def test_a_new_session_belongs_to_the_user(client: TestClient) -> None:
     created = client.post("/sessions").json()["session_id"]
     session = session_storage.load_session(created)
