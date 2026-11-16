@@ -8,6 +8,9 @@ liest und leert atomar unter Lock.
 
 from __future__ import annotations
 
+import asyncio
+import threading
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import aifred.plugins.channels.telegram_channel as tg
@@ -50,3 +53,31 @@ class TestMsglog:
         with _with_tmp_log(tmp_path):
             tg._msglog_add("y")  # keine ids
             assert not (tmp_path / "msglog.json").exists()
+
+
+class TestMsglogOffTheEventLoop:
+    def test_the_reply_logs_its_ids_in_a_worker_thread(self):
+        """The log is a file written under a lock: in the loop's own thread a stalled disk froze the whole
+        server (29 s on 16.11.2026)."""
+        written: list[int] = []
+
+        def record(chat_id, *message_ids):
+            written.append(threading.get_ident())
+
+        class Bot:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def send_message(self, chat_id, text):
+                return SimpleNamespace(message_id=7)
+
+        async def scenario() -> int:
+            await tg.TelegramChannel()._deliver(Bot(), 123, "hello", None)
+            return threading.get_ident()
+
+        with patch.object(tg, "_msglog_add", record):
+            loop_thread = asyncio.run(scenario())
+        assert written and loop_thread not in written

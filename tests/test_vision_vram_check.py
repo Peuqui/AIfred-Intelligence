@@ -1,5 +1,8 @@
 """check_visiond_fits: Burn-in-Peak + Reserve gegen den freien VRAM der Karten des -visiond-Profils."""
 
+import asyncio
+import threading
+
 import pytest
 from fake_gpu_orc import FakeGpuOrc, install_fake_gpu_orc
 
@@ -70,3 +73,25 @@ def test_unpinned_profile_sums_all_gpus(setup):
 def test_already_loaded_profile_fits(setup):
     setup(env={"CUDA_VISIBLE_DEVICES": PINNED}, peak=None, free={}, loaded=[PROFILE])
     assert vision_vram_check.check_visiond_fits(PROFILE).fits
+
+
+def test_the_describer_check_of_the_bulk_run_is_off_the_event_loop(monkeypatch):
+    """fitting_visiond asks llama-swap and GPU-Orc over HTTP: in the loop's own thread it freezes the server."""
+    from aifred.lib.user_error import UserError
+
+    asked: list[int] = []
+
+    def fitting(name):
+        asked.append(threading.get_ident())
+        return None, vision_vram_check.VRAMCheckResult(
+            fits=False, needed_mb=0, free_mb=0, gpu_index=-1, reason=UserError("vram_no_gpus"),
+        )
+
+    monkeypatch.setattr(vision_routing, "fitting_visiond", fitting)
+
+    async def scenario() -> int:
+        await vision_vram_check.check_vlm_fits("Local-VL")
+        return threading.get_ident()
+
+    loop_thread = asyncio.run(scenario())
+    assert asked and loop_thread not in asked

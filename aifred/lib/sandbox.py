@@ -264,7 +264,7 @@ async def describe_sandbox_screenshots(
         eviction_notice,
     )
     try:
-        chosen = chat_describer(main_model)
+        chosen = await asyncio.to_thread(chat_describer, main_model)
     except NoVisionModelError as e:
         yield {"type": "debug", "message": (
             f"⚠️ Sandbox screenshot description unavailable: {e}"

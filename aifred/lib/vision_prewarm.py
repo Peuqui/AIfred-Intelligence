@@ -129,7 +129,7 @@ async def prewarm_vlm(
     # keep_alive/num_ctx sind Ollama-Konzepte — Residenz regelt die
     # persistente vision-Gruppe, den Kontext die YAML (-c = VLM_NUM_CTX).
     from .vision_routing import fitting_visiond
-    visiond, fit = fitting_visiond(str(model))
+    visiond, fit = await asyncio.to_thread(fitting_visiond, str(model))
     if fit is not None and visiond is None:
         logger.info("prewarm_vlm: describer does not fit next to the loaded models: %s", fit.message)
         return False

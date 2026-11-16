@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from datetime import datetime
 from typing import Any
 
@@ -364,6 +365,31 @@ def test_describe_via_picks_again_for_the_second_attempt(box):
     box["reachable"] = False  # answers no more after the failure
     assert asyncio.run(describe_via(pick, run)) == "described by Local-VL-visiond"
     assert picked == [f"Box/{BIG}", "Local-VL-visiond"] and seen == picked
+
+
+def test_the_choice_and_the_probe_run_off_the_event_loop(box, monkeypatch):
+    """The choice asks llama-swap, GPU-Orc and other machines over HTTP, the probe asks the machine: in the loop's
+    own thread each of them froze the whole server (19 stalls of up to 53 s on 16.11.2026)."""
+    probed: list[int] = []
+    picked: list[int] = []
+
+    def probe(host: RemoteHost) -> bool:
+        probed.append(threading.get_ident())
+        return False
+
+    def pick() -> Describer:
+        picked.append(threading.get_ident())
+        return Describer(f"Box/{BIG}" if len(picked) == 1 else "Local-VL-visiond", False)
+
+    async def scenario() -> int:
+        _, run = _attempts({f"Box/{BIG}"})
+        await describe_via(pick, run)
+        return threading.get_ident()
+
+    monkeypatch.setattr(remote_describers, "reachable", probe)
+    loop_thread = asyncio.run(scenario())
+    assert len(picked) == 2 and len(probed) == 1  # first choice, second choice after the probe found the machine gone
+    assert loop_thread not in picked + probed
 
 
 # ── the image request ────────────────────────────────────────────────

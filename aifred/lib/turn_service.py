@@ -520,7 +520,7 @@ async def _look_at_images(
         return describer
 
     try:
-        describer = choose()
+        describer = await asyncio.to_thread(choose)
     except NoVisionModelError as error:
         debug(f"⚠️ Vision: {error} — the image goes on without a description")
         session_events.publish(session_id, "notice", {"level": "warning", "text": t("vision_no_describer", lang=view.ui_language)})

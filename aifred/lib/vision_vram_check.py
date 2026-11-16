@@ -16,6 +16,7 @@ Quellen:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -205,7 +206,7 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
     # der gemessene Bedarf gegen den freien VRAM der Karte seiner passenden
     # Platzierung (fitting_visiond).
     from .vision_routing import fitting_visiond
-    _, fit = fitting_visiond(str(target))
+    _, fit = await asyncio.to_thread(fitting_visiond, str(target))
     if fit is not None:
         return fit
 

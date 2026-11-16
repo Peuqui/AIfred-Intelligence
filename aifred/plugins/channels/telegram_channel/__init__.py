@@ -193,7 +193,7 @@ class TelegramChannel(BaseChannel):
             from ....lib.routing_table import routing_table
             routing_table.delete_route("telegram", chat_id)
 
-            ids = _msglog_take(chat_id)
+            ids = await asyncio.to_thread(_msglog_take, chat_id)
             ids.append(msg.message_id)  # the /clear command message itself
             bot = msg.get_bot()
             deleted = 0
@@ -213,7 +213,7 @@ class TelegramChannel(BaseChannel):
                 text=f"Conversation cleared — context reset, up to {deleted} tracked messages deleted.",
             )
             # Track the confirmation too, so the NEXT /clear removes it.
-            _msglog_add(chat_id, conf.message_id)
+            await asyncio.to_thread(_msglog_add, chat_id, conf.message_id)
             _log(f"Telegram Plugin: /clear by user {user.id} — {deleted} messages deleted")
 
         # Message handler
@@ -230,7 +230,7 @@ class TelegramChannel(BaseChannel):
             inbound = _build_inbound(update)
             # TD6: track the incoming message id so /clear can delete it.
             if update.effective_chat is not None:
-                _msglog_add(update.effective_chat.id, update.message.message_id)
+                await asyncio.to_thread(_msglog_add, update.effective_chat.id, update.message.message_id)
             _log(f"Telegram Plugin: message from {user.first_name} ({user.id})")
             from ....lib.message_processor import dispatch_inbound
             await dispatch_inbound(inbound, "Telegram Plugin")
@@ -426,7 +426,7 @@ class TelegramChannel(BaseChannel):
                     m = await bot.send_message(chat_id=chat_id, text=chunk)
                     sent_ids.append(m.message_id)
         # TD6: track sent ids so /clear can delete our own sends too.
-        _msglog_add(chat_id, *sent_ids)
+        await asyncio.to_thread(_msglog_add, chat_id, *sent_ids)
         return sent_ids
 
     async def send_reply(self, outbound: OutboundMessage, original: InboundMessage) -> None:

@@ -16,6 +16,7 @@ optionaler Weg für Setups ohne llama-swap.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -381,20 +382,23 @@ async def describe_with_second_attempt[T](
     danach nicht mehr, sagt die Debug-Konsole das laut, und dieselbe Wahl (``choose_again``, Regel A
     oder B samt Ansage, die ``describer`` lieferte) läuft genau ein zweites Mal: Sie findet den Rechner
     nicht mehr und nimmt die nächste Stufe. Antwortet der Rechner noch, liegt der Fehler in der Anfrage
-    oder im Modell und geht unverändert an den Aufrufer — ein Anlauf woanders würde ihn verdecken."""
+    oder im Modell und geht unverändert an den Aufrufer — ein Anlauf woanders würde ihn verdecken.
+
+    ``choose_again`` und die Erreichbarkeitsprobe sprechen HTTP (llama-swap, GPU-Orc, der andere Rechner) und
+    laufen deshalb im Thread, nie in der Ereignisschleife."""
     from .remote_describers import reachable, split
 
     try:
         return await _described_by(describer, run)
     except Exception as error:  # a machine that went away gets its second attempt; every other failure goes on
         remote = split(describer.model)
-        if remote is None or reachable(remote[0]):
+        if remote is None or await asyncio.to_thread(reachable, remote[0]):
             raise
         debug(
             f"⚠️ Vision: {remote[0].name} went away while describing with {describer.model} "
             f"({error}) — second attempt"
         )
-    return await _described_by(choose_again(), run)
+    return await _described_by(await asyncio.to_thread(choose_again), run)
 
 
 async def _described_by[T](describer: Describer, run: Callable[[Describer], Awaitable[T]]) -> T:
@@ -413,14 +417,15 @@ async def _described_by[T](describer: Describer, run: Callable[[Describer], Awai
 async def describe_via[T](pick: Callable[[], Describer], run: Callable[[Describer], Awaitable[T]]) -> T:
     """Wie ``describe_with_second_attempt``, für Aufrufer, die den Beschreiber nur wählen lassen und nichts davor
     mit ihm tun: ``pick`` wählt ihn (beim zweiten Anlauf neu), verdrängt er das Chat-LLM, sagt die Debug-Konsole
-    das an (``eviction_notice``), und ``run`` beschreibt mit ihm."""
+    das an (``eviction_notice``), und ``run`` beschreibt mit ihm. Die Wahl fragt llama-swap, GPU-Orc und andere
+    Rechner per HTTP und läuft im Thread (``describe_with_second_attempt`` tut das mit dem zweiten Anlauf ebenso)."""
     def chosen() -> Describer:
         describer = pick()
         if describer.evicts_chat_model:
             debug(eviction_notice(describer.model))
         return describer
 
-    return await describe_with_second_attempt(chosen(), chosen, run)
+    return await describe_with_second_attempt(await asyncio.to_thread(chosen), chosen, run)
 
 
 def same_model(a: str, b: str) -> bool:

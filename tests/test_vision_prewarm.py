@@ -81,6 +81,27 @@ class TestPrewarm:
         patched_settings["settings"] = {"vision_mode": "live"}
         assert run(vpw.prewarm_vlm()) is True
 
+    def test_the_describer_check_runs_off_the_event_loop(self, patched_settings, monkeypatch):
+        # fitting_visiond asks llama-swap and GPU-Orc over HTTP: in the loop's thread it freezes the server.
+        import threading
+
+        import aifred.lib.vision_routing as vr
+        patched_settings["settings"] = {"vision_mode": "live", "vlm": {"model": "Local-VL"}}
+        asked: list[int] = []
+
+        def fitting(name):
+            asked.append(threading.get_ident())
+            return None, None
+
+        monkeypatch.setattr(vr, "fitting_visiond", fitting)
+
+        async def scenario() -> int:
+            await vpw.prewarm_vlm()
+            return threading.get_ident()
+
+        loop_thread = run(scenario())
+        assert asked and loop_thread not in asked
+
     def test_on_demand_does_not_preload(self, patched_settings, monkeypatch):
         # on-demand: slot reserved but empty → no Ollama call, just True.
         patched_settings["settings"] = {
