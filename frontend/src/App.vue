@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The shell: the login, then the top bar (the pages behind ☰, as under Reflex) and the page itself. The chat
 // page stays alive while another page shows (its session and event stream go on).
-import { Bot, Clock, Eye, Folder, LogOut, Menu, MessageSquare, NotebookPen, Settings, Wrench } from "lucide-vue-next";
+import { Bot, Clock, Eye, Feather, Folder, LogOut, Menu, MessageSquare, NotebookPen, Settings, Wrench } from "lucide-vue-next";
 import { type Component, computed, onMounted, ref, watch, watchEffect } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { UPDATE_CHECK_MS, api, checkForUpdate } from "./api/client";
@@ -47,6 +47,7 @@ const menuEntries: { to: string; icon: Component; label: string; color?: string 
   { to: "/audio", icon: TtsIcon, label: "nav_audio" },
   { to: "/maintenance", icon: Wrench, label: "nav_maintenance", color: "var(--aifred-accent-cyan)" },
   { to: "/settings", icon: Settings, label: "settings", color: "var(--aifred-accent-gold)" },
+  { to: "/auctor", icon: Feather, label: "nav_auctor", color: "var(--aifred-accent-purple)" },
 ];
 // A page of a plugin (the route's meta `plugin`, router.ts) is in the menu only while the plugin is on.
 const shownEntries = computed(() =>

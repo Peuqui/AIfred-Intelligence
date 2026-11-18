@@ -19,6 +19,9 @@ def env_int(name: str, default: int) -> int:
 # PROJECT PATHS
 # ============================================================
 PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()  # Go up to repo root
+# The Auctor page (api/about.py): the licence text it quotes from, and the public repository it links to.
+LICENSE_FILE = PROJECT_ROOT / "LICENSE"
+REPO_URL = "https://github.com/Peuqui/AIfred-Intelligence"
 
 # Centralized data directory (all persistent user data)
 # Structure:

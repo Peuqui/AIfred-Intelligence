@@ -41,6 +41,7 @@ from .app import API_VERSION, api_app, audio_player_api, narrator_api, vision_ap
 from . import core
 from . import chat
 from . import system
+from . import about
 from . import agents
 from . import audio
 from . import announce

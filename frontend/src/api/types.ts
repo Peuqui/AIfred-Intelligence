@@ -63,6 +63,7 @@ export type LiveAnalysisRow = Schemas["LiveAnalysisRow"];
 export type PluginOverview = Schemas["PluginOverview"];
 export type PluginForm = Schemas["PluginForm"];
 export type ManagedFile = Schemas["ManagedFile"];
+export type About = Schemas["About"];
 export type AuditEntry = Schemas["AuditEntry"];
 export type BackendOverview = Schemas["BackendOverview"];
 export type GpuCard = Schemas["GpuCard"];

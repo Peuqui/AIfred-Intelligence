@@ -1,6 +1,7 @@
 // Hash history: the app needs no server-side rewrites and runs under any mount point.
 import { type Component, markRaw } from "vue";
 import { createRouter, createWebHashHistory } from "vue-router";
+import AuctorView from "./views/AuctorView.vue";
 import AgentsView from "./views/AgentsView.vue";
 import ChatView from "./views/ChatView.vue";
 import DocumentsView from "./views/DocumentsView.vue";
@@ -34,5 +35,6 @@ export const router = createRouter({
     // The parent carries the plugin for the pages below it and for the menu's link to "/vision" (resolve takes no redirect).
     { path: "/vision", meta: { plugin: "vision", whileOff: markRaw(VisionStored) }, redirect: "/vision/live", children: [{ path: ":tab", component: VisionView }] },
     { path: "/settings", component: SettingsView },
+    { path: "/auctor", component: AuctorView },
   ],
 });
