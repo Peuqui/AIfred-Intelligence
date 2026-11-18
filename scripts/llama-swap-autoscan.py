@@ -1788,10 +1788,6 @@ def update_vram_cache(new_models: list[dict]) -> int:
         cal_context = model.get("calibrated_context", native_context)
         mode = "hybrid" if ngl != DEFAULT_NGL else "gpu"
 
-        # Extract quantization from GGUF stem (e.g. "Qwen3-8B-Q4_K_M" → "Q4_K_M")
-        quant_match = re.search(r'[_-]([QqBbFf]\d[0-9_A-Za-z]*)$', name, re.IGNORECASE)
-        quantization = quant_match.group(1).upper() if quant_match else ""
-
         gguf_resolved = model["path"].resolve()
 
         calibration_entry = {
@@ -1802,10 +1798,7 @@ def update_vram_cache(new_models: list[dict]) -> int:
         }
 
         cache[name] = {
-            "backend": "llamacpp",
             "native_context": native_context,
-            "quantization": quantization,
-            "model_size_gb": round(get_gguf_total_size(gguf_resolved) / (1024 ** 3), 3),
             "gpu_model": "",
             "gguf_path": str(gguf_resolved),
             "llamacpp_calibrations": [calibration_entry],

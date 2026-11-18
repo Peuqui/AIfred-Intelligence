@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..gguf_utils import (
-    extract_quantization_from_filename,
     get_gguf_layer_count,
     get_gguf_lazy_tensor_bytes,
     get_gguf_native_context,
@@ -32,5 +31,4 @@ def _load_model_meta(model_id: str, gguf_path: Path) -> Model | None:
         size_mb=size_mb,
         file_size_mb=file_size_mb,
         mb_per_layer=size_mb / total_layers,
-        quantization=extract_quantization_from_filename(gguf_path.name),
     )

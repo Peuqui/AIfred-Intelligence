@@ -603,34 +603,3 @@ def reasoning_effort_label(model_id: str, effort: str | None) -> str:
         return f"{default} (template default, not sent)"
     return "not sent (template has no default level)"
 
-
-def extract_quantization_from_filename(filename: str) -> str:
-    """
-    Extract quantization level from GGUF filename
-
-    Examples:
-        "Qwen3-30B-Instruct-2507-Q4_K_M.gguf" -> "Q4_K_M"
-        "model-IQ4_XS.gguf" -> "IQ4_XS"
-        "model.gguf" -> "unknown"
-
-    Args:
-        filename: GGUF file name
-
-    Returns:
-        Quantization string (Q4_K_M, IQ4_XS, etc.)
-    """
-    import re
-
-    # Match patterns like Q4_K_M, Q5_K_S, Q8_0, IQ4_XS, etc.
-    patterns = [
-        r'[IQ]+\d+_[A-Z]+',  # IQ4_XS, IQ3_M
-        r'Q\d+_[KO]_[MSL]',  # Q4_K_M, Q5_K_S
-        r'Q\d+_\d+',         # Q4_0, Q8_0
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, filename)
-        if match:
-            return match.group(0)
-
-    return "unknown"

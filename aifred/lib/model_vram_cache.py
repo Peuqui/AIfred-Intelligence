@@ -1,38 +1,33 @@
 """
 Unified Model VRAM Cache Management
 
-Manages a JSON-based cache for VRAM-related measurements across ALL backends
-(Ollama, vLLM). Combines:
-- VRAM ratio measurements (MB/token) - Universal for all backends
-- vLLM context calibrations - vLLM-specific
+Manages a JSON-based cache for per-model calibration results and model metadata
+(Ollama, llama.cpp via llama-swap).
 
 Cache location: data/model_vram_cache.json
 
-Structure:
+Structure (fields appear as the respective writer sets them):
 {
     "model_name": {
-        "backend": "ollama|vllm",
-        "architecture": "moe|dense",
         "native_context": 262144,
-        "gpu_model": "NVIDIA GeForce RTX 3090 Ti",
+        "gpu_model": "RTX 8000, V100",      # empty string = preliminary (autoscan), not calibrated
+        "gguf_path": "/home/mp/models/....gguf",
+        "supports_thinking": true,
+        "reasoning_levels": [...], "reasoning_default": "medium",
+        "thinks": true, "thinking_switchable": true,
+        "expert_count": 128, "expert_used_count": 4,
+        "failure_status": {"reason": "...", "detail": "...", "measured_at": "..."},
 
-        "vram_ratio": {
-            "measurements": [
-                {
-                    "context_tokens": 20720,
-                    "measured_mb_per_token": 0.0872,
-                    "measured_at": "2025-11-22T02:30:00"
-                }
-            ],
-            "avg_mb_per_token": 0.0872
-        },
-
-        "vllm_calibrations": [  # Only for vLLM models
+        "llamacpp_calibrations": [        # only the latest one is kept
             {
-                "free_vram_mb": 22968,
-                "max_context": 21608,
-                "measured_at": "2025-11-21T23:31:17"
+                "max_context": 21608, "ngl": 99, "mode": "gpu",
+                "measured_at": "2025-11-21T23:31:17",
+                "speed_split": 20, "speed_split_rest": 40, "speed_split_context": 16000,
+                "gpu_uuids": [...], "remaining_free_mb": [...]
             }
+        ],
+        "ollama_calibrations": [
+            {"max_context_1.0x": 20720, "is_hybrid": false, "measured_at": "..."}
         ]
     }
 }
@@ -57,7 +52,7 @@ CACHE_FILE = CACHE_DIR / "model_vram_cache.json"
 # In-memory cache with mtime-based invalidation
 _cache: dict[str, Any] | None = None
 _cache_mtime: float = 0.0
-# Guards read-modify-write sequences (add_vram_measurement, add_vllm_calibration)
+# Guards read-modify-write sequences (add_ollama_calibration, add_llamacpp_calibration)
 # so two concurrent measurements don't overwrite each other's update.
 _cache_lock = threading.Lock()
 
@@ -246,43 +241,6 @@ def is_vlm_variant_calibrated(
     return _is_variant_calibrated(model_id, "vlm", vlm_key, require_speed)
 
 
-# ============================================================================
-# VRAM RATIO FUNCTIONS (Universal - ALL backends)
-# ============================================================================
-
-
-def get_calibrated_ratio(model_name: str, architecture: str, default_ratio: float) -> float:
-    """
-    Get calibrated MB/token ratio for a model
-
-    Args:
-        model_name: Name of the model
-        architecture: "moe" or "dense" (for fallback)
-        default_ratio: Default ratio to use if no measurements exist
-
-    Returns:
-        Calibrated MB/token ratio, or default if no calibration data
-    """
-    cache = load_cache()
-
-    if model_name in cache:
-        vram_ratio = cache[model_name].get("vram_ratio", {})
-        avg = float(vram_ratio.get("avg_mb_per_token", 0.0))
-        if avg > 0:
-            return avg
-
-    return default_ratio
-
-
-def get_measurement_count(model_name: str) -> int:
-    """Get number of VRAM ratio measurements for a model"""
-    cache = load_cache()
-    if model_name in cache:
-        vram_ratio = cache[model_name].get("vram_ratio", {})
-        return len(vram_ratio.get("measurements", []))
-    return 0
-
-
 # The RoPE factors an Ollama calibration measures (one context each, see _ollama_ctx_field).
 OLLAMA_ROPE_FACTORS = (1.0, 1.5, 2.0)
 
@@ -374,7 +332,6 @@ def add_ollama_calibration(
 
         # Initialize model entry if not exists
         entry = _ensure_entry(cache, model_name, {
-            "backend": "ollama",
             "native_context": native_context,
             "gpu_model": gpu_model,
             "ollama_calibrations": []
@@ -540,7 +497,7 @@ def set_thinking_support_for_model(model_name: str, supports_thinking: bool) -> 
     status = "✅" if supports_thinking else "⚠️"
     return _update_entry(
         model_name,
-        defaults={"backend": "ollama", "native_context": 0, "gpu_model": "Unknown"},
+        defaults={"native_context": 0, "gpu_model": "Unknown"},
         updates={"supports_thinking": supports_thinking},
         log_msg=f"{status} Set thinking support={supports_thinking} for {model_name}",
     )
@@ -573,7 +530,7 @@ def set_reasoning_info_for_model(
     """
     return _update_entry(
         model_name,
-        defaults={"backend": "llamacpp", "native_context": 0, "gpu_model": "Unknown"},
+        defaults={"native_context": 0, "gpu_model": "Unknown"},
         updates={
             "reasoning_levels": levels, "reasoning_default": default,
             "thinks": thinks, "thinking_switchable": switchable,
@@ -649,71 +606,10 @@ def set_expert_counts(model_name: str, expert_count: int, expert_used_count: int
     label = f"MoE ({expert_count}x, {expert_used_count} active)" if expert_count > 1 else "Dense"
     return _update_entry(
         model_name,
-        defaults={"backend": "llamacpp", "native_context": 0, "gpu_model": ""},
+        defaults={"native_context": 0, "gpu_model": ""},
         updates={"expert_count": expert_count, "expert_used_count": expert_used_count},
         log_msg=f"📊 Set expert counts for {model_name}: {label}",
     )
-
-
-# ============================================================================
-# vLLM CALIBRATION FUNCTIONS (vLLM-specific)
-# ============================================================================
-
-def add_vllm_calibration(
-    model_id: str,
-    free_vram_mb: int,
-    max_context: int,
-    native_context: int,
-    gpu_model: str,
-    architecture: str = "unknown"
-) -> bool:
-    """
-    Add a new vLLM calibration point for a model
-
-    Args:
-        model_id: The model identifier
-        free_vram_mb: Free VRAM in MB when this context was measured
-        max_context: Maximum context tokens at this VRAM level
-        native_context: Model's native/architectural context limit
-        gpu_model: GPU model name (e.g., "NVIDIA GeForce RTX 3090 Ti")
-        architecture: "moe", "dense", or "unknown"
-
-    Returns:
-        True if successfully added, False otherwise
-    """
-    with _cache_lock:
-        cache = load_cache(strict=True)
-
-        # Initialize model entry if not exists
-        entry = _ensure_entry(cache, model_id, {
-            "backend": "vllm",
-            "architecture": architecture,
-            "native_context": native_context,
-            "gpu_model": gpu_model,
-            "vllm_calibrations": []
-        })
-
-        # Ensure vllm_calibrations exists (for Ollama models)
-        if "vllm_calibrations" not in entry:
-            entry["vllm_calibrations"] = []
-
-        # Update metadata
-        entry["native_context"] = native_context
-        entry["gpu_model"] = gpu_model
-        if architecture != "unknown":
-            entry["architecture"] = architecture
-
-        # Add calibration point
-        calibration = {
-            "free_vram_mb": free_vram_mb,
-            "max_context": max_context,
-            "measured_at": datetime.now().isoformat()
-        }
-
-        entry["vllm_calibrations"].append(calibration)
-
-        # Save and return result
-        return save_cache(cache)
 
 
 # ============================================================
@@ -725,14 +621,10 @@ def add_llamacpp_calibration(
     max_context: int,
     native_context: int,
     gguf_path: str,
-    quantization: str,
     gpu_model: str,
-    model_size_gb: float,
     ngl: int = 99,
     mode: str = "gpu",
     speed_split: int = 0,
-    vram_per_gpu: dict[str, int] | None = None,
-    ram_cpu_mb: int | None = None,
     gpu_uuids: list | None = None,
     remaining_free_mb: list | None = None,
 ) -> bool:
@@ -746,20 +638,14 @@ def add_llamacpp_calibration(
         max_context: Maximum context tokens that fit in VRAM
         native_context: Model's architectural context limit (from GGUF metadata)
         gguf_path: Path to GGUF file
-        quantization: Quantization level (e.g., "Q4_K_M")
         gpu_model: Comma-separated short names of the GPUs in the active
             set, in calibration order (compute_cap DESC). Human-readable
             label only — not used for cache validation.
-        model_size_gb: GGUF file size in GB
         ngl: GPU layers used (99 = all on GPU, lower = hybrid mode)
         mode: Calibration mode ("gpu" or "hybrid")
         speed_split: Tensor-split N for the speed variant (N:1 ratio). 0 = no speed variant.
-        vram_per_gpu: Per-GPU total-VRAM snapshot at calibration time.
-        ram_cpu_mb: CPU-side memory consumed in hybrid mode.
         gpu_uuids: Permanent NVIDIA GPU UUIDs of the active set, in
-            calibration order. Used to invalidate the cache when the
-            hardware actually changes (slot moves are tolerated, GPU
-            replacements are detected).
+            calibration order (parallel to ``remaining_free_mb``).
         remaining_free_mb: Measured free VRAM per GPU AFTER the model
             loaded at ``max_context`` (parallel to ``gpu_uuids``). This is
             the real leftover capacity per card — weights + KV + buffers
@@ -776,10 +662,7 @@ def add_llamacpp_calibration(
         cache = load_cache(strict=True)
 
         entry = _ensure_entry(cache, model_id, {
-            "backend": "llamacpp",
             "native_context": native_context,
-            "quantization": quantization,
-            "model_size_gb": model_size_gb,
             "gpu_model": gpu_model,
             "gguf_path": gguf_path,
             "llamacpp_calibrations": []
@@ -789,12 +672,8 @@ def add_llamacpp_calibration(
             entry["llamacpp_calibrations"] = []
 
         entry["native_context"] = native_context
-        entry["quantization"] = quantization
-        entry["model_size_gb"] = model_size_gb
         entry["gpu_model"] = gpu_model
         entry["gguf_path"] = gguf_path
-        if gpu_uuids:
-            entry["gpu_uuids"] = list(gpu_uuids)
         # A successful calibration overrides any earlier failure_status
         # so the picker drops the red dot on the same cell.
         entry.pop("failure_status", None)
@@ -807,10 +686,6 @@ def add_llamacpp_calibration(
         }
         if speed_split > 0:
             calibration["speed_split"] = speed_split
-        if vram_per_gpu:
-            calibration["vram_per_gpu"] = vram_per_gpu
-        if ram_cpu_mb and ram_cpu_mb > 0:
-            calibration["ram_cpu_mb"] = ram_cpu_mb
         if gpu_uuids:
             calibration["gpu_uuids"] = list(gpu_uuids)
         if remaining_free_mb:
@@ -890,7 +765,7 @@ def get_llamacpp_remaining_free_by_uuid(model_id: str) -> dict[str, int]:
     if not calibrations:
         return {}
     latest = calibrations[-1]
-    uuids = latest.get("gpu_uuids") or cache[model_id].get("gpu_uuids") or []
+    uuids = latest.get("gpu_uuids") or []
     free = latest.get("remaining_free_mb") or []
     if not uuids or len(uuids) != len(free):
         return {}
@@ -1011,7 +886,7 @@ def record_calibration_failure(
 
     with _cache_lock:
         cache = load_cache(strict=True)
-        entry = cache.get(model_id) or {"backend": "llamacpp"}
+        entry = cache.get(model_id) or {}
         entry["failure_status"] = {
             "reason": reason,
             "detail": detail,

@@ -432,21 +432,9 @@ async def calculate_vram_based_context(
         # Detect MoE for Ollama and llama.cpp (vLLM uses manual override)
         if backend_type in ("ollama", "llamacpp"):
             is_moe = is_moe_model(model_name)
-            architecture = "moe" if is_moe else "dense"
-            default_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe else VRAM_CONTEXT_RATIO_DENSE
-
-            # Try to get calibrated ratio from unified cache
-            from .model_vram_cache import get_calibrated_ratio, get_measurement_count
-            vram_context_ratio = get_calibrated_ratio(model_name, architecture, default_ratio)
-
-            # Show whether using calibrated or default ratio
-            measurement_count = get_measurement_count(model_name)
-            if measurement_count > 0:
-                model_type = "MoE (calibrated)" if is_moe else "Dense (calibrated)"
-                debug_msgs.append(f"🔍 {model_type} → {format_number(vram_context_ratio, 4)} MB/token ({measurement_count} measurements)")
-            else:
-                model_type = "MoE" if is_moe else "Dense"
-                debug_msgs.append(f"🔍 {model_type} detected → {format_number(vram_context_ratio, 2)} MB/token")
+            vram_context_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe else VRAM_CONTEXT_RATIO_DENSE
+            model_type = "MoE" if is_moe else "Dense"
+            debug_msgs.append(f"🔍 {model_type} detected → {format_number(vram_context_ratio, 2)} MB/token")
         else:
             # For vLLM: Default to Dense (safer)
             vram_context_ratio = VRAM_CONTEXT_RATIO_DENSE

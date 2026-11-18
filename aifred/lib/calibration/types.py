@@ -70,7 +70,6 @@ class Model:
     size_mb: float
     file_size_mb: float
     mb_per_layer: float
-    quantization: str
 
 
 @dataclass(frozen=True)

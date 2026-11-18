@@ -69,7 +69,6 @@ def _persist_cache(
     where a follow-up calibration run (e.g. TTS variant) overwrites the
     cache before a separate ``update_llamacpp_speed_split`` call lands.
     """
-    vram_per_gpu = ",".join(str(g.total_mb) for g in gpus)
     speed_split_cuda0 = 0
     if speed_result is not None and speed_result.tensor_split:
         layer_vals = [int(v) for v in speed_result.tensor_split]
@@ -80,13 +79,10 @@ def _persist_cache(
         max_context=result.context,
         native_context=model.native_context,
         gguf_path=str(model.gguf_path),
-        quantization=model.quantization,
         gpu_model=", ".join(g.name for g in gpus),
-        model_size_gb=model.size_mb / 1024,
         ngl=result.ngl,
         mode=result.mode,
         speed_split=speed_split_cuda0,
-        vram_per_gpu=vram_per_gpu,  # type: ignore[arg-type]
         gpu_uuids=[g.uuid for g in gpus],
         # Real leftover per card after the base loaded — the SSOT the
         # variant spill uses instead of the KV-blind ``free − weight``.

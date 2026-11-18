@@ -1112,18 +1112,14 @@ async def _calibrate_hybrid(
                     config_path, model.model_id, all_uuids, all_uuids,
                 )
                 io.remove_llamaswap_kv_cache_quant(config_path, model.model_id)
-            vram_per_gpu = ",".join(str(g.total_mb) for g in gpus)
             add_llamacpp_calibration(
                 model_id=model.model_id,
                 max_context=target,
                 native_context=model.native_context,
                 gguf_path=str(model.gguf_path),
-                quantization=model.quantization,
                 gpu_model=", ".join(g.name for g in gpus),
-                model_size_gb=model.size_mb / 1024,
                 ngl=ngl,
                 mode="hybrid",
-                vram_per_gpu=vram_per_gpu,  # type: ignore[arg-type]
                 gpu_uuids=[g.uuid for g in gpus],
             )
             ts_csv = ",".join(f"{x:g}" for x in ts_ngl if x > 0)

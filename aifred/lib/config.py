@@ -1539,9 +1539,8 @@ DEBUG_LOG_TOOLKIT_DEFINITIONS = False
 AUDIO_INDEX_SYNC_INTERVAL_HOURS = 24
 
 # Media root — sandbox for the file-picker.
-# Audio sources live as folders or symlinks under MEDIA_AUDIO_DIR; future
-# video sources will live under MEDIA_VIDEO_DIR. Anything outside this
-# tree is unreachable from the picker UI, no path-traversal possible.
+# Audio sources live as folders or symlinks under MEDIA_AUDIO_DIR. Anything
+# outside this tree is unreachable from the picker UI, no path-traversal possible.
 MEDIA_DIR = DATA_DIR / "media"
 # Music in the browser: after the spoken reply interrupted it, it goes on this many seconds earlier (the listener finds
 # the thread again); while it plays, its position is saved this often (resumed there next time).
@@ -1551,9 +1550,7 @@ AUDIO_POSITION_SAVE_SEC = 30
 # under data/media/audio/ to a folder inside it, never outside (/api/audio/file serves what the sources hold).
 AUDIO_PICKER_ROOT_DEFAULT = "/mnt"
 MEDIA_AUDIO_DIR = MEDIA_DIR / "audio"
-MEDIA_VIDEO_DIR = MEDIA_DIR / "video"
 MEDIA_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-MEDIA_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 
 # ============================================================
 # AGENT MEMORY CONFIGURATION
