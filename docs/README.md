@@ -39,7 +39,7 @@ one, update the other.
 | Calibration challenge: LLM vs. algorithm | [EN](en/architecture/calibration-llm-challenge.md) · [DE](de/architecture/calibration-llm-challenge.md) | Experiment design: AI-agent vs. algorithmic calibration (open) |
 | RPC calibration (draft) | [EN](en/architecture/calibration-rpc.md) · [DE](de/architecture/calibration-rpc.md) | Work-package sketch for distributed inference |
 | Audio pipeline | [EN](en/architecture/audio-pipeline.md) · [DE](de/architecture/audio-pipeline.md) | STT/TTS flow, browser + FreeEcho.2 output paths |
-| Browser push bus | [EN](en/architecture/browser-push-bus.md) · [DE](de/architecture/browser-push-bus.md) | Server→browser events without Reflex yields |
+| Browser push bus | [EN](en/architecture/browser-push-bus.md) · [DE](de/architecture/browser-push-bus.md) | The session event stream: server→open tabs (speech, music, status line, "list changed"), replay on reconnect |
 | Proactive alerts | [EN](en/architecture/proactive-alerts.md) · [DE](de/architecture/proactive-alerts.md) | From vision events to user notification |
 | Vision routing | [EN](en/architecture/vision-routing.md) · [DE](de/architecture/vision-routing.md) | Swap vs. no-swap decision for vision workloads |
 | TTS-Suite | [EN](en/architecture/tts-suite.md) · [DE](de/architecture/tts-suite.md) | AIfred as client of the TTS-Suite service: list, speech unit, VRAM reserve and release, browser voice, announce API |

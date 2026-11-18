@@ -203,8 +203,7 @@ Zelle vierwertig — die drei Typen lassen sich beliebig in einem Bild mischen:
 Wegmaskieren großer Bereiche senkt also nicht die Empfindlichkeit im Rest.
 
 **Editor:** In den Vision-Settings öffnet pro Quelle der Button „Zonen-Maske
-bearbeiten" ein eigenständiges Popup-Fenster (`/api/vision/zone-editor`, reines
-Vanilla-JS/Canvas, von Reflex entkoppelt). Es zeigt das **Live-MJPEG-Bild** als
+bearbeiten" (🗺️ an der Kamerakarte) einen Dialog (`ZoneEditor.vue`). Er zeigt das **Live-MJPEG-Bild** als
 Hintergrund; darüber malt man mit dem Pinsel (linke Maustaste malt den
 gewählten Typ, rechte radiert; Pinselgröße und Rasterfeinheit per Slider).
 Speichern schreibt die Maske nach `zone_masks[<source_id>]` der `settings.json`
@@ -338,6 +337,14 @@ bekommt das VLM die Namen vorab, sodass es jede Person beim Namen nennt
 korrekt). Ein `schedule_supervisor` (App-Lifespan) startet/stoppt die Watcher
 an den Fenstergrenzen.
 
+**Uhrzeitformat:** Aktiv-Fenster und Ruhezeit (`quiet_enabled` +
+`quiet_start`/`quiet_end`) sind beide `"HH:MM"` (Standard Fenster 18:00 bis
+08:00, Ruhezeit 22:00 bis 06:00); `vision_autostart.clock_minutes` ist der
+einzige Leser, ein Stundenwert wie `22` wird von der API abgelehnt. Wer von
+einem Stand vor dem 18.11.2026 kommt, wandelt die gespeicherten Altwerte
+einmal um, bei gestopptem Dienst: `venv/bin/python scripts/migrate_vision_clock_times.py`
+(legt vorher eine Kopie `vision.db.bak-<Datum>-<Zeit>` an).
+
 ## Gesichtserkennung (InsightFace)
 
 Detektion und Embedding laufen über **InsightFace `buffalo_l`**
@@ -388,7 +395,7 @@ Eingelernte Personen liegen in der `faces`-Tabelle des Vision-Stores. Das
 Embedding-Anzahl und Zeitpunkt der letzten Sichtung und erlaubt, eine Person
 umzubenennen, zu löschen oder einzelne Embeddings zu entfernen; offene Gesichter
 werden zugeordnet (und gelernt), verworfen oder neu erkannt. Die Regeln stehen in
-`lib/personarium.py`; das Reflex-Modal, der Reiter Personen der Vue-Seite und die
+`lib/personarium.py`; der Reiter Personen der Vue-Seite und die
 REST-Endpoints unter `/api/vision/face/*` nutzen sie gemeinsam.
 
 `vision_enroll_face` ist der LLM-zugewandte Single-Shot-Pfad. Erneuter Aufruf mit

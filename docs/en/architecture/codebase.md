@@ -9,11 +9,11 @@ Where things live. For the path of a single request see
 ```
 AIfred-Intelligence/
 ├── aifred/
-│   ├── aifred.py            # Reflex app: pages, routes, API mount, startup wiring
+│   ├── server.py            # The server (FastAPI/uvicorn): API under /api, Vue interface, /_upload/, /vendor/
 │   ├── backends/            # LLM backend adapters (llamacpp, vllm, ollama, cloud_api) — see backends/README.md
 │   ├── lib/                 # Core libraries — search here first
-│   │   ├── multi_agent.py         # Agents, discussion modes, one answer path for all agents
-│   │   ├── llm_engine.py · llm_pipeline.py · llm_client.py   # LLM calls, tool loop, streaming
+│   │   ├── turn_service.py · turn_debate.py · debate_seats.py   # One turn from message to answer, discussion modes, seats
+│   │   ├── llm_pipeline.py · llm_client.py   # LLM calls, tool loop, streaming
 │   │   ├── prompt_loader.py       # Prompt files + layer merge
 │   │   ├── message_builder.py     # Message formatting, per-agent perspective
 │   │   ├── context_manager.py     # History compression
@@ -38,8 +38,8 @@ AIfred-Intelligence/
 │   ├── plugins/
 │   │   ├── tools/           # Tool plugins (workspace, sandbox, research, vision, google_suite, printer, subagent, …)
 │   │   └── channels/        # Channel plugins (telegram, discord, email, freeecho2, ai_connect)
-│   ├── state/               # Reflex state, composed from feature mixins (_chat_mixin.py, …)
-│   └── ui/                  # Reflex UI components (modals/, agent_editor/, settings_accordion/, …)
+│   └── theme.py             # Colors (COLORS), loaded by Vue as CSS variables
+├── frontend/                # Interface: Vue 3, Vite, TypeScript (build to frontend/dist)
 ├── prompts/{de,en}/         # All LLM-visible text — never hardcoded in code
 ├── data/                    # Runtime data: settings.json, sessions/, chromadb/, logs/, caches
 ├── docker/                  # ChromaDB + SearXNG (docker-compose.yml), tts/<service>/ (local TTS containers) + tts/voices/ (shared reference voices)
@@ -63,10 +63,6 @@ AIfred-Intelligence/
   must go on, a callback, one rule or camera among several, an action with a visible error
   message — and names its reason and logs the traceback. `tests/test_broad_except_reasons.py`
   rejects `# noqa: BLE001` without a reason.
-- In the state, public fields are `rx.Field`, public methods carry `@rx.event`, and what a mixin
-  uses from another one is declared under `if TYPE_CHECKING:`. Methods only state code calls are
-  private (`_name`): every public method can be triggered by any connected client.
-  `tests/test_state_typing_conventions.py` and `tests/test_state_attribute_references.py` keep this.
 
 **Quality checks**
 ```bash
@@ -78,9 +74,7 @@ venv/bin/python -m pytest
 - ruff and mypy are not in the project venv; install them separately (checked with ruff 0.16 and
   mypy 2.4). mypy gets the project's types and the stubs from `requirements.txt` through
   `--python-executable`. It checks `aifred/` and `tests/` with no exceptions for our own code.
-- mypy needs the type patches of `scripts/patch-reflex.py` (see
-  [Reflex patches](../guides/deployment.md#reflex-patches)); without them it reports hundreds of
-  errors in `aifred/ui`. If it reports "Module not callable", re-check without the cache
+- If mypy reports "Module not callable", re-check without the cache
   (`--no-incremental`).
 - Some tests need files that exist only on a set-up machine: `data/vllm_runtime.yaml` (vLLM
   calibration), `data/epim/test-fixture.epim` and `lib/firebird25/` (EPIM database). Without

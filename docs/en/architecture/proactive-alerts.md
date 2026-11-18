@@ -220,7 +220,8 @@ spanning the restart is split (rare, acceptable).
   system → metric name).
 - Per rule optional `quiet_hours`. In addition, the vision producer
   filters per camera (source settings): `alerts_enabled`, `alert_types`,
-  `quiet_enabled` + `quiet_start`/`quiet_end`.
+  `quiet_enabled` + `quiet_start`/`quiet_end` (both `"HH:MM"`, wraps past midnight;
+  `vision_autostart.in_clock_window`).
 
 ## Rule config
 

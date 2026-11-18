@@ -243,7 +243,7 @@ Dokumentenfenster neben dem lokalen Ordner eine zweite Quelle „Google Drive“
 |----------|-----------|
 | Durchsuchen | Ordner öffnen, Pfad-Leiste, Hoch/Wurzel; Aktualisieren-Schaltfläche. Ohne Ordner-Auswahl beginnt die Ansicht in „Meine Ablage“ |
 | Suche | Eingabefeld in der Werkzeugleiste, durchsucht das ganze Drive nach Dateiname und Volltext (höchstens 100 Treffer, nach Relevanz) |
-| Download | Pfeil-Symbol je Datei; die Datei wird gestreamt, nicht durch den Reflex-State geleitet (`GET /api/documents/source/{key}/file/{id}`, Login-Cookie). 404 bei unbekannter Quelle, 502 bei Fehler der Quelle |
+| Download | Pfeil-Symbol je Datei; die Datei wird gestreamt; eine HTML-Seite wird mit den Bibliotheken, die sie lädt, zu einer eigenständigen Datei zusammengesetzt (`GET /api/documents/source/{key}/file/{id}`, Login-Cookie). 404 bei unbekannter Quelle, 502 bei Fehler der Quelle |
 | Export | Googles eigene Formate haben keine Datei und werden exportiert: Docs → `.docx`, Sheets → `.xlsx`, Slides → `.pptx`, Zeichnungen → `.pdf`. Andere Google-Formate und Ordner sind nicht herunterladbar |
 | Upload | Nur bei Drive auf „Lesen und Schreiben“: Der Upload des Dokumentenfensters lädt in den gerade geöffneten Drive-Ordner (Wurzel: „Meine Ablage“); es gilt dieselbe Größenobergrenze wie lokal (`DOCUMENT_MAX_FILE_SIZE_MB`). Bei „Lesen“ fehlt das Upload-Feld, und die Quelle lehnt `upload()` ab |
 

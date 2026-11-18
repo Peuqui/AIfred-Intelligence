@@ -2,182 +2,133 @@
 
 > **English version:** [browser-push-bus.md](../../en/architecture/browser-push-bus.md)
 
-Stand: 2026-05-22. Lebendes Dokument.
+Stand: 2026-11-18. Lebendes Dokument.
 
-Der **Browser Push Bus** ist der reflex-unabhängige Kanal, über den der
-Server den Browser aktualisiert, **ohne** den Weg über Reflex-State-Deltas
-zu nehmen. Server-Seite: [`browser_push()`](../../../aifred/lib/api/browser_bus.py) in
-`aifred/lib/api/browser_bus.py`. Browser-Seite: `browserEventSource` /
-`startBrowserStream()` in [`assets/custom.js`](../../../assets/custom.js).
-
----
-
-## Das Problem
-
-Reflex pusht eine State-Änderung nur dann als Delta in den Browser, wenn
-sie **innerhalb eines Event-Handlers** passiert (`@rx.event`, oder ein
-`@rx.event(background=True)` mit `async with self:`).
-
-Ein nackter `asyncio.create_task(...)` läuft **außerhalb** dieses
-Systems. Er darf den Server-State mutieren — aber Reflex bemerkt es nicht
-und schickt nichts an den Browser. Die Änderung wird erst sichtbar, wenn
-irgendein *anderer* Event-Handler später `yield`t.
-
-Das betrifft alles, was AIfred bewusst als fire-and-forget-Task aus dem
-Event-Handler auslagert, damit der Handler (und der User) nicht warten
-muss:
-
-- **Streaming-TTS-Finalize** — kombiniert die Satz-Chunks zur Replay-WAV
-  (`_finalize_streaming_tts_in_background`).
-- **Session-Titel-Generierung** — ein Reasoning-Modell braucht dafür
-  >100 s; inline würde das den Handler **und den State-Lock** so lange
-  blockieren (`_generate_session_title`).
-
-Beide patchen Server-State, der den Browser erreichen muss — die Bubble-
-Audio-URL, den Sidebar-Titel.
+Der **Browser Push Bus** ist der Kanal, über den der Server die offenen Tabs einer Sitzung
+aktualisiert, ohne dass sie fragen: Sprachausgabe, Musik, Statusleiste und die Meldung „diese
+Liste hat sich geändert“. Er ist kein eigener Strom, sondern ein Aufruf auf dem **Ereignisstrom je
+Sitzung**: Server-Seite [`browser_push()`](../../../aifred/lib/browser_push.py), Hub
+[`session_events.py`](../../../aifred/lib/session_events.py), Browser-Seite
+`followSession()` in [`frontend/src/api/events.ts`](../../../frontend/src/api/events.ts).
 
 ---
 
-## Die Lösung
-
-Statt auf einen Reflex-Delta zu hoffen, **announced** der Background-Task
-sein Ergebnis über eine bereits offene SSE-Verbindung. Der Browser
-(`custom.js`) konsumiert das Event und schreibt das DOM direkt.
+## Der Weg eines Ereignisses
 
 ```
-Background-Task ──browser_push(kind,…)──▶ session_events (Hub je Sitzung)
-                                                       │
-                                          GET /api/browser/stream/{sid}
-                                                       │
-                                          browserEventSource.onmessage
-                                                       │
-                                          switch(kind) ──▶ DOM-Patch
+irgendein Code ──browser_push(sid, kind, **felder)──▶ session_events.publish
+(Zug, Hintergrund-Task,                                      │
+ Planer, Kanal-Thread)                      Hub je Sitzung: ID-Zähler, Puffer, Warteschlange je Tab
+                                                             │
+                                           GET /api/sessions/{id}/events  (SSE)
+                                                             │
+                                           EventSource (followSession) ──▶ stores/chat.ts handle(kind, data)
+                                                             │
+                                           Store, lib/speech.ts, lib/media.ts, Statusleiste
 ```
 
-Ein einziger SSE-Stream pro Session trägt **alle** Kinds — Audio
-(`tts`, `media`, …) und Nicht-Audio (`session_title`). Ein zweiter
-EventSource wäre eine zweite langlebige HTTP-Verbindung pro Tab; das
-sparen wir uns.
+Der Aufrufer muss in keinem Handler sitzen und keinen Zustand „dirty“ melden: `browser_push()` ruft
+`session_events.publish` und fertig. Aus einem Thread mit eigener Schleife (Kanäle und Planer laufen
+im Thread des Message Hubs) reicht der Aufruf trotzdem: der Hub gehört der Schleife des Servers
+(`bind_home_loop` beim Start), `on_home_loop` reicht die Arbeit in der Reihenfolge der Aufrufe
+dorthin, deshalb braucht er keine Sperre.
 
-### Server-Seite (`aifred/lib/api/browser_bus.py`)
+### Hub (`aifred/lib/session_events.py`)
 
 | Baustein | Zweck |
 |---|---|
-| `browser_push(session_id, kind, url, **meta)` | Event an den Ereignis-Hub der Sitzung geben |
-| `aifred/lib/session_events.py` | Hub je Sitzung: ID-Zähler, Puffer für Wiederverbindungen, eine Warteschlange je offenem Tab (seit 07.11.2026; vorher eine je Sitzung, ein zweiter Tab nahm dem ersten den Strom) |
-| `GET /api/browser/stream/{session_id}` | SSE-Endpoint, reconnect-sicher über `Last-Event-ID` |
-| `browser_queue_clear(session_id)` | Puffer leeren (Versions-Zähler bleibt!) |
+| `publish(session_id, kind, data, replaces=…)` | Ereignis an jeden Abonnenten der Sitzung und in den Puffer; `replaces` nennt Arten, deren frühere Ereignisse dabei den Puffer verlassen |
+| `subscribe(session_id, after_id)` | liefert die verpassten Ereignisse und die Warteschlange des Tabs; Eintragen und Puffer lesen geschehen ohne `await` dazwischen, jedes Ereignis landet in genau einem von beiden |
+| `clear_replay(session_id, keep=…)` | Puffer leeren (die IDs steigen weiter); ein neuer Zug ruft es auf (`turn_service.py:297`) und behält nur die `LATEST_WINS_KINDS` |
+| `missed_beyond_replay` | ob ein Client Ereignisse verpasst haben kann, die der Puffer nicht mehr hält |
+| `sessions_with_subscribers` | die Sitzungen, die gerade ein Tab hört |
 
-Die **Version** ist pro Session streng monoton — sie sinkt nie, auch nicht
-nach `browser_queue_clear`. Der Client dedupliziert SSE-Events über die
-Version; ein Reset würde das nächste `v1` wie ein schon gesehenes Item
-aussehen lassen.
+Jeder Tab hat seine eigene Warteschlange, zwei Tabs einer Sitzung sehen also beide jedes Ereignis.
+Die ID steigt je Sitzung streng und fällt nie; der Browser merkt sich die letzte und sendet sie beim
+Wiederverbinden (`Last-Event-ID`), der erste Aufruf übergibt sie als `?after=` (der `EventSource`
+kann keine Kopfzeilen setzen). Beginnt die ID-Zählung nach einem Neustart des Servers neu oder wurde
+der Puffer nach der letzten ID des Clients geleert, beginnt der Strom mit `resync`
+(`aifred/lib/api/sessions.py`, `sessions_events`), und die Seite lädt die Sitzung neu
+(`stores/chat.ts`, `resync()`). Alle 15 Sekunden ohne Ereignis kommt ein Keep-alive-Kommentar
+(`SSE_KEEPALIVE_S`).
 
-### Browser-Seite (`assets/custom.js`)
+### Arten, die den Zustand tragen
 
-`startBrowserStream(sessionId)` öffnet den `EventSource`. Wichtig: der
-Aufruf passiert **in der User-Geste-Kette** (Login, Send-Button,
-Session-Wechsel) — dadurch gilt jedes spätere `audio.play()`, das ein
-SSE-Event auslöst, als user-initiiert (kein Autoplay-Block).
-
-`browserEventSource.onmessage` routet per `data.kind` auf den passenden
-DOM-Patch.
-
----
-
-## Wann den Bus nutzen — und wann nicht
-
-```
-Läuft der Code in einem Reflex-Event-Handler (@rx.event)?
-├─ JA  → normaler State-Zugriff, Reflex pusht den Delta. KEIN Bus nötig.
-└─ NEIN (nackter create_task / Background-Worker)
-   │
-   Patcht der Code ein einzelnes, klar adressierbares DOM-Element?
-   ├─ JA  → Browser Push Bus: browser_push(...) + kind-Handler in custom.js.
-   └─ NEIN (es geht um eine Liste / vielen State)
-      → Reflex-State mutieren und darauf vertrauen, dass ein Event ihn
-        pusht. Hängt der State an einer rx.foreach-Liste, die ein
-        Background-Task füllt: den 500ms-Timer refresh_debug_console die
-        Liste dirty-flaggen lassen (siehe Stolperfallen).
-```
-
-**Faustregel:** Der Bus ist gut, wenn custom.js *ein* Element gezielt
-patchen kann (eine Audio-URL, ein Titel-Text). Für ganze Listen ist der
-Reflex-`rx.foreach`-Pfad richtig — der Bus müsste sonst die React-
-Reconciliation umgehen, was fragil wird (siehe Stolperfallen, Debug-
-Konsole).
+Ein Ereignis, das einen Zustand statt eines Vorfalls meldet, ersetzt im Puffer seine Vorgänger: wer
+sich neu verbindet, braucht den letzten Stand, nicht die Geschichte. Das sind `LATEST_WINS_KINDS`
+(`browser_push.py`): `service_status` und je Listenart `<name>_changed`. Auch `turn_phase`,
+`tool_status` und `speech_regenerating` ersetzen sich über `replaces`.
 
 ---
 
-## Checkliste: neuen `kind` hinzufügen
+## Was `browser_push()` verschickt
 
-1. **Server — `aifred/lib/api/browser_bus.py`:**
-   - Den `kind` im Header-Kommentar des Bus-Blocks und im Docstring von
-     `browser_push()` dokumentieren.
-   - Braucht der `kind` Metadaten über `url` hinaus? Dann in `browser_push()`
-     einen `elif kind == "…":`-Zweig ergänzen, der `item[...]` füllt
-     (Vorbild: `media`, `seek`, `speed`). Sonst nichts — unbekannte Kinds
-     bekommen sauber nur `{kind, url, version, playback_rate}`.
-
-2. **Sender — der Background-Task:**
-   - `from ..lib.api import browser_push` und
-     `browser_push(session_id, kind="…", url=…)` aufrufen.
-   - Den Server-State **trotzdem** mutieren (`chat_history`, Disk-Persistenz,
-     …). Der Bus-Push überbrückt nur die Lücke bis zum nächsten regulären
-     Reflex-Re-Render — danach muss der State konsistent sein, sonst macht
-     der Re-Render den DOM-Patch wieder kaputt.
-
-3. **Browser — `assets/custom.js`:**
-   - In `browserEventSource.onmessage` einen `if (kind === '…') { … return; }`
-     hinzufügen — **nach** dem Versions-Dedup-Block.
-   - `ttsQueueVersion = data.version;` setzen (Dedup über alle Kinds gemeinsam).
-   - Den DOM-Patch idempotent halten: das Event kann beim SSE-Reconnect
-     erneut ankommen (Replay), und der nächste Reflex-Re-Render überschreibt
-     den Patch ohnehin.
-
-4. **DOM-Anker:** Patcht der Handler ein von Reflex gerendertes Element,
-   braucht er einen stabilen Selektor — z.B. ein `custom_attrs={"data-…": …}`
-   an der Reflex-Komponente (Vorbild: `data-session-id` an der
-   Session-Liste, `data-audio-urls` an den Bubble-Buttons).
-
-5. Checks: `node --check assets/custom.js`, plus `py_compile`/`ruff`/`mypy`.
-
----
-
-## Aktuelle Kinds
-
-| Kind | Payload | Wozu |
+| Art | Felder | Wozu |
 |---|---|---|
-| `tts` | `{url, playback_rate}` | TTS-Chunk, lückenlose Queue |
-| `media` | `{url, state_key, start_pos_sec, is_stream, audio_type, queue, pre_roll_sec, position_save_sec}` | Track mit Positions-Persistenz; `queue` = die weiteren Titel eines Ordners `{audio_url, state_key}` (die Vue-Seite hat keinen Reflex-State), `pre_roll_sec` = Rücksprung nach der Sprachausgabe, `position_save_sec` = Takt der Positionsspeicherung (beide `config.py`) |
-| `stop` / `pause` / `resume` | — | Audio-Steuerung |
-| `seek` | `{position_sec, relative}` | Sprung im Track |
-| `speed` | `{factor}` | `audio.playbackRate` setzen |
-| `bubble_audio` | `{url}` | Kombinierte Replay-URL auf die fertige Chat-Bubble |
-| `session_title` | `{url}` (= Titeltext) | Generierten Titel in die Session-Liste |
-| `service_status` | `{url}` (= Snapshot als JSON) | Statusleiste (Modell, Bildbeschreiber, STT, TTS); nur der letzte Stand bleibt in der Warteschlange |
+| `tts` | `url` | Audiodatei der Vorlesung |
+| `tts_speak` | `utterance {text, language, voice, rate, pitch}` | Stück, das die eigene Stimme des Browsers spricht |
+| `tts_pause` | `ms` | Stille zwischen zwei Stücken |
+| `media` | `url, state_key, start_pos_sec, is_stream, audio_type, queue, pre_roll_sec, position_save_sec` | ein Titel mit gespeicherter Position; `queue` = die weiteren Titel des Ordners `{audio_url, state_key}`, `pre_roll_sec` = Rücksprung nach der Sprachausgabe, `position_save_sec` = Takt der Positionsspeicherung (beide `config.py`) |
+| `stop` / `pause` / `resume` | – | Audio steuern |
+| `seek` | `position_sec, relative` | Sprung im Titel |
+| `speed` | `factor` | `playbackRate` (0,25 bis 4,0) |
+| `service_status` | Schnappschuss (`ServiceSnapshot.as_json`) | Statusleiste (Modell, Bildbeschreiber, STT, TTS), siehe [service-status.md](service-status.md) |
+| `<name>_changed` | – | die Liste `<name>` hat sich geändert (`notify_changed`) |
+
+Die Seite liest sie in `stores/chat.ts` (`handle`), `lib/speech.ts` (`tts*`) und `lib/media.ts`
+(`media`, `pause`, `resume`, `seek`, `speed`). Der Hub trägt außerdem die Ereignisse des Zuges
+(`turn_started`, `token`, `message_added`, `turn_finished` …, aus `turn_service.py`), des Diktats,
+der Vorlesung und des Message Hubs; die vollständige Liste, die der Browser hört, ist
+`SESSION_EVENT_KINDS` in `events.ts`.
+
+### Listen ändern sich: `notify_changed`
+
+`notify_changed(resource)` (`browser_push.py`) sagt jeder verbundenen Seite, dass eine Liste neu zu
+laden ist; `RESOURCES` sind `jobs`, `sessions`, `agents`, `memory`, `plugins` (die Gegenliste im
+Browser: `RESOURCES` in `events.ts`). Aufrufer sind das Speichern einer Sitzung, der Papierkorb,
+Agenten-Konfiguration, Agenten-Gedächtnis, der Planer und der Plugin-Manager. Die Seite
+(`lib/resourceChanges.ts`) fasst eine Folge von Meldungen (eine Sitzung wird in einem Zug mehrfach
+gespeichert) auf 300 ms zu einem Laden zusammen; der Store der Liste hängt sich mit
+`onResourceChanged` ein. `notify_changed` darf aus jedem Thread kommen: die Liste der verbundenen
+Sitzungen wird auf der Schleife des Servers gelesen.
+
+### Debug-Konsole
+
+Die Zeilen der Konsole gehen über denselben Strom als `debug`-Ereignis, sofort beim Aufruf von
+`debug()` (`aifred/lib/debug_bus.py`). In die Sitzungsdatei kommen sie nur einmal, am Ende des
+`session_scope` (die Datei wird als Ganzes umgeschrieben, manche sind hunderte KB groß). Eine Seite,
+die mitten im Zug aufgeht, bekommt die noch wartenden Zeilen über `GET /api/sessions/{id}`
+(`debug_bus.pending_lines`), den Rest aus der Datei.
 
 ---
+
+## Wann den Bus nutzen
+
+Alles, was der Server von sich aus an offene Tabs melden will und was nicht Teil der Antwort auf
+eine Anfrage ist: Audio, Statusänderungen, „Liste hat sich geändert“. Die Antwort auf einen Aufruf
+bleibt die HTTP-Antwort. Nachrichten für Listen tragen keine Daten, nur den Anlass; die Seite lädt
+über die API neu, so bleibt die API die einzige Quelle.
+
+---
+
+## Checkliste: neue Art hinzufügen
+
+1. **Server:** `browser_push(session_id, "<art>", feld=…)` aufrufen und die Art samt Feldern im
+   Docstring von `browser_push()` nennen. Meldet die Art einen Zustand, in `LATEST_WINS_KINDS`
+   aufnehmen; eine neue Listenart gehört in `RESOURCES` (dann entsteht `<name>_changed` von selbst).
+2. **Browser:** die Art in `SESSION_EVENT_KINDS` (`events.ts`) eintragen, sonst hört der Browser sie
+   nicht, und in `stores/chat.ts` (`handle`) einen `case` ergänzen. Eine neue Listenart auch in
+   `RESOURCES` von `events.ts` und im Store der Liste `onResourceChanged` aufrufen.
+3. Den Handler **idempotent** halten: beim Wiederverbinden kommen Ereignisse aus dem Puffer noch
+   einmal.
+4. Prüfen: `npm run build` und `npx vitest run` in `frontend/`, `ruff`, `mypy`.
 
 ## Stolperfallen
 
-- **Idempotenz:** Beim SSE-Reconnect replay’t der Server alle Items mit
-  `version > Last-Event-ID`. Jeder Handler muss ein zweites Ankommen
-  desselben Events vertragen.
-- **State-Konsistenz:** Der Bus ersetzt nicht die State-Mutation, er
-  ergänzt sie. Wer nur pusht, aber den State nicht mutiert, verliert den
-  DOM-Patch beim nächsten Re-Render.
-- **User-Geste:** Audio-Kinds funktionieren nur, weil der EventSource in
-  einer User-Geste geöffnet wurde. `startBrowserStream` deshalb nie aus
-  einem Timer/Callback ohne Geste-Bezug erstmalig aufrufen.
-- **Debug-Konsole — NICHT über den Bus:** Die Konsole rendert per
-  `rx.foreach(debug_messages)`. Background-Tasks hängen Zeilen an
-  `debug_messages` an, lösen aber keinen Reflex-Delta aus. Sie über den Bus
-  zu pushen wurde verworfen: custom.js müsste DOM in einen
-  `rx.foreach`-Container einfügen → React-Reconciliation-Konflikte
-  (doppelte / falsch sortierte Knoten). Stattdessen flaggt der 500ms-Timer
-  `refresh_debug_console` die Liste explizit dirty
-  (`self.debug_messages = list(self.debug_messages)`) und `yield`t — so
-  pusht Reflex die Background-Zeilen mit max. 500 ms Latenz. **Lehre:** Der
-  Bus ist für einzelne, gezielt adressierbare DOM-Patches; eine ganze, von
-  Reflex gerenderte Liste lässt man über den Reflex-Pfad laufen.
+- **Idempotenz:** Der Server spielt beim Wiederverbinden alle Ereignisse mit `id > Last-Event-ID`
+  erneut ab.
+- **Nicht im Puffer:** Ein Client, der hinter der letzten Leerung des Puffers liegt, bekommt `resync`
+  und lädt neu; ein Handler darf sich nicht darauf verlassen, dass jedes Ereignis ankommt.
+- **Autoplay:** Der Browser erlaubt `audio.play()` erst nach einer Geste auf der Seite. `lib/speech.ts`
+  spielt beim ersten Klick oder Tastendruck einmal einen stillen Ton (`unlock`); danach dürfen die
+  Vorlesungen, die später über den Strom kommen, klingen.

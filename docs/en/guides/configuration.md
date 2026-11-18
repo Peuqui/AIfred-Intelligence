@@ -382,9 +382,10 @@ of two or three.
 - The GPUs: requests are processed one after another
 
 Running requests are safe (their parameters are already with the backend); the
-*next* request of another user uses the new settings. Settings changes reach
-open tabs within a second or two; the model dropdown may only update when it is
-reopened (Reflex limitation).
+*next* request of another user uses the new settings. Changes to agents, jobs, sessions,
+memory and plugins reach open tabs through the event stream; a tab reads the general settings at login and after its
+own changes, and the model quick-pick when it is opened. Another user's change shows up there only after reloading the
+page or reopening the quick-pick.
 
 This is deliberate: local hardware runs one set of models efficiently, not one
 per user. AIfred is not a multi-tenant service — no quotas, no per-user

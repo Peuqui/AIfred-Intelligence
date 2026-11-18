@@ -195,7 +195,7 @@ aber für den Message Hub ist erstmal nur der Hauptnutzer relevant.
 ### Paket 1: Background Worker Infrastruktur + Envelope ✅
 - [x] `aifred/lib/message_hub.py` — Worker-Management (register, start, stop)
 - [x] `aifred/lib/envelope.py` — InboundMessage / OutboundMessage Dataclasses
-- [x] Lifecycle: Start mit App, Stop bei Shutdown (Reflex lifespan)
+- [x] Lifecycle: Start mit App, Stop bei Shutdown (Lifespan des Servers, `message_hub_lifespan` in `lib/server_startup.py`)
 - [x] Logging ins bestehende Debug-Log
 
 ### Paket 2: Routing Table ✅

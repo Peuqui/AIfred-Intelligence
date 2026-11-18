@@ -44,8 +44,7 @@ Suchanfragen formuliert er im Tool-Call.
    plus einer aufklappbaren Quellenliste für die UI zusammengesetzt.
 
 Für den Message Hub (Discord, E-Mail) nutzt `web_search` über `hub_web_search`
-dieselben Bausteine; dieser Pfad liest seine Konfiguration aus den Settings statt
-aus dem Reflex-State.
+dieselben Bausteine; dieser Pfad liest seine Konfiguration aus den Settings.
 
 ## Konfiguration
 

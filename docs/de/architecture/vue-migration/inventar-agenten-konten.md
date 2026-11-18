@@ -419,7 +419,7 @@ Hilfe-Fenster → Image-Mixin.
 | `debate_user_interjection` nur geschrieben | `AC:119, 825`, `_session_mixin.py:668` |
 | `CORE_AGENTS`, `_FEATURE_EMOJI["personality"]` ungenutzt | `AC:729, 59` |
 | `UC.num_ctx` ungenutzt | `UC:39` |
-| Bundle `sampling.json`: exportiert `<id>_*`-Schlüssel (`agent_bundle.py:124`), die es nicht mehr gibt (Tuning liegt unter `agent_tuning`; die Produktions-`settings.json` hat keinen solchen Schlüssel) → immer `{}`, Import-Zweig 303–311 wirkungslos, Tuning geht beim Bundle verloren | `agent_bundle.py:124, 303-311` |
+| Bundle `sampling.json`: exportiert `<id>_*`-Schlüssel (`agent_bundle.py:124`), die es nicht mehr gibt (Tuning liegt unter `agent_tuning`; die Produktions-`settings.json` hat keinen solchen Schlüssel) → immer `{}`, Import-Zweig 303–311 wirkungslos, Tuning geht beim Bundle verloren | `agent_bundle.py:124, 303-311` (seit 18.11.2026: Format-Version 2, `tuning.json` aus `agent_tuning` mit Typ- und Bereichsprüfung, `_checked_tuning`; ein Bündel der Version 1 wird abgelehnt) |
 | Hub liest `agent_memory_enabled` aus `settings.json`, niemand schreibt es → Hub immer mit Gedächtnis | `message_processor.py:639`, `SM:141-235` |
 | `/api/settings` liest `rope_factor` aus `agent_tuning` (nicht persistiert, `agent_settings.py:40-51`), `enable_thinking`, `multi_agent_mode`, `automatik_rope_factor` — alles von `_save_settings` nie geschrieben | `api/core.py:163-171` |
 
@@ -459,7 +459,8 @@ Hilfe-Fenster → Image-Mixin.
   `delete_agent` der Kopie löscht per `rmtree` den Prompt-Ordner des Originals (`agent_config.py:402-419`).
 - **Bundle-Import schreibt jeden Schlüssel aus `sampling.json` in `settings.json`** (`agent_bundle.py:310-311`),
   auch `channel_security_tiers`, das `_save_settings` aus der Datei übernimmt (`SM:217`); `peek` zeigt das
-  nicht.
+  nicht. (Seit 18.11.2026: `tuning.json` statt `sampling.json`; der Import nimmt nur die persistierten
+  Tuning-Felder und schreibt sie nach `agent_tuning`, alles andere wird abgelehnt.)
 - **Neuer Agent:** `create_agent` wirft bei vorhandener ID (`agent_config.py:348-349`), `save_agent_editor`
   fängt das nicht (`AE:1387-1393`). `update_agent` prüft die Rolle nicht (`agent_config.py:424-444`),
   `set_editor_role` nimmt jeden Wert (`AE:1251-1254`). `agents.json` wird ohne Sperre und nicht atomar

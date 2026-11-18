@@ -279,7 +279,7 @@ Die eigentliche Steuerung (spielen, pausieren, springen, Tempo, Ordner) liegt im
 | VLM | `vision_prewarm` (prewarm/unload/is_loaded), `vision_event_analysis`, `vision_bulk.run_bulk_describe` (mit Rückrufen, kopflos), `describer_list`, `remote_describers`, `vlm_stress_prewarm` | – |
 | Gesichter | `VisionStore`, `face_crop_store`, `face_enroll`, `face_recognize.bump_enrollment_epoch` | face/list, details, rename, delete, embedding delete, enroll — alle ohne Aufrufer im Repo |
 | Alarme | `alert_bus.load_rules/reload_rules` | – |
-| Einstellungen | `vision_settings.load/save_vision_settings`, `audio_player_settings.load_audio_player_settings/build_configured_source_map` | – |
+| Einstellungen | `vision_settings.load/save_vision_settings` (seit 18.11.2026: `load_vision_settings` und `update_vision_settings(apply)` als einziger Schreiber, mit Sperre), `audio_player_settings.load_audio_player_settings/build_configured_source_map` | – |
 | Audio | `audio_manager` (mpv), `audio_index`, `audio_state`, `audio_sources` | file, position, Browser-Bus |
 
 **Nur im State (muss für Vue in lib-Dienste):**

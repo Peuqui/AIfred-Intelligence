@@ -9,11 +9,11 @@ Wo was liegt. Den Weg einer einzelnen Anfrage beschreibt
 ```
 AIfred-Intelligence/
 ├── aifred/
-│   ├── aifred.py            # Reflex-App: Seiten, Routen, API-Mount, Start-Verdrahtung
+│   ├── server.py            # Der Server (FastAPI/uvicorn): API unter /api, Vue-Oberfläche, /_upload/, /vendor/
 │   ├── backends/            # LLM-Backend-Adapter (llamacpp, vllm, ollama, cloud_api) — siehe backends/README.md
 │   ├── lib/                 # Kern-Bibliotheken — hier zuerst suchen
-│   │   ├── multi_agent.py         # Agenten, Diskussionsmodi, ein Antwortpfad für alle Agenten
-│   │   ├── llm_engine.py · llm_pipeline.py · llm_client.py   # LLM-Calls, Tool-Schleife, Streaming
+│   │   ├── turn_service.py · turn_debate.py · debate_seats.py   # Ein Zug von der Nachricht bis zur Antwort, Diskussionsmodi, Plätze
+│   │   ├── llm_pipeline.py · llm_client.py   # LLM-Calls, Tool-Schleife, Streaming
 │   │   ├── prompt_loader.py       # Prompt-Dateien + Schichten-Merge
 │   │   ├── message_builder.py     # Message-Formatierung, Perspektive pro Agent
 │   │   ├── context_manager.py     # History-Kompression
@@ -37,8 +37,8 @@ AIfred-Intelligence/
 │   ├── plugins/
 │   │   ├── tools/           # Tool-Plugins (workspace, sandbox, research, vision, google_suite, printer, subagent, …)
 │   │   └── channels/        # Channel-Plugins (telegram, discord, email, freeecho2, ai_connect)
-│   ├── state/               # Reflex-State, zusammengesetzt aus Feature-Mixins (_chat_mixin.py, …)
-│   └── ui/                  # Reflex-UI-Komponenten (modals/, agent_editor/, settings_accordion/, …)
+│   └── theme.py             # Farben (COLORS), Vue lädt sie als CSS-Variablen
+├── frontend/                # Oberfläche: Vue 3, Vite, TypeScript (Build nach frontend/dist)
 ├── prompts/{de,en}/         # Alles, was das LLM sieht — nie im Code hardcodiert
 ├── data/                    # Laufzeitdaten: settings.json, sessions/, chromadb/, logs/, Caches
 ├── docker/                  # ChromaDB + SearXNG (docker-compose.yml), tts/<Dienst>/ (lokale TTS-Container) + tts/voices/ (gemeinsame Referenzstimmen)
@@ -63,11 +63,6 @@ AIfred-Intelligence/
   Grenze — eine Schleife, die weiterlaufen muss, ein Rückruf, eine Regel oder Kamera unter
   mehreren, eine Aktion mit sichtbarer Fehlermeldung — und nennt seinen Grund und schreibt den
   Traceback ins Log. `tests/test_broad_except_reasons.py` lehnt `# noqa: BLE001` ohne Grund ab.
-- Im State sind öffentliche Felder `rx.Field`, öffentliche Methoden tragen `@rx.event`, und was
-  ein Mixin von einem anderen benutzt, steht unter `if TYPE_CHECKING:`. Methoden, die nur
-  State-Code aufruft, sind privat (`_name`), denn jede öffentliche Methode kann jeder verbundene
-  Client auslösen. `tests/test_state_typing_conventions.py` und
-  `tests/test_state_attribute_references.py` halten das.
 
 **Qualitätsprüfungen**
 ```bash
@@ -79,9 +74,7 @@ venv/bin/python -m pytest
 - ruff und mypy liegen nicht im Projekt-venv; installiere sie getrennt (geprüft mit ruff 0.16 und
   mypy 2.4). Die Typen des Projekts und die Stubs aus `requirements.txt` bekommt mypy über
   `--python-executable`. Geprüft wird `aifred/` und `tests/` ohne Ausnahme für eigenen Code.
-- mypy braucht die Typ-Patches aus `scripts/patch-reflex.py` (siehe
-  [Reflex-Patches](../guides/deployment.md#reflex-patches)); ohne sie meldet es in `aifred/ui`
-  Hunderte Fehler. Meldet es „Module not callable“, ohne Cache gegenprüfen (`--no-incremental`).
+- Meldet mypy „Module not callable“, ohne Cache gegenprüfen (`--no-incremental`).
 - Einige Tests brauchen Dateien, die nur auf einem eingerichteten Rechner liegen:
   `data/vllm_runtime.yaml` (vLLM-Kalibrierung), `data/epim/test-fixture.epim` und
   `lib/firebird25/` (EPIM-Datenbank). Fehlen sie, überspringen sich die EPIM-Tests, die

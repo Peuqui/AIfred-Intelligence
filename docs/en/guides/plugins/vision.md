@@ -196,8 +196,7 @@ is relative to the **unmasked** area, not the full frame — masking large areas
 away does not lower sensitivity in the rest.
 
 **Editor:** In the vision settings a per-source button "Edit zone mask" opens a
-standalone popup window (`/api/vision/zone-editor`, plain vanilla JS/canvas,
-decoupled from Reflex). It shows the **live MJPEG image** as background; you
+dialog (`ZoneEditor.vue`, 🗺️ on the camera card). It shows the **live MJPEG image** as background; you
 paint on top with the brush (left mouse paints the selected type, right erases;
 brush size and grid resolution via sliders). Saving writes the mask to
 `zone_masks[<source_id>]` in `settings.json` and takes effect **immediately in
@@ -326,6 +325,14 @@ with glasses".
 + `schedule_start`/`schedule_end`, wraparound-correct). A `schedule_supervisor`
 (app lifespan) starts/stops the watchers at the window boundaries.
 
+**Time format:** The active window and the quiet hours (`quiet_enabled` +
+`quiet_start`/`quiet_end`) are both `"HH:MM"` (default window 18:00 to 08:00,
+quiet hours 22:00 to 06:00); `vision_autostart.clock_minutes` is the only
+reader, and the API refuses an hour value such as `22`. Anyone coming from a
+state before 18 Nov 2026 converts the stored old values once, with the service
+stopped: `venv/bin/python scripts/migrate_vision_clock_times.py` (it first
+writes a copy `vision.db.bak-<date>-<time>`).
+
 ## Face recognition (InsightFace)
 
 Detection and embedding run via **InsightFace `buffalo_l`** (RetinaFace
@@ -373,7 +380,7 @@ Enrolled people live in the `faces` table of the vision store. The **Personarium
 UI modal lists every identity with an avatar (last crop), embedding count and
 last-seen timestamp, and lets you rename a person, delete one, or remove
 individual embeddings; open faces are assigned (and learned), dismissed or
-recognised again. The rules live in `lib/personarium.py`; the Reflex modal, the
+recognised again. The rules live in `lib/personarium.py`; the
 persons tab of the Vue page and the REST endpoints under `/api/vision/face/*`
 share them.
 

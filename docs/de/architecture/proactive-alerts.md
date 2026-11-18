@@ -219,7 +219,8 @@ Restrisiko: Watcher-Neustart setzt offene Cluster zurück → ein Vorkommnis
   System → Metrik-Name).
 - Pro Regel optionale `quiet_hours`. Zusätzlich filtert der Vision-Producer
   pro Kamera (Quellen-Settings): `alerts_enabled`, `alert_types`,
-  `quiet_enabled` + `quiet_start`/`quiet_end`.
+  `quiet_enabled` + `quiet_start`/`quiet_end` (beide `"HH:MM"`, über Mitternacht
+  korrekt; `vision_autostart.in_clock_window`).
 
 ## Regel-Config
 

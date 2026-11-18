@@ -498,6 +498,10 @@ search starts; with a single GPU it is omitted.
 One process serves everything: open **`http://<host>:8002/`** (it redirects to the interface under
 `/api/app/`). No reverse proxy is needed for that.
 
+The browser releases the microphone (dictation) only in a secure context, that is over HTTPS or on `localhost`.
+Dictation therefore does not work over `http://<host>:8002/` from the network: for access from the network put an
+HTTPS proxy in front (e.g. nginx or Caddy with a certificate, or Tailscale serve).
+
 For your own domain, TLS or a sub-path, put a reverse proxy in front. It forwards the sub-path to the
 server's root, and `/_upload/` and `/vendor/` as they are: links to files in answers and the libraries
 of sandbox pages start at the root. Minimal nginx sketch (generic — substitute your own host, ports and,

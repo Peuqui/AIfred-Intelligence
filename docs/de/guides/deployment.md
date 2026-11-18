@@ -500,6 +500,10 @@ fehlt sie.
 Ein Prozess liefert alles aus: **`http://<host>:8002/`** öffnen (leitet zur Oberfläche unter `/api/app/`
 weiter). Dafür braucht es keinen Reverse-Proxy.
 
+Das Mikrofon (Diktat) gibt der Browser nur in einem sicheren Kontext frei, also über HTTPS oder `localhost`.
+Über `http://<host>:8002/` aus dem Netz funktioniert das Diktat daher nicht: Für den Zugriff aus dem Netz gehört
+ein HTTPS-Proxy davor (z. B. nginx oder Caddy mit Zertifikat, oder Tailscale serve).
+
 Für eine eigene Domain, TLS oder einen Unterpfad kommt ein Reverse-Proxy davor. Er leitet den Unterpfad
 auf die Wurzel des Servers weiter, `/_upload/` und `/vendor/` unverändert: Links auf Dateien in Antworten
 und die Bibliotheken der Sandbox-Seiten beginnen an der Wurzel. Minimale nginx-Skizze (generisch — eigenen

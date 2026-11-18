@@ -43,8 +43,7 @@ queries in the tool call.
    a collapsible source list for the UI.
 
 For the Message Hub (Discord, e-mail), `web_search` uses the same building blocks
-through `hub_web_search`, which reads its config from settings instead of the
-Reflex state.
+through `hub_web_search`, which reads its config from settings.
 
 ## Configuration
 

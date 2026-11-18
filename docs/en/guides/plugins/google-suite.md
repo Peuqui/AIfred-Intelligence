@@ -241,7 +241,7 @@ document manager shows a second source, "Google Drive", next to the local folder
 |----------|-----------|
 | Browsing | Open folders, path bar, up/root; refresh button. The view starts at "My Drive" |
 | Search | Input field in the toolbar, searches the whole Drive by file name and full text (at most 100 hits, by relevance) |
-| Download | Arrow icon per file; the file is streamed, never routed through Reflex state (`GET /api/documents/source/{key}/file/{id}`, login cookie). 404 for an unknown source, 502 if the source fails |
+| Download | Arrow icon per file; the file is streamed; an HTML page is put together with the libraries it loads into one standalone file (`GET /api/documents/source/{key}/file/{id}`, login cookie). 404 for an unknown source, 502 if the source fails |
 | Export | Google's own formats have no file and are exported: Docs → `.docx`, Sheets → `.xlsx`, Slides → `.pptx`, Drawings → `.pdf`. Other Google formats and folders cannot be downloaded |
 | Upload | Only with Drive on "Read and write": the document manager's upload goes into the currently open Drive folder (root: "My Drive"); the same size limit as locally applies (`DOCUMENT_MAX_FILE_SIZE_MB`). On "Read" the upload zone is hidden and the source refuses `upload()` |
 

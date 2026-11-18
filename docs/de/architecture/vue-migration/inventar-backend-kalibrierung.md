@@ -488,9 +488,9 @@ Feldern statt des Reflex-States.
 
 ### 7.3 Doppelte Logik
 
-- GGUF-Parser doppelt: `gpu_utils.read_gguf_field` (eigener `struct`-Parser, gpu_utils.py:254-337,
-  nur für Experten-Zahlen gpu_utils.py:381-383) neben `gguf_utils._scan_gguf_numeric_field`
-  (gguf-py, gguf_utils.py:213-275).
+- GGUF-Parser doppelt: erledigt, `gpu_utils.is_moe_model` liest über `gguf_utils.read_gguf_field` (gguf-py);
+  der eigene `struct`-Parser ist entfernt. Offen: `scripts/llama-swap-autoscan.py` hat mit `_read_gguf_field`
+  noch einen eigenen Leser.
 - Basis- und Speed-Profil werden zweimal geschrieben: `flow.calibrate_llamacpp_model` schreibt
   `-c`, `-ngl`, Split, `CUDA_VISIBLE_DEVICES`, Cache und Speed-Variante selbst (flow.py:549-556,
   persist.py:15-106), danach der Mixin noch einmal `-c`, `-ngl`, Speed-Variante und
@@ -568,5 +568,5 @@ Feldern statt des Reflex-States.
   (`gguf_utils.py:118, 196, 270, 338`).
 - **Kalibrierung kennt nur AIfreds Modell** (`agent_tuning["aifred"].model_id`, CM:751, 1762);
   wer ein anderes Modell kalibrieren will, muss das Hauptmodell umstellen.
-- llama.cpp-Kalibrierung holt `wait_for_vram_stable` aus dem Ollama-Backend (CM:1567, 1717) —
+- llama.cpp-Kalibrierung holt `wait_for_vram_stable` aus dem Ollama-Backend (CM:1567, 1717; jetzt `lib/gpu_utils.py`) —
   GPU-Helfer am falschen Ort.

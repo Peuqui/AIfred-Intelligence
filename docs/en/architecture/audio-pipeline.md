@@ -99,8 +99,8 @@ Further requirements:
        │ mpv → Pulse/    │   │ HTML5 <audio>   │   │ mpv → 48kHz     │
        │ ALSA            │   │ + /api/audio/   │   │ int16 PCM → FIFO│
        │ (default        │   │ file?key=...    │   │ → FreeEcho2-WS  │
-       │  output)        │   │ via Reflex      │   │ (chunked)       │
-       │                 │   │ state push      │   │                 │
+       │  output)        │   │ via the event   │   │ (chunked)       │
+       │                 │   │ stream          │   │                 │
        └─────────────────┘   └─────────────────┘   └─────────────────┘
               │                      │                      │
               ▼                      ▼                      ▼
@@ -112,9 +112,11 @@ Further requirements:
 **Important:** The browser channel does **not** do PCM streaming over a
 FIFO. The HTML5 `<audio>` component loads the file directly via HTTP
 range requests from the REST endpoint `/api/audio/file?key=<state_key>`.
-The server only pushes `media_audio_url`/`media_state_key`/
-`media_pause_pos_sec` via the Reflex state; the browser takes care of
-loading, decoding and playback itself.
+The server only sends the `media` event (`url`, `state_key`,
+`start_pos_sec`, `queue` …) over the session's event stream
+([browser-push-bus.md](browser-push-bus.md), `audio_channels/browser.py`
+`_push_media`); `frontend/src/lib/media.ts` loads, decodes and plays by itself
+and reports the position back via `POST /api/audio/position`.
 
 ## Output Channel Protocol
 
@@ -161,7 +163,7 @@ class AudioOutputChannel(Protocol):
         ctx: PluginContext,
     ) -> dict: ...
 
-    # ctx is only needed by the BrowserChannel (Reflex state push)
+    # ctx is only needed by the BrowserChannel (event to the session's tabs)
     async def pause(self, target_id: str, ctx: PluginContext | None = None) -> bool: ...
     async def resume(self, target_id: str, ctx: PluginContext | None = None) -> bool: ...
     async def stop(self, target_id: str, ctx: PluginContext | None = None) -> bool: ...
@@ -474,11 +476,14 @@ periodic loop), `audio_sources.py` (LocalFolder + HttpStream),
 ### ✅ Phase 1.1 — Browser Output (done, differently than originally planned)
 
 Instead of mpv→FIFO→SSE, a direct REST download was implemented:
-- `media_audio_url`, `media_state_key`, `media_pause_pos_sec`,
-  `media_paused_for_tts`, `media_queue` in the Reflex state.
-- The HTML5 `<audio>` element consumes `/api/audio/file?key=...` via
-  HTTP range. A JS hook persists the position on `pause`/`ended`
-  events.
+- Originally fields in the Reflex state; today the `media` event plus
+  `pause`/`resume`/`seek`/`speed`/`stop` over the session's event stream
+  (`lib/media.ts`; `queue` = the folder's further tracks).
+- The HTML5 `<audio>` element (in `lib/media.ts`) consumes `/api/audio/file?key=...`
+  via HTTP range. `lib/media.ts` saves the position through
+  `POST /api/audio/position` on pause, stop, end and every
+  `position_save_sec`; speech output pauses the track
+  (`pre_roll_sec` jump back afterwards).
 - Advantage: no separate streaming path, mpv does not run for the browser.
   The browser decodes on its own.
 - Disadvantage: no server-side speed/volume for browser tabs (the
@@ -591,10 +596,11 @@ Five stages — tightly coupled, ~6 h total. Status: **a, b, c done; d open; e p
   ```
 - Match only if the entire trimmed, lowercased message matches the pattern
   — no partial matches within sentences.
-- Browser keyboard shortcuts in the audio player Reflex component:
-  `Space` (toggle pause/resume), `Esc` (stop), `←`/`→` (skip ±10 s),
-  `↑`/`↓` (vol ±10). Only active while audio is playing + focus is not in
-  the chat input.
+- Browser keyboard shortcuts (`Space`, `Esc`, arrow keys) existed in the
+  Reflex component; the Vue UI has none. `MediaPlayer.vue` offers buttons for
+  back, pause/resume, forward, stop, volume and a timeline; they go through
+  `POST /api/sessions/{id}/media`, so every tab and the agents' tools see the
+  same state.
 
 **⚠️ 3.0e — Room following** (~1 h, partly):
 - Already there: `_resume` at FreeEcho.2 Y loads the last unfinished item from

@@ -383,9 +383,10 @@ mit zwei oder drei Personen.
 - Die GPUs: Anfragen werden nacheinander abgearbeitet
 
 Laufende Anfragen sind sicher (ihre Parameter liegen bereits beim Backend); die
-*nächste* Anfrage eines anderen Users nutzt die neuen Einstellungen. Änderungen an den Einstellungen erreichen
-offene Tabs innerhalb von ein, zwei Sekunden; das Modell-Dropdown aktualisiert sich eventuell erst, wenn es
-erneut geöffnet wird (Reflex-Einschränkung).
+*nächste* Anfrage eines anderen Users nutzt die neuen Einstellungen. Änderungen an Agenten, Aufträgen, Sitzungen,
+Gedächtnis und Plugins erreichen offene Tabs über den Ereignisstrom; die allgemeinen Einstellungen liest ein Tab beim
+Anmelden und nach eigenen Änderungen, die Modell-Schnellwahl beim Öffnen. Die Änderung eines anderen Users erscheint
+dort erst nach dem Neuladen der Seite bzw. dem erneuten Öffnen der Schnellwahl.
 
 Das ist Absicht: Lokale Hardware betreibt einen Satz Modelle effizient, nicht einen
 pro User. AIfred ist kein mandantenfähiger Dienst — keine Kontingente, keine Einstellungen

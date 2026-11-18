@@ -1,6 +1,7 @@
 # Umbau: Reflex → Vue 3 + Server
 
-Stand: 07.11.2026, beschlossen mit Peuqui. Dieses Dokument ist der Plan; die Bestandsaufnahme der
+Beschlossen mit Peuqui am 07.11.2026, umgesetzt; Reflex ist seit 08.11.2026 entfernt. Dieses Dokument ist
+Plan und Bautagebuch (die Einträge beschreiben den Stand zur jeweiligen Zeit); die Bestandsaufnahme der
 State-Mixins liegt daneben (`inventar-*.md`).
 
 ## Ziel
@@ -22,10 +23,10 @@ ein Tab offen ist. Mehrere Tabs oder Geräte sehen dieselbe Sitzung live.
 - **Ein Port.** Der Server liefert das gebaute Vue (`frontend/dist`), die API und den Ereignisstrom
   aus einem Prozess. Im Heimnetz oder per VPN braucht es keinen Reverse-Proxy; einen Proxy (Caddy
   mit Auto-TLS) nur für Zugriff aus dem Internet. nginx bleibt Peuquis eigener Aufbau.
-- **Pfad.** Während Reflex und Vue nebeneinander laufen, liefert das Backend (8002) Vue unter
-  `/api/app/` aus; nginx leitet `/api/` dort schon hin, hinter Authelia. Der Build nutzt relative
-  Pfade (`base: './'`) und Hash-Routing, damit derselbe Build später unter `/aifred/` läuft. Beim
-  endgültigen Wechsel zeigt nginx `/aifred/` auf den Server statt auf das Reflex-Frontend (3002).
+- **Pfad.** Der Server (8002) liefert Vue unter `/api/app/` aus; `/` leitet relativ dorthin weiter. Der
+  Build nutzt relative Pfade (`base: './'`) und Hash-Routing, damit derselbe Build auch hinter einem
+  Proxy unter `/aifred/` läuft. Seit dem Wechsel (08.11.2026) zeigt nginx `/aifred/` auf den Server
+  (8002); das Reflex-Frontend (3002) gibt es nicht mehr.
 - **Farben** bleiben in `aifred/theme.py` (`COLORS`); Vue lädt die CSS-Variablen von
   `GET /api/app/theme.css` (`css_variables()`).
 - **Buttons und Icons** haben ihr Aussehen an einer Stelle, `frontend/src/assets/controls.css` (seit
@@ -60,18 +61,18 @@ ein Tab offen ist. Mehrere Tabs oder Geräte sehen dieselbe Sitzung live.
   `settings.json`. Jeder Agent kann einen Platz einnehmen und spricht dort mit seiner Persona; die
   Aufgabe gehört dem Platz (`prompts/<lang>/debate/`, je Datei einmal, vorher Kopien in den Ordnern der
   Inhaber). Fehlt der Agent eines Platzes, lehnt der Zug laut ab (`seat`). Jeder Agent spricht mit seiner
-  eigenen Temperatur, eine automatische gibt es nicht mehr. Der Reflex-Weg (`lib/multi_agent.py`) spricht
-  bis zum Wechsel weiter fest mit AIfred, Sokrates und Salomo (`debate_seats.REFLEX_SEATS`).
+  eigenen Temperatur, eine automatische gibt es nicht mehr. Der frühere Reflex-Weg (`lib/multi_agent.py`,
+  fest AIfred, Sokrates und Salomo über `debate_seats.REFLEX_SEATS`) ist seit dem 08.11.2026 entfernt.
   In der Vue-Oberfläche stellt die Kopfleiste des Chats Modus, Plätze und die Teilnehmer des Symposions
   ein (`DebateControls.vue`, `GET /api/debate/modes`). Abschalten und Löschen kommen mit der
-  Agenten-Seite in Schritt 5.
+  Agenten-Seite (`AgentsView.vue`, siehe unten, seit 07.11.2026).
 - **Agenten-Übersicht** (Peuqui 07.11.2026): je Agent eine Karte mit Persona, Rechten und
   Einstellungen, oben rechts ein Schalter wie bei den Plugins. Jeder Agent ist zur Laufzeit
   ein- und ausschaltbar und löschbar, auch Sokrates und Salomo.
 - **AIfred bleibt der Grundagent** (Peuqui 07.11.2026, vormittags): Er ist Namensgeber und der
   eine Agent, den man weder löscht noch abschaltet; umbenennen geht (Anzeigename), die ID bleibt
   `aifred`. Jeder Agent hat ein eigenes Modell oder nimmt AIfreds; AIfred hat immer eins (die
-  Standardmodelle aus `config.py`), die Prüfung „kein Modell“ bleibt wie im Reflex-Zug.
+  Standardmodelle aus `config.py`), die Prüfung „kein Modell“ bleibt wie im früheren Reflex-Zug.
 - **Denkwahl je Agent** (Peuqui 07.11.2026): 🧠-Wahl und 💭-Reasoning gelten für jeden Agenten
   einzeln, auch im Direktchat (bis dahin dachte dort jeder Agent nach AIfreds Zeile).
 - **Titel** vom Modell des letzten Aufrufs im Zug, mit dessen Kontext: Das ist das gerade geladene,
@@ -86,8 +87,8 @@ ein Tab offen ist. Mehrere Tabs oder Geräte sehen dieselbe Sitzung live.
 Befund der Bestandsaufnahme: Der Browser-Zug steckt in `send_message` (`state/_chat_mixin.py`,
 rund 800 Zeilen), `lib/multi_agent.py` schreibt direkt in den State; der Weg ohne Browser
 (`message_processor.process_inbound` → `llm_engine.call_llm`) ist ärmer (keine Kompression, kein
-Multi-Agent, keine Bilder) und weicht ab. Reflex bleibt im Zweig unverändert, bis Vue alles kann;
-der neue Dienst entsteht daneben und ersetzt beim Wechsel beide alten Pfade.
+Multi-Agent, keine Bilder) und weicht ab. Der neue Dienst entstand neben Reflex und hat beim Wechsel
+(08.11.2026) beide alten Pfade ersetzt.
 
 - **`lib/runtime_settings.py`**: Sicht auf `settings.json` mit den Feldern, die Modellwahl, Kontext,
   Sampling und Denken lesen (`agent_tuning`, `backend_type`, `backend_url`,
@@ -173,8 +174,8 @@ vertonen), Bilder (hochladen, einfügen, ziehen, entfernen, drehen, zuschneiden;
 beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
 
 - **Dateien unter `/_upload/`** (Ton, Bilder, Dokumente): die Tabelle der Ordner und wer sie ohne
-  Anmeldung sehen darf, steht in `lib/upload_files.py` (`mount_upload_folders`); die Reflex-App ruft
-  sie auf, der Server ohne Reflex muss es beim Wechsel ebenso tun.
+  Anmeldung sehen darf, steht in `lib/upload_files.py` (`mount_upload_folders`); erledigt:
+  `aifred/server.py` ruft sie beim Bau der App (Schritt 6, Paket 1).
 - **Agenten-Schnellwahl (erledigt 07.11.2026):** 🎛️ in der Kopfleiste des Chats öffnet
   `AgentChoicesModal.vue`: jeder Agent mit Modell („(wie AIfred-LLM)“ außer bei AIfred), 🎩 (sein
   Emoji), 💭, 🧠 mit den Optionen seines Modells und ⚡, wo es eine `-speed`-Variante gibt; dazu das
@@ -188,11 +189,11 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   AIfred aller Agenten auf seinem Modell; Vision behält sein Sampling), Vision-Liste mit Plakette.
   Geschrieben wird schlüsselweise (`agent_tuning` der geänderten Agenten, `backend_models` des Backends).
   Nicht übernommen: RoPE-Wahl (nur Ollama, nicht gespeichert) und Modelllisten der Cloud-Backends.
-  **Nebeneinander mit Reflex:** Reflex schreibt `agent_tuning` und `backend_models` bei jedem Speichern
-  ganz aus seinem Speicher. Darum übernimmt ein Reflex-Tab beim Neuladen der Datei (alle 500 ms, nach
-  Änderungszeit) jetzt alles, was die Schnellwahl schreibt (`_reload_agent_choices`: Tuning und Modelle
-  nach den Regeln des Servers, vorher nur Sampling und Persona). Offen bleibt nur ein Speichern beider
-  Oberflächen innerhalb dieser 500 ms.
+  **Nebeneinander mit Reflex (bis 08.11.2026, seither entfallen):** Reflex schrieb `agent_tuning` und `backend_models` bei jedem Speichern
+  ganz aus seinem Speicher. Darum übernahm ein Reflex-Tab beim Neuladen der Datei (alle 500 ms, nach
+  Änderungszeit) alles, was die Schnellwahl schreibt (`_reload_agent_choices`: Tuning und Modelle
+  nach den Regeln des Servers, vorher nur Sampling und Persona). Das verbleibende Fenster (Speichern beider
+  Oberflächen innerhalb dieser 500 ms) gibt es ohne Reflex nicht mehr.
 - **Einstellungen, Teil 1 (erledigt 07.11.2026):** Kopfleiste mit Seiten (Chat, Einstellungen) in
   `App.vue`, Anmeldung dort; die Chat-Seite bleibt beim Seitenwechsel am Leben (`KeepAlive`). Seite
   `SettingsView.vue`: Sprache, Name, Anrede, Sprachausgabe (an, automatisch vorlesen), Debattenrunden,
@@ -213,8 +214,8 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Deindexieren je Datei. Der Server indexiert in einer Warteschlange eine Datei nach der anderen
   (`lib/document_indexing.py`); die Seite fragt den Fortschritt ab, solange der Lauf läuft, auch wenn
   ihn ein anderer Tab gestartet hat, und zeigt danach das Ergebnis mit den Gründen der Fehlschläge. Der
-  Indexier-Knopf erscheint nur an Dateien, die der Index lesen kann (`indexable`). Der Reflex-State
-  indexiert bis zum Wechsel weiter selbst (über `file_manager.index_file`).
+  Indexier-Knopf erscheint nur an Dateien, die der Index lesen kann (`indexable`). Der Reflex-State,
+  der bis zum Wechsel selbst indexierte (über `file_manager.index_file`), ist entfernt.
 - **Dokumente, Teil 3 (erledigt 07.11.2026):** Weitere Quellen der eingeschalteten Plugins (Nextcloud,
   Google Drive) in der Quellwahl der Seite (`SourceBrowser.vue`): Ordner über IDs, Suche über die ganze
   Quelle, Download, Hochladen in beschreibbare Quellen **ohne** Indexieren (ihre Dateien liegen hinter
@@ -222,8 +223,9 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Auswahl oder Ordner in dieselbe Warteschlange wie lokal (`document_indexing.IndexItem`), Deindexieren.
   Der Download einer Datei mit Schrägstrich in der ID (Nextcloud: jede Datei in einem Unterordner) gab
   404 (`file/{file_id}`, auch auf `main`); jetzt `{file_id:path}`. Die Testinstanz kann einen Ordner als
-  Prüfquelle anbieten (`AIFRED_TEST_SOURCE_DIR`). Offen: Fehlertexte nennen die Datei doppelt, weil der
-  Indexer sie für die Reflex-Hinweise selbst voranstellt — mit Reflex bereinigen.
+  Prüfquelle anbieten (`AIFRED_TEST_SOURCE_DIR`). Fehlertexte nannten die Datei doppelt (der Indexer
+  setzte den Dateinamen selbst ein, die Seite stellte ihn ebenfalls voran): erledigt am 18.11.2026, ein Fehlertext
+  nennt nur noch den Grund (`file_manager._index_temp_copy`), den Namen setzt, wer ihn zeigt.
 - **Index-Pflege (erledigt 07.11.2026):** 🧹 auf der Dokumente-Seite öffnet `IndexCare.vue`: wie viele
   Dokumente und Abschnitte der Suchindex hält, die verwaisten Einträge (Datei im lokalen Ordner nicht
   mehr da) mit Abschnitten und Indexier-Zeitpunkt, einzeln oder alle aus dem Index zu nehmen, und den
@@ -235,8 +237,8 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   eins den Schlüssel, sonst `<key>_plural`, wie `t(key, count=…)` des Servers („1 Abschnitt“, „2 Dateien“).
   Die Fertig-Meldung des Indexierens setzt sich in beiden Oberflächen aus gezählten Teilen zusammen.
   `tests/test_frontend_i18n_keys.py` verlangt jeden Schlüssel, den das Frontend wörtlich nennt, in
-  beiden Sprachdateien, bei `tCount` auch den Plural. Die Reflex-Schlüssel `doc_files_suffix` und
-  `doc_file_suffix_one` gehen mit Reflex.
+  beiden Sprachdateien, bei `tCount` auch den Plural. Die früheren Reflex-Schlüssel `doc_files_suffix` und
+  `doc_file_suffix_one` sind seit 18.11.2026 mit den übrigen 219 verwaisten Schlüsseln aus den Sprachdateien entfernt.
 - **API-Meldungen in der UI-Sprache (erledigt 08.11.2026, Peuqui: „deutsch wenn deutsch, englisch wenn
   englisch“):** Eine Ablehnung ist ein `UserError` (`aifred/lib/user_error.py`) mit i18n-Schlüssel und
   Werten; die Art bestimmt den Status (`Invalid` 422, `BadRequest` 400, `Unauthorized` 401, `Refused` 403,
@@ -320,7 +322,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   llama-swap (antwortete 0,5 s danach, Katalog vollständig), AIfreds Neustart (Dienst neu gestartet), Wechsel zu
   Ollama und zur Cloud (llama-swap gestoppt, leerer Katalog ließ die Modelle stehen) und jeweils zurück zu llama.cpp
   (llama-swap gestartet, Katalog und AIfreds Modell wie vorher).
-- **Einstellungen, Teil 2, Paket 3: Kalibrierlauf (gebaut 08.11.2026, echter Lauf offen):** Der ganze Lauf (vLLM-
+- **Einstellungen, Teil 2, Paket 3: Kalibrierlauf (gebaut und live gelaufen 08.11.2026):** Der ganze Lauf (vLLM-
   Betriebspunkt, llama.cpp-Variantenfamilie mit Burn-ins, TTS-, VLM- und Kombi-Profilen und Speed-Varianten, Ollama-
   RoPE) zog mechanisch aus dem Mixin nach `lib/calibration/service.py`: `CalibrationRun` bekommt einen
   `CalibrationRequest` (Backend, AIfreds Modell, angehakte Zellen, vLLM-Nachmessen/Trockenlauf), meldet jede Zeile
@@ -352,7 +354,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   anderen Prozess im Log; der Standard-Port ist 19999 wie in der `.env` der Produktion. Ein dritter Lauf mit TTS-,
   VLM- und Kombi-Zelle (`calibration_cells_live.py`, 17 s): Basis übernommen, alle drei Varianten im getrennten Modus
   (Sprachmodell auf einer RTX 8000, TTS und Bildmodell auf der V100-Karte 4), Profile mit der Verteilung der Basis
-  geschrieben. Ungeprüft bleiben die Varianten-Wege mit eigenen Prüfstarts (Sprachmodell teilt die Karte mit TTS oder
+  geschrieben. Ungeprüft blieben die Varianten-Wege mit eigenen Prüfstarts (Sprachmodell teilt die Karte mit TTS oder
   Bildmodell) und der Burn-in eines Bildmodells ohne Cache-Wert: Dafür bräuchte es ein GGUF, das über die
   Side-Channel-Karte reicht, und auf dem Mini liegen nur das 4B und das 30B (beide passen auf eine Karte).
   **Paare der vLLM-Matrix neu (Peuqui 08.11.2026: Regel wie bei llama.cpp):** Die gemeinsame Messung
@@ -373,9 +375,9 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Live-Modus, GPU-Erkennung, Ollama leeren), und die Lifespans `session_events_lifespan`, `message_hub_lifespan` (Hub,
   Scheduler, Vigilantia-Autostart) und `service_status_lifespan`, vorher in `aifred.py`. Reiner Umzug: Reflex ruft
   `start_process_tasks` weiter beim ersten Seitenaufruf, registriert dieselben Lifespans; Rendering unverändert. Die
-  GPU-Info liest die Sitzung aus `gpu_detection.server_gpu_info` statt aus `_global_backend_state`. Für Schritt 6
-  offen: Der Server ohne Reflex muss `start_process_tasks` im Lifespan rufen (heute laufen diese Tasks erst, wenn
-  jemand die Reflex-Seite öffnet); die Testinstanz darf das nicht, weil etwa das Aufräumen des vLLM-Compile-Caches
+  GPU-Info liest die Sitzung aus `gpu_detection.server_gpu_info` statt aus `_global_backend_state`. Der Server ohne Reflex
+  ruft `start_process_tasks` im Lifespan (Paket 1, unten; vorher liefen diese Tasks erst, wenn jemand die Reflex-Seite
+  öffnete); die Testinstanz darf das nicht, weil etwa das Aufräumen des vLLM-Compile-Caches
   mit den leeren Betriebspunkten des Worktrees die Caches der Produktion als verworfen ansähe.
 - **Schritt 6, Paket 1: Server ohne Reflex (08.11.2026):** `aifred/server.py` (`venv/bin/python -m aifred.server`)
   baut mit `create_app(lifespans)` eine App: die API unter `/api` (Vue unter `/api/app/`), die Ordner unter
@@ -398,7 +400,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   `/aifred/vendor/`, ein Artefakt im Browser fand three.js & Co. nicht. Die Vue-Oberfläche bettet Sandbox-
   Visualisierungen wieder ein (DOMPurify entfernte jedes iframe; jetzt bleibt eines, das aufgelöst auf
   `/_upload/sandbox_output/` zeigt, immer mit `sandbox="allow-scripts"`), ihre Beschriftung kommt aus den
-  Übersetzungen. **Beim Umschalten (Paket 5):** nginx braucht eine Regel `/vendor/` auf den Server.
+  Übersetzungen. Beim Umschalten brauchte nginx eine Regel `/vendor/` auf den Server (Paket 5, erledigt).
 - **Schritt 6, Paket 2: Reflex entfernt (08.11.2026).** Weg sind `aifred/aifred.py`, `aifred/state/` (29 Mixins),
   `aifred/ui/`, `rxconfig.py`, `reflex.lock/`, `scripts/patch-reflex.py`, `scripts/render_pages.py`, die Dateien der
   alten Oberfläche in `assets/` (CSS, `custom.js`, Zonen-Editor-HTML, Favicons; `vendor/` und `katex/` bleiben, das
@@ -418,9 +420,11 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   60 Stellen, darunter `speech_unit_for` (die Regel steht in `tts_service.entries()`). Dabei behoben: Der
   Tokenizer suchte unter einem fest eingetragenen `~/.cache/huggingface` statt `HF_HUB_CACHE_DIR`. Tests der
   Mixins sind weg, wo der Server-Weg eigene hat; die Denkwahl-Tests prüfen jetzt `agent_choices` mit
-  `RuntimeSettings`. Bewusst noch da, bis die Lücken unten entschieden sind: Konten und Whitelist in
-  `session_storage`, `write_hub_notification`, `cleanup_session_sandbox`, `file_browser.delete_entry` und
-  `create_symlink`, die Base64-Lader und `get_katex_inline_assets` (für den Chat-Export).
+  `RuntimeSettings`. Zunächst bewusst behalten, bis die Lücken unten entschieden waren; Stand heute: Konten und Whitelist in
+  `session_storage` (`is_username_allowed`, `create_account`, `verify_account`) benutzt `api/login.py`;
+  `write_hub_notification`, `cleanup_session_sandbox` und `file_browser.delete_entry` gibt es nicht mehr (Löschen
+  ist `file_browser.delete`); `file_browser.create_symlink` benutzt `file_ops.py`; die Base64-Lader
+  (`load_image_url_as_base64`, `load_audio_url_as_base64`) und `get_katex_inline_assets` benutzt `chat_export.py`.
 - **Lücken vor dem Umschalten (Abgleich aller 29 Mixins gegen Vue und API, 08.11.2026).** Reflex konnte, Vue
   kann es noch nicht (Reihenfolge nach dem, was ein Nutzer am meisten vermisst):
   1. ~~Chat-Export einer Sitzung als eigenständige HTML-Datei~~ (erledigt 08.11.: `lib/chat_export.py` mit der
@@ -538,7 +542,8 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   (Ubuntu 24.04 und Debian 12 haben 18): Peuqui wollte die Wahl, `install-all.sh` bietet systemweit (NodeSource
   wie auf dem Mini, sonst Paketmanager) oder `frontend/node` (Archiv von nodejs.org mit Prüfsumme) an, Version in
   `frontend/.node-version`, gemeinsame Prüfung in `scripts/node-env.sh`.
-  Ein Archiv-Tag für den Reflex-Stand gehört vor den Merge auf `main` (Paket 5, mit Peuqui). Beim Umschalten:
+  Der Archiv-Tag für den Reflex-Stand liegt vor (`archive-reflex-main-2026-11-08`, `archive-reflex-2026-11-11`). Schritte
+  beim Umschalten (Paket 5, auf der Produktion erledigt):
   `.web/`, `.states/` und `data/sessions/*.pending` der Produktion entfernen; `./scripts/build-frontend.sh`;
   `sudo ./scripts/install-services.sh`, danach `/etc/systemd/system/aifred-intelligence.service.d/hardening.conf`
   von Hand löschen (der Installer kennt keine Drop-ins mehr); aus der `.env` `AIFRED_ALLOWED_HOST` und
@@ -612,8 +617,8 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   mitten im Gespräch); Message Hub (Weckwort, Auslöser, Sitzungsagent) und Scheduler (auch fester Text,
   er spricht im Namen des Agenten) melden einen Fehler. AIfred (`agent_config.BASE_AGENT`) und die
   Systemagenten bleiben an; gelöscht wird nach `deletion_refusal`: AIfred nie, Systemagenten nie,
-  **Sokrates und Salomo erst mit Schritt 6**, weil die Reflex-Kopie an rund 100 Stellen fest auf ihre
-  Tuning-Eimer greift. Vision stand in den eingebauten Standards (frische Installation) als Chat-Agent
+  Sokrates und Salomo seit 08.11.2026 wie jeder andere, außer einer sitzt in der Voreinstellung eines
+  Platzes (vorher erst mit Schritt 6, weil die Reflex-Kopie an rund 100 Stellen fest auf ihre Tuning-Eimer griff). Vision stand in den eingebauten Standards (frische Installation) als Chat-Agent
   statt als Systemagent; korrigiert.
 - **Agenten-Seite, Teil 2 (erledigt 07.11.2026):** ✏️ an jeder Karte öffnet `AgentEditor.vue`: 🎭 Persona
   (Name, Emoji, Beschreibung, weitere Namen für die Spracherkennung), 📝 Prompt-Ebenen je Sprache (mit
@@ -780,9 +785,9 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Einstellung der Kamera (`change_camera(motion_min_area_ratio=…)`, Bereich `VISION_MOTION_MIN_AREA_RANGE`, ein laufender
   Wächter übernimmt sie sofort; vorher stand die Grenze dreimal von Hand im Code); die Kamerazeile sagt
   `detects_itself` (Profil `ai_camera`, über `vision_profiles.camera_profile`, vorher zweimal von Hand), dann erscheint
-  der Hinweis, dass Ignorieren- und Nur-hier-Zonen dort nicht wirken. Zonenfarben in `theme.py`. Das HTML-Fenster
-  (`assets/zone_editor.html`, `GET /vision/zone-editor`, `/vision/motion-min`) bleibt für die Reflex-Oberfläche bis
-  Schritt 6; seine Schwelle läuft über dieselbe Kamera-Änderung. Dabei behoben: Die erste Einstellung an einer Kamera,
+  der Hinweis, dass Ignorieren- und Nur-hier-Zonen dort nicht wirken. Zonenfarben in `theme.py`. Das alte HTML-Fenster
+  (`assets/zone_editor.html`, `GET /vision/zone-editor`, `/vision/motion-min`) ist mit Reflex entfernt (Schritt 6,
+  Paket 2); die Schwelle läuft über die Kamera-Änderung. Dabei behoben: Die erste Einstellung an einer Kamera,
   die vision.db noch nicht kannte, legte sie mit ihrer Kennung als Namen und Art „webcam“ an (`change_camera` gab
   Name und Art nicht mit wie die Reflex-Seite), eine unbekannte Kennung bekam einen leeren Datensatz; jetzt 404 und
   der echte Name. Geprüft im Browser gegen die echten Kameras: Malen, Nachfrage beim Schließen, Speichern, Schalter,
@@ -794,8 +799,8 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   `pre_roll_sec` früher weiter), die Position geht an `/api/audio/position` (alle `position_save_sec`, bei Pause/Stopp,
   „fertig“ am Ende). Die weiteren Titel eines Ordners lagen bisher nur im Reflex-State; über Vue spielte ein Ordner
   nur seinen ersten Titel, jetzt reisen sie mit dem Ereignis. Geprüft mit Tests (Python: Ereignis mit Warteschlange;
-  vitest: Ordner, Vortritt der Sprachausgabe, Pause/Fortsetzen/Stopp). Offen: ein Durchlauf mit dem Werkzeug eines
-  Agenten (braucht ein Sprachmodell) und die Seite der Audio-Quellen.
+  vitest: Ordner, Vortritt der Sprachausgabe, Pause/Fortsetzen/Stopp). Der Durchlauf mit dem Werkzeug eines
+  Agenten ist live geprüft (Lücke 4), die Seite der Audio-Quellen folgt unten.
 - **Audio-Seite mit Quellen (erledigt 08.11.2026):** Aus der Sprach-Seite wird „🔊 Audio“ (`AudioView.vue`, `#/audio`),
   darunter `AudioSources.vue`: jede Quelle mit Indexzahl, ein Ordner der Sandbox als neue Quelle (schlanker
   Ordner-Auswähler über `file_browser`), einlesen (Lauf des Servers, einer zur Zeit, die Seite folgt ihm), Index
@@ -806,11 +811,48 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   (jetzt `AUDIO_TTS_LIST_MAX_DEFAULT`, ein kaputter Wert ist ein Fehler statt eines stillen Ersatzes). Entfernen und
   Einlesen nur für Namen, die die Quellenliste kennt; eine neue Quelle muss auch aufgelöst in der Sandbox liegen.
   Geprüft im Browser mit einer Prüf-Sandbox aus drei WAV-Dateien (anlegen, 3 eingelesen, leeren, entfernen, Ordner
-  bleibt). Offen: im Ordner-Auswähler Ordner und Symlinks anlegen oder löschen (konnte der Reflex-Picker; gehört zum
-  geplanten gemeinsamen Dateimanager).
+  bleibt). Ordner und Symlinks anlegen oder löschen kann der Ordner-Auswähler seit
+  Lücke 18: `AudioSources.vue` öffnet `FileRequester.vue` (`area="audio"`), `lib/file_areas.py` erlaubt dort
+  `newfolder`, `delete` und `symlink`.
 - **Bleibt so:** Wer AIfred in einem Diskussionsmodus beim Namen anspricht, bekommt nur seine Antwort.
+- **Restpunkte (18.11.2026):** Erledigt:
+  - Vision: Ruhezeit (`quiet_start`/`quiet_end`) und Aktiv-Fenster (`schedule_*`) sind beide `"HH:MM"`
+    (`vision_autostart.clock_minutes`/`in_clock_window`, benutzt von `vision_alerts`, `vision_cameras`, `api/cameras.py`);
+    Stundenwerte lehnt die API ab. Gespeicherte Altwerte wandelt einmal `scripts/migrate_vision_clock_times.py` um (bei
+    gestopptem Dienst, mit Kopie der `vision.db`). `vision_settings.update_vision_settings(apply)` ist der einzige
+    Schreiber (mit Sperre), `save_vision_settings` ist entfallen.
+  - Atomares Schreiben: `lib/atomic_write.write_text_atomic` für alle JSON- und YAML-Dateien.
+  - Debug-Bus: Zeilen gehen sofort als Ereignis an die Seiten, in die Sitzungsdatei einmal am Ende des `session_scope`;
+    eine Seite, die mitten im Zug öffnet, bekommt die wartenden Zeilen über `GET /api/sessions/{id}`.
+  - Chat-Export: Dateiname `chat-<slug>-<token>.html`, höchstens `HTML_PREVIEW_MAX_FILES` Seiten über Neustarts, die
+    ältesten gehen.
+  - Agenten-Bundle: Format-Version 2, `tuning.json` statt `sampling.json` (Typ- und Bereichsprüfung beim Import; ein Bündel
+    der Version 1 wird abgelehnt).
+  - Entfernt: `POST /api/chat/clear`, `GET /api/chat/history`, `POST /api/session/config`, die Testseite
+    `GET /api/audio/test`; toter Code: YaRN, `handle_stop_command`.
+  - Login-Cookie mit `Secure` über HTTPS (`api/login.py`).
+  - Fehlertexte der Indexierung nennen die Datei einmal; der Start des Message Hubs blockiert die Schleife des Servers
+    nicht mehr (`asyncio.to_thread` beim Warten auf den Thread).
+  - Diktat-Upload gestreamt, die Grenze gilt vor dem Lesen in den Speicher; die Dauerschätzung auf der CPU nimmt
+    `WHISPER_RTF_CPU` (`dictation.py`).
+  - Audio-Auflöser über lib (`audio_player_settings.build_configured_resolver`); kaputte Audio-Einstellungen fallen auf,
+    statt still ersetzt zu werden.
+  - Kalibrierung: `gpu_utils.wait_for_vram_stable`; ein GGUF-Leser in `gguf_utils.py`, der bei unlesbarer Datei wirft,
+    der Autoscan überspringt eine solche Datei mit Warnung; der Kalibrierlauf wertet `stop_llama_swap` und
+    `start_llama_swap` aus.
+  - Sprachdateien: 221 Schlüssel, die kein Weg mehr erreicht (meist Reste der Reflex-Oberfläche), sind aus `de.json` und
+    `en.json` entfernt; geprüft auch gegen die Schlüssel, die zur Laufzeit entstehen (`error_<code>`, `tool_<name>`,
+    `casus_type_<typ>` usw.).
+
+  Offen: nginx lässt `data:` in `media-src` nicht zu (sudo, Peuqui); Kalibrier-Restfälle mit GPU (Varianten-Wege mit
+  eigenem Prüfstart, Burn-in des Bildmodells ohne Cache, das 30B-Bildmodell ist auf der V100 nicht messbar); Probehören
+  auf der Audio-Seite; Upload-Grenzen für Bilder, Bundles, Dateien und Dokumente (bewusst ohne, die Entscheidung steht
+  aus); Abmelden widerruft das Cookie nicht, und Fehlversuche beim Login werden nicht gebremst (je ein eigenes Paket);
+  die Tastenkürzel des Audio-Players aus der Reflex-Oberfläche (Leertaste, Esc, Pfeiltasten) hat die Vue-Oberfläche nicht.
 
 ## Schritte
+
+Alle Schritte sind erledigt (Stand 08.11.2026; die Produktion läuft auf `aifred/server.py`, Port 8002).
 
 0. Reflex 0.10.1 (Zweig `reflex-0.10`), damit der Bestand bis zum Wechsel gepflegt läuft.
 1. Bestandsaufnahme der 29 State-Mixins (`inventar-*.md`).
@@ -830,4 +872,4 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
    `GPU_RELEASE_API_TOKEN` in die `.env` der Produktion, dasselbe Token in eine Datei nur für den Dienstnutzer
    (`~/.config/gpu-orc/aifred.token`) und in `~/.config/gpu-orc/config.yaml` einen Verbraucher `aifred`
    (`type: gpu-release`, `url: http://127.0.0.1:8002/api`, `token_file`, `busy_wait_s: 5`; GPU-Orc ab 0.8.0),
-   danach `gpu-orc@mp` neu starten. Vorher nicht: `main` hat die Endpunkte nicht.
+   danach `gpu-orc@mp` neu starten (gesetzt).

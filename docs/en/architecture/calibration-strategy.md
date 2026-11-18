@@ -518,12 +518,10 @@ in `ctx_search.py`) and seeded from the OOM that triggered the search.
 
 ## Operation: gate, cancel, timeout
 
-Calibration runs as a Reflex background event
-([`calibrate_context`](../../../aifred/state/_calibration_mixin.py), `@rx.event(background=True)`),
-so the UI stays usable during the minutes-long probes (cancel
-button, debug console). Progress messages go through a module-wide
-buffer that is flushed under the state lock — so debugging does not trigger
-a session sync storm.
+Calibration runs as a task of the server
+([`start_server_run`](../../../aifred/lib/calibration/service.py)), so the UI stays usable
+during the minutes-long probes (cancel button, console). The run collects its lines;
+the interface fetches them through `GET /api/calibration/run`.
 
 - **Process-wide inference gate**
   ([`calibration_gate.py`](../../../aifred/lib/calibration_gate.py)): While
