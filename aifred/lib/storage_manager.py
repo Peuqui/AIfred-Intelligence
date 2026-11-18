@@ -1,11 +1,12 @@
 """SSOT für die manuelle Verwaltung lokaler, ungeräumter Datei-Stores.
 
-Deckt die beiden Stores ab, die bewusst KEINER TTL/LRU unterliegen, weil
-der User sie kuratiert (gute Chat-Exporte in den GitHub-Showcase übernehmen,
-Rest verwerfen):
+Deckt die beiden Stores ab, die der User kuratiert (gute Chat-Exporte in den
+GitHub-Showcase übernehmen, Rest verwerfen):
 
-* ``data/html_preview/``   — Chat-Exporte + Sandbox-HTML-Previews
-* ``data/sandbox_output/`` — Code-Sandbox-Outputs (HTML/Bilder)
+* ``data/html_preview/``   — Chat-Exporte + HTML-Vorschauen der Code-Blöcke; höchstens
+  ``HTML_PREVIEW_MAX_FILES`` Seiten, die ältesten gehen beim Speichern einer neuen
+  (``formatting._prune_html_previews``)
+* ``data/sandbox_output/`` — Code-Sandbox-Outputs (HTML/Bilder), ohne Grenze
 
 Wird vom „Speicher"-Tab im Agent-Editor genutzt: auflisten, öffnen,
 in den Showcase übernehmen, löschen. Alle Pfad-Operationen sind gegen
@@ -18,15 +19,13 @@ import shutil
 from pathlib import Path
 
 from .config import DATA_DIR
-from .formatting import format_stamp
+from .formatting import export_display_name, format_stamp
 
 _HTML_PREVIEW_DIR = DATA_DIR / "html_preview"
 _SANDBOX_OUTPUT_DIR = DATA_DIR / "sandbox_output"
 # Showcase-Ziel: docs/examples/ im Repo (GitHub Pages). storage_manager.py
 # liegt unter aifred/lib/ → parents[2] ist der Projekt-Root.
 _SHOWCASE_DIR = Path(__file__).resolve().parents[2] / "docs" / "examples"
-
-_EXPORT_PREFIX = "🎩 AIfred - "
 
 
 def _managed_roots() -> dict[str, tuple[Path, str]]:
@@ -41,7 +40,7 @@ def list_managed_files() -> list[dict]:
     """Alle verwaltbaren Dateien mit Metadaten, neueste zuerst.
 
     Jeder Eintrag: ``id`` (sicher, ``kind/relpfad``), ``kind``, ``name``
-    (Anzeigename ohne Export-Prefix), ``filename``, ``url``, ``size_kb``,
+    (lesbarer Teil des Namens, `formatting.export_display_name`), ``filename``, ``url``, ``size_kb``,
     ``mtime`` (formatiert), ``mtime_ts``, ``is_html``.
     """
     out: list[dict] = []
@@ -53,8 +52,7 @@ def list_managed_files() -> list[dict]:
                 continue
             rel = f.relative_to(base)
             st = f.stat()
-            display = f.stem
-            display = display.removeprefix(_EXPORT_PREFIX)
+            display = export_display_name(f.stem)
             out.append({
                 "id": f"{kind}/{rel.as_posix()}",
                 "kind": kind,

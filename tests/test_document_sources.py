@@ -153,7 +153,7 @@ def test_a_source_file_is_indexed_from_a_temporary_copy(store: FakeStore) -> Non
 
 def test_a_type_without_parser_is_refused_before_any_download(store: FakeStore) -> None:
     result = asyncio.run(fm.index_source_file("fake_drive", "broken", "bild.png"))
-    assert (result.success, result.detail) == (False, "Unsupported file type: bild.png")
+    assert (result.success, result.detail) == (False, "Unsupported file type: .png")
 
 
 @pytest.mark.parametrize(("source_key", "file_id"), [("fake_drive", "broken"), ("nope", "abc")])
@@ -165,7 +165,15 @@ def test_a_file_that_cannot_be_fetched_is_reported(store: FakeStore, source_key:
 def test_a_bad_file_is_reported_and_does_not_end_a_run(store: FakeStore) -> None:
     store.failure = ValueError("Document is empty: a.txt")
     result = asyncio.run(fm.index_source_file("fake_drive", "abc", "a.txt"))
-    assert (result.success, result.detail) == (False, "a.txt: Document is empty: a.txt")
+    assert (result.success, result.detail) == (False, "Document is empty: a.txt")
+
+
+@pytest.mark.parametrize("name", ["a.txt", "bild.png"])
+def test_a_failure_names_the_file_once_as_the_page_lists_it(store: FakeStore, name: str) -> None:
+    store.failure = ValueError("Document is empty")
+    result = asyncio.run(fm.index_source_file("fake_drive", "abc", name))
+    assert not result.success
+    assert f"{name}: {result.detail}".count(name) == 1  # the page puts the name before the reason
 
 
 def test_files_below_walks_the_subfolders() -> None:

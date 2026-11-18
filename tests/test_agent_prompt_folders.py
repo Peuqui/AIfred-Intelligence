@@ -66,7 +66,7 @@ def _bundle(agent_id: str, files: dict[str, str]) -> bytes:
         archive.writestr("manifest.json", json.dumps({"format_version": agent_bundle.BUNDLE_FORMAT_VERSION, "agent_ids": [agent_id]}))
         base = f"agents/{agent_id}"
         archive.writestr(f"{base}/config.json", json.dumps(config))
-        archive.writestr(f"{base}/sampling.json", "{}")
+        archive.writestr(f"{base}/tuning.json", "{}")
         archive.writestr(f"{base}/tts.json", "{}")
         for lang in ("de", "en"):
             for name, text in files.items():

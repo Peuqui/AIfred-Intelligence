@@ -597,14 +597,15 @@ async def index_file(rel_path: str) -> FileOpResult:
 async def _index_temp_copy(chunks: AsyncIterator[bytes], name: str, source_key: str, file_id: str) -> FileOpResult:
     """Index a file that stays where it is: only a temporary copy is parsed, the
     index keeps the text. The result reports a failure instead of raising, a bad
-    file must not end a run over a folder."""
+    file must not end a run over a folder. A failure's text names only the reason:
+    whoever shows it puts the file's name before it (the page's list, the mail tool)."""
     from .document_sources import source_index_name
     from .document_store import PARSERS, get_document_store
     store = get_document_store()
     if not store:
         return _refused(Unavailable("document_store_unavailable"))
     if Path(name).suffix.lower() not in PARSERS:
-        return _refused(Invalid("unsupported_file_type", name=name))
+        return _refused(Invalid("unsupported_file_type", suffix=Path(name).suffix))
 
     try:
         with tempfile.TemporaryDirectory(prefix="aifred-index-") as folder:
@@ -615,7 +616,7 @@ async def _index_temp_copy(chunks: AsyncIterator[bytes], name: str, source_key: 
             indexed = await store.index_document(copy, source_index_name(source_key, file_id), source=source_key)
     except Exception as exc:  # the user sees why the file was not indexed; logged
         logger.warning(f"index {source_key} {name}: {exc}", exc_info=True)
-        return FileOpResult(False, f"{name}: {exc}")
+        return FileOpResult(False, str(exc))
     detail = f"Indexed {name} from {source_key}: {indexed} chunks"
     logger.info(detail)
     return FileOpResult(True, detail, {"chunks": indexed})

@@ -6,11 +6,10 @@ and thinking processes in the chat.
 """
 
 import re
+import secrets
 import threading
 from collections.abc import Sequence
-from pathlib import Path
 from typing import Any
-from collections import OrderedDict
 from .logging_utils import log_message
 from .config import get_xml_tag_config, DATA_DIR, PROJECT_ROOT, HTML_PREVIEW_MAX_FILES
 from .perf_metrics import InferenceWork
@@ -22,9 +21,8 @@ from datetime import datetime
 # Served via /_upload/ endpoint
 _HTML_PREVIEW_DIR = DATA_DIR / "html_preview"
 
-# LRU Cache for HTML preview files
-_html_file_cache: OrderedDict[str, Path] = OrderedDict()
-_html_cache_lock = threading.Lock()
+# Serialises the pruning of the folder (preview and export threads write concurrently)
+_html_prune_lock = threading.Lock()
 
 # Global UI locale for number formatting (set via the settings API when the UI language changes)
 _ui_locale: str = "de"
@@ -677,55 +675,56 @@ def html_preview_urls(text: str) -> list[str]:
     ]
 
 
+_EXPORT_TOKEN_BYTES = 16
+_EXPORT_NAME = re.compile(rf"^chat-(?P<slug>.+)-[A-Za-z0-9_-]{{{len(secrets.token_urlsafe(_EXPORT_TOKEN_BYTES))}}}$")
+
+
+def _export_filename(title: str) -> str:
+    """``chat-<title slug>-<random token>.html``: the token (128 bit) makes the link unguessable and keeps equal
+    titles apart; the slug is plain ASCII so the name is safe as URL and file name."""
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "-", title).strip("-_")[:40] or "page"
+    return f"chat-{slug}-{secrets.token_urlsafe(_EXPORT_TOKEN_BYTES)}.html"
+
+
+def export_display_name(stem: str) -> str:
+    """The readable part of an export's file stem (its title slug); any other stem as it is."""
+    match = _EXPORT_NAME.match(stem)
+    return match["slug"] if match else stem
+
+
 def _save_html_to_assets(html_code: str, title: str = "") -> str:
     """
-    Save HTML code as file in uploaded_files/html_preview/ and return URL.
+    Save HTML code as file in data/html_preview/ and return its URL.
 
-    IMPORTANT: Files are saved outside assets/ (under data/, served at /_upload/html_preview/).
-    Implements LRU Cache: Maximum 50 files are kept, oldest are deleted.
-
-    Args:
-        html_code: The HTML code to save
-        title: Optional title for filename (sanitized, max 50 chars)
+    Files live under data/ and are served at /_upload/html_preview/ (without login, so exports can be shared).
+    With a ``title`` (chat export) every call writes a new file under a random name; without one (code-block preview)
+    the name comes from the content hash, so the URL is known from the answer text.
+    At most ``HTML_PREVIEW_MAX_FILES`` (config.py) files are kept: the oldest by modification time are deleted.
 
     Returns:
-        Full URL to saved file (e.g., "http://host:8002/_upload/html_preview/abc123.html")
+        URL from the server root (e.g., "/_upload/html_preview/chat-plot-abc123.html")
     """
-    # Ensure directory exists
     _HTML_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Generate filename from title or UUID
-    if title:
-        # Sanitize title for filename: remove/replace problematic characters
-        safe_title = re.sub(r'[<>:"/\\|?*]', '', title)  # Remove forbidden chars
-        safe_title = re.sub(r'\s+', '_', safe_title.strip())  # Spaces to underscores
-        safe_title = safe_title[:50]  # Limit length
-        filename = f"🎩 AIfred - {safe_title}.html"
-    else:
-        filename = html_preview_filename(html_code)
+    filename = _export_filename(title) if title else html_preview_filename(html_code)
     filepath = _HTML_PREVIEW_DIR / filename
-
-    # Save HTML code
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(html_code)
-
-    # LRU Cache Management (thread-safe)
-    with _html_cache_lock:
-        _html_file_cache[filename] = filepath
-
-        # If cache is full, delete oldest file
-        if len(_html_file_cache) > HTML_PREVIEW_MAX_FILES:
-            oldest_filename, oldest_path = _html_file_cache.popitem(last=False)
-            try:
-                oldest_path.unlink()
-                log_message(f"🗑️ HTML Preview: LRU evicted {oldest_filename} (Cache limit: {HTML_PREVIEW_MAX_FILES})")
-            except OSError as e:
-                log_message(f"⚠️ HTML Preview: Could not delete {oldest_filename}: {e}")
-
-    log_message(f"🌐 HTML Preview: File saved → {filepath} (Cache: {len(_html_file_cache)}/{HTML_PREVIEW_MAX_FILES})")
-
+    filepath.write_text(html_code, encoding="utf-8")
+    _prune_html_previews()
+    log_message(f"🌐 HTML Preview: File saved → {filepath}")
     # The page and its folders share one origin (aifred.server), so the path from the root is the whole URL.
     return f"/_upload/html_preview/{filename}"
+
+
+def _prune_html_previews() -> None:
+    """Delete the oldest .html files above ``HTML_PREVIEW_MAX_FILES``. Counted on disk, not in memory, so the limit
+    holds across restarts; only this function writes .html files here, other files stay untouched."""
+    with _html_prune_lock:
+        files = sorted(_HTML_PREVIEW_DIR.glob("*.html"), key=lambda path: path.stat().st_mtime)
+        for path in files[:max(0, len(files) - HTML_PREVIEW_MAX_FILES)]:
+            try:
+                path.unlink()
+                log_message(f"🗑️ HTML Preview: evicted {path.name} (limit: {HTML_PREVIEW_MAX_FILES})")
+            except OSError as e:
+                log_message(f"⚠️ HTML Preview: Could not delete {path.name}: {e}")
 
 
 def cleanup_session_html(session_data: dict) -> int:
@@ -759,9 +758,6 @@ def cleanup_session_html(session_data: dict) -> int:
                 deleted += 1
             except OSError:
                 pass
-            # Also remove from LRU cache
-            with _html_cache_lock:
-                _html_file_cache.pop(filename, None)
 
     if deleted:
         log_message(f"🗑️ HTML Preview: Deleted {deleted} file(s) for session cleanup")

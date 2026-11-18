@@ -3,13 +3,13 @@ Agent Bundle Export/Import.
 
 A self-contained ZIP archive that can hold one or many agents, exchangeable
 between AIfred installations. Aggregates the three storage locations
-(agents.json, prompts/{de,en}/<id>/, settings.json sampling+TTS keys) into
+(agents.json, prompts/{de,en}/<id>/, settings.json tuning+TTS entries) into
 one archive so users can hand over agents without manual file-copying.
 
 Bundle layout (ZIP):
   manifest.json                 format_version, agent_ids[], exported_at
   agents/<id>/config.json       entry from agents.json
-  agents/<id>/sampling.json     all <id>_* keys from settings.json
+  agents/<id>/tuning.json       settings.json["agent_tuning"][<id>] (the persisted tuning fields)
   agents/<id>/tts.json          tts_agent_voices_per_engine[*][<id>]
   agents/<id>/prompts/de/*.txt
   agents/<id>/prompts/en/*.txt
@@ -42,12 +42,18 @@ from .agent_config import (
     prompt_folder_taken,
     save_agents_raw,
 )
+from .agent_settings import PERSISTED_TUNING_FIELDS
+from .config import SAMPLING_RANGES
 from .i18n import t
 from .settings import SETTINGS_FILE, save_settings
 from .tts_client import get_tts_client
-from .user_error import BadRequest, Conflict, Missing
+from .user_error import BadRequest, Conflict, Invalid, Missing
 
-BUNDLE_FORMAT_VERSION = 1
+# 2: the agent's tuning travels as tuning.json (version 1 held sampling.json of <id>_* keys that settings.json no
+# longer has); an old bundle is refused by the version check, not converted.
+BUNDLE_FORMAT_VERSION = 2
+
+_BOOL_TUNING_FIELDS = ("personality", "reasoning", "speed_mode")
 
 
 
@@ -83,6 +89,29 @@ def _load_settings() -> dict:
     with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
         data: dict = json.load(f)
         return data
+
+
+def _checked_tuning(agent: str, tuning: object) -> dict[str, object]:
+    """The tuning entry of a bundle if it holds only persisted tuning fields of the right type, the sampling values
+    inside ``config.SAMPLING_RANGES`` (as the API checks them); anything else is refused, nothing written."""
+    if not isinstance(tuning, dict):
+        raise BundleUnreadable("bundle_tuning_invalid", agent=agent, field="tuning.json")
+    for field, value in tuning.items():
+        if field not in PERSISTED_TUNING_FIELDS:   # a bundle must not reach any other setting
+            raise BundleUnreadable("bundle_tuning_invalid", agent=agent, field=field)
+        if field in _BOOL_TUNING_FIELDS:
+            valid = isinstance(value, bool)
+        elif field == "thinking_by_model":
+            valid = isinstance(value, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in value.items())
+        else:   # the sampling values
+            valid = isinstance(value, (int, float)) and not isinstance(value, bool)
+        if not valid:
+            raise BundleUnreadable("bundle_tuning_invalid", agent=agent, field=field)
+        if field in SAMPLING_RANGES and isinstance(value, (int, float)):
+            low, high, _step = SAMPLING_RANGES[field]
+            if not low <= value <= high:
+                raise Invalid("sampling_out_of_range", field=field, value=value, low=low, high=high)
+    return tuning
 
 
 def _voice_file_name(voice: str) -> str:
@@ -139,10 +168,11 @@ def export_bundle(agent_ids: Iterable[str]) -> bytes:
                 json.dumps(agents[agent_id], indent=2, ensure_ascii=False),
             )
 
-            sampling = {k: v for k, v in settings.items() if k.startswith(f"{agent_id}_")}
+            saved_tuning = (settings.get("agent_tuning") or {}).get(agent_id, {})
+            tuning = {field: saved_tuning[field] for field in PERSISTED_TUNING_FIELDS if field in saved_tuning}
             zf.writestr(
-                f"{base}/sampling.json",
-                json.dumps(sampling, indent=2, ensure_ascii=False),
+                f"{base}/tuning.json",
+                json.dumps(tuning, indent=2, ensure_ascii=False),
             )
 
             tts_per_engine: dict[str, dict] = {}
@@ -290,7 +320,7 @@ def import_bundle(
 
             base = f"agents/{bundle_id}"
             config = json.loads(zf.read(f"{base}/config.json"))
-            sampling = json.loads(zf.read(f"{base}/sampling.json"))
+            tuning = _checked_tuning(bundle_id, json.loads(zf.read(f"{base}/tuning.json")))
             tts_per_engine = json.loads(zf.read(f"{base}/tts.json"))
 
             # Its layers point into its own folder, where the files below go (until 08.11.2026 they kept the
@@ -324,15 +354,8 @@ def import_bundle(
                     continue
                 target_path.write_bytes(zf.read(member))
 
-            if effective_id != bundle_id:
-                renamed: dict = {}
-                for k, v in sampling.items():
-                    new_key = k.replace(f"{bundle_id}_", f"{effective_id}_", 1)
-                    renamed[new_key] = v
-                sampling = renamed
-
-            for k, v in sampling.items():
-                settings[k] = v
+            if tuning:
+                settings.setdefault("agent_tuning", {})[effective_id] = tuning
 
             for engine, entry in tts_per_engine.items():
                 tts_root.setdefault(engine, {})[effective_id] = entry

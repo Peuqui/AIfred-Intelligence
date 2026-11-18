@@ -835,10 +835,10 @@ class TestOutput:
 
     def test_a_failed_index_is_reported(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
         _configure(monkeypatch, READONLY_ACCOUNT)
-        index = AsyncMock(return_value=FileOpResult(False, "Document store not available"))
+        index = AsyncMock(return_value=FileOpResult(False, "Document is empty"))
         monkeypatch.setattr(file_manager, "index_received_file", index)
         answer = _run(get_readonly_mailbox_tools()[0], action="index_attachment", msg_id="8", attachment="notiz.txt")
-        assert answer.startswith("Error") and "Document store not available" in answer
+        assert answer == "Error: notiz.txt: Document is empty"  # the result carries only the reason, the tool names the file
 
     def test_the_low_tier_tool_cannot_index(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
         _configure(monkeypatch, OWN_ACCOUNT)

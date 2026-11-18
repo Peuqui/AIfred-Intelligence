@@ -210,7 +210,7 @@ async def _index_attachment(source_key: str, account: ImapAccount, kwargs: dict[
         return "Error: msg_id and attachment required"
     data = await asyncio.to_thread(read_attachment, account, msg_id, name, kwargs.get("folder", "INBOX"))
     result = await file_manager.index_received_file(data, name, source_key, f"{msg_id}/{name}")
-    return result.detail if result.success else f"Error: {result.detail}"
+    return result.detail if result.success else f"Error: {name}: {result.detail}"
 
 
 async def _search(account: ImapAccount, kwargs: dict[str, Any]) -> str:

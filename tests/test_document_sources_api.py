@@ -175,7 +175,7 @@ def test_files_and_folders_of_a_source_are_indexed_past_a_failure_and_come_out_a
     client.post("/documents/source/stub/index", json={"files": [{"id": "Bericht.md", "name": "Bericht.md"}], "folders": ["Projekt"]})
     progress = _run_ended(client)
     assert (progress["total"], progress["indexed"]) == (4, 3)                 # the picture has no parser: not queued
-    assert progress["failed"] == [{"path": "stub: leer.txt", "reason": "leer.txt: Document is empty: stub:/Projekt/leer.txt"}]
+    assert progress["failed"] == [{"path": "stub: leer.txt", "reason": "Document is empty: stub:/Projekt/leer.txt"}]
     assert set(index.chunks) == {source_index_name("stub", path) for path in ("Bericht.md", "Projekt/Plan.txt", "Projekt/Unten/Tief.txt")}
     removed = client.post("/documents/source/stub/deindex", json={"file_ids": ["Bericht.md", "Projekt/Plan.txt"]}).json()
     assert removed["chunks_removed"] == 5 + 2 and set(index.chunks) == {source_index_name("stub", "Projekt/Unten/Tief.txt")}
