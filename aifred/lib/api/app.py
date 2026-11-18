@@ -80,7 +80,7 @@ narrator_api = _router_of_plugin("narrator")
 # Defense in depth below the reverse proxy's login: the server listens on all
 # interfaces (LAN clients reach port 8002 directly, AIFRED_SERVER_HOST), so
 # without this gate anyone on the network (or an SSRF from a scraped page)
-# could hit /system/restart-*, /vision/snapshot, /chat/history etc. Same
+# could hit /system/restart-*, /vision/snapshot, /sessions etc. Same
 # cookie the web login sets (see AuthenticatedStaticFiles for the static
 # twin) — browser calls are same-origin and carry it automatically.
 #

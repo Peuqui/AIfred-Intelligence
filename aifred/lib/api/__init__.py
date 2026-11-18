@@ -15,8 +15,6 @@ Endpoints (all prefixed with /api):
                                speed), PATCH /agents/{id}/choices changes one row
 - POST /chat/inject         - A message into a session as the user's input (token)
 - GET  /chat/status         - Get chat/generation status
-- POST /chat/clear          - Clear chat history
-- GET  /chat/history        - Get chat history
 - GET  /audio/announce/rooms - Rooms an announcement can go to (Bearer token)
 - POST /audio/announce      - Spoken announcement to FreeEcho.2, no LLM (Bearer token)
 - GET  /tts/entries         - The TTS escalation list in order, with live status (Bearer token)

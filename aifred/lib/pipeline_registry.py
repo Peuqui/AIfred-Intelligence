@@ -12,9 +12,6 @@ Design notes
 * The registry only stores ``asyncio.Task`` references — cancellation
   propagates naturally through ``await`` points to LLM streaming, tool calls,
   TTS generation, web-research, etc.
-* ``handle_stop_command(session_id)`` is the public entry point and is
-  channel-agnostic: FreeEcho.2 channel, Browser-UI button, future channels all
-  call it. Single mechanism, single side-effects (cancel + audio stop).
 
 Limitations
 -----------
@@ -139,42 +136,3 @@ class pipeline_scope:
     def __exit__(self, *exc: object) -> None:
         if self._task is not None and self._session_id:
             unregister_pipeline(self._session_id, self._task)
-
-
-async def handle_stop_command(session_id: str) -> dict:
-    """Universal stop handler — invoked by any channel that detects a stop signal.
-
-    Side-effects (in order):
-      1. Cancel the registered pipeline task (if any) — terminates LLM
-         streaming, in-flight tool calls, TTS generation, web research.
-      2. Stop the audio_manager (kills any music / audio_play tool playback).
-
-    Returns a status dict::
-        {
-            "session_id": "...",
-            "pipeline_cancelled": bool,
-            "audio_stopped": bool,
-        }
-
-    Note: Notifying the device (FreeEcho.2 buffer drain, Browser audio element
-    pause) is **NOT** done here — that handshake is channel-specific and
-    handled by the channel plugin.
-    """
-    cancelled = cancel_pipeline(session_id)
-
-    audio_stopped = False
-    from .audio_manager import PLAYER_ERRORS, audio_manager
-    try:
-        audio_stopped = await audio_manager.stop()
-    except PLAYER_ERRORS as exc:
-        log_message(f"Pipeline registry: audio_manager.stop() failed: {exc}", "warning")
-
-    log_message(
-        f"🛑 Stop command for session {session_id[:8]}: "
-        f"pipeline_cancelled={cancelled}, audio_stopped={audio_stopped}"
-    )
-    return {
-        "session_id": session_id,
-        "pipeline_cancelled": cancelled,
-        "audio_stopped": audio_stopped,
-    }

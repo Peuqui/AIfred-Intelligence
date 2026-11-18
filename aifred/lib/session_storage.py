@@ -15,7 +15,6 @@ Users can access their sessions from any device via username + password.
 import hashlib
 import hmac
 import json
-import os
 import re
 import secrets
 import threading
@@ -27,6 +26,7 @@ from typing import Any
 
 import bcrypt
 
+from .atomic_write import write_text_atomic
 from .browser_push import notify_changed
 from .config import DATA_DIR
 from .formatting import format_stamp
@@ -146,19 +146,10 @@ def _save_accounts(accounts: dict[str, str]) -> bool:
     """
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        tmp_path = ACCOUNTS_FILE.with_suffix(".json.tmp")
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(accounts, f, ensure_ascii=False, indent=2)
-        # Passwort-Hashes: nur der Service-User darf lesen (0600). Auf der
-        # tmp-Datei gesetzt, damit die Rechte das os.replace atomar überleben.
-        os.chmod(tmp_path, 0o600)
-        os.replace(tmp_path, ACCOUNTS_FILE)
+        # Password hashes: only the service user may read (0600)
+        write_text_atomic(ACCOUNTS_FILE, json.dumps(accounts, ensure_ascii=False, indent=2), mode=0o600)
         return True
     except OSError:
-        try:
-            ACCOUNTS_FILE.with_suffix(".json.tmp").unlink(missing_ok=True)
-        except OSError:
-            pass
         return False
 
 
@@ -366,18 +357,11 @@ def _write_session_file(path: Path, session: dict[str, Any]) -> bool:
     Returns:
         True on success
     """
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
     try:
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(session, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, path)
+        write_text_atomic(path, json.dumps(session, ensure_ascii=False, indent=2))
         notify_changed("sessions")      # the list of the saved chats: title, last message, count
         return True
     except OSError:
-        try:
-            tmp_path.unlink(missing_ok=True)
-        except OSError:
-            pass
         return False
 
 
@@ -724,31 +708,6 @@ def verify_password(password: str, password_hash: str) -> bool:
         return hmac.compare_digest(legacy, password_hash)
 
     return False
-
-
-# ============================================================
-# Session Discovery (for API access)
-# ============================================================
-
-def get_latest_session_file() -> Path | None:
-    """
-    Get the most recently modified session file.
-
-    Useful for API access when session_id is not known.
-    Returns the session file with the newest modification time.
-
-    Returns:
-        Path to newest session file, or None if no sessions exist
-    """
-    _ensure_session_dir()
-
-    session_files = list(SESSION_DIR.glob("*.json"))
-    if not session_files:
-        return None
-
-    # Sort by modification time, newest first
-    session_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-    return session_files[0]
 
 
 # Metadata cache for list_sessions(): filename → (mtime_ns, size, meta).

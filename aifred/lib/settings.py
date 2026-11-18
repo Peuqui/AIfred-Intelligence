@@ -6,9 +6,9 @@ Falls back to config.py defaults if no settings file exists.
 """
 
 import json
-import os
 from typing import Any
 
+from .atomic_write import write_text_atomic
 from .config import DATA_DIR
 
 # Settings directory is the centralized data directory
@@ -73,10 +73,7 @@ def save_settings(settings: dict[str, Any]) -> bool:
         SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
 
         # Atomic replace: persisted_settings() readers never see a half-written file
-        tmp_file = SETTINGS_FILE.with_suffix(".json.tmp")
-        with open(tmp_file, 'w', encoding='utf-8') as f:
-            json.dump(settings, f, indent=2, ensure_ascii=False)
-        os.replace(tmp_file, SETTINGS_FILE)
+        write_text_atomic(SETTINGS_FILE, json.dumps(settings, indent=2, ensure_ascii=False))
 
         print(f"✅ Settings saved to {SETTINGS_FILE}")
         return True
@@ -119,9 +116,6 @@ def get_default_settings() -> dict[str, Any]:
     if "enable_thinking" not in defaults:
         defaults["enable_thinking"] = True
 
-    # vLLM YaRN Settings
-    defaults["enable_yarn"] = False
-    defaults["yarn_factor"] = 1.0
     # NOTE: vllm_max_tokens and vllm_native_context are NEVER in defaults!
     # They are calculated dynamically on every vLLM startup based on VRAM
 

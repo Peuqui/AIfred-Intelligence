@@ -83,8 +83,3 @@ def test_only_the_users_own_session(world: dict[str, Path], client: TestClient) 
     assert client.post(f"/sessions/{THEIRS}/clear").status_code == 404
     session = session_storage.load_session(THEIRS)
     assert session is not None and session["data"]["chat_history"]
-
-
-def test_the_old_endpoint_clears_the_same_way(world: dict[str, Path], client: TestClient) -> None:
-    assert client.post("/chat/clear", json={"session_id": MINE}).json()["success"] is True
-    assert not world[f"image:{MINE}"].exists() and world[f"plot:{MINE}"].exists()
