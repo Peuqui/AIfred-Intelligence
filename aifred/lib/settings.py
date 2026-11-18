@@ -111,11 +111,6 @@ def get_default_settings() -> dict[str, Any]:
     # model fields (no flat "model"/"automatik_model" keys anymore)
     defaults["backend_models"] = BACKEND_DEFAULT_MODELS
 
-    # Qwen3 Thinking Mode (already in DEFAULT_SETTINGS, but ensure it's present)
-    # This is here for clarity and to match the state definition
-    if "enable_thinking" not in defaults:
-        defaults["enable_thinking"] = True
-
     # NOTE: vllm_max_tokens and vllm_native_context are NEVER in defaults!
     # They are calculated dynamically on every vLLM startup based on VRAM
 

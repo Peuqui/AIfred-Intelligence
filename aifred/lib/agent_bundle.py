@@ -47,6 +47,7 @@ from .config import SAMPLING_RANGES
 from .i18n import t
 from .settings import SETTINGS_FILE, save_settings
 from .tts_client import get_tts_client
+from .tts_settings import VOICE_FIELDS
 from .user_error import BadRequest, Conflict, Invalid, Missing
 
 # 2: the agent's tuning travels as tuning.json (version 1 held sampling.json of <id>_* keys that settings.json no
@@ -358,7 +359,7 @@ def import_bundle(
                 settings.setdefault("agent_tuning", {})[effective_id] = tuning
 
             for engine, entry in tts_per_engine.items():
-                tts_root.setdefault(engine, {})[effective_id] = entry
+                tts_root.setdefault(engine, {})[effective_id] = {key: entry[key] for key in VOICE_FIELDS if key in entry}
 
             if (config.get("tools") or []):
                 warnings.append(t("bundle_tools_kept", lang=lang, agent=effective_id))

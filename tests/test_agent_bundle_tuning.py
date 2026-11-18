@@ -64,6 +64,16 @@ def test_roundtrip_with_rename_lands_under_the_new_id(saved: dict[str, Any]) -> 
     assert saved["settings"]["agent_tuning"]["codine"]["num_ctx_manual"] == 1   # the original stays
 
 
+def test_the_voice_lands_with_its_voice_fields_only(saved: dict[str, Any]) -> None:
+    voice = {"voice": "de-DE-KatjaNeural", "speed": "1.1x", "pitch": "1.0x"}
+    saved["settings"]["tts_agent_voices_per_engine"] = {"edge": {"codine": {**voice, "enabled": True}}}
+    bundle = agent_bundle.export_bundle(["codine"])
+    saved["agents"] = {}
+    saved["settings"] = {}
+    agent_bundle.import_bundle(bundle)
+    assert saved["settings"]["tts_agent_voices_per_engine"] == {"edge": {"codine": voice}}
+
+
 def test_a_foreign_settings_key_is_refused_and_nothing_is_written(saved: dict[str, Any]) -> None:
     bundle = _with_tuning(agent_bundle.export_bundle(["codine"]), {"temperature": 0.5, "inject_api_token": "x"})
     saved["agents"] = {}

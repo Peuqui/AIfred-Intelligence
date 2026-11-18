@@ -119,7 +119,7 @@ DEFAULT_SETTINGS = {
     # They will be merged in settings.py get_default_settings()
     "user_name": "",  # User's name (leave empty - set via UI, saved in settings.json)
     "user_gender": "male",  # Salutation of the user: "male" / "female"
-    "user_emoji": "🙋",  # The user's sign beside their bubble (one of USER_EMOJI_CHOICES; the Reflex page's)
+    "user_emoji": "🙋",  # The user's sign beside their bubble (one of USER_EMOJI_CHOICES)
     "ui_language": DEFAULT_LANGUAGE,  # UI + prompt language: "de" / "en"
     "backend_type": "ollama",  # Default backend: "ollama", "vllm", "llamacpp"
     "cloud_api_provider": DEFAULT_CLOUD_API_PROVIDER,
@@ -132,8 +132,6 @@ DEFAULT_SETTINGS = {
     # calibration itself takes much longer. Enable explicitly when you
     # need to run a model that exceeds total GPU VRAM.
     "calibration_allow_hybrid": False,
-    "voice": "Deutsch (Katja)",
-    "tts_playback_rate": "1.25x",  # Browser playback speed (1.25 = default, speed via Agent Settings)
     "enable_tts": False,
     "tts_autoplay": TTS_AUTOPLAY_DEFAULT,
     "tts_list_max": TTS_LIST_MAX_DEFAULT,
@@ -148,7 +146,6 @@ DEFAULT_SETTINGS = {
     # Who recognizes a dictation: the STT-Suite on this machine, or the browser's own recognition
     # (Chrome and Edge send the speech to Google or Microsoft; Firefox has none). No switching by itself.
     "dictation_engine": "stt_suite",
-    "enable_gpu": True,
     # NOTE: temperature is per-agent (agent_tuning bucket), no flat key
     "enable_thinking": False,  # Qwen3 Thinking Mode (Chain-of-Thought Reasoning)
     # Multi-agent modes: rounds of a debate/tribunal/symposion, votes that end an auto-consensus
