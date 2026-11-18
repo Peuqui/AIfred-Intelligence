@@ -6,14 +6,15 @@
 import { FolderOpen, Link, TriangleAlert } from "lucide-vue-next";
 import { computed, getCurrentInstance, onMounted, ref } from "vue";
 import {
-  type DirEntry, type FeaturesConfig, type Item, RemoteDriver, VueFinder, VueFinderPlugin, contextMenuItems, useVueFinder,
+  ContextMenuIds, type DirEntry, type FeaturesConfig, type Item, RemoteDriver, VueFinder, VueFinderPlugin, contextMenuItems, useVueFinder,
 } from "vuefinder";
 import "vuefinder/dist/style.css";
 import finderDe from "vuefinder/dist/locales/de.js";
 import finderEn from "vuefinder/dist/locales/en.js";
 import { ApiError, api, apiUrl } from "../api/client";
-import type { FileAreaInfo } from "../api/types";
+import type { DocumentPreview, FileAreaInfo } from "../api/types";
 import { language, t } from "../i18n";
+import { viewFile } from "../lib/fileViewer";
 import ModalDialog from "./ModalDialog.vue";
 
 const props = defineProps<{ area: string; title: string; pick?: boolean }>();
@@ -58,7 +59,39 @@ const linkItem: Item = {
   show: (_app, context) => !!info.value?.actions.includes("symlink") && context.items.length === 1 && context.items[0]?.type === "dir",
   order: 100,
 };
-const menu = [...contextMenuItems, linkItem];
+
+// ── looking at a file: always the viewer (lib/fileViewer.ts), from the area's preview address ──
+async function view(entry: DirEntry): Promise<void> {
+  const query = `path=${encodeURIComponent(entry.path)}`;
+  notice.value = "";
+  await viewFile({
+    name: entry.basename,
+    viewUrl: apiUrl(`files/${props.area}/preview?${query}`),
+    text: async () => {
+      try {
+        return await api<DocumentPreview>(`files/${props.area}/text?${query}`);
+      } catch (error) {
+        notice.value = error instanceof ApiError ? error.detail : String(error);
+        return null;
+      }
+    },
+  });
+}
+
+function fileDoubleClick(event: { item: DirEntry; preventDefault: () => void }): void {
+  event.preventDefault();
+  void view(event.item);
+}
+
+// The menu entry "Preview" goes to the viewer, not to VueFinder's own.
+const menu = [
+  ...contextMenuItems.map((item) =>
+    item.id === ContextMenuIds.preview
+      ? { ...item, action: (_app: unknown, items: DirEntry[]) => { if (items[0]) void view(items[0]); } }
+      : item,
+  ),
+  linkItem,
+];
 
 async function makeLink(): Promise<void> {
   if (!linking.value) return;
@@ -108,6 +141,7 @@ onMounted(async () => {
           :locale="language"
           :config="{ theme: 'midnight', persist: false, initialPath: prefix }"
           :context-menu-items="menu"
+          @file-dclick="fileDoubleClick"
           @select="(items: DirEntry[]) => (selected = items)"
           @path-change="(path: string) => (current = path)"
         />

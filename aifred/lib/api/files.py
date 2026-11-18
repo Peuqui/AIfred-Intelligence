@@ -10,14 +10,15 @@ import asyncio
 from pathlib import Path
 
 from fastapi import Form, Query, Request, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..file_ops import FolderOps
 from ..logging_utils import log_message
 from ..user_error import Invalid
 from .app import api_app
-from .file_download import download_response
+from .file_download import download_response, view_response
+from .file_preview import DocumentPreview, preview_of_file
 from .sessions import current_user
 
 _SIZES = {"small": (0, 1 << 20), "medium": (1 << 20, 10 << 20), "large": (10 << 20, None)}   # VueFinder's search filter
@@ -223,12 +224,15 @@ def _file(http: Request, area: str, action: str, path: str) -> Path:
 
 
 @api_app.get("/files/{area}/preview", tags=["Files"])
-async def files_preview(http: Request, area: str, path: str = Query(...)) -> FileResponse:
-    from ..file_browser import mime_type
-
+async def files_preview(http: Request, area: str, path: str = Query(...)) -> Response:
     target = await asyncio.to_thread(_file, http, area, "preview", path)
-    return FileResponse(target, media_type=mime_type(target) or "application/octet-stream", filename=target.name,
-                        content_disposition_type="inline")
+    return await asyncio.to_thread(view_response, target)
+
+
+@api_app.get("/files/{area}/text", response_model=DocumentPreview, tags=["Files"])
+async def files_text(http: Request, area: str, path: str = Query(...)) -> DocumentPreview:
+    """The text of a file as the search index's parser reads it (the viewer's shape for every file location)."""
+    return await preview_of_file(await asyncio.to_thread(_file, http, area, "preview", path))
 
 
 @api_app.get("/files/{area}/download", tags=["Files"])

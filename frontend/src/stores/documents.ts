@@ -88,6 +88,11 @@ export const useDocuments = defineStore("documents", () => {
     return call(() => api<DocumentPreview>(`documents/local/preview?path=${encodeURIComponent(path)}`));
   }
 
+  // A file of the open source, as the index's parser reads it (the id may hold slashes: Nextcloud's is the path).
+  function previewRemote(fileId: string): Promise<DocumentPreview | null> {
+    return call(() => api<DocumentPreview>(`${sourcePath()}/preview/${fileId.split("/").map(encodeURIComponent).join("/")}`));
+  }
+
   // While the run goes on it is asked again; at its end the open folder is listed anew (indexed counts).
   async function follow(progress: DocumentIndexProgress): Promise<void> {
     indexing.value = progress;
@@ -202,7 +207,7 @@ export const useDocuments = defineStore("documents", () => {
   }
 
   return {
-    listing, notice, busy, indexing, rejected, open, newFolder, rename, remove, preview, upload, index, watchIndexing,
+    listing, notice, busy, indexing, rejected, open, newFolder, rename, remove, preview, previewRemote, upload, index, watchIndexing,
     sources, source, remote, trail, query, loadSources, openSource, enterRemote, backRemote, searchRemote, uploadRemote,
     indexRemote, deindexRemote, reload,
   };

@@ -17,9 +17,20 @@ def is_page(name: str) -> bool:
     return name.lower().endswith(PAGE_SUFFIXES)
 
 
-def attachment(name: str) -> dict[str, str]:
-    """Content-Disposition with the name in RFC 5987 form: umlauts arrive intact."""
-    return {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"}
+# A page the viewer opens runs its scripts, but in a sandbox without an origin: it cannot read AIfred's API or cookies.
+PAGE_SANDBOX = "sandbox allow-scripts"
+
+
+def attachment(name: str, inline: bool = False) -> dict[str, str]:
+    """Content-Disposition with the name in RFC 5987 form: umlauts arrive intact. ``inline``: the browser shows the
+    file (PDF, audio, video) instead of saving it."""
+    return {"Content-Disposition": f"{'inline' if inline else 'attachment'}; filename*=UTF-8''{quote(name)}"}
+
+
+def page_response(page: bytes, name: str) -> Response:
+    """A page to look at: inline, sandboxed. The ONE place that sets how a page opens in a tab."""
+    headers = {**attachment(name, inline=True), "Content-Security-Policy": PAGE_SANDBOX}
+    return Response(page, media_type="text/html", headers=headers)
 
 
 def page_download(page: bytes, name: str) -> Response:
@@ -36,3 +47,11 @@ def download_response(file: Path) -> Response:
     if is_page(file.name):
         return page_download(file.read_bytes(), file.name)
     return FileResponse(file, filename=file.name)
+
+
+def view_response(file: Path) -> Response:
+    """The file as the browser shows it (``?inline=true`` of the download endpoints, the requester's preview): a page
+    sandboxed, anything else inline with its type."""
+    if is_page(file.name):
+        return page_response(file.read_bytes(), file.name)
+    return FileResponse(file, filename=file.name, content_disposition_type="inline")

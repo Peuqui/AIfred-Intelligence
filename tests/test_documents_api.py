@@ -85,9 +85,9 @@ def test_the_listing_shows_folders_first_and_what_is_indexed(client: TestClient)
     listing = client.get("/documents/local").json()
     assert _names(listing) == [("projekt", "folder"), ("bericht.txt", "file"), ("daten.xyz", "file")]
     report = next(item for item in listing["items"] if item["name"] == "bericht.txt")
-    assert report["indexed"] and report["chunks"] == 3 and listing["open_prefix"] == "/_upload/documents/"
+    assert report["indexed"] and report["chunks"] == 3
     inner = client.get("/documents/local", params={"folder": "projekt"}).json()
-    assert _names(inner) == [("plan.md", "file")] and inner["open_prefix"] == "/_upload/documents/projekt/"
+    assert _names(inner) == [("plan.md", "file")]
     assert client.get("/documents/local", params={"folder": "../"}).status_code == 422
 
 
@@ -204,3 +204,42 @@ def test_a_page_downloads_as_one_file_with_what_it_loads_from_the_vendor_folder(
     assert note.status_code == 200 and note.text == "keine Seite"
     assert client.get("/documents/local/download", params={"path": "fehlt.html"}).status_code == 404
     assert client.get("/documents/local/download", params={"path": "../README.md"}).status_code in (404, 422)
+
+
+def test_inline_shows_a_page_sandboxed_and_other_files_inline_with_their_type(tmp_path, monkeypatch) -> None:
+    from starlette.testclient import TestClient
+
+    from aifred.lib import file_manager as fm
+    from aifred.lib.api.app import api_app
+    from aifred.lib.api.file_download import PAGE_SANDBOX
+    from aifred.lib.auth import USERNAME_COOKIE_NAME, sign_username
+
+    monkeypatch.setattr(fm, "DOCUMENTS_DIR", tmp_path)
+    (tmp_path / "seite.html").write_text("<p>Hallo</p>", encoding="utf-8")
+    (tmp_path / "scan.pdf").write_bytes(b"%PDF-1.4 x")
+    client = TestClient(api_app)
+    client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))
+
+    page = client.get("/documents/local/download", params={"path": "seite.html", "inline": "true"})
+    assert page.text == "<p>Hallo</p>" and page.headers["content-security-policy"] == PAGE_SANDBOX
+    assert page.headers["content-disposition"].startswith("inline")
+    pdf = client.get("/documents/local/download", params={"path": "scan.pdf", "inline": "true"})
+    assert pdf.headers["content-type"] == "application/pdf" and pdf.headers["content-disposition"].startswith("inline")
+    assert "content-security-policy" not in client.get("/documents/local/download", params={"path": "scan.pdf"}).headers
+
+
+def test_a_text_type_without_an_index_parser_previews_as_its_raw_text(tmp_path, monkeypatch) -> None:
+    from starlette.testclient import TestClient
+
+    from aifred.lib import file_manager as fm
+    from aifred.lib.api.app import api_app
+    from aifred.lib.auth import USERNAME_COOKIE_NAME, sign_username
+
+    monkeypatch.setattr(fm, "DOCUMENTS_DIR", tmp_path)
+    (tmp_path / "skript.py").write_bytes("print('Grüße')\n".encode() + b"\xff")      # a byte that is no UTF-8 is replaced
+    (tmp_path / "seite.html").write_text("<p>Hallo</p>", encoding="utf-8")
+    client = TestClient(api_app)
+    client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))
+    script = client.get("/documents/local/preview", params={"path": "skript.py"}).json()
+    assert script["text"] == "print('Grüße')\n�"
+    assert client.get("/documents/local/preview", params={"path": "seite.html"}).json()["text"] == "<p>Hallo</p>"

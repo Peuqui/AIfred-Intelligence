@@ -6,6 +6,7 @@ import { type Component, computed, onMounted, ref, watch, watchEffect } from "vu
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { UPDATE_CHECK_MS, api, checkForUpdate } from "./api/client";
 import PluginGate from "./components/PluginGate.vue";
+import FileViewer from "./components/FileViewer.vue";
 import HubNoticeToast from "./components/HubNoticeToast.vue";
 import LoginForm from "./components/LoginForm.vue";
 import ServiceStatusBar from "./components/ServiceStatusBar.vue";
@@ -152,6 +153,7 @@ onMounted(async () => {
       </PluginGate>
       <KeepAlive v-else><component :is="Component" class="page" /></KeepAlive>
     </RouterView>
+    <FileViewer />
   </div>
 </template>
 

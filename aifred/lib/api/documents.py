@@ -10,6 +10,7 @@ comes. Login cookie required like every API path (app middleware).
 """
 import asyncio
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote
 
@@ -21,36 +22,49 @@ from .. import document_indexing
 from .. import file_manager as fm
 from ..document_sources import DocumentSource, DocumentSourceError, get_document_source
 from ..formatting import format_stamp
-from ..logging_utils import log_exception, log_message
+from ..logging_utils import log_message
 from ..prompt_loader import get_language
-from ..upload_files import DOCUMENTS_URL
 from ..user_error import Invalid, Missing, Unavailable
 from .app import api_app
-from .file_download import attachment, download_response, is_page, page_download
+from .file_download import (
+    attachment,
+    download_response,
+    is_page,
+    page_download,
+    page_response,
+    view_response,
+)
+from .file_preview import (
+    DocumentPreview,
+    preview_of_bytes,
+    preview_of_file,
+    require_reader,
+)
 
 
 @api_app.get("/documents/source/{source_key}/file/{file_id:path}", tags=["Documents"])
-async def document_source_file(source_key: str, file_id: str) -> Response:
+async def document_source_file(source_key: str, file_id: str, inline: bool = False) -> Response:
     """Download one file of a document source (409 plugin off, 404 unknown source, 502 source failed). The id may hold
-    slashes: Nextcloud's is the file's path."""
+    slashes: Nextcloud's is the file's path. ``inline``: as the browser shows it (a page sandboxed, see view_response)."""
     download = await get_document_source(source_key).download(file_id)
-    log_message(f"📄 Document download from {source_key}: {download.name}")
+    log_message(f"📄 Document {'view' if inline else 'download'} from {source_key}: {download.name}")
     if is_page(download.name):
-        return page_download(b"".join([chunk async for chunk in download.chunks]), download.name)
-    return StreamingResponse(download.chunks, media_type=download.mime, headers=attachment(download.name))
+        page = b"".join([chunk async for chunk in download.chunks])
+        return page_response(page, download.name) if inline else page_download(page, download.name)
+    return StreamingResponse(download.chunks, media_type=download.mime, headers=attachment(download.name, inline))
 
 
 @api_app.get("/documents/local/download", tags=["Documents"])
-async def documents_download(path: str) -> Response:
+async def documents_download(path: str, inline: bool = False) -> Response:
     """A file of the documents folder as a download; an HTML page as one standalone file with the libraries it loads
-    written into it, so it works opened anywhere."""
+    written into it, so it works opened anywhere. ``inline``: as the browser shows it (a page sandboxed)."""
     file, problem = fm.safe_resolve(path)
     if problem:
         raise problem
     assert file is not None
     if not file.is_file():
         raise Missing("file_not_found", path=path)
-    return await asyncio.to_thread(download_response, file)
+    return await asyncio.to_thread(view_response if inline else download_response, file)
 
 
 # ── The local folder ─────────────────────────────────────────────────────
@@ -71,7 +85,6 @@ class DocumentRow(BaseModel):
 class DocumentFolder(BaseModel):
     folder: str = Field(description='Relative to the documents folder, "" its root')
     items: list[DocumentRow]
-    open_prefix: str = Field(description="The URL a file opens at (in a tab): this prefix and the file's name")
 
 
 class DocumentNewFolder(BaseModel):
@@ -110,11 +123,6 @@ class DocumentsDeleted(BaseModel):
     listing: DocumentFolder
 
 
-class DocumentPreview(BaseModel):
-    name: str
-    text: str
-
-
 def _done(result: fm.FileOpResult) -> fm.FileOpResult:
     """A failed operation answers with its refusal (a path outside the folder, a name, not there, no index)."""
     if not result.success:
@@ -128,7 +136,6 @@ async def _listing(folder: str) -> DocumentFolder:
     return DocumentFolder(
         folder=folder,
         items=[DocumentRow(**item) for item in result.metadata["items"]],
-        open_prefix=f"{DOCUMENTS_URL}/{folder}/" if folder else f"{DOCUMENTS_URL}/",
     )
 
 
@@ -176,23 +183,23 @@ async def documents_delete(deletion: DocumentDeletion) -> DocumentsDeleted:
 @api_app.get("/documents/local/preview", response_model=DocumentPreview, tags=["Documents"])
 async def documents_preview(path: str) -> DocumentPreview:
     """The text of a document as its parser reads it (the one the search index uses)."""
-    from ..document_store import PARSERS
-
     file, problem = fm.safe_resolve(path)
     if problem:
         raise problem
     assert file is not None
     if not file.is_file():
         raise Missing("file_not_found", path=path)
-    parser = PARSERS.get(file.suffix.lower())
-    if parser is None:
-        raise Invalid("no_parser", ext=file.suffix.lower())
-    try:
-        text = await asyncio.to_thread(parser, file)
-    except Exception as error:  # a damaged file of any kind: the page shows why it has no preview
-        log_exception(f"Preview of {path} failed", error)
-        raise Invalid("preview_failed", reason=str(error)) from error
-    return DocumentPreview(name=file.name, text=text)
+    return await preview_of_file(file)
+
+
+@api_app.get("/documents/source/{source_key}/preview/{file_id:path}", response_model=DocumentPreview, tags=["Documents"])
+async def document_source_preview(source_key: str, file_id: str) -> DocumentPreview:
+    """The text of a file of a document source as the search index's parser reads it (409 plugin off, 404 unknown
+    source, 502 source failed, 422 no parser or a damaged file)."""
+    download = await get_document_source(source_key).download(file_id)
+    require_reader(download.name)   # an id need not hold the name (Drive's): the type is known only now
+    log_message(f"📄 Document preview from {source_key}: {download.name}")
+    return await preview_of_bytes(download.name, b"".join([chunk async for chunk in download.chunks]))
 
 
 # ── Uploading and indexing ───────────────────────────────────────────────
@@ -486,8 +493,6 @@ async def documents_sources() -> list[DocumentSourceInfo]:
 @api_app.get("/documents/source/{source_key}", response_model=SourceListing, tags=["Documents"])
 async def documents_source_listing(source_key: str, folder_id: str = "", query: str = "") -> SourceListing:
     """A folder of a source (``folder_id`` "" = its root), or the hits of a search over the whole source."""
-    from pathlib import Path
-
     from ..document_sources import source_index_name
     from ..document_store import PARSERS
 
@@ -513,7 +518,6 @@ async def documents_source_upload(source_key: str, files: list[UploadFile], fold
     """Files into a folder of a writable source (422 for one that is not). Nothing is indexed: that is
     the user's decision per file. Only the types the search index reads are taken, as locally."""
     import mimetypes
-    from pathlib import Path
 
     from ..config import DOCUMENT_ALLOWED_EXTENSIONS
 

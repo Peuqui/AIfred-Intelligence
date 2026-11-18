@@ -54,6 +54,9 @@ class _Source:
         return [_entry(path) for path in FILES if query.lower() in path.lower()]
 
     async def download(self, file_id: str) -> SourceDownload:
+        if file_id == "kaputt.md":
+            raise DocumentSourceError("Stub: downloading the file failed (HTTP 500)")
+
         async def chunks() -> AsyncIterator[bytes]:
             yield FILES[file_id].encode()
         return SourceDownload(name=file_id.rsplit("/", 1)[-1], mime="text/plain", chunks=chunks())
@@ -179,3 +182,45 @@ def test_files_and_folders_of_a_source_are_indexed_past_a_failure_and_come_out_a
     assert set(index.chunks) == {source_index_name("stub", path) for path in ("Bericht.md", "Projekt/Plan.txt", "Projekt/Unten/Tief.txt")}
     removed = client.post("/documents/source/stub/deindex", json={"file_ids": ["Bericht.md", "Projekt/Plan.txt"]}).json()
     assert removed["chunks_removed"] == 5 + 2 and set(index.chunks) == {source_index_name("stub", "Projekt/Unten/Tief.txt")}
+
+
+def test_the_preview_of_a_source_file_reads_what_the_index_reads(client: TestClient) -> None:
+    preview = client.get("/documents/source/stub/preview/Projekt/Plan.txt")
+    assert preview.status_code == 200 and preview.json() == {"name": "Plan.txt", "text": "Erst denken"}
+    assert "Bericht" in client.get("/documents/source/stub/preview/Bericht.md").json()["text"]
+
+
+def test_a_source_file_without_a_parser_has_no_preview(client: TestClient) -> None:
+    refused = client.get("/documents/source/stub/preview/Projekt/Bild.png")
+    assert refused.status_code == 422 and ".png" in refused.json()["detail"]
+
+
+def test_a_failing_source_download_answers_the_preview_as_the_download(client: TestClient) -> None:
+    assert client.get("/documents/source/stub/file/kaputt.md").status_code == 502
+    failed = client.get("/documents/source/stub/preview/kaputt.md")
+    assert failed.status_code == 502 and "HTTP 500" in failed.json()["detail"]
+    assert client.get("/documents/source/weg/preview/Bericht.md").status_code == 404
+
+
+def test_a_damaged_source_file_has_a_reason_instead_of_a_preview(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    def damaged(_file: Path) -> str:
+        raise ValueError("kein gültiges Archiv")
+
+    monkeypatch.setitem(document_store.PARSERS, ".md", damaged)
+    refused = client.get("/documents/source/stub/preview/Bericht.md")
+    assert refused.status_code == 422 and "kein gültiges Archiv" in refused.json()["detail"]
+
+
+def test_a_source_file_is_viewed_inline_and_a_page_sandboxed(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from aifred.lib.api.file_download import PAGE_SANDBOX
+
+    monkeypatch.setitem(FILES, "Seite.html", "<p>Hallo</p>")
+    monkeypatch.setitem(FILES, "skript.py", "print(1)")
+    page = client.get("/documents/source/stub/file/Seite.html", params={"inline": "true"})
+    assert page.text == "<p>Hallo</p>" and page.headers["content-security-policy"] == PAGE_SANDBOX
+    assert page.headers["content-disposition"].startswith("inline")
+    download = client.get("/documents/source/stub/file/Seite.html")
+    assert download.headers["content-disposition"].startswith("attachment") and "content-security-policy" not in download.headers
+    assert client.get("/documents/source/stub/file/skript.py", params={"inline": "true"}).headers["content-disposition"].startswith("inline")
+    assert client.get("/documents/source/stub/preview/skript.py").json() == {"name": "skript.py", "text": "print(1)"}   # raw text
+    assert client.get("/documents/source/stub/preview/Seite.html").json()["text"] == "<p>Hallo</p>"

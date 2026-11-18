@@ -70,7 +70,7 @@ def test_each_plugin_names_its_source_key_and_the_source_uses_it() -> None:
 
 
 def test_a_source_of_a_plugin_that_is_off_is_409_with_the_plugin_name(client: TestClient) -> None:
-    for path in ("/documents/source/stub", "/documents/source/stub/file/a.txt"):
+    for path in ("/documents/source/stub", "/documents/source/stub/file/a.txt", "/documents/source/stub/preview/a.txt"):
         answer = client.get(path)
         assert answer.status_code == 409 and "Nextcloud" in answer.json()["detail"]
     assert client.post("/documents/source/stub/index", json={"files": [{"id": "a.txt", "name": "a.txt"}], "folders": []}).status_code == 409

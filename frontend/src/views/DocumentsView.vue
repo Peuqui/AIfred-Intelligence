@@ -9,11 +9,12 @@ import {
   Pencil, RefreshCw, Trash2, TriangleAlert, Upload,
 } from "lucide-vue-next";
 import { computed, defineAsyncComponent, onMounted, ref } from "vue";
-import type { DocumentPreview, DocumentRow } from "../api/types";
+import type { DocumentRow } from "../api/types";
 import IndexCare from "../components/IndexCare.vue";
 import ModalDialog from "../components/ModalDialog.vue";
 import SourceBrowser from "../components/SourceBrowser.vue";
 import { apiUrl } from "../api/client";
+import { isPageFile, opensInTab, viewFile } from "../lib/fileViewer";
 import { t, tCount } from "../i18n";
 import { LOCAL, useDocuments } from "../stores/documents";
 
@@ -91,17 +92,15 @@ async function confirmDelete(): Promise<void> {
   selected.value = [];
 }
 
-// A page (.html) opens in a tab of its own, as the browser shows it (the server sends it sandboxed: its scripts run, but
-// without access to AIfred); every other file shows as its parser reads it.
-const PAGE_FILE = /\.html?$/i;
-const hasPages = computed(() => !!docs.listing?.items.some((row) => row.type === "file" && PAGE_FILE.test(row.name)));
-const preview = ref<DocumentPreview | null>(null);
+// Every file shows as the viewer decides (lib/fileViewer.ts): a page sandboxed in a tab, a PDF, audio and video in a tab,
+// an image in the dialog, the rest as text.
+const hasPages = computed(() => !!docs.listing?.items.some((row) => row.type === "file" && isPageFile(row.name)));
 async function show(row: DocumentRow): Promise<void> {
-  if (PAGE_FILE.test(row.name) && docs.listing) {
-    window.open(docs.listing.open_prefix + encodeURIComponent(row.name), "_blank", "noopener");
-    return;
-  }
-  preview.value = await docs.preview(pathOf(row));
+  await viewFile({
+    name: row.name,
+    viewUrl: apiUrl("documents/local/download?inline=true&path=" + encodeURIComponent(pathOf(row))),
+    text: () => docs.preview(pathOf(row)),
+  });
 }
 
 async function copyPath(row: DocumentRow): Promise<void> {
@@ -233,13 +232,13 @@ const runOutcome = computed(() => {
             <td><input type="checkbox" :checked="selected.includes(row.name)" @change="toggle(row.name)" /></td>
             <td class="name">
               <button v-if="row.type === 'folder'" class="link" @click="go(pathOf(row))"><Folder :size="16" /> {{ row.name }}</button>
-              <button v-else class="link" :title="PAGE_FILE.test(row.name) ? t('doc_open_page') : t('doc_preview')" @click="show(row)"><FileText :size="16" /> {{ row.name }}</button>
+              <button v-else class="link" :title="opensInTab(row.name) ? t('doc_open_page') : t('doc_preview')" @click="show(row)"><FileText :size="16" /> {{ row.name }}</button>
               <span class="size">{{ row.type === "folder" ? tCount("doc_file_count", row.file_count) : row.size }}</span>
             </td>
             <td class="dates">{{ row.created }}<br />{{ row.modified }}</td>
             <td><span v-if="row.indexed" class="indexed">{{ tCount("doc_chunk_count", row.chunks) }}</span></td>
             <td class="row-actions">
-              <a v-if="row.type === 'file'" :href="apiUrl('documents/local/download?path=' + encodeURIComponent(pathOf(row)))" :title="PAGE_FILE.test(row.name) ? t('doc_download_page') : t('doc_download')" download><Download :size="16" /></a>
+              <a v-if="row.type === 'file'" :href="apiUrl('documents/local/download?path=' + encodeURIComponent(pathOf(row)))" :title="isPageFile(row.name) ? t('doc_download_page') : t('doc_download')" download><Download :size="16" /></a>
               <button v-if="row.type === 'file'" :title="t('doc_copy_path')" @click="copyPath(row)"><Copy :size="16" /></button>
               <button v-if="row.indexed" :title="t('doc_deindex')" @click="deindex(row)"><BookMinus :size="16" /></button>
               <button
@@ -274,13 +273,6 @@ const runOutcome = computed(() => {
       </div>
     </ModalDialog>
 
-    <ModalDialog v-if="preview" @close="preview = null">
-      <header class="preview-head">
-        <strong><FileText :size="16" /> {{ preview.name }}</strong>
-        <button :title="t('dialog_close')" @click="preview = null">×</button>
-      </header>
-      <pre class="preview">{{ preview.text }}</pre>
-    </ModalDialog>
   </main>
 </template>
 
@@ -317,9 +309,6 @@ input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .page-hint { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 8px; padding: 8px 10px; font-size: 0.8rem; color: var(--aifred-text-secondary); background: var(--aifred-input-bg); border: 1px solid var(--aifred-border); border-radius: 8px; --icon-own: currentColor; }
 .targets { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; max-width: 60ch; overflow-wrap: anywhere; color: var(--aifred-text-secondary); }
 .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; }
-.preview-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
-.preview-head button { background: none; border: none; font-size: 1.2rem; }
-.preview { margin: 0; width: min(820px, calc(86 * var(--vw))); max-height: calc(70 * var(--dvh)); overflow: auto; white-space: pre-wrap; font-size: 0.85rem; background: var(--aifred-page-bg); padding: 12px; border-radius: 8px; }
 @media (max-width: 760px) {
   .dates { display: none; }
   .name { width: auto; }

@@ -1728,6 +1728,10 @@ DOCUMENT_ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv", ".docx", ".xlsx", 
 # Extensions the workspace write_file tool may create/overwrite — text-based
 # formats only (write_text would corrupt binary formats)
 WORKSPACE_WRITE_EXTENSIONS = {".txt", ".md", ".csv", ".json", ".xml", ".html", ".htm"}
+# Files the viewer shows as their raw text where the search index has no parser for them (an index parser comes first).
+TEXT_PREVIEW_EXTENSIONS = WORKSPACE_WRITE_EXTENSIONS | {
+    ".py", ".log", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".sh", ".js", ".ts", ".css", ".tsv", ".sql", ".rst", ".vue",
+}
 
 # ============================================================
 # SECURITY CONFIGURATION

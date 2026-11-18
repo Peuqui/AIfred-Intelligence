@@ -208,3 +208,49 @@ def test_a_refusal_of_the_file_manager_reaches_the_requester_in_words(
     monkeypatch.setattr(file_manager, "save_upload", lambda *_args: FileOpResult(False, str(refusal), {}, refusal))
     answer = client.post("/files/documents/upload", data={"path": "documents://"}, files={"file": ("x.exe", b"MZ")})
     assert answer.status_code == 422 and "x.exe" in answer.json()["detail"]
+
+
+def test_the_text_of_an_area_file_is_read_by_the_index_parsers(client: TestClient, area: Path) -> None:
+    (area / "Notiz.md").write_text("Erst denken", encoding="utf-8")
+    text = client.get("/files/test/text", params={"path": "test://Notiz.md"})
+    assert text.status_code == 200 and text.json() == {"name": "Notiz.md", "text": "Erst denken"}
+    assert client.get("/files/test/text", params={"path": "test://Musik/gross.flac"}).status_code == 422     # no parser
+    assert client.get("/files/test/text", params={"path": "test://Musik"}).status_code == 422                # a folder
+    assert client.get("/files/test/text", params={"path": "test://../x.md"}).status_code in (403, 422)       # outside the area
+    assert client.get("/files/test/text", params={"path": "andere://Notiz.md"}).status_code == 422
+    assert client.get("/files/lesen/text", params={"path": "lesen://Notiz.md"}).status_code == 200          # "preview" is the action
+
+
+def test_a_damaged_area_file_has_a_reason_instead_of_a_text(client: TestClient, area: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from aifred.lib import document_store
+
+    def damaged(_file: Path) -> str:
+        raise ValueError("kein gültiges Archiv")
+
+    (area / "Kaputt.md").write_text("x", encoding="utf-8")
+    monkeypatch.setitem(document_store.PARSERS, ".md", damaged)
+    refused = client.get("/files/test/text", params={"path": "test://Kaputt.md"})
+    assert refused.status_code == 422 and "kein gültiges Archiv" in refused.json()["detail"]
+
+
+def test_the_text_needs_the_preview_action(client: TestClient, area: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (area / "Notiz.md").write_text("x", encoding="utf-8")
+    monkeypatch.setitem(file_areas.AREAS, "ohne", FileArea(lambda: str(area), frozenset({"download"})))
+    assert client.get("/files/ohne/text", params={"path": "ohne://Notiz.md"}).status_code == 403
+
+
+def test_an_area_shows_a_page_sandboxed_and_media_inline_with_its_type(client: TestClient, area: Path) -> None:
+    from aifred.lib.api.file_download import PAGE_SANDBOX
+
+    (area / "Seite.html").write_text("<p>Hallo</p>", encoding="utf-8")
+    page = client.get("/files/test/preview", params={"path": "test://Seite.html"})
+    assert page.text == "<p>Hallo</p>" and page.headers["content-security-policy"] == PAGE_SANDBOX
+    assert page.headers["content-disposition"].startswith("inline")
+    music = client.get("/files/test/preview", params={"path": "test://Hörbücher/Kafka/Prozess.mp3"})
+    assert music.headers["content-type"] == "audio/mpeg" and music.headers["content-disposition"].startswith("inline")
+    assert "content-security-policy" not in music.headers
+
+
+def test_an_area_file_of_a_text_type_without_a_parser_previews_as_raw_text(client: TestClient, area: Path) -> None:
+    (area / "skript.py").write_text("print(1)\n", encoding="utf-8")
+    assert client.get("/files/test/text", params={"path": "test://skript.py"}).json() == {"name": "skript.py", "text": "print(1)\n"}

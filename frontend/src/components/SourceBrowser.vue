@@ -5,6 +5,7 @@
 import { BookMinus, BookPlus, Download, FileText, Folder, FolderUp, RefreshCw, Upload } from "lucide-vue-next";
 import { computed, ref } from "vue";
 import type { SourceRow } from "../api/types";
+import { opensInTab, viewFile } from "../lib/fileViewer";
 import { t, tCount } from "../i18n";
 import { useDocuments } from "../stores/documents";
 
@@ -29,6 +30,10 @@ async function back(depth: number): Promise<void> {
   selected.value = [];
   await docs.backRemote(depth);
 }
+
+// A file shows as the viewer decides (lib/fileViewer.ts), from the source's file endpoint inline.
+const show = (row: SourceRow): Promise<void> =>
+  viewFile({ name: row.name, viewUrl: `${row.download_url}?inline=true`, text: () => docs.previewRemote(row.id) });
 
 const searchText = ref("");
 async function search(): Promise<void> {
@@ -102,7 +107,7 @@ async function picked(): Promise<void> {
           <td><input type="checkbox" :checked="selected.includes(row.id)" @change="toggle(row.id)" /></td>
           <td class="name">
             <button v-if="row.type === 'folder'" class="link" @click="enter(row)"><Folder :size="16" /> {{ row.name }}</button>
-            <span v-else><FileText :size="16" /> {{ row.name }}</span>
+            <button v-else class="link" :title="opensInTab(row.name) ? t('doc_open_page') : t('doc_preview')" @click="show(row)"><FileText :size="16" /> {{ row.name }}</button>
             <span class="size">{{ row.size }}</span>
             <span v-if="docs.query" class="where">{{ row.id }}</span>
           </td>

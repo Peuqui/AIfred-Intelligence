@@ -60,3 +60,12 @@ test("another source stays open while a different one goes away", async () => {
   await settle();
   expect(docs.source).toBe("nextcloud_files");
 });
+
+test("the preview of a source file asks the open source, the id's slashes stay and its other characters are escaped", async () => {
+  const docs = useDocuments();
+  await docs.loadSources();
+  await docs.openSource("nextcloud_files");
+  api.mockResolvedValueOnce({ name: "Plan #1.txt", text: "Erst denken" } as never);
+  expect(await docs.previewRemote("Projekt/Plan #1.txt")).toEqual({ name: "Plan #1.txt", text: "Erst denken" });
+  expect(api).toHaveBeenLastCalledWith("documents/source/nextcloud_files/preview/Projekt/Plan%20%231.txt");
+});
