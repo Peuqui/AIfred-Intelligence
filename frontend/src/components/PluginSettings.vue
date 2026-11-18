@@ -58,12 +58,13 @@ const picked = (event: Event): number => Number((event.target as HTMLSelectEleme
       <label v-if="!row.always_reply" class="switch">
         <input type="checkbox" :checked="row.auto_reply" :disabled="!row.monitor" @change="channel(row.name, row.configured, { auto_reply: checked($event) })" /> {{ t("auto_reply") }}
       </label>
-      <span class="spacer" />
-      <button v-if="row.description" class="icon help" :class="{ on: described.includes(row.name) }" :title="t('plugin_description_title')" @click="describe(row.name)"><Lightbulb :size="16" /></button>
-      <button :title="t('cred_title_suffix')" @click="editing = row.name"><Settings :size="16" /></button>
-      <label class="switch main">
-        <input type="checkbox" :checked="row.monitor" @change="channel(row.name, row.configured, { monitor: checked($event) })" />
-      </label>
+      <span class="actions">
+        <button v-if="row.description" class="icon help" :class="{ on: described.includes(row.name) }" :title="t('plugin_description_title')" @click="describe(row.name)"><Lightbulb :size="16" /></button>
+        <button class="gear" :title="t('cred_title_suffix')" @click="editing = row.name"><Settings :size="16" /></button>
+        <label class="switch main">
+          <input type="checkbox" :checked="row.monitor" @change="channel(row.name, row.configured, { monitor: checked($event) })" />
+        </label>
+      </span>
       <p v-if="described.includes(row.name)" class="description">{{ row.description }}</p>
     </div>
 
@@ -71,12 +72,13 @@ const picked = (event: Event): number => Number((event.target as HTMLSelectEleme
     <div v-for="row in overview.tools" :key="row.name" class="row" :class="{ off: !row.enabled }">
       <span class="name" :title="row.description">{{ row.label }}</span>
       <span v-if="row.needs_connection" class="hint"><Lock :size="16" /> {{ t("plugin_needs_connection") }}</span>
-      <span class="spacer" />
-      <button v-if="row.description" class="icon help" :class="{ on: described.includes(row.name) }" :title="t('plugin_description_title')" @click="describe(row.name)"><Lightbulb :size="16" /></button>
-      <button v-if="row.has_settings" :title="t('cred_title_suffix')" @click="editing = row.name"><Settings :size="16" /></button>
-      <label class="switch main">
-        <input type="checkbox" :checked="row.enabled" @change="tool(row.name, checked($event))" />
-      </label>
+      <span class="actions">
+        <button v-if="row.description" class="icon help" :class="{ on: described.includes(row.name) }" :title="t('plugin_description_title')" @click="describe(row.name)"><Lightbulb :size="16" /></button>
+        <button v-if="row.has_settings" class="gear" :title="t('cred_title_suffix')" @click="editing = row.name"><Settings :size="16" /></button>
+        <label class="switch main">
+          <input type="checkbox" :checked="row.enabled" @change="tool(row.name, checked($event))" />
+        </label>
+      </span>
       <p v-if="described.includes(row.name)" class="description">{{ row.description }}</p>
     </div>
     <PluginForm v-if="editing" :plugin="editing" @close="editing = ''" @saved="plugins.load()" />
@@ -89,7 +91,12 @@ h3 { margin: 10px 0 2px; font-size: 0.95rem; color: var(--aifred-text-secondary)
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 8px; border-radius: 8px; background: var(--aifred-input-bg); }
 .row.off .name { color: var(--aifred-text-muted); }
 .name { min-width: 200px; font-size: 0.9rem; }
-.spacer { flex: 1; }
+/* Bulb, gear and switch each in their own column at the right edge, also on a wrapped second line: a row
+   without a gear leaves its column empty, so every bulb and every switch stands under the one above. */
+.actions { margin-left: auto; display: grid; grid-template-columns: 24px 40px 16px; gap: 10px; align-items: center; justify-items: center; }
+.actions .help { grid-column: 1; }
+.actions .gear { grid-column: 2; }
+.actions .main { grid-column: 3; }
 .switch { display: inline-flex; align-items: center; gap: 4px; font-size: 0.8rem; color: var(--aifred-text-secondary); }
 input[type="checkbox"] { accent-color: var(--aifred-primary); width: 16px; height: 16px; }
 select { background: var(--aifred-card-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; font: inherit; font-size: 0.8rem; }
