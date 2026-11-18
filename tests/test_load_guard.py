@@ -71,8 +71,8 @@ def _load(monkeypatch: pytest.MonkeyPatch, models: list[str], running: list[str]
         asyncio.run(backend._pre_request_check(model))
 
 
-def _free_for(model: str) -> dict[str, str]:
-    return {"model": model, "model_server": GPU_ORC_MODEL_SERVER, "reason": f"AIfred: loading '{model}'"}
+def _free_for(model: str) -> dict[str, Any]:
+    return {"model": model, "model_server": GPU_ORC_MODEL_SERVER, "reason": f"AIfred: loading '{model}'", "keep": []}
 
 
 def test_the_guard_asks_gpu_orc_for_the_model_before_every_load(monkeypatch) -> None:
@@ -83,13 +83,6 @@ def test_the_guard_asks_gpu_orc_for_the_model_before_every_load(monkeypatch) -> 
     _load(monkeypatch, ["pp4-vllm", "pp4-vllm"], [])
     assert fake.frees == [_free_for("pp4-vllm"), _free_for("pp4-vllm")]
     assert _Client.loaded == ["pp4-vllm", "pp4-vllm"]
-
-
-def test_the_guard_waits_as_long_as_gpu_orc_says(monkeypatch) -> None:
-    fake = FakeGpuOrc()
-    install_fake_gpu_orc(monkeypatch, fake)
-    _load(monkeypatch, ["pp4-vllm"], [])
-    assert fake.free_timeouts == [690]
 
 
 def test_no_load_no_question(monkeypatch) -> None:

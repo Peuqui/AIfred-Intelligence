@@ -25,7 +25,7 @@ import httpx
 
 from .config import (
     GPU_ORC_MODEL_SERVER,
-    GPU_ORC_STATUS_TIMEOUT_S,
+    REMOTE_LLAMASWAP_TIMEOUT_S,
     VISION_REMOTE_HEALTH_TIMEOUT_S,
     VISION_REMOTE_HOSTS,
     VLM_HEADROOM_MIB,
@@ -124,7 +124,7 @@ def seeing_models(host: RemoteHost) -> list[RemoteModel]:
     """The machine's models that see, from its ``/v1/models``. :class:`RemoteHostError` if it does not
     answer (check :func:`reachable` first where not answering is the normal case)."""
     try:
-        response = httpx.get(f"{host.llamaswap_url}/v1/models", timeout=GPU_ORC_STATUS_TIMEOUT_S)
+        response = httpx.get(f"{host.llamaswap_url}/v1/models", timeout=REMOTE_LLAMASWAP_TIMEOUT_S)
         response.raise_for_status()
         entries = response.json()["data"]
         return [
@@ -234,7 +234,7 @@ def unload_machine(host: RemoteHost) -> None:
     """Unload what the machine's llama-swap has loaded (its next request loads a model again). The machine's cards
     are not touched otherwise. :class:`UpstreamFailed` when it does not answer or refuses."""
     try:
-        httpx.post(f"{host.llamaswap_url}/api/models/unload", timeout=GPU_ORC_STATUS_TIMEOUT_S * 6).raise_for_status()
+        httpx.post(f"{host.llamaswap_url}/api/models/unload", timeout=REMOTE_LLAMASWAP_TIMEOUT_S * 6).raise_for_status()
     except httpx.HTTPError as error:
         raise UpstreamFailed("remote_unload_failed", host=host.name, error=repr(error)) from error
 

@@ -710,7 +710,12 @@ process itself.
   answer, TTS goes to the next list entry, STT to the CPU, and a describer only comes afterwards.
 - **AIfred's side:** `GPU_ORC_URL` in `.env` (default `http://127.0.0.1:5070`) and
   `GPU_ORC_MODEL_SERVER` (the consumer name of the model server in GPU-Orc's configuration, default
-  `llama-swap`). AIfred takes its HTTP timeout from GPU-Orc's `/health`.
+  `llama-swap`). AIfred takes its HTTP timeout from GPU-Orc's `/health`. The protocol is
+  `aifred/lib/gpu_orc_protocol.py`, a copy from the GPU-Orc repo (`scripts/sync_clients.py`, never edit it
+  here). **An empty `GPU_ORC_URL` (explicitly `GPU_ORC_URL=` in `.env`) switches GPU-Orc off on this
+  machine:** AIfred does not ask it, logs nothing about it, loads models directly, the traffic light is
+  green, the calibration does not clear the cards (one note in its report) and no work is reported.
+  Describers on other machines still need their GPU-Orc.
 - **AIfred as a consumer:** its face detection runs in a process of its own and gives its card back
   through the suites' interface (`/api/gpu/holders`, `/api/gpu/release`, item `face-worker`, released
   once nvidia-smi no longer lists the process). Put `GPU_RELEASE_API_TOKEN` into `.env`, the same token

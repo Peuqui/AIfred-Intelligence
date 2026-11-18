@@ -1,60 +1,36 @@
-"""Thin HTTP client for GPU-Orc (repo GPU-Orc, one service per machine, port 5070).
+"""AIfred's connection to GPU-Orc (repo GPU-Orc, one service per machine, port 5070).
 
 GPU-Orc clears the cards before something loads and says who holds what: the STT and TTS workers and
 the persistent models of the model server. Every place in AIfred that needs room on the cards asks
-here; AIfred releases no GPU worker of another service itself. Blocking: call from async code with
-``asyncio.to_thread``.
+here; AIfred releases no GPU worker of another service itself. The protocol is ``gpu_orc_protocol.py``, a
+copy from GPU-Orc (never edit it here); this file adds what is AIfred's: the model server's name, the
+status line that re-reads STT and TTS after a release, the typed card status, and the log lines.
+Blocking: call from async code with ``asyncio.to_thread``.
+
+``GPU_ORC_URL`` empty = GPU-Orc is off: :func:`get_gpu_orc_client` returns ``None`` and the caller goes on
+without clearing cards, asking the traffic light or reporting work.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
-from urllib.parse import quote
 
-import httpx
-
-from .config import GPU_ORC_MODEL_SERVER, GPU_ORC_STATUS_TIMEOUT_S, GPU_ORC_URL
+from .config import GPU_ORC_MODEL_SERVER, GPU_ORC_URL
+from .gpu_orc_protocol import (
+    FINE_OUTCOMES,
+    FreeAction,
+    FreeResult,
+    GpuOrc,
+    GpuOrcError,
+    TrafficLight,
+)
 from .logging_utils import LogCategory, log_message
 from .service_status import notify_changed
 
+__all__ = ["FreeAction", "FreeResult", "GpuOrcError", "TrafficLight"]
+
 # Outcomes after which the item holds its card no longer (``kept`` = the request protected it).
-RELEASED_OUTCOMES = ("released", "released_forced")
-
-
-class GpuOrcError(RuntimeError):
-    """GPU-Orc did not answer, refused the request, or answered in a form this client does not know."""
-
-
-@dataclass(frozen=True)
-class FreeAction:
-    """What GPU-Orc did about one thing on the cards. ``outcome``: ``released``, ``released_forced``,
-    ``not_freed`` (the service could not prove the end), ``refused_busy``, ``timeout``, ``kept``, ``error``."""
-
-    consumer: str
-    item: str
-    outcome: str
-    detail: str
-
-
-@dataclass(frozen=True)
-class FreeResult:
-    already_running: bool  # model form: the model runs, nothing was touched
-    free: bool  # no known consumer is left on the cards and every release was proven
-    actions: tuple[FreeAction, ...]
-
-
-@dataclass(frozen=True)
-class TrafficLight:
-    """GPU-Orc's ``GET /loading``: nothing new goes on the cards while a big model loads or while
-    somebody holds them (``held``: ``{"since", "reason"}``, else ``None``)."""
-
-    loading: tuple[str, ...]
-    held: dict[str, str] | None
-
-    @property
-    def red(self) -> bool:
-        return bool(self.loading) or self.held is not None
+RELEASED_OUTCOMES = FINE_OUTCOMES - {"kept"}
 
 
 @dataclass(frozen=True)
@@ -73,57 +49,44 @@ class CardStatus:
 
 
 class GpuOrcClient:
-    def __init__(
-        self, base_url: str, transport: httpx.BaseTransport | None = None, *, token: str | None = None,
-    ) -> None:
+    def __init__(self, base_url: str, *, token: str | None = None) -> None:
         """``token``: for a GPU-Orc on another machine (it answers only loopback without one)."""
-        self.base_url = base_url
-        self._transport = transport
-        self._headers = {"Authorization": f"Bearer {token}"} if token else {}
+        self._orc = GpuOrc(base_url, token)
 
     def free_for_model(self, model: str, *, reason: str) -> FreeResult:
         """Clear the cards ``model`` will load on (GPU-Orc's ``model`` form): the STT and TTS workers
         there and the model server's persistent models, unless the model is configured to evict none."""
-        return self._free({"model": model, "model_server": GPU_ORC_MODEL_SERVER, "reason": reason})
+        return _after_release(self._orc.free_for_model(model, reason, model_server=GPU_ORC_MODEL_SERVER))
 
     def free_all_but_models(self, *, reason: str) -> FreeResult:
         """Clear every card of everything but the model server's models (``gpus`` form with ``keep``)."""
-        return self._free({"gpus": "all", "keep": [GPU_ORC_MODEL_SERVER], "reason": reason})
+        return _after_release(self._orc.free_gpus("all", reason, keep=[GPU_ORC_MODEL_SERVER]))
 
     def traffic_light(self) -> TrafficLight:
         """The big models loading right now and the hold of the cards (GPU-Orc's traffic light)."""
-        body = self._call("GET", "/loading", GPU_ORC_STATUS_TIMEOUT_S)
-        try:
-            held = body["held"]
-            return TrafficLight(
-                tuple(str(model) for model in body["loading"]),
-                None if held is None else {"since": str(held["since"]), "reason": str(held["reason"])},
-            )
-        except (KeyError, TypeError) as error:
-            raise GpuOrcError(f"GPU-Orc /loading has an unknown form: {error!r}") from error
+        return self._orc.loading()
 
     def hold(self, reason: str) -> FreeResult:
         """Hold the cards for somebody (``POST /hold``): GPU-Orc clears every card at once; the answer is
         that clearing. It may take as long as a /free."""
-        answer = self._call("POST", "/hold", self._caller_timeout(), {"reason": reason})
-        return self._free_result(answer.get("free"), "/hold")
+        return _after_release(self._orc.hold(reason))
 
     def release_hold(self) -> None:
         """Let go of the cards (``DELETE /hold``)."""
-        self._call("DELETE", "/hold", GPU_ORC_STATUS_TIMEOUT_S)
+        self._orc.release_hold()
 
     def work_begin(self, owner: str, reason: str, ttl_s: float) -> None:
         """Report work on this machine (``POST /work``), or renew the lease of ``owner``: GPU-Orc ends it by itself
         after ``ttl_s`` without a renewal."""
-        self._call("POST", "/work", GPU_ORC_STATUS_TIMEOUT_S, {"owner": owner, "reason": reason, "ttl_s": ttl_s})
+        self._orc.work_begin(owner, reason, ttl_s)
 
     def work_end(self, owner: str) -> None:
         """End the work of ``owner`` (``DELETE /work/<owner>``); no error when the lease is gone already."""
-        self._call("DELETE", f"/work/{quote(owner, safe='')}", GPU_ORC_STATUS_TIMEOUT_S)
+        self._orc.work_end(owner)
 
     def card_status(self) -> list[CardStatus]:
         """Who holds what on each card, as the consumers' own services report it."""
-        body = self._call("GET", "/status", GPU_ORC_STATUS_TIMEOUT_S)
+        body = self._orc.status()
         try:
             return [
                 CardStatus(
@@ -137,54 +100,13 @@ class GpuOrcClient:
         except (KeyError, TypeError) as error:
             raise GpuOrcError(f"GPU-Orc /status has an unknown form: {error!r}") from error
 
-    def _free(self, body: dict[str, Any]) -> FreeResult:
-        return self._free_result(self._call("POST", "/free", self._caller_timeout(), body), "/free")
 
-    def _caller_timeout(self) -> float:
-        """A /free (and a /hold, which clears like one) waits as long as GPU-Orc's own limit; it names
-        the timeout that fits on /health."""
-        timeout = self._call("GET", "/health", GPU_ORC_STATUS_TIMEOUT_S).get("caller_timeout_s")
-        if not isinstance(timeout, int | float):
-            raise GpuOrcError("GPU-Orc /health names no caller_timeout_s")
-        return float(timeout)
-
-    @staticmethod
-    def _free_result(answer: Any, path: str) -> FreeResult:
-        try:
-            result = FreeResult(
-                answer["already_running"],
-                answer["free"],
-                tuple(
-                    FreeAction(a["consumer"], a["item"], a["outcome"], a.get("detail", ""))
-                    for a in answer["actions"]
-                ),
-            )
-        except (KeyError, TypeError) as error:
-            raise GpuOrcError(f"GPU-Orc {path} has an unknown form: {error!r}") from error
-        if any(action.outcome in RELEASED_OUTCOMES for action in result.actions):
-            # STT and TTS push nothing; llama-swap reports its own unloads over its event stream.
-            notify_changed("stt")
-            notify_changed("tts")
-        return result
-
-    def _call(self, method: str, path: str, timeout: float, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        try:
-            with httpx.Client(
-                base_url=self.base_url, timeout=timeout, transport=self._transport, headers=self._headers,
-            ) as http:
-                response = http.request(method, path, json=body)
-        except httpx.TransportError as error:
-            raise GpuOrcError(f"GPU-Orc not reachable at {self.base_url} ({path}): {error!r}") from error
-        try:
-            answer = response.json()
-        except ValueError as error:
-            raise GpuOrcError(f"GPU-Orc sent no JSON on {path} (HTTP {response.status_code})") from error
-        if response.is_error:
-            reason = answer.get("error") if isinstance(answer, dict) else answer
-            raise GpuOrcError(f"GPU-Orc refused {path} (HTTP {response.status_code}): {reason}")
-        if not isinstance(answer, dict):
-            raise GpuOrcError(f"GPU-Orc answered {path} with no JSON object")
-        return answer
+def _after_release(result: FreeResult) -> FreeResult:
+    if any(action.outcome in RELEASED_OUTCOMES for action in result.actions):
+        # STT and TTS push nothing; llama-swap reports its own unloads over its event stream.
+        notify_changed("stt")
+        notify_changed("tts")
+    return result
 
 
 def describe(result: FreeResult) -> list[tuple[str, LogCategory]]:
@@ -209,9 +131,13 @@ def clear_cards_for(model: str, *, reason: str, client: GpuOrcClient | None = No
     """Ask GPU-Orc to clear the cards of ``model`` before it loads, and log what came of it. The load goes
     on whatever the answer: a card that stays held shows in the log (and in the load's own error), a
     GPU-Orc that does not answer is logged loudly; there is no other way to clear the cards. ``client``:
-    the GPU-Orc of the machine the model loads on; ``None`` = this machine."""
+    the GPU-Orc of the machine the model loads on; ``None`` = this machine, and with GPU-Orc off there
+    nothing is cleared and nothing is logged."""
+    orc = client or get_gpu_orc_client()
+    if orc is None:
+        return
     try:
-        result = (client or get_gpu_orc_client()).free_for_model(model, reason=reason)
+        result = orc.free_for_model(model, reason=reason)
     except GpuOrcError as error:
         log_message(f"⚠️ GPU-Orc could not clear the cards for '{model}': {error}", "warning")
         return
@@ -222,9 +148,13 @@ def clear_cards_for(model: str, *, reason: str, client: GpuOrcClient | None = No
 _default_client: GpuOrcClient | None = None
 
 
-def get_gpu_orc_client() -> GpuOrcClient:
-    """The one client of the process (URL from config.py)."""
+def get_gpu_orc_client() -> GpuOrcClient | None:
+    """The one client of this machine's GPU-Orc (URL from config.py); ``None`` when ``GPU_ORC_URL`` is
+    empty, i.e. GPU-Orc is off. Returning ``None`` makes mypy force every caller to decide what "off"
+    means for it, which a separate ``enabled()`` check would leave to memory."""
     global _default_client
+    if not GPU_ORC_URL:
+        return None
     if _default_client is None:
         _default_client = GpuOrcClient(GPU_ORC_URL)
     return _default_client

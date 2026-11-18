@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import asyncio
 
-import httpx
 import pytest
-from fake_gpu_orc import FakeGpuOrc, install_fake_gpu_orc
+from fake_gpu_orc import FakeGpuOrc, current_client, install_fake_gpu_orc
 
 from aifred.lib import gpu_orc_work
-from aifred.lib.gpu_orc_client import GpuOrcClient, get_gpu_orc_client
+from aifred.lib.gpu_orc_client import GpuOrcClient
 from aifred.lib.gpu_orc_work import WorkReporter
 
 
@@ -29,7 +28,7 @@ class Turns:
 
 
 def reporter(turns: Turns) -> WorkReporter:
-    return WorkReporter(get_gpu_orc_client(), turns, owner="aifred-test", poll_s=0.01, ttl_s=60)
+    return WorkReporter(current_client(), turns, owner="aifred-test", poll_s=0.01, ttl_s=60)
 
 
 def test_nothing_is_reported_while_no_turn_runs(fake) -> None:
@@ -63,13 +62,11 @@ def test_an_unreachable_gpu_orc_is_logged_once_and_the_end_is_retried(monkeypatc
     work = reporter(turns)
     turns.running = 1
     work.report_once()                       # the lease stands
-    down = GpuOrcClient("http://gpu-orc.test", transport=httpx.MockTransport(
-        lambda request: httpx.Response(500, json={"error": "down"})))
-    work._client = down
+    work._client = GpuOrcClient("http://127.0.0.1:9")  # nobody listens there
     work.report_once()
     work.report_once()
     assert len(logged) == 1
-    work._client = get_gpu_orc_client()
+    work._client = current_client()
     turns.running = 0
     work.report_once()                       # the end that was missed is sent now
     assert fake.work_calls[-1] == "end aifred-test" and fake.work == {}

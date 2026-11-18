@@ -29,7 +29,8 @@ AIfred-Intelligence/
 │   │   ├── vision_*.py · frame_sources/ · frame_hub.py   # Vision + Vigilantia
 │   │   ├── tts_client.py · tts_service.py · tts_voices.py   # Client der TTS-Suite: HTTP/WebSocket, Katalog ↔ AIfreds Liste, Stimmen
 │   │   ├── tts_llm_coordination.py · tts_stress_burnin.py   # Plan des LLM-Profils, Freigabe vor dem Laden, Burn-in-Messung der TTS
-│   │   ├── gpu_orc_client.py      # Client von GPU-Orc: Karten vor dem Laden freiräumen, wer welche Karte belegt
+│   │   ├── gpu_orc_client.py      # Anschluss an GPU-Orc: Karten vor dem Laden freiräumen, wer welche Karte belegt (leere `GPU_ORC_URL` = aus)
+│   │   ├── gpu_orc_protocol.py    # Protokoll von GPU-Orc: Kopie aus dem GPU-Orc-Repo (scripts/sync_clients.py), nie hier ändern
 │   │   ├── speech_synthesis.py · audio_*.py · audio_channels/   # Synthese, STT, Ausgabewege (Browser, FreeEcho.2, lokal)
 │   │   ├── api/                   # REST API (FastAPI, unter /api gemountet): chat, agents, audio, announce, tts, documents, vision, …
 │   │   ├── i18n/                  # UI-Übersetzungen (de.json, en.json)

@@ -113,11 +113,16 @@ def side_channel_pair_fits(needed_mb: int, card_total_mb: int) -> bool:
 def _free_cards_for_calibration(report: Any) -> None:
     """Have GPU-Orc clear every card of everything but llama-swap's models (the STT and TTS workers): the
     calibration measures cards that must be free (a running worker would count as the model's own
-    consumption). What stays on the cards, or a GPU-Orc that does not answer, is reported; the run goes on."""
+    consumption). What stays on the cards, or a GPU-Orc that does not answer, is reported; the run goes on.
+    With GPU-Orc off (empty ``GPU_ORC_URL``) the cards are not cleared, and the report says so."""
     from aifred.lib.gpu_orc_client import GpuOrcError, describe, get_gpu_orc_client
 
+    client = get_gpu_orc_client()
+    if client is None:
+        report("   ℹ️ GPU-Orc is off (GPU_ORC_URL is empty): the cards were not cleared for the calibration")
+        return
     try:
-        result = get_gpu_orc_client().free_all_but_models(reason="AIfred: calibration")
+        result = client.free_all_but_models(reason="AIfred: calibration")
     except GpuOrcError as error:
         report(f"   ⚠️ GPU-Orc could not clear the cards for the calibration: {error}")
         return

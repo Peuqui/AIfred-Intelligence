@@ -73,7 +73,7 @@ def test_without_gpu_orc_the_room_is_unknown_and_said(fake, monkeypatch):
 def test_the_describer_has_gpu_orc_clear_its_cards(fake):
     vision_routing.release_side_channels_for_describer(PROFILE)
     assert fake.frees == [
-        {"model": PROFILE, "model_server": GPU_ORC_MODEL_SERVER, "reason": f"AIfred: describer {PROFILE}"},
+        {"model": PROFILE, "model_server": GPU_ORC_MODEL_SERVER, "reason": f"AIfred: describer {PROFILE}", "keep": []},
     ]
 
 

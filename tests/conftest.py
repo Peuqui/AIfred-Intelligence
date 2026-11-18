@@ -74,12 +74,18 @@ def _no_real_tts_service(monkeypatch):
 @pytest.fixture(autouse=True)
 def _no_real_gpu_orc(monkeypatch):
     """Tests dürfen den echten GPU-Orc nie fragen: ein /free gäbe STT- und
-    TTS-Worker frei. Der Default-Client zeigt auf eine tote Adresse, jeder
-    Aufruf scheitert mit GpuOrcError. Tests, die GPU-Orc brauchen, setzen
-    einen Fake (tests/fake_gpu_orc.py)."""
+    TTS-Worker frei. Die Adresse ist eine tote (nicht leer: leer hieße „GPU-Orc
+    aus“, und Tests liefen still ohne ihn); jeder Aufruf scheitert mit GpuOrcError.
+    Tests, die GPU-Orc brauchen, setzen einen Fake (tests/fake_gpu_orc.py), dessen
+    Server hier nach dem Test beendet wird."""
+    from fake_gpu_orc import stop_fake_gpu_orcs
+
     from aifred.lib import gpu_orc_client
 
+    monkeypatch.setattr(gpu_orc_client, "GPU_ORC_URL", "http://127.0.0.1:9")
     monkeypatch.setattr(gpu_orc_client, "_default_client", gpu_orc_client.GpuOrcClient("http://127.0.0.1:9"))
+    yield
+    stop_fake_gpu_orcs()
 
 
 @pytest.fixture(autouse=True)

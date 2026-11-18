@@ -123,12 +123,17 @@ def test_every_refusal_has_its_text_in_both_languages() -> None:
     assert not problems, "\n".join(problems)
 
 
+def _is_http_client(node: ast.expr) -> bool:
+    """``http.client`` (the standard library's ``http.client.HTTPException``, in the copy of GPU-Orc's protocol)."""
+    return isinstance(node, ast.Attribute) and node.attr == "client" and isinstance(node.value, ast.Name) and node.value.id == "http"
+
+
 def _http_exceptions(trees: dict[str, tuple[ast.Module, bool]]) -> list[str]:
     """Where the code imports or raises FastAPI's ``HTTPException``: its ``detail`` reads in no language of the UI."""
     return [f"{module}:{node.lineno}" for module, (tree, _) in trees.items() for node in ast.walk(tree)
             if (isinstance(node, ast.ImportFrom) and any(alias.name == "HTTPException" for alias in node.names))
             or (isinstance(node, ast.Name) and node.id == "HTTPException")
-            or (isinstance(node, ast.Attribute) and node.attr == "HTTPException")]
+            or (isinstance(node, ast.Attribute) and node.attr == "HTTPException" and not _is_http_client(node.value))]
 
 
 def test_every_refusal_of_the_api_is_a_user_error() -> None:

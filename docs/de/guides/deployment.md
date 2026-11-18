@@ -719,7 +719,12 @@ Speicher je Karte); er beendet nie selbst einen Prozess.
   TTS zum nächsten Listeneintrag und STT zur CPU, und ein Describer kommt erst danach dazu.
 - **AIfreds Seite:** `GPU_ORC_URL` in `.env` (Standard `http://127.0.0.1:5070`) und
   `GPU_ORC_MODEL_SERVER` (der Name des Modellservers unter den Verbrauchern in GPU-Orcs Konfiguration,
-  Standard `llama-swap`). Sein HTTP-Timeout nimmt AIfred aus GPU-Orcs `/health`.
+  Standard `llama-swap`). Sein HTTP-Timeout nimmt AIfred aus GPU-Orcs `/health`. Das Protokoll steht in
+  `aifred/lib/gpu_orc_protocol.py`, einer Kopie aus dem GPU-Orc-Repo (`scripts/sync_clients.py`, nie hier
+  ändern). **`GPU_ORC_URL` leer (ausdrücklich `GPU_ORC_URL=` in der `.env`) schaltet GPU-Orc auf diesem
+  Rechner ab:** AIfred fragt ihn nicht, loggt nichts dazu, lädt Modelle direkt, die Ampel ist grün, die
+  Kalibrierung räumt die Karten nicht (ein Hinweis im Bericht) und keine Arbeit wird gemeldet. Bildbeschreiber
+  auf anderen Rechnern brauchen ihren GPU-Orc weiter.
 - **AIfred als Verbraucher:** Seine Gesichtserkennung läuft in einem eigenen Prozess und gibt ihre
   Karte über die Schnittstelle der Suiten zurück (`/api/gpu/holders`, `/api/gpu/release`, Element
   `face-worker`, freigegeben, sobald nvidia-smi den Prozess nicht mehr führt). `GPU_RELEASE_API_TOKEN` in

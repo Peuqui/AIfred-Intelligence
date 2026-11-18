@@ -34,7 +34,9 @@ def box(monkeypatch, tmp_path):
     """One configured machine; its reachability, its models and its GPU-Orc as set."""
     monkeypatch.setattr(remote_describers, "VISION_REMOTE_HOSTS", json.dumps([HOST]))
     monkeypatch.setattr(vlm_vram_cache, "_store", vlm_vram_cache.JsonPeakCache(tmp_path / "vlm.json", "test"))
-    state: dict[str, Any] = {"reachable": True, "models": [], "gpu_orc": FakeGpuOrc(), "token_ok": True}
+    fake_gpu_orc = FakeGpuOrc()
+    gpu_orc_url = fake_gpu_orc.serve()
+    state: dict[str, Any] = {"reachable": True, "models": [], "gpu_orc": fake_gpu_orc, "token_ok": True}
 
     def models(host: RemoteHost) -> list[RemoteModel]:
         return [RemoteModel(host, name, 24576, loaded) for name, loaded in state["models"]]
@@ -42,7 +44,7 @@ def box(monkeypatch, tmp_path):
     def gpu_orc(host: RemoteHost) -> GpuOrcClient:
         if not state["token_ok"]:
             raise GpuOrcError("token file missing")
-        return GpuOrcClient(host.gpu_orc_url, transport=httpx.MockTransport(state["gpu_orc"].handler), token="t")
+        return GpuOrcClient(gpu_orc_url, token="t")
 
     monkeypatch.setattr(remote_describers, "reachable", lambda host: state["reachable"])
     monkeypatch.setattr(remote_describers, "seeing_models", models)

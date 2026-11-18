@@ -70,5 +70,7 @@ class WorkReporter:
             log_message(f"⚠️ GPU-Orc did not take the end of the work report: {error}", "warning")
 
 
-def make_work_reporter() -> WorkReporter:
-    return WorkReporter(get_gpu_orc_client(), running_pipeline_count)
+def make_work_reporter() -> WorkReporter | None:
+    """``None`` when GPU-Orc is off (empty ``GPU_ORC_URL``): there is nobody to report to."""
+    client = get_gpu_orc_client()
+    return None if client is None else WorkReporter(client, running_pipeline_count)

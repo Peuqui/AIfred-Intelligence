@@ -289,6 +289,7 @@ Zusätzliche `.env`-Schlüssel, die der Code liest (nur Namen und Bedeutung):
 | `FREEECHO2_PAUSE_ACK_TIMEOUT_SEC` | Wie lange nach dem Anhalten eines laufenden Stroms vor einer Ansage auf die Bestätigung des Pucks gewartet wird; sonst wird die Ansage verworfen |
 | `TTS_CONTROL_API_TOKEN` | Bearer-Token der TTS-Start/Stopp-API für die Dienste-Steuerseite |
 | `GPU_RELEASE_API_TOKEN` | Bearer-Token der GPU-Freigabe (`/api/gpu/holders`, `/api/gpu/release`): GPU-Orc beendet damit den Arbeitsprozess der Gesichtserkennung, um ihre Karte freizuräumen |
+| `GPU_ORC_URL` | Adresse des GPU-Orc dieses Rechners (Standard `http://127.0.0.1:5070`). **Leer = GPU-Orc aus:** nichts wird gefragt, nichts geloggt, Modelle laden direkt, die Ampel ist grün, keine Arbeit wird gemeldet |
 | `OUTBOUND_ATTACHMENT_MAX_BYTES` | Größte Datei, die ein Kanal-Sendetool anhängen darf |
 
 Wichtige Plugin-Einstellungen:

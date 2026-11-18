@@ -495,11 +495,15 @@ def load_in_progress() -> UserError | None:
     Solange ein großes Modell lädt, zeigt nvidia-smi Karten, die gleich voll sind: Ein
     Describer, der jetzt nach dem freien Speicher geht, nimmt dem Modell den
     Platz, und es stirbt mit OOM (30.10.2026, zwei Ladeversuche von DeepSeek).
-    Gibt GPU-Orc keine Auskunft, ist das keine grüne Ampel.
+    Gibt GPU-Orc keine Auskunft, ist das keine grüne Ampel; ist GPU-Orc aus (``GPU_ORC_URL`` leer), gibt es
+    keine Ampel und nichts, worauf zu warten wäre.
     """
     from .gpu_orc_client import GpuOrcError, get_gpu_orc_client
+    client = get_gpu_orc_client()
+    if client is None:
+        return None
     try:
-        light = get_gpu_orc_client().traffic_light()
+        light = client.traffic_light()
     except GpuOrcError as error:
         logger.warning("GPU-Orc says nothing about loading models: %s", error)
         return UserError("vram_gpu_orc_silent", error=error)

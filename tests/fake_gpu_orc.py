@@ -1,23 +1,27 @@
-"""A GPU-Orc stand-in for tests: answers /health, /status, /loading, /free, /hold and /work as set up, records every
-/free, /hold and /work."""
+"""A GPU-Orc stand-in for tests: a small real HTTP server in a thread that answers /health, /status, /loading,
+/free, /hold and /work as set up and records every /free, /hold and /work. The protocol itself (which
+timeout, which body) is tested against the real GPU-Orc in its own repo; here the client of AIfred is the
+caller, so the stand-in only has to speak HTTP."""
 
 from __future__ import annotations
 
 import json
+import threading
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-import httpx
 import pytest
 
 from aifred.lib import gpu_orc_client
 
 CALLER_TIMEOUT_S = 690
+_running: list[ThreadingHTTPServer] = []
 
 
 class FakeGpuOrc:
     def __init__(self) -> None:
         self.frees: list[dict[str, Any]] = []  # the body of each POST /free
-        self.free_timeouts: list[float] = []  # the read timeout each /free was sent with
         self.actions: list[dict[str, Any]] = []
         self.free = True
         self.already_running = False
@@ -27,56 +31,95 @@ class FakeGpuOrc:
         self.holds: list[str] = []  # the reason of each POST /hold
         self.work: dict[str, dict[str, Any]] = {}  # the leases POST /work holds, by owner
         self.work_calls: list[str] = []  # "begin <owner>" / "end <owner>" in the order they came
+        self.requests: list[str] = []  # "<METHOD> <path>" of every request, in the order they came
         self.refusal: tuple[int, str] | None = None  # (HTTP status, error) every /free answers instead
 
-    def handler(self, request: httpx.Request) -> httpx.Response:
-        path = request.url.path
+    def serve(self) -> str:
+        """Start the server on a free port of the loopback; its address. Stopped by :func:`stop_fake_gpu_orcs`."""
+        fake = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def _answer(self) -> None:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(length)) if length else None
+                status, answer = fake.respond(self.command, self.path, body)
+                data = json.dumps(answer).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            do_GET = do_POST = do_DELETE = _answer
+
+            def log_message(self, format: str, *args: Any) -> None:
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.daemon_threads = True
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        _running.append(server)
+        return f"http://127.0.0.1:{server.server_address[1]}"
+
+    def respond(self, method: str, path: str, body: Any) -> tuple[int, dict[str, Any]]:
+        self.requests.append(f"{method} {path}")
         if path == "/health":
-            return httpx.Response(200, json={
+            return 200, {
                 "status": "ok", "version": "0.2.0", "free_timeout_s": CALLER_TIMEOUT_S - 30,
                 "caller_timeout_s": CALLER_TIMEOUT_S,
-            })
+            }
         if path == "/status":
             queue = {"running": False, "waiting": 0, "running_since_s": None}
-            return httpx.Response(200, json={"queue": queue, "gpus": self.cards, "errors": []})
+            return 200, {"queue": queue, "gpus": self.cards, "errors": []}
         if path == "/loading":
-            return httpx.Response(200, json={"loading": self.loading, "held": self.held})
-        if path == "/hold" and request.method == "POST":
-            reason = json.loads(request.content)["reason"]
-            self.holds.append(reason)
-            self.held = {"since": "2026-11-05T09:00:00+01:00", "reason": reason}
-            return httpx.Response(200, json={"held": self.held, "free": {
-                "gpus": [], "already_running": False, "duration_s": 0.1, "actions": self.actions,
-                "memory": [], "free": self.free, "status": None,
-            }})
-        if path == "/hold" and request.method == "DELETE":
+            return 200, {"loading": self.loading, "held": self.held}
+        if path == "/hold" and method == "POST":
+            self.holds.append(body["reason"])
+            self.held = {"since": "2026-11-05T09:00:00+01:00", "reason": body["reason"]}
+            return 200, {"held": self.held, "free": self._freed()}
+        if path == "/hold" and method == "DELETE":
             self.held = None
-            return httpx.Response(200, json={"held": None})
-        if path == "/work" and request.method == "POST":
-            body = json.loads(request.content)
+            return 200, {"held": None}
+        if path == "/work" and method == "POST":
             self.work[body["owner"]] = body
             self.work_calls.append(f"begin {body['owner']}")
-            return httpx.Response(200, json={"work": list(self.work.values())})
-        if path.startswith("/work/") and request.method == "DELETE":
-            owner = path.removeprefix("/work/")
+            return 200, {"work": list(self.work.values())}
+        if path.startswith("/work/") and method == "DELETE":
+            owner = urllib.parse.unquote(path.removeprefix("/work/"))
             self.work_calls.append(f"end {owner}")
             ended = self.work.pop(owner, None) is not None
-            return httpx.Response(200, json={"ended": ended, "work": list(self.work.values())})
+            return 200, {"ended": ended, "work": list(self.work.values())}
         if path == "/free":
-            self.frees.append(json.loads(request.content))
-            self.free_timeouts.append(request.extensions["timeout"]["read"])
+            self.frees.append(body)
             if self.refusal is not None:
-                return httpx.Response(self.refusal[0], json={"error": self.refusal[1]})
-            return httpx.Response(200, json={
-                "gpus": [], "already_running": self.already_running, "duration_s": 0.1,
-                "actions": self.actions, "memory": [], "free": self.free, "status": None,
-            })
-        return httpx.Response(404, json={"error": f"no such path: {path}"})
+                return self.refusal[0], {"error": self.refusal[1]}
+            return 200, self._freed()
+        return 404, {"error": f"no such path: {path}"}
+
+    def _freed(self) -> dict[str, Any]:
+        return {
+            "gpus": [], "already_running": self.already_running, "duration_s": 0.1,
+            "actions": self.actions, "memory": [], "free": self.free, "status": None,
+        }
+
+
+def stop_fake_gpu_orcs() -> None:
+    while _running:
+        server = _running.pop()
+        server.shutdown()
+        server.server_close()
 
 
 def install_fake_gpu_orc(monkeypatch: pytest.MonkeyPatch, fake: FakeGpuOrc) -> None:
-    client = gpu_orc_client.GpuOrcClient("http://gpu-orc.test", transport=httpx.MockTransport(fake.handler))
+    client = gpu_orc_client.GpuOrcClient(fake.serve())
     monkeypatch.setattr(gpu_orc_client, "_default_client", client)
+
+
+def current_client() -> gpu_orc_client.GpuOrcClient:
+    """The client of this machine's GPU-Orc as the code under test gets it (a test that wants GPU-Orc on)."""
+    client = gpu_orc_client.get_gpu_orc_client()
+    assert client is not None
+    return client
 
 
 def card(uuid: str, *holders: tuple[str, str, int | None]) -> dict[str, Any]:

@@ -1326,13 +1326,13 @@ TTS_MEDIA_TYPE_EXTENSIONS = {"audio/wav": "wav", "audio/ogg": "ogg", "audio/mpeg
 # GPU-Orc (own repo github.com/Peuqui/GPU-Orc, one service per machine): clears the cards before a
 # model or describer loads and says who holds what (STT and TTS workers, the model server's persistent
 # models). AIfred releases no GPU worker of another service itself, it asks GPU-Orc; when GPU-Orc does
-# not answer, the load goes on and the log says so loudly.
+# not answer, the load goes on and the log says so loudly. An EMPTY GPU_ORC_URL (set explicitly in .env)
+# switches GPU-Orc off for this machine: nothing is asked, nothing is logged.
 GPU_ORC_URL = os.environ.get("GPU_ORC_URL", "http://127.0.0.1:5070")
 # Name of the llama-swap consumer in GPU-Orc's config: the model server AIfred's models load on.
 GPU_ORC_MODEL_SERVER = os.environ.get("GPU_ORC_MODEL_SERVER", "llama-swap")
-# /health and /status: GPU-Orc runs nvidia-smi and asks every consumer, all in parallel. A /free takes
-# as long as GPU-Orc's own limit; /health reports the caller timeout that fits it.
-GPU_ORC_STATUS_TIMEOUT_S = 15
+# The model server of another machine (remote describers): its /v1/models; an unload waits six times as long.
+REMOTE_LLAMASWAP_TIMEOUT_S = 15
 # While a turn runs (every channel, the chat, the scheduler), AIfred reports work to GPU-Orc (lib/gpu_orc_work.py)
 # so that nothing restarts the machine under it. The report is a lease: GPU-Orc ends it by itself after
 # ``GPU_ORC_WORK_TTL_S`` without renewal (AIfred crashed), AIfred renews it every ``GPU_ORC_WORK_POLL_S``.

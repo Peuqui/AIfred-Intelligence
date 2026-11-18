@@ -1,11 +1,12 @@
-"""GPU-Orc client: the two forms of /free AIfred sends, what it reads from /status, and the caller that
-clears every card but the models (calibration)."""
+"""AIfred's GPU-Orc client: what it adds to the protocol (the model server's name, the status line after a
+release, the typed card status, the log lines) and the caller that clears every card but the models
+(calibration). The protocol itself (timeouts, errors, token, forms) is tested against the real GPU-Orc in its
+own repo."""
 
 from __future__ import annotations
 
-import httpx
 import pytest
-from fake_gpu_orc import FakeGpuOrc, card, install_fake_gpu_orc
+from fake_gpu_orc import FakeGpuOrc, card, current_client, install_fake_gpu_orc
 
 from aifred.lib.config import GPU_ORC_MODEL_SERVER
 from aifred.lib.gpu_orc_client import (
@@ -13,11 +14,8 @@ from aifred.lib.gpu_orc_client import (
     CardStatus,
     FreeAction,
     FreeResult,
-    GpuOrcClient,
-    GpuOrcError,
     TrafficLight,
     describe,
-    get_gpu_orc_client,
 )
 
 
@@ -30,9 +28,14 @@ def fake(monkeypatch) -> FakeGpuOrc:
 
 def test_the_model_form_names_the_model_server_and_the_reason(fake) -> None:
     fake.actions = [{"consumer": "stt-suite", "item": "gpu-worker", "outcome": "released_forced", "detail": "waited"}]
-    result = get_gpu_orc_client().free_for_model("m", reason="AIfred: loading 'm'")
-    assert fake.frees == [{"model": "m", "model_server": GPU_ORC_MODEL_SERVER, "reason": "AIfred: loading 'm'"}]
-    assert result == FreeResult(False, True, (FreeAction("stt-suite", "gpu-worker", "released_forced", "waited"),))
+    result = current_client().free_for_model("m", reason="AIfred: loading 'm'")
+    assert fake.frees == [
+        {"model": "m", "model_server": GPU_ORC_MODEL_SERVER, "reason": "AIfred: loading 'm'", "keep": []},
+    ]
+    assert result == FreeResult(
+        free=True, already_running=False,
+        actions=(FreeAction("stt-suite", "gpu-worker", "released_forced", "waited"),),
+    )
 
 
 @pytest.mark.parametrize(
@@ -45,65 +48,44 @@ def test_a_release_has_the_status_line_read_stt_and_tts_again(fake, monkeypatch,
     asked: list[str] = []
     monkeypatch.setattr(gpu_orc_client, "notify_changed", asked.append)
     fake.actions = [{"consumer": "stt-suite", "item": "gpu-worker", "outcome": outcome}]
-    get_gpu_orc_client().free_for_model("m", reason="r")
+    current_client().free_for_model("m", reason="r")
     assert asked == read_again
 
 
+def test_a_hold_that_releases_something_has_the_status_line_read_stt_and_tts_again(fake, monkeypatch) -> None:
+    from aifred.lib import gpu_orc_client
+
+    asked: list[str] = []
+    monkeypatch.setattr(gpu_orc_client, "notify_changed", asked.append)
+    fake.actions = [{"consumer": "tts-suite", "item": "xtts", "outcome": "released"}]
+    current_client().hold("gaming")
+    assert asked == ["stt", "tts"]
+
+
 def test_clearing_all_cards_keeps_the_model_servers_models(fake) -> None:
-    get_gpu_orc_client().free_all_but_models(reason="AIfred: calibration")
+    current_client().free_all_but_models(reason="AIfred: calibration")
     assert fake.frees == [{"gpus": "all", "keep": [GPU_ORC_MODEL_SERVER], "reason": "AIfred: calibration"}]
-
-
-def test_a_refused_request_is_an_error_with_gpu_orcs_reason(fake) -> None:
-    fake.refusal = (400, "model 'x' is not in the config of llama-swap")
-    with pytest.raises(GpuOrcError, match=r"HTTP 400.*not in the config"):
-        get_gpu_orc_client().free_for_model("x", reason="r")
-
-
-def test_a_gpu_orc_that_does_not_answer_is_an_error_naming_the_address() -> None:
-    # conftest points the client at a dead address
-    with pytest.raises(GpuOrcError, match=r"not reachable at http://127\.0\.0\.1:9 \(/health\)"):
-        get_gpu_orc_client().free_for_model("m", reason="r")
 
 
 def test_the_status_is_read_per_card(fake) -> None:
     fake.cards = [card("GPU-a", ("stt-suite", "gpu-worker", 3100), ("llama-swap", "big", None)), card("GPU-b")]
-    assert get_gpu_orc_client().card_status() == [
+    assert current_client().card_status() == [
         CardStatus("GPU-a", (CardHolder("stt-suite", "gpu-worker", 3100), CardHolder("llama-swap", "big", None)),
                    32768, 0),
         CardStatus("GPU-b", (), 32768, 0),
     ]
 
 
-def test_a_client_with_a_token_sends_it_on_every_request() -> None:
-    seen: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request.headers.get("Authorization", ""))
-        return httpx.Response(200, json={"loading": [], "held": None})
-
-    client = GpuOrcClient("http://remote.test", transport=httpx.MockTransport(handler), token="s3cret")
-    assert client.traffic_light() == TrafficLight((), None)
-    assert seen == ["Bearer s3cret"]
-
-
 def test_held_cards_make_the_light_red_and_a_hold_clears_them(fake) -> None:
-    client = get_gpu_orc_client()
-    assert client.traffic_light().red is False
+    orc = current_client()
+    assert orc.traffic_light().red is False
     fake.actions = [{"consumer": "llama-swap", "item": "describer", "outcome": "released"}]
-    result = client.hold("gaming")
+    result = orc.hold("gaming")
     assert fake.holds == ["gaming"] and [a.outcome for a in result.actions] == ["released"]
-    light = client.traffic_light()
+    light = orc.traffic_light()
     assert light.red is True and light.held is not None and light.held["reason"] == "gaming"
-    client.release_hold()
-    assert client.traffic_light() == TrafficLight((), None)
-
-
-def test_a_light_without_the_hold_field_is_an_unknown_form() -> None:
-    client = GpuOrcClient("http://old.test", transport=httpx.MockTransport(
-        lambda request: httpx.Response(200, json={"loading": []})))
-    with pytest.raises(GpuOrcError, match="unknown form"):
-        client.traffic_light()
+    orc.release_hold()
+    assert orc.traffic_light() == TrafficLight((), None)
 
 
 def test_describe_says_what_was_released_what_stayed_and_whether_the_cards_are_free() -> None:
@@ -147,8 +129,8 @@ def test_a_gpu_orc_that_does_not_answer_is_said_and_the_calibration_goes_on() ->
 
 
 def test_work_is_reported_with_a_lease_and_ended_by_owner(fake) -> None:
-    client = get_gpu_orc_client()
-    client.work_begin("aifred/1", "a job", 60)
+    orc = current_client()
+    orc.work_begin("aifred/1", "a job", 60)
     assert fake.work == {"aifred/1": {"owner": "aifred/1", "reason": "a job", "ttl_s": 60}}
-    client.work_end("aifred/1")
+    orc.work_end("aifred/1")
     assert fake.work == {} and fake.work_calls == ["begin aifred/1", "end aifred/1"]

@@ -187,7 +187,11 @@ async def gpu_orc_work_lifespan() -> AsyncIterator[None]:
     """Report running turns to GPU-Orc (lib/gpu_orc_work), so the machine's reboot leaves a running job alone."""
     from .gpu_orc_work import make_work_reporter
 
-    task = asyncio.create_task(make_work_reporter().run())
+    reporter = make_work_reporter()
+    if reporter is None:
+        yield
+        return
+    task = asyncio.create_task(reporter.run())
     try:
         yield
     finally:

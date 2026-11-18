@@ -133,8 +133,10 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
     # Gezählt wird nur, was die Dienste selbst gemessen melden; ein Halter ohne Zahl gibt keinen Platz her.
     from .config import GPU_ORC_MODEL_SERVER
     from .gpu_orc_client import GpuOrcError, get_gpu_orc_client
+    client = get_gpu_orc_client()
     try:
-        cards = get_gpu_orc_client().card_status()
+        # GPU-Orc off (empty GPU_ORC_URL): nobody clears the cards, so only the free VRAM counts.
+        cards = [] if client is None else client.card_status()
     except GpuOrcError as error:
         # Who holds what is unknown, so is the room: no placement is claimed (like an unmeasured VLM
         # above), and the reason is shown instead of an error in the page.

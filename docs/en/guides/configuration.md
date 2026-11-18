@@ -288,6 +288,7 @@ Additional `.env` keys read by the code (names and meaning only):
 | `FREEECHO2_PAUSE_ACK_TIMEOUT_SEC` | How long to wait for the puck's confirmation after pausing a running stream before an announcement; otherwise the announcement is dropped |
 | `TTS_CONTROL_API_TOKEN` | Bearer token of the TTS start/stop API used by the service control page |
 | `GPU_RELEASE_API_TOKEN` | Bearer token of the GPU release (`/api/gpu/holders`, `/api/gpu/release`): GPU-Orc ends the face worker with it to clear its card |
+| `GPU_ORC_URL` | Address of this machine's GPU-Orc (default `http://127.0.0.1:5070`). **Empty = GPU-Orc off:** nothing is asked, nothing is logged, models load directly, the traffic light is green, no work is reported |
 | `OUTBOUND_ATTACHMENT_MAX_BYTES` | Largest file a channel send tool may attach |
 
 Plugin settings worth knowing:
