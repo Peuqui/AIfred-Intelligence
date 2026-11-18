@@ -18,6 +18,7 @@ from ..lib.config import (
     STREAM_RETRY_DELAY_S,
     STREAM_RETRY_WINDOW_S,
 )
+from ..lib.gpu_utils import wait_for_vram_stable
 from ..lib.logging_utils import log_message
 from ..lib.perf_metrics import InferenceWork, ThinkingClock
 from ..lib.timer import Timer
@@ -35,66 +36,6 @@ from .base import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-async def wait_for_vram_stable(
-    max_wait_seconds: float = 10.0,
-    stability_threshold_mb: int = 100,
-    check_interval: float = 0.5
-) -> tuple[bool, float, int]:
-    """
-    Wait for VRAM to stabilize after model unloading.
-
-    Instead of a fixed sleep, this polls VRAM until it stops changing.
-    This handles slower GPUs (like P40) and large models that take
-    longer to release memory.
-
-    Args:
-        max_wait_seconds: Maximum time to wait (default 10s)
-        stability_threshold_mb: VRAM change below this = stable (default 100MB)
-        check_interval: Time between checks (default 0.5s)
-
-    Returns:
-        tuple: (stabilized: bool, wait_time: float, final_vram_mb: int)
-    """
-    import asyncio
-
-    from ..lib.gpu_utils import get_free_vram_mb
-    from ..lib.timer import Timer
-
-    timer = Timer()
-    last_vram = get_free_vram_mb()
-    stable_count = 0
-    required_stable_checks = 4  # Need 4 consecutive stable readings (was 2)
-
-    if last_vram is None:
-        # No VRAM info available, just wait a bit
-        await asyncio.sleep(2.0)
-        return (True, 2.0, 0)
-
-    while timer.elapsed() < max_wait_seconds:
-        await asyncio.sleep(check_interval)
-        current_vram = get_free_vram_mb()
-
-        if current_vram is None:
-            continue
-
-        vram_change = abs(current_vram - last_vram)
-
-        if vram_change < stability_threshold_mb:
-            stable_count += 1
-            if stable_count >= required_stable_checks:
-                # VRAM is stable after 4 consecutive readings
-                return (True, timer.elapsed(), current_vram)
-        else:
-            # VRAM still changing, reset counter
-            stable_count = 0
-
-        last_vram = current_vram
-
-    # Timeout - return current state
-    final_vram = get_free_vram_mb() or 0
-    return (False, timer.elapsed(), final_vram)
 
 
 class OllamaBackend(LLMBackend):

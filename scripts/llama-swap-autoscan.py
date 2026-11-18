@@ -1205,7 +1205,11 @@ def scan_gguf_models() -> list[dict]:
         # laufen als handgepflegte -embed-Profile (llama-server --embedding).
         # Direkt-Import wie nvidia_smi (NICHT via aifred.lib — lädt das ganze Paket!)
         from gguf_utils import get_gguf_architecture
-        arch = get_gguf_architecture(gguf_file)
+        try:
+            arch = get_gguf_architecture(gguf_file)
+        except (OSError, ValueError) as e:  # one unreadable file (half downloaded, broken) must not stop llama-swap
+            print(f"  ⚠️ {gguf_file.name}: not a readable GGUF ({e}) — skipped this run")
+            continue
         if arch in EMBEDDING_ARCHITECTURES:
             print(f"  ~ Skip:    {gguf_file.name} (embedding model, arch={arch})")
             continue
@@ -1346,31 +1350,10 @@ def find_new_models(
 # GGUF metadata reading
 # ---------------------------------------------------------------------------
 
-def _read_gguf_field(gguf_path: Path, suffix: str) -> int | None:
-    """Read a single integer field from GGUF metadata by key suffix."""
-    try:
-        real_path = gguf_path.resolve()
-        import gguf
-        reader = gguf.GGUFReader(str(real_path))
-        for field in reader.fields.values():
-            if field.name.lower().endswith(suffix):
-                value_array = field.parts[-1]
-                if len(value_array) > 0:
-                    val = int(value_array[0])
-                    if val > 0:
-                        return val
-    except ImportError as e:
-        print(f"  ⚠️ gguf-py missing, {gguf_path.name} read without metadata: {e}")
-    except (OSError, ValueError, KeyError, IndexError) as e:  # unreadable, not a GGUF, or a malformed field
-        print(f"  ⚠️ {gguf_path.name}: field *{suffix} unreadable: {e}")
-    return None
-
-
 def get_native_context(gguf_path: Path) -> int:
-    """Read native context length from GGUF metadata."""
-    val = _read_gguf_field(gguf_path, ".context_length")
-    if val is None:
-        val = _read_gguf_field(gguf_path, "context_length")
+    """Read native context length from GGUF metadata (the file was read once already: its architecture)."""
+    from gguf_utils import get_gguf_native_context
+    val = get_gguf_native_context(gguf_path.resolve())
     if val is None:
         print("  ! Cannot read context from GGUF, using default")
         return DEFAULT_CONTEXT

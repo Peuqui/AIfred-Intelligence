@@ -30,7 +30,7 @@ from ..config import (
     THINKING_PROBE_TEMPERATURE,
 )
 from ..formatting import format_number
-from ..gpu_utils import get_all_gpus_memory_info
+from ..gpu_utils import get_all_gpus_memory_info, wait_for_vram_stable
 from ..logging_utils import log_message
 from .llamaswap_io import set_context, set_ngl
 from .types import GPU
@@ -487,7 +487,6 @@ async def verify(
     Reserve-Platz hinein und das Profil OOMt im Betrieb, sobald TTS/VLM
     ihren Platz zurückfordern.
     """
-    from ...backends.ollama import wait_for_vram_stable
     from ..calibration_gate import is_cancel_requested
 
     # Cancel-Gate VOR dem Server-Spawn: Nach einem abgebrochenen Schritt

@@ -21,6 +21,7 @@ from ..config import (
     MIN_USEFUL_CONTEXT_TOKENS,
 )
 from ..formatting import format_number
+from ..gpu_utils import wait_for_vram_stable
 from ..model_vram_cache import add_llamacpp_calibration
 from . import llamaswap_io as io
 from . import projection as proj
@@ -96,8 +97,6 @@ async def calibrate_llamacpp_model(
     When ``config_path`` is ``None`` the YAML is never written (dry-run
     mode used by TTS-variant calibration).
     """
-    from ...backends.ollama import wait_for_vram_stable
-
     # ── Phase A: metadata + budget ──────────────────────────────────
     yield f"Reading GGUF metadata: {gguf_path.name}"
     model = _load_model_meta(model_id, gguf_path)

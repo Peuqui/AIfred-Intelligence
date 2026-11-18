@@ -5,8 +5,8 @@ Provides functions to query free VRAM and calculate practical context limits
 based on available GPU memory.
 """
 
+import asyncio
 import logging
-import struct
 from pathlib import Path
 
 import requests
@@ -20,6 +20,8 @@ from .config import (
     VRAM_CONTEXT_RATIO_MOE,
 )
 from .formatting import format_number
+from .gguf_utils import read_gguf_field
+from .timer import Timer
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +62,61 @@ def get_free_vram_mb() -> int | None:
         logger.debug(f"   Total free VRAM (sum of {len(rows)} GPUs): {total_free} MB")
 
     return total_free
+
+
+async def wait_for_vram_stable(
+    max_wait_seconds: float = 10.0,
+    stability_threshold_mb: int = 100,
+    check_interval: float = 0.5
+) -> tuple[bool, float, int]:
+    """
+    Wait for VRAM to stabilize after model unloading.
+
+    Instead of a fixed sleep, this polls VRAM until it stops changing.
+    This handles slower GPUs (like P40) and large models that take
+    longer to release memory.
+
+    Args:
+        max_wait_seconds: Maximum time to wait (default 10s)
+        stability_threshold_mb: VRAM change below this = stable (default 100MB)
+        check_interval: Time between checks (default 0.5s)
+
+    Returns:
+        tuple: (stabilized: bool, wait_time: float, final_vram_mb: int)
+    """
+    timer = Timer()
+    last_vram = get_free_vram_mb()
+    stable_count = 0
+    required_stable_checks = 4  # Need 4 consecutive stable readings (was 2)
+
+    if last_vram is None:
+        # No VRAM info available, just wait a bit
+        await asyncio.sleep(2.0)
+        return (True, 2.0, 0)
+
+    while timer.elapsed() < max_wait_seconds:
+        await asyncio.sleep(check_interval)
+        current_vram = get_free_vram_mb()
+
+        if current_vram is None:
+            continue
+
+        vram_change = abs(current_vram - last_vram)
+
+        if vram_change < stability_threshold_mb:
+            stable_count += 1
+            if stable_count >= required_stable_checks:
+                # VRAM is stable after 4 consecutive readings
+                return (True, timer.elapsed(), current_vram)
+        else:
+            # VRAM still changing, reset counter
+            stable_count = 0
+
+        last_vram = current_vram
+
+    # Timeout - return current state
+    final_vram = get_free_vram_mb() or 0
+    return (False, timer.elapsed(), final_vram)
 
 
 def get_gpu_model_name(gpu_index: int = 0) -> str | None:
@@ -200,94 +257,6 @@ def calculate_context_from_memory(
     if max_context is not None:
         return min(calculated_tokens, max_context)
     return calculated_tokens
-
-
-def read_gguf_field(gguf_path: Path, key_suffix: str) -> int | None:
-    """
-    Read an integer field from GGUF metadata by key suffix.
-
-    Uses raw struct parsing — does not require the gguf Python module.
-    Searches for a metadata key ending with key_suffix (case-insensitive).
-
-    Args:
-        gguf_path: Path to GGUF model file
-        key_suffix: Suffix to match (e.g. ".expert_count", ".context_length")
-
-    Returns:
-        Integer value if found, None otherwise
-    """
-    # GGUF value type IDs
-    _UINT8, _INT8 = 0, 1
-    _UINT16, _INT16 = 2, 3
-    _UINT32, _INT32 = 4, 5
-    _FLOAT32 = 6
-    _BOOL = 7
-    _STRING = 8
-    _ARRAY = 9
-    _UINT64, _INT64 = 10, 11
-    _FLOAT64 = 12
-
-    try:
-        with open(gguf_path, "rb") as f:
-            magic = f.read(4)
-            if magic != b"GGUF":
-                return None
-
-            version = struct.unpack("<I", f.read(4))[0]
-            if version < 2:
-                return None
-
-            _tensor_count = struct.unpack("<Q", f.read(8))[0]
-            kv_count = struct.unpack("<Q", f.read(8))[0]
-
-            def _read_string():
-                length = struct.unpack("<Q", f.read(8))[0]
-                return f.read(length).decode("utf-8", errors="ignore")
-
-            def _read_value(vtype: int):
-                if vtype == _UINT8:
-                    return struct.unpack("<B", f.read(1))[0]
-                if vtype == _INT8:
-                    return struct.unpack("<b", f.read(1))[0]
-                if vtype == _UINT16:
-                    return struct.unpack("<H", f.read(2))[0]
-                if vtype == _INT16:
-                    return struct.unpack("<h", f.read(2))[0]
-                if vtype == _UINT32:
-                    return struct.unpack("<I", f.read(4))[0]
-                if vtype == _INT32:
-                    return struct.unpack("<i", f.read(4))[0]
-                if vtype == _FLOAT32:
-                    return struct.unpack("<f", f.read(4))[0]
-                if vtype == _BOOL:
-                    return struct.unpack("<B", f.read(1))[0]
-                if vtype == _STRING:
-                    return _read_string()
-                if vtype == _UINT64:
-                    return struct.unpack("<Q", f.read(8))[0]
-                if vtype == _INT64:
-                    return struct.unpack("<q", f.read(8))[0]
-                if vtype == _FLOAT64:
-                    return struct.unpack("<d", f.read(8))[0]
-                if vtype == _ARRAY:
-                    arr_type = struct.unpack("<I", f.read(4))[0]
-                    arr_len = struct.unpack("<Q", f.read(8))[0]
-                    return [_read_value(arr_type) for _ in range(arr_len)]
-                return None
-
-            suffix_lower = key_suffix.lower()
-            for _ in range(kv_count):
-                key = _read_string()
-                vtype = struct.unpack("<I", f.read(4))[0]
-                value = _read_value(vtype)
-
-                if key.lower().endswith(suffix_lower) and isinstance(value, (int, float)):
-                    return int(value)
-
-    except (OSError, struct.error) as e:  # unreadable or cut off
-        logger.debug(f"GGUF read failed for {gguf_path}: {e}")
-
-    return None
 
 
 def is_moe_model(model_name: str, ollama_url: str = DEFAULT_OLLAMA_URL) -> bool:

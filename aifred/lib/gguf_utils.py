@@ -11,6 +11,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+import gguf
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,11 +35,14 @@ _GGUF_NUMERIC_INT_TYPES = frozenset({0, 1, 2, 3, 4, 5, 7, 10, 11})
 
 
 def _is_numeric_scalar(field) -> bool:
-    """True if ``field`` is a GGUF scalar with an integer/bool value type."""
+    """True if ``field`` is a GGUF scalar with an integer/bool value type.
+
+    An array field carries ``[ARRAY, element_type]`` — only a single entry
+    means a scalar, otherwise an int array would pass on its element type."""
     types = getattr(field, "types", None)
-    if not types:
+    if types is None:
         return False
-    return types[-1] in _GGUF_NUMERIC_INT_TYPES
+    return len(types) == 1 and types[0] in _GGUF_NUMERIC_INT_TYPES
 
 
 # llama.cpp liest Tensoren ab dieser Groesse zeilenweise von der Platte,
@@ -110,22 +115,12 @@ def get_gguf_lazy_tensor_bytes(gguf_path: Path) -> int:
 
     Returns:
         Summe der Bytes ueber alle Teile; 0 wenn kein Tensor die Schwelle
-        erreicht. Ist die Datei nicht lesbar, wird 0 gemeldet (der
-        VRAM-Bedarf wird dann wie bisher ueberschaetzt, also konservativ).
+        erreicht. Ein nicht lesbarer Teil wirft (OSError/ValueError), statt
+        still 0 zu melden: ein Bedarf ohne Messung waere eine Luege.
     """
-    try:
-        import gguf
-    except ImportError:
-        logger.warning("gguf module not available - lazy tensor size unknown")
-        return 0
-
     total = 0
     for part in get_gguf_part_paths(gguf_path):
-        try:
-            reader = gguf.GGUFReader(part)
-        except (OSError, ValueError, KeyError) as exc:  # unreadable, not a GGUF, or a malformed header
-            logger.warning(f"Cannot read GGUF part {part.name}: {exc}")
-            continue
+        reader = gguf.GGUFReader(part)
         for tensor in reader.tensors:
             n_bytes = int(tensor.n_bytes)
             if n_bytes >= GGUF_LAZY_READ_MIN_BYTES:
@@ -171,8 +166,6 @@ def get_gguf_architecture(gguf_path: Path) -> str | None:
     Architektur — der Autoscan nutzt das, um sie nicht als Chat-Profile
     anzulegen. Ergebnis wird pro (Pfad, Größe, mtime) gecacht — siehe
     ``_ARCH_CACHE_PATH``."""
-    if not gguf_path.exists():
-        return None
     stat = gguf_path.stat()
     key = str(gguf_path)
     cache = _arch_cache_load()
@@ -183,24 +176,15 @@ def get_gguf_architecture(gguf_path: Path) -> str | None:
         and entry.get("mtime") == int(stat.st_mtime)
     ):
         return str(entry["arch"]) if entry.get("arch") else None
-    try:
-        import gguf
-
-        with open(gguf_path, "rb") as f:
-            reader = gguf.GGUFReader(f)  # type: ignore[arg-type]
-            field = reader.fields.get("general.architecture")
-            arch = (
-                bytes(field.parts[-1]).decode("utf-8", errors="replace")
-                if field is not None else None
-            )
-    except ImportError:
-        logger.warning("gguf-py library not installed")
-        return None
-    except (OSError, ValueError, IndexError) as e:
-        logger.error(f"Error reading GGUF architecture {gguf_path}: {e}")
-        return None
+    with open(gguf_path, "rb") as f:
+        reader = gguf.GGUFReader(f)  # type: ignore[arg-type]
+        field = reader.fields.get("general.architecture")
+        arch = (
+            bytes(field.parts[-1]).decode("utf-8", errors="replace")
+            if field is not None else None
+        )
     # Auch "kein Feld" (arch=None → "") cachen — für dieselbe Datei ist
-    # das deterministisch; nur echte Lesefehler werden nicht gecacht.
+    # das deterministisch; Lesefehler werfen und werden nicht gecacht.
     cache[key] = {
         "size": stat.st_size,
         "mtime": int(stat.st_mtime),
@@ -223,56 +207,50 @@ def _scan_gguf_numeric_field(
     would let ``int(value_array[0])`` silently read the first byte
     (e.g. 'H'=72) as a value.
     """
-    if not gguf_path.exists():
-        logger.warning(f"GGUF file not found: {gguf_path}")
+    with open(gguf_path, "rb") as f:
+        reader = gguf.GGUFReader(f)  # type: ignore[arg-type]
+
+        for field in reader.fields.values():
+            if not key_match(field.name.lower()):
+                continue
+            if not _is_numeric_scalar(field):
+                logger.debug(f"Skipping non-numeric field {field.name}")
+                continue
+            value = int(field.parts[-1][0])
+            if value > 0:
+                logger.info(
+                    f"✅ {description} from GGUF metadata ({field.name}): {value:,}"
+                )
+                return value
+
+        logger.warning(f"No {description} key found in GGUF metadata")
+        if not_found_hints:
+            all_keys = [f.name for f in reader.fields.values()]
+            related = [
+                k for k in all_keys
+                if any(h in k.lower() for h in not_found_hints)
+            ]
+            logger.warning(f"Available related keys: {related}")
+            logger.debug(f"All metadata keys (first 30): {all_keys[:30]}")
         return None
 
-    try:
-        import gguf
 
-        with open(gguf_path, "rb") as f:
-            try:
-                reader = gguf.GGUFReader(f)  # type: ignore[arg-type]
+def read_gguf_field(gguf_path: Path, key_suffix: str) -> int | None:
+    """First integer/bool metadata value whose key ends with ``key_suffix``
+    (case-insensitive), e.g. ``.expert_count``. Unlike the scan above, a stored
+    0 is a real answer here (expert_count 0 = dense) and is returned as 0.
 
-                for field in reader.fields.values():
-                    if not key_match(field.name.lower()):
-                        continue
-                    if not _is_numeric_scalar(field):
-                        logger.debug(f"Skipping non-numeric field {field.name}")
-                        continue
-                    try:
-                        value_array = field.parts[-1]
-                        value = int(value_array[0]) if len(value_array) > 0 else None
-                        if value and value > 0:
-                            logger.info(
-                                f"✅ {description} from GGUF metadata ({field.name}): {value:,}"
-                            )
-                            return value
-                    except (IndexError, ValueError, TypeError) as e:
-                        logger.debug(f"Failed to parse {field.name}: {e}")
-                        continue
-
-                logger.warning(f"No {description} key found in GGUF metadata")
-                if not_found_hints:
-                    all_keys = [f.name for f in reader.fields.values()]
-                    related = [
-                        k for k in all_keys
-                        if any(h in k.lower() for h in not_found_hints)
-                    ]
-                    logger.warning(f"Available related keys: {related}")
-                    logger.debug(f"All metadata keys (first 30): {all_keys[:30]}")
-                return None
-
-            except (ValueError, IndexError) as e:
-                logger.error(f"Error parsing GGUF metadata: {e}")
-                return None
-
-    except ImportError:
-        logger.warning("gguf-py library not installed")
-        return None
-    except (OSError, ValueError, IndexError) as e:
-        logger.error(f"Error reading GGUF file {gguf_path}: {e}")
-        return None
+    Returns:
+        The value, or None if the file has no such field. An unreadable or
+        malformed file raises (OSError/ValueError).
+    """
+    suffix_lower = key_suffix.lower()
+    with open(gguf_path, "rb") as f:
+        reader = gguf.GGUFReader(f)  # type: ignore[arg-type]
+        for field in reader.fields.values():
+            if field.name.lower().endswith(suffix_lower) and _is_numeric_scalar(field):
+                return int(field.parts[-1][0])
+    return None
 
 
 def get_gguf_layer_count(gguf_path: Path) -> int | None:
@@ -318,29 +296,17 @@ def get_gguf_chat_template(gguf_path: Path) -> str | None:
     part 1 — the path llama-swap/AIfred reference anyway.
 
     Returns:
-        Template source text, or None if absent/unreadable.
+        Template source text, or None if the file has no template. An
+        unreadable or malformed file raises.
     """
-    if not gguf_path.exists():
-        logger.warning(f"GGUF file not found: {gguf_path}")
-        return None
-
-    try:
-        import gguf
-
-        with open(gguf_path, "rb") as f:
-            reader = gguf.GGUFReader(f)  # type: ignore[arg-type]
-            field = reader.fields.get("tokenizer.chat_template")
-            if field is None:
-                logger.debug(f"No tokenizer.chat_template in {gguf_path.name}")
-                return None
-            raw = bytes(field.parts[field.data[0]])
-            return raw.decode("utf-8")
-    except ImportError:
-        logger.warning("gguf-py library not installed - cannot read chat template")
-        return None
-    except (OSError, ValueError, IndexError, UnicodeDecodeError) as e:
-        logger.error(f"Error reading chat template from {gguf_path}: {e}")
-        return None
+    with open(gguf_path, "rb") as f:
+        reader = gguf.GGUFReader(f)  # type: ignore[arg-type]
+        field = reader.fields.get("tokenizer.chat_template")
+        if field is None:
+            logger.debug(f"No tokenizer.chat_template in {gguf_path.name}")
+            return None
+        raw = bytes(field.parts[field.data[0]])
+        return raw.decode("utf-8")
 
 
 def _effort_alias_assignments(template: str) -> list[tuple[str, str]]:
@@ -604,12 +570,12 @@ def resolve_reasoning_info(model_id: str, force: bool = False) -> ReasoningInfo 
         logger.debug(f"Reasoning resolve: config unreadable: {e}")
         return None
     entry = config.get(model_id) or {}
-    gguf = entry.get("gguf_path")
-    if not gguf or not Path(gguf).exists():
+    configured_path = entry.get("gguf_path")
+    if not configured_path or not Path(configured_path).exists():
         logger.debug(f"Reasoning resolve: no model path for '{model_id}'")
         return None
 
-    model_path = Path(gguf)
+    model_path = Path(configured_path)
     # vLLM-Eintrag: --model zeigt auf ein Checkpoint-Verzeichnis
     info = get_checkpoint_reasoning_info(model_path) if model_path.is_dir() else get_gguf_reasoning_info(model_path)
     if info is None:

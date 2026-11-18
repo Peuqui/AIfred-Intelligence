@@ -288,3 +288,39 @@ def test_a_vllm_run_with_pairs_only_starts_llama_swap_again(tmp_path: Path, monk
     asyncio.run(go())
     assert calls == ["stop", "pairs", "start"]
     assert "🔄 llama-swap restarted (operating point unchanged)" in lines
+
+
+def test_a_vllm_run_says_when_llama_swap_did_not_stop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """stop_llama_swap answers False instead of raising: the run says so and does not start what it never stopped."""
+    (tmp_path / "ckpt").mkdir()
+    (tmp_path / "llama-swap.yaml").write_text(
+        f"models:\n  {MODEL}-vllm:\n    cmd: vllm serve --model {tmp_path / 'ckpt'} --max-model-len 4096\n")
+    calls: list[str] = []
+
+    def stop() -> bool:
+        calls.append("stop")
+        return False
+
+    def start() -> bool:
+        calls.append("start")
+        return True
+
+    monkeypatch.setattr("aifred.lib.process_utils.stop_llama_swap", stop)
+    monkeypatch.setattr("aifred.lib.process_utils.start_llama_swap", start)
+    monkeypatch.setattr(service, "_free_cards_for_calibration", lambda report: None)
+
+    async def no_pairs(self: CalibrationRun) -> AsyncGenerator[None, None]:
+        calls.append("pairs")
+        yield
+
+    monkeypatch.setattr(CalibrationRun, "_judge_side_channel_pairs", no_pairs)
+    lines: list[str] = []
+    run = CalibrationRun(_request(backend_type="vllm", model_id=f"{MODEL}-vllm", cells={"eyes|xtts": True}), report=lines.append)
+
+    async def go() -> None:
+        async for _ in run.steps():
+            pass
+
+    asyncio.run(go())
+    assert calls == ["stop", "pairs"]
+    assert "⚠️ Could not stop llama-swap (see log)" in lines

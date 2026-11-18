@@ -229,5 +229,3 @@ def gpu_compute_processes(gpu_uuids: "set[str] | None" = None) -> list[str]:
             pass
         procs.append(f"{name} (PID {pid}, {mem} MiB){tag}")
     return procs
-
-
