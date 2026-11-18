@@ -91,7 +91,7 @@ def tools(lang: str) -> list[ToolRow]:
             enabled=bool(entry["enabled"]), has_settings=bool(entry["has_credentials"]),
             needs_connection=oauth and not _oauth_current(plugin),
         ))
-    return rows
+    return sorted(rows, key=lambda row: row.label.casefold())     # by the name shown, not by the folder
 
 
 def _channel_settings() -> tuple[dict[str, Any], dict[str, Any]]:
@@ -116,7 +116,7 @@ def channels(lang: str) -> list[ChannelRow]:
             always_reply=bool(plugin.always_reply),
             tier=None if name in NO_TIER_CHANNELS else int(tiers.get(name, DEFAULT_TIER_BY_SOURCE.get(name, TIER_COMMUNICATE))),
         ))
-    return rows
+    return sorted(rows, key=lambda row: row.label.casefold())
 
 
 def tier_choices(lang: str) -> list[tuple[int, str]]:

@@ -120,6 +120,16 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     yield {"hub": hub, "channels": channels, "off": switched_off, "env": tmp_path / ".env", "settings": settings_file}
 
 
+def test_the_tool_plugins_are_listed_by_the_name_shown(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    # The folder "printer" shows as "Typographus", "research" as "Investigatio": sorted by folder, the list was out of order.
+    monkeypatch.setattr(plugin_registry, "list_all_plugins", lambda: [
+        {"name": name, "display_de": label, "display_en": label, "description_de": "", "description_en": "",
+         "file": name, "type": "tool", "enabled": "1", "has_credentials": ""}
+        for name, label in (("printer", "Typographus"), ("research", "Investigatio"), ("sandbox", "laboratorium"))
+    ])
+    assert [row.label for row in plugin_admin.tools("de")] == ["Investigatio", "laboratorium", "Typographus"]
+
+
 def test_a_tool_plugin_switches_by_its_marker(world: dict[str, Any]) -> None:
     asyncio.run(plugin_admin.set_tool("wetter", True))
     asyncio.run(plugin_admin.set_tool("rechner", False))
