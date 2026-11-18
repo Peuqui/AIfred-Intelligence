@@ -9,12 +9,18 @@ Standardwerte ersetzt.
 from __future__ import annotations
 
 import json
+import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from .atomic_write import write_text_atomic
 
 VISION_SETTINGS_PATH = (
     Path(__file__).resolve().parents[1] / "plugins" / "tools" / "vision" / "settings.json"
 )
+
+_write_lock = threading.Lock()
 
 
 def load_vision_settings() -> dict[str, Any]:
@@ -32,8 +38,15 @@ def load_vision_settings() -> dict[str, Any]:
     return parsed
 
 
-def save_vision_settings(data: dict[str, Any]) -> None:
-    """Einstellungen vollständig schreiben (Aufrufer: lesen, ändern, speichern)."""
-    VISION_SETTINGS_PATH.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+def update_vision_settings(apply: Callable[[dict[str, Any]], None]) -> None:
+    """Change the stored settings: ``apply`` edits the CURRENT file content in place, which is then written.
+
+    The one writer of the file. Reading, changing and writing happen here under one lock, so a change never
+    starts from a stale read (the zone mask and another setting saved at the same time both stay). The lock is
+    needed because writers really run on several threads: the event loop (zone masks, arming) and worker
+    threads (``asyncio.to_thread`` for the camera connections, the plugin form). Nothing is written when
+    ``apply`` or the read raises. ``apply`` must stay quick and must not call back into this module."""
+    with _write_lock:
+        settings = load_vision_settings()
+        apply(settings)
+        write_text_atomic(VISION_SETTINGS_PATH, json.dumps(settings, indent=2, ensure_ascii=False) + "\n")

@@ -10,10 +10,11 @@ A change keeps every field of the entry the form does not know (the old form reb
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any
 
 from .user_error import Conflict, Invalid, Missing
-from .vision_settings import load_vision_settings, save_vision_settings
+from .vision_settings import load_vision_settings, update_vision_settings
 
 PROFILES = ("webcam", "ai_camera")    # a plain stream, or a camera with its own detection (Reolink)
 _INT_FIELDS = {"port": (1, 65535), "api_port": (1, 65535), "onvif_port": (1, 65535),
@@ -31,9 +32,13 @@ def _credential(cred: str) -> str:
     return f"rtsp_{cred}"
 
 
-def _entries() -> list[dict[str, Any]]:
-    cameras = load_vision_settings().get("rtsp_cameras")
+def _entries_of(settings: dict[str, Any]) -> list[dict[str, Any]]:
+    cameras = settings.get("rtsp_cameras")
     return [entry for entry in cameras if isinstance(entry, dict)] if isinstance(cameras, list) else []
+
+
+def _entries() -> list[dict[str, Any]]:
+    return _entries_of(load_vision_settings())
 
 
 def rtsp_cameras() -> list[dict[str, Any]]:
@@ -82,12 +87,18 @@ def _checked(fields: dict[str, Any]) -> dict[str, Any]:
     return checked
 
 
-def _save(cameras: list[dict[str, Any]]) -> None:
+def _edit(change: Callable[[list[dict[str, Any]]], None]) -> None:
+    """Change the camera list: ``change(cameras)`` sees the CURRENT list, so its checks and its change
+    belong to one read (two connection changes at the same time both stay). It may refuse by raising; nothing
+    is written then."""
     from .frame_sources import rescan
 
-    settings = load_vision_settings()
-    settings["rtsp_cameras"] = cameras
-    save_vision_settings(settings)
+    def apply(settings: dict[str, Any]) -> None:
+        cameras = _entries_of(settings)
+        change(cameras)
+        settings["rtsp_cameras"] = cameras
+
+    update_vision_settings(apply)
     rescan()
 
 
@@ -107,13 +118,17 @@ def add_rtsp_camera(name: str, fields: dict[str, Any], user: str = "", password:
     name = name.strip()
     if not name:
         raise Invalid("camera_needs_name")
-    if any(str(entry.get("name")) == name for entry in _entries()):
-        raise NameTaken("camera_name_taken", name=name)
     checked = _checked({"profile": PROFILES[0], "port": 554, **fields})
     if "host" not in checked:
         raise Invalid("camera_needs_host")
     entry = {"name": name, **{key: value for key, value in checked.items() if value not in (None, "")}}
-    _save([*_entries(), entry])
+
+    def add(cameras: list[dict[str, Any]]) -> None:
+        if any(str(camera.get("name")) == name for camera in cameras):
+            raise NameTaken("camera_name_taken", name=name)
+        cameras.append(entry)
+
+    _edit(add)
     if entry.get("cred"):
         _keep_secrets(str(entry["cred"]), user, password)
 
@@ -121,20 +136,25 @@ def add_rtsp_camera(name: str, fields: dict[str, Any], user: str = "", password:
 def change_rtsp_camera(name: str, fields: dict[str, Any], user: str = "", password: str = "") -> None:
     """Change a camera's connection: the fields given go into its entry, every other field stays; a field set to
     None or "" leaves the entry. KeyError for a camera that does not exist."""
-    cameras = _entries()
-    entry = next((camera for camera in cameras if str(camera.get("name")) == name), None)
-    if entry is None:
-        raise Missing("no_rtsp_camera", name=name)
-    for key, value in _checked(fields).items():
-        if value in (None, ""):
-            entry.pop(key, None)
-        else:
-            entry[key] = value
-    if "host" not in entry:
-        raise Invalid("camera_needs_host")
-    _save(cameras)
-    if entry.get("cred"):
-        _keep_secrets(str(entry["cred"]), user, password)
+    checked = _checked(fields)
+    changed: dict[str, Any] = {}
+
+    def change(cameras: list[dict[str, Any]]) -> None:
+        entry = next((camera for camera in cameras if str(camera.get("name")) == name), None)
+        if entry is None:
+            raise Missing("no_rtsp_camera", name=name)
+        for key, value in checked.items():
+            if value in (None, ""):
+                entry.pop(key, None)
+            else:
+                entry[key] = value
+        if "host" not in entry:
+            raise Invalid("camera_needs_host")
+        changed.update(entry)
+
+    _edit(change)
+    if changed.get("cred"):
+        _keep_secrets(str(changed["cred"]), user, password)
 
 
 def delete_rtsp_camera(name: str) -> None:
@@ -142,13 +162,19 @@ def delete_rtsp_camera(name: str) -> None:
     (vision.db keeps the camera's record). KeyError for a camera that does not exist."""
     from .credential_broker import broker
 
-    cameras = _entries()
-    entry = next((camera for camera in cameras if str(camera.get("name")) == name), None)
-    if entry is None:
-        raise Missing("no_rtsp_camera", name=name)
-    rest = [camera for camera in cameras if camera is not entry]
-    _save(rest)
-    cred = str(entry.get("cred") or "")
-    if cred and not any(str(camera.get("cred") or "") == cred for camera in rest):
+    removed: dict[str, Any] = {}
+    remaining: list[dict[str, Any]] = []
+
+    def remove(cameras: list[dict[str, Any]]) -> None:
+        entry = next((camera for camera in cameras if str(camera.get("name")) == name), None)
+        if entry is None:
+            raise Missing("no_rtsp_camera", name=name)
+        removed.update(entry)
+        cameras.remove(entry)
+        remaining.extend(cameras)
+
+    _edit(remove)
+    cred = str(removed.get("cred") or "")
+    if cred and not any(str(camera.get("cred") or "") == cred for camera in remaining):
         broker.forget(_credential(cred), "user")
         broker.forget(_credential(cred), "password")

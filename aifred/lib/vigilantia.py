@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .user_error import Conflict, Invalid
-from .vision_settings import load_vision_settings, save_vision_settings
+from .vision_settings import load_vision_settings, update_vision_settings
 
 VISION_MODES = ("on-demand", "live")
 
@@ -62,13 +62,14 @@ def vigilantia() -> Vigilantia:
 
 def _write(change: dict[str, Any]) -> None:
     """Merge ``change`` (top level, one level deep for the sections) into the plugin's settings."""
-    settings = load_vision_settings()
-    for key, value in change.items():
-        if isinstance(value, dict):
-            settings[key] = {**(settings.get(key) or {}), **value}
-        else:
-            settings[key] = value
-    save_vision_settings(settings)
+    def apply(settings: dict[str, Any]) -> None:
+        for key, value in change.items():
+            if isinstance(value, dict):
+                settings[key] = {**(settings.get(key) or {}), **value}
+            else:
+                settings[key] = value
+
+    update_vision_settings(apply)
 
 
 async def set_armed(armed: bool) -> int:

@@ -90,7 +90,6 @@ function alertType(camera: CameraRow, kind: string): void {
   void keep(camera, { alert_types: kinds });
 }
 
-const hours = Array.from({ length: 24 }, (_, hour) => hour);
 const value = (event: Event): string => (event.target as HTMLInputElement | HTMLSelectElement).value;
 const checked = (event: Event): boolean => (event.target as HTMLInputElement).checked;
 </script>
@@ -192,13 +191,9 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
       </div>
       <div class="line">
         <label class="name"><input type="checkbox" :checked="camera.quiet_enabled" @change="keep(camera, { quiet_enabled: checked($event) })" /> {{ t("vision_settings_quiet_label") }}</label>
-        <select :value="camera.quiet_start" :disabled="!camera.quiet_enabled" @change="keep(camera, { quiet_start: Number(value($event)) })">
-          <option v-for="hour in hours" :key="hour" :value="hour">{{ hour }} {{ t("vision_settings_quiet_oclock") }}</option>
-        </select>
+        <input type="time" :value="camera.quiet_start" :disabled="!camera.quiet_enabled" @change="keep(camera, { quiet_start: value($event) })" />
         –
-        <select :value="camera.quiet_end" :disabled="!camera.quiet_enabled" @change="keep(camera, { quiet_end: Number(value($event)) })">
-          <option v-for="hour in hours" :key="hour" :value="hour">{{ hour }} {{ t("vision_settings_quiet_oclock") }}</option>
-        </select>
+        <input type="time" :value="camera.quiet_end" :disabled="!camera.quiet_enabled" @change="keep(camera, { quiet_end: value($event) })" />
       </div>
       <div class="line">
         <label class="name"><input type="checkbox" :checked="camera.schedule_enabled" @change="keep(camera, { schedule_enabled: checked($event) })" /> {{ t("vision_settings_schedule_label") }}</label>

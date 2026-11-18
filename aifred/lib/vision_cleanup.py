@@ -37,11 +37,12 @@ import shutil
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from .config import DATA_DIR, GARBAGE_COLLECTION_HOUR
 from .logging_utils import log_exception, log_message
 from .user_error import Invalid
-from .vision_settings import load_vision_settings, save_vision_settings
+from .vision_settings import load_vision_settings, update_vision_settings
 from .vision_utils import FILMS_DIR, RECORDINGS_DIR
 
 logger = logging.getLogger(__name__)
@@ -159,9 +160,10 @@ def save_cleanup_form_values(values: dict[str, str]) -> None:
         if values[form_key] not in SWITCH_VALUES:
             raise Invalid("unknown_option", field=form_key, value=values[form_key])
         switches[name] = values[form_key] == SWITCH_VALUES[0]
-    settings = load_vision_settings()
-    settings["face_recognition"] = {**(settings.get("face_recognition") or {}), "retention_days": int(raw_days), **switches}
-    save_vision_settings(settings)
+    def apply(settings: dict[str, Any]) -> None:
+        settings["face_recognition"] = {**(settings.get("face_recognition") or {}), "retention_days": int(raw_days), **switches}
+
+    update_vision_settings(apply)
 
 
 async def _describe_before_pruning() -> None:

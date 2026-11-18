@@ -17,6 +17,7 @@ from typing import Any
 
 from .config import VISION_QUIET_HOURS_DEFAULT
 from .i18n import t
+from .vision_autostart import in_clock_window
 from .vision_settings import load_vision_settings
 
 logger = logging.getLogger(__name__)
@@ -47,9 +48,9 @@ def _alert_passes_filters(source_id: str, store: Any, alert_type: str) -> bool:
 
     * ``settings.alert_types`` (Liste): nur enthaltene Typen alerten. Fehlt der
       Schlüssel → alle Typen erlaubt (Default).
-    * ``settings.quiet_enabled`` + ``quiet_start``/``quiet_end`` (Stunde 0–23):
-      in diesem Zeitfenster keine Alerts. Über Mitternacht (z.B. 22→6) wird
-      korrekt behandelt.
+    * ``settings.quiet_enabled`` + ``quiet_start``/``quiet_end`` ("HH:MM"):
+      in diesem Zeitfenster keine Alerts. Über Mitternacht (z.B. 22:30→06:15)
+      wird korrekt behandelt.
     ``alert_type`` ist einer von person/vehicle/animal/face."""
     rec = store.get_source(source_id) if store else None
     settings = (rec.get("settings") or {}) if rec else {}
@@ -58,17 +59,12 @@ def _alert_passes_filters(source_id: str, store: Any, alert_type: str) -> bool:
     if isinstance(types, list) and alert_type not in types:
         return False
 
-    if settings.get("quiet_enabled"):
-        try:
-            start = int(settings.get("quiet_start", VISION_QUIET_HOURS_DEFAULT[0])) % 24
-            end = int(settings.get("quiet_end", VISION_QUIET_HOURS_DEFAULT[1])) % 24
-        except (TypeError, ValueError):
-            return True
-        hour = datetime.now().hour
-        in_quiet = (start <= hour < end) if start < end else (hour >= start or hour < end)
-        if in_quiet:
-            return False
-    return True
+    quiet_now = bool(settings.get("quiet_enabled")) and in_clock_window(
+        settings.get("quiet_start", VISION_QUIET_HOURS_DEFAULT[0]),
+        settings.get("quiet_end", VISION_QUIET_HOURS_DEFAULT[1]),
+        datetime.now(),
+    )
+    return not quiet_now
 
 
 def _source_alias(source_id: str, store: Any) -> str:

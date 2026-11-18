@@ -14,6 +14,7 @@ import logging
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from .atomic_write import write_text_atomic
 from .config import (
     DATA_DIR,
     VISION_ALERT_TYPES,
@@ -57,9 +58,9 @@ class Camera:
     detects_itself: bool    # an ai_camera profile: no motion detector of ours, ignore and ROI zones do not act
     alerts_enabled: bool    # off: the camera still records, but sends no alerts
     alert_types: list[str]  # the event types it alerts on (VISION_ALERT_TYPES)
-    quiet_enabled: bool     # no alerts between quiet_start and quiet_end (whole hours)
-    quiet_start: int
-    quiet_end: int
+    quiet_enabled: bool     # no alerts between quiet_start and quiet_end ("HH:MM")
+    quiet_start: str
+    quiet_end: str
     schedule_enabled: bool  # watched only between schedule_start and schedule_end ("HH:MM")
     schedule_start: str
     schedule_end: str
@@ -102,21 +103,22 @@ def cameras() -> list[Camera]:
             alerts_enabled=bool(settings.get("alerts_enabled", True)),
             alert_types=[str(kind) for kind in settings.get("alert_types", VISION_ALERT_TYPES)],
             quiet_enabled=bool(settings.get("quiet_enabled", False)),
-            quiet_start=int(settings.get("quiet_start", VISION_QUIET_HOURS_DEFAULT[0])),
-            quiet_end=int(settings.get("quiet_end", VISION_QUIET_HOURS_DEFAULT[1])),
+            quiet_start=_clock(settings.get("quiet_start", VISION_QUIET_HOURS_DEFAULT[0])),
+            quiet_end=_clock(settings.get("quiet_end", VISION_QUIET_HOURS_DEFAULT[1])),
             schedule_enabled=bool(settings.get("schedule_enabled", False)),
-            schedule_start=_hhmm(settings.get("schedule_start", VISION_SCHEDULE_DEFAULT[0])),
-            schedule_end=_hhmm(settings.get("schedule_end", VISION_SCHEDULE_DEFAULT[1])),
+            schedule_start=_clock(settings.get("schedule_start", VISION_SCHEDULE_DEFAULT[0])),
+            schedule_end=_clock(settings.get("schedule_end", VISION_SCHEDULE_DEFAULT[1])),
             min_event_interval_sec=float(settings.get("min_event_interval_sec", VISION_MIN_EVENT_INTERVAL_SEC)),
         ))
     return found
 
 
-def _hhmm(value: Any) -> str:
-    from .vision_autostart import schedule_minutes
+def _clock(value: Any) -> str:
+    """A stored time of day as it is, after checking it is "HH:MM" (ValueError otherwise: data not migrated)."""
+    from .vision_autostart import clock_minutes
 
-    minutes = schedule_minutes(value)
-    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+    clock_minutes(value)
+    return str(value)
 
 
 def camera(source_id: str) -> Camera | None:
@@ -147,14 +149,13 @@ WATCH_FIELDS = frozenset({"auto_start", "schedule_enabled", "schedule_start", "s
 def change_camera(source_id: str, **change: Any) -> bool:
     """Keep what the user set for a camera (vision.db): ``alias``, ``resolution`` (one the camera offers),
     ``prompt_context``, ``auto_start``, ``alerts_enabled``, ``alert_types`` (of VISION_ALERT_TYPES),
-    ``quiet_enabled``, ``quiet_start``/``quiet_end`` (hours 0–23), ``schedule_enabled``,
+    ``quiet_enabled``, ``quiet_start``/``quiet_end`` ("HH:MM"), ``schedule_enabled``,
     ``schedule_start``/``schedule_end`` ("HH:MM"), ``min_event_interval_sec`` and ``motion_min_area_ratio`` (their
     ranges; a running watch takes the threshold at once). Refuses an unknown field or a value it cannot take
     (Invalid), nothing is written then. Returns whether the change concerns the background watcher
     (``vision_autostart.apply_background_watch`` decides then)."""
-    import re
-
     from .frame_sources import get
+    from .vision_autostart import clock_minutes
     from .vision_store import VisionStore
 
     source = get(source_id)
@@ -182,16 +183,13 @@ def change_camera(source_id: str, **change: Any) -> bool:
         if not set(kinds) <= set(VISION_ALERT_TYPES):
             raise Invalid("unknown_fields", fields=", ".join(sorted(set(kinds) - set(VISION_ALERT_TYPES))))
         settings["alert_types"] = [kind for kind in VISION_ALERT_TYPES if kind in kinds]
-    for key in ("quiet_start", "quiet_end"):
+    for key in ("quiet_start", "quiet_end", "schedule_start", "schedule_end"):
         if key in change:
-            if not 0 <= int(change[key]) <= 23:
-                raise Invalid("number_range", value=change[key], low=0, high=23)
-            settings[key] = int(change[key])
-    for key in ("schedule_start", "schedule_end"):
-        if key in change:
-            if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(change[key])):
-                raise Invalid("time_format", value=change[key])
-            settings[key] = str(change[key])
+            try:
+                clock_minutes(change[key])
+            except ValueError:
+                raise Invalid("time_format", value=change[key]) from None
+            settings[key] = change[key]
     if "min_event_interval_sec" in change:
         interval = float(change["min_event_interval_sec"])
         if not VISION_MIN_EVENT_INTERVAL_RANGE[0] <= interval <= VISION_MIN_EVENT_INTERVAL_RANGE[1]:
@@ -266,9 +264,7 @@ def save_preview_settings(**changes: Any) -> PreviewSettings:
     settings = PreviewSettings(**{**current, **changes})
     _check(settings)
     PREVIEW_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    temporary = PREVIEW_SETTINGS_FILE.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(asdict(settings), indent=2), encoding="utf-8")
-    temporary.replace(PREVIEW_SETTINGS_FILE)
+    write_text_atomic(PREVIEW_SETTINGS_FILE, json.dumps(asdict(settings), indent=2))
     return settings
 
 

@@ -67,10 +67,12 @@ def stored() -> list[Entry]:
 
 
 def save(entries: list[Entry]) -> None:
-    from .vision_settings import load_vision_settings, save_vision_settings
-    settings = load_vision_settings()
-    settings[SETTINGS_KEY] = [entry.as_json() for entry in entries]
-    save_vision_settings(settings)
+    from .vision_settings import update_vision_settings
+
+    def apply(settings: dict[str, Any]) -> None:
+        settings[SETTINGS_KEY] = [entry.as_json() for entry in entries]
+
+    update_vision_settings(apply)
 
 
 def matched(entries: list[Entry], machines: list[HostOverview]) -> list[Entry]:

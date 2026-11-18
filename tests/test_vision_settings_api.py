@@ -40,6 +40,9 @@ class _Watcher:
     async def stop(self, source_id: str) -> None:
         self.running.discard(source_id)
 
+    def reload_zone_mask(self, source_id: str) -> None:
+        return None
+
 
 @pytest.fixture
 def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, dict[str, Any], Path]]:
@@ -125,12 +128,12 @@ def test_the_settings_show_the_listed_model_and_change_with_their_consequences(w
 def test_a_cameras_alert_settings_are_checked_and_kept(world: tuple[TestClient, dict[str, Any], Path]) -> None:
     client, _state, _file = world
     changed = client.patch("/vision/cameras/cam/rtsp_reolink", json={
-        "alerts_enabled": False, "alert_types": ["face", "person"], "quiet_enabled": True, "quiet_start": 23, "quiet_end": 5,
+        "alerts_enabled": False, "alert_types": ["face", "person"], "quiet_enabled": True, "quiet_start": "23:30", "quiet_end": "05:15",
         "min_event_interval_sec": 3,
     }).json()
-    assert (changed["alerts_enabled"], changed["alert_types"], changed["quiet_start"], changed["quiet_end"]) == (False, ["person", "face"], 23, 5)
+    assert (changed["alerts_enabled"], changed["alert_types"], changed["quiet_start"], changed["quiet_end"]) == (False, ["person", "face"], "23:30", "05:15")
     assert changed["min_event_interval_sec"] == 3.0
-    for wrong in ({"alert_types": ["ufo"]}, {"quiet_start": 24}, {"schedule_start": "25:00"}, {"min_event_interval_sec": 0},
+    for wrong in ({"alert_types": ["ufo"]}, {"quiet_start": 22}, {"quiet_start": "22"}, {"quiet_start": "24:00"}, {"schedule_start": "25:00"}, {"min_event_interval_sec": 0},
                   {"sensitivity": 1}):
         assert client.patch("/vision/cameras/cam/rtsp_reolink", json=wrong).status_code == 422, wrong
 
@@ -355,3 +358,16 @@ def test_a_burn_in_runs_one_at_a_time_and_its_failure_shows_in_the_row(describer
     assert burnt == [f"Box/{BIG}"]
     assert row["warn"] is True and "the cards are held" in row["note"]
     assert client.post("/describers/burn-in", json={"source": "local"}).status_code == 422
+
+
+def test_a_zone_mask_changes_only_its_own_camera_and_leaves_the_other_settings(world: tuple[TestClient, dict[str, Any], Path]) -> None:
+    client, _state, settings_file = world
+    mask = {"cols": 2, "rows": 1, "cells": "01", "enabled": True}
+    assert client.post("/vision/zone-mask", json={"source_id": "cam/a", **mask}).status_code == 200
+    client.put("/vision/armed", json={"armed": True})             # another setting lands in between
+    assert client.post("/vision/zone-mask", json={"source_id": "cam/b", **mask}).status_code == 200
+    assert client.post("/vision/zone-mask", json={"source_id": "cam/a", "cols": 2, "rows": 1, "cells": "00"}).status_code == 200
+    stored = json.loads(settings_file.read_text())
+    assert stored["zone_masks"] == {"cam/b": mask}
+    assert stored["vigilantia_armed"] is True and stored["vlm"] == {"model": "qwen3-vl:4b-instruct-q8_0"}
+    assert client.post("/vision/zone-mask", json={"source_id": "cam/b", "cols": 2, "rows": 1, "cells": "09"}).status_code == 400

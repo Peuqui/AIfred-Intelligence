@@ -890,9 +890,8 @@ VISION_BADGE_EVENTS = 10
 VISION_BADGE_REFRESH_SEC = 60    # the count asked again so older events leave the window
 # Learning a person from several poses: how long the live picture waits after one arrived before asking again (ms).
 VISION_ENROLL_PREVIEW_MS = 800
-# A camera's quiet hours (no alerts; whole hours 0–23) and its active window (watched only then; "HH:MM")
-# while none was set.
-VISION_QUIET_HOURS_DEFAULT = (22, 6)
+# A camera's quiet hours (no alerts) and its active window (watched only then), both "HH:MM", while none was set.
+VISION_QUIET_HOURS_DEFAULT = ("22:00", "06:00")
 VISION_SCHEDULE_DEFAULT = ("18:00", "08:00")
 VISION_WATCH_FPS = 1.0
 VISION_BACKGROUND_WATCH_FPS = 2.0

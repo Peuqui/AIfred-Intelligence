@@ -736,7 +736,6 @@
   "vision_settings_alert_type_animal": "Tier",
   "vision_settings_alert_type_face": "Gesicht",
   "vision_settings_quiet_label": "Ruhezeit",
-  "vision_settings_quiet_oclock": "Uhr",
   "vision_settings_schedule_label": "Aktiv-Zeitfenster",
   "alert_rules_title": "Benachrichtigungs-Regeln",
   "alert_rules_help": "Welche Erkennung über welche Kanäle gemeldet wird. Bild-Text = VLM-Beschreibung. Gemeldet wird ein Mal pro Ereignis (Cluster).",

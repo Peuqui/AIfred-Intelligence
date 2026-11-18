@@ -33,8 +33,8 @@ class CameraRow(BaseModel):
     alerts_enabled: bool = Field(description="Off: the camera still records, but sends no alerts")
     alert_types: list[str]
     quiet_enabled: bool
-    quiet_start: int = Field(description="Hour 0–23")
-    quiet_end: int
+    quiet_start: str = Field(description="HH:MM")
+    quiet_end: str = Field(description="HH:MM")
     schedule_enabled: bool = Field(description="Watched only inside the window")
     schedule_start: str = Field(description="HH:MM")
     schedule_end: str
@@ -85,8 +85,8 @@ class CameraChange(BaseModel):
     alerts_enabled: bool | None = None
     alert_types: list[str] | None = None
     quiet_enabled: bool | None = None
-    quiet_start: int | None = None
-    quiet_end: int | None = None
+    quiet_start: str | None = None
+    quiet_end: str | None = None
     schedule_enabled: bool | None = None
     schedule_start: str | None = None
     schedule_end: str | None = None

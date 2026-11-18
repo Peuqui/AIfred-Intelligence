@@ -15,7 +15,7 @@ from ..user_error import BadRequest, Invalid, Missing, UpstreamFailed
 
 # resolve_source_resolution lives in vision_utils.py — shared with the
 # plugin tools so popup-UI resolution and tool-call resolution match.
-from ..vision_settings import load_vision_settings, save_vision_settings
+from ..vision_settings import load_vision_settings, update_vision_settings
 from ..vision_utils import resolve_source_resolution as _resolve_resolution
 from .app import api_app, vision_api
 from .casus import Deleted
@@ -597,34 +597,38 @@ async def save_zone_mask(payload: ZoneMaskPayload) -> SystemActionResponse:
     """Zonen-Maske einer Quelle speichern (oder löschen bei mode=off /
     leerem Raster). Schreibt in zone_masks der vision-settings.json.
 
-    Hinweis: Der Watcher lädt die Maske beim (Neu-)Start einer Quelle —
-    eine geänderte Maske greift erst nach Re-Arm/Neustart der Quelle."""
-    data = load_vision_settings()
-    masks = data.get("zone_masks")
-    if not isinstance(masks, dict):
-        masks = {}
+    Hinweis: Eine laufende Quelle übernimmt die Maske sofort
+    (``reload_zone_mask``); schlägt das fehl, gilt sie beim nächsten Start."""
     painted = any(ch != "0" for ch in payload.cells)
+    if painted and (
+        payload.cols <= 0
+        or payload.rows <= 0
+        or len(payload.cells) != payload.cols * payload.rows
+        or any(ch not in "0123" for ch in payload.cells)
+    ):
+        raise BadRequest("zone_grid")
+
+    def apply(data: dict[str, Any]) -> None:
+        # Only this camera's entry changes; the other cameras' masks stay as the file holds them right now.
+        masks = data.get("zone_masks")
+        if not isinstance(masks, dict):
+            masks = {}
+        if painted:
+            masks[payload.source_id] = {
+                "cols": payload.cols,
+                "rows": payload.rows,
+                "cells": payload.cells,
+                "enabled": payload.enabled,
+            }
+        else:
+            masks.pop(payload.source_id, None)
+        data["zone_masks"] = masks
+
+    update_vision_settings(apply)
     if not painted:
-        # Nichts gemalt (alles 0) → Eintrag löschen.
-        masks.pop(payload.source_id, None)
         msg = "zone mask cleared"
     else:
-        if (
-            payload.cols <= 0
-            or payload.rows <= 0
-            or len(payload.cells) != payload.cols * payload.rows
-            or any(ch not in "0123" for ch in payload.cells)
-        ):
-            raise BadRequest("zone_grid")
-        masks[payload.source_id] = {
-            "cols": payload.cols,
-            "rows": payload.rows,
-            "cells": payload.cells,
-            "enabled": payload.enabled,
-        }
         msg = "zone mask saved" if payload.enabled else "zone mask saved (disabled)"
-    data["zone_masks"] = masks
-    save_vision_settings(data)
     # Live in den laufenden Watcher übernehmen — greift sofort, kein
     # Re-Arm/Neustart der Quelle nötig. No-op wenn die Quelle nicht läuft.
     try:

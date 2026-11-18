@@ -736,7 +736,6 @@
   "vision_settings_alert_type_animal": "Animal",
   "vision_settings_alert_type_face": "Face",
   "vision_settings_quiet_label": "Quiet",
-  "vision_settings_quiet_oclock": "h",
   "vision_settings_schedule_label": "Active schedule",
   "alert_rules_title": "Notification rules",
   "alert_rules_help": "Which detections go to which channels. Image text = VLM description. One alert per happening (cluster).",

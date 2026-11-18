@@ -19,13 +19,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import sqlite3
+from datetime import datetime
 from typing import Any
 
 from .config import (
     VISION_BACKGROUND_WATCH_FPS,
     VISION_MIN_EVENT_INTERVAL_RANGE,
     VISION_MOTION_MIN_AREA_RANGE,
+    VISION_SCHEDULE_DEFAULT,
 )
 from .vision_settings import load_vision_settings
 from .vision_watch_types import EdgeAiConfig, WatchConfig
@@ -69,38 +72,39 @@ def _resolve_edge_ai(
     )
 
 
-def schedule_minutes(value: Any) -> int:
-    """Zeitangabe → Minuten seit Mitternacht (0–1439). SSoT-Parser für die
-    Pro-Kamera-Zeitfenster. Akzeptiert ``"HH:MM"`` (HTML-time-Input), eine
-    bare Stunde ``"HH"``/int (Legacy — wird als ``HH:00`` gelesen) und ist
-    defensiv: ungültig → 0."""
-    if value is None:
-        return 0
-    s = str(value).strip()
-    try:
-        if ":" in s:
-            h, m = s.split(":", 1)
-            return (int(h) % 24) * 60 + max(0, min(59, int(m or 0)))
-        return (int(float(s)) % 24) * 60
-    except (TypeError, ValueError):
-        return 0
+_CLOCK_TIME = re.compile(r"([01]\d|2[0-3]):([0-5]\d)")
+
+
+def clock_minutes(value: Any) -> int:
+    """"HH:MM" -> minutes since midnight (0-1439). The one parser of every stored time of day of a camera
+    (active window, quiet hours); anything else, a bare hour included, is a ValueError."""
+    match = _CLOCK_TIME.fullmatch(value) if isinstance(value, str) else None
+    if match is None:
+        raise ValueError(f"not a time as HH:MM: {value!r}")
+    return int(match[1]) * 60 + int(match[2])
+
+
+def in_clock_window(start: Any, end: Any, now: datetime) -> bool:
+    """Is ``now`` inside the window from ``start`` up to (not including) ``end`` ("HH:MM")? A window that ends
+    before it starts runs over midnight (22:30-06:15); start == end is the whole day."""
+    first, last, current = clock_minutes(start), clock_minutes(end), now.hour * 60 + now.minute
+    if first == last:
+        return True
+    return (first <= current < last) if first < last else (current >= first or current < last)
 
 
 def _schedule_active_now(settings: dict[str, Any]) -> bool:
     """True, wenn die Kamera laut Pro-Quelle-Zeitplan JETZT aktiv (scharf)
-    sein soll. Kein Zeitplan (``schedule_enabled`` False/fehlt) → immer aktiv.
-    Minuten-genau, über Mitternacht (z.B. 22:30→6:15) korrekt; start==end →
-    immer aktiv."""
+    sein soll. Kein Zeitplan (``schedule_enabled`` False/fehlt) → immer aktiv;
+    ohne gespeicherte Zeiten gelten die Standardzeiten (dieselben, die die
+    Einstellungen zeigen)."""
     if not settings.get("schedule_enabled"):
         return True
-    start = schedule_minutes(settings.get("schedule_start", 0))
-    end = schedule_minutes(settings.get("schedule_end", 0))
-    if start == end:
-        return True
-    from datetime import datetime
-    now = datetime.now()
-    cur = now.hour * 60 + now.minute
-    return (start <= cur < end) if start < end else (cur >= start or cur < end)
+    return in_clock_window(
+        settings.get("schedule_start", VISION_SCHEDULE_DEFAULT[0]),
+        settings.get("schedule_end", VISION_SCHEDULE_DEFAULT[1]),
+        datetime.now(),
+    )
 
 
 def motion_threshold(source_settings: dict[str, Any]) -> float:
