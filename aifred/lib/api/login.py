@@ -17,30 +17,37 @@ class LoggedIn(BaseModel):
     user: str
 
 
-def _with_cookie(response: JSONResponse, user: str) -> JSONResponse:
+def _over_https(request: Request) -> bool:
+    """Whether the browser reached the server over HTTPS (behind nginx: X-Forwarded-Proto, which uvicorn takes from
+    127.0.0.1). Only then is the cookie Secure: the server also answers plain HTTP on the LAN and on localhost (test
+    instance, scripts), where a Secure cookie would never come back."""
+    return request.url.scheme == "https"
+
+
+def _with_cookie(response: JSONResponse, user: str, request: Request) -> JSONResponse:
     from ..auth import USERNAME_COOKIE_NAME, sign_username
     from ..config import AUTH_COOKIE_MAX_AGE_DAYS
 
     response.set_cookie(
         USERNAME_COOKIE_NAME, sign_username(user), path="/",
-        max_age=AUTH_COOKIE_MAX_AGE_DAYS * 24 * 60 * 60, samesite="lax", httponly=True,
+        max_age=AUTH_COOKIE_MAX_AGE_DAYS * 24 * 60 * 60, samesite="lax", httponly=True, secure=_over_https(request),
     )
     return response
 
 
 @api_app.post("/auth/login", response_model=LoggedIn, tags=["Auth"])
-async def auth_login(credentials: Credentials) -> JSONResponse:
+async def auth_login(credentials: Credentials, request: Request) -> JSONResponse:
     from ..session_storage import account_exists, verify_account
 
     user = credentials.username.strip().lower()
     # One answer for an unknown account and a wrong password: the login does not tell which exist.
     if not user or not account_exists(user) or not verify_account(user, credentials.password):
         raise Unauthorized("wrong_login")
-    return _with_cookie(JSONResponse({"user": user}), user)
+    return _with_cookie(JSONResponse({"user": user}), user, request)
 
 
 @api_app.post("/auth/register", response_model=LoggedIn, status_code=201, tags=["Auth"])
-async def auth_register(credentials: Credentials) -> JSONResponse:
+async def auth_register(credentials: Credentials, request: Request) -> JSONResponse:
     """A new account for a name on the whitelist (data/allowed_users.json), logged in at once. One answer for a name
     that is not allowed and one that has an account already: the form does not tell which names exist."""
     from ..session_storage import create_account
@@ -48,7 +55,7 @@ async def auth_register(credentials: Credentials) -> JSONResponse:
     user = credentials.username.strip().lower()
     if not user or not credentials.password or not create_account(user, credentials.password):
         raise Refused("register_refused")
-    return _with_cookie(JSONResponse({"user": user}, status_code=201), user)
+    return _with_cookie(JSONResponse({"user": user}, status_code=201), user, request)
 
 
 class Me(BaseModel):
@@ -64,9 +71,9 @@ async def auth_me(request: Request) -> Me:
 
 
 @api_app.post("/auth/logout", status_code=204, tags=["Auth"])
-async def auth_logout() -> Response:
+async def auth_logout(request: Request) -> Response:
     from ..auth import USERNAME_COOKIE_NAME
 
     response = Response(status_code=204)
-    response.delete_cookie(USERNAME_COOKIE_NAME, path="/")
+    response.delete_cookie(USERNAME_COOKIE_NAME, path="/", secure=_over_https(request), httponly=True, samesite="lax")
     return response

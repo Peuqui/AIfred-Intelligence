@@ -186,3 +186,15 @@ def test_several_sessions_go_at_once_but_only_the_users_own(client: TestClient) 
     assert client.post("/sessions/delete", json={"session_ids": [MINE, second]}).status_code == 204
     assert client.get("/sessions").json() == []
     assert session_storage.load_session(THEIRS) is not None
+
+
+def test_the_login_cookie_is_secure_over_https_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Behind nginx (HTTPS) the cookie is Secure; on plain HTTP (LAN, localhost, scripts) it cannot be, or the browser
+    and Python's cookie jar would never send it back."""
+    monkeypatch.setattr(session_storage, "account_exists", lambda user: user == "ki")
+    monkeypatch.setattr(session_storage, "verify_account", lambda user, password: password == "richtig")
+    credentials = {"username": "ki", "password": "richtig"}
+    over_https = TestClient(api_app, base_url="https://testserver").post("/auth/login", json=credentials)
+    assert "Secure" in over_https.headers["set-cookie"]
+    plain = TestClient(api_app).post("/auth/login", json=credentials)
+    assert "Secure" not in plain.headers["set-cookie"]
