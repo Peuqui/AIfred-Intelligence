@@ -63,7 +63,7 @@ def _tool(name: str, tier: int) -> Tool:
 class TestPluginShape:
     def test_name_equals_folder(self, plugin):
         assert plugin.name == "subagent"
-        assert plugin_display_name(plugin, "de") == "Sub-Agenten"
+        assert plugin_display_name(plugin, "de") == "Sub-Agents"  # in every language (Peuqui 19.11.2026)
         assert plugin_display_name(plugin, "en") == "Sub-Agents"
 
     def test_delegate_tool_is_readonly(self, plugin, ctx):
