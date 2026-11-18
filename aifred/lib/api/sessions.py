@@ -14,7 +14,7 @@ from fastapi import Form, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from .. import session_events
+from .. import debug_bus, session_events
 from ..config import MULTI_AGENT_MODES
 from ..server_shutdown import until_shutdown
 from ..session_storage import DEFAULT_SESSION_CONFIG
@@ -195,7 +195,7 @@ async def sessions_open(session_id: str, request: Request) -> SessionDetail:
         title=data.get("title"),
         config=_config_of(session_id),
         chat_history=data.get("chat_history", []),
-        debug_messages=data.get("debug_messages", []),
+        debug_messages=[*data.get("debug_messages", []), *debug_bus.pending_lines(session_id)],
         running=running,
         speech_regenerating=reply_speech.regenerating(session_id),
         live_events=[LiveEvent(kind=event.kind, data=event.data) for event in running_turn_events(session_id)] if running else [],
@@ -306,6 +306,7 @@ async def sessions_clear(session_id: str, request: Request) -> Response:
 
     owned_session(request, session_id)
     end_session_activity(session_id)
+    debug_bus.drop_pending(session_id)
     if not await asyncio.to_thread(clear_chat, session_id):
         raise Missing("no_session")
     session_events.publish(session_id, "chat_cleared", {})
@@ -541,7 +542,7 @@ async def sessions_dictation(
     owned_session(request, session_id)
     if source not in ("mic", "file"):
         raise Invalid("unknown_dictation_source", source=source)
-    job = accept(job_id, session_id, file.filename or "audio", await file.read(), source, get_language())
+    job = await accept(job_id, session_id, file.filename or "audio", file.file, source, get_language())
     return DictationAccepted(job_id=job.id)
 
 

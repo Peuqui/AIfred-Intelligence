@@ -1065,6 +1065,15 @@ def get_audio_duration(audio_path: str) -> float:
     return 0.0
 
 
+def transcription_device(audio_path: str) -> str:
+    """The device ``transcribe_audio_auto`` asks for: ``cpu`` for a recording above WHISPER_GPU_MIN_FILE_MB,
+    else ``auto`` (the service picks; known only from its answer). SSOT for the request and for the
+    estimate made before it."""
+    from .config import WHISPER_GPU_MIN_FILE_MB
+
+    return "cpu" if os.path.getsize(audio_path) / (1024 * 1024) > WHISPER_GPU_MIN_FILE_MB else "auto"
+
+
 def transcribe_audio_auto(
     audio_path: str, language: str = "de", log_result: bool = True,
     diarize: bool = False,
@@ -1083,10 +1092,7 @@ def transcribe_audio_auto(
         tuple: (transcribed_text, time_in_seconds, device_used) — device_used is ``cpu`` or
         ``cuda`` as the service reports it.
     """
-    from .config import WHISPER_GPU_MIN_FILE_MB
-
-    device = "cpu" if os.path.getsize(audio_path) / (1024 * 1024) > WHISPER_GPU_MIN_FILE_MB else "auto"
-    return transcribe_audio(audio_path, language=language, device=device, log_result=log_result, diarize=diarize)
+    return transcribe_audio(audio_path, language=language, device=transcription_device(audio_path), log_result=log_result, diarize=diarize)
 
 
 def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",

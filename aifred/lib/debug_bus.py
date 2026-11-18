@@ -16,6 +16,7 @@ Usage:
 """
 
 import contextvars
+import threading
 from datetime import datetime
 from typing import Self
 
@@ -26,13 +27,20 @@ _current_session: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "debug_bus_session", default=None
 )
 
+# Lines of the running scopes, per session, waiting for their one write to the session file. The pages get each
+# line at once through the ``debug`` event; the file (what a page loads when it opens) is written when the scope
+# ends, not once per line (a session file is rewritten as a whole, some are hundreds of KB). A crash loses only
+# the lines of the unfinished scope in the file; the log has them (``debug`` writes it before).
+_pending: dict[str, list[str]] = {}
+# Guards the swap in ``_take_pending``: debug() is also called from worker threads (to_thread keeps the context).
+_pending_lock = threading.Lock()
+
 
 class session_scope:
     """Context manager that binds a session_id for debug message routing.
 
-    Messages emitted via debug() inside this scope are written immediately
-    to the session file (one write per message) so the UI polling timer
-    can pick them up in near-realtime.
+    Messages emitted via debug() inside this scope reach the session's open pages at once (``debug`` event) and
+    the session file once, when the scope ends.
     Nest-safe: restores previous session_id on exit.
     """
 
@@ -47,6 +55,10 @@ class session_scope:
     def __exit__(self, *exc: object) -> None:
         if self._session_token is not None:
             _current_session.reset(self._session_token)
+        if self._session_id:
+            lines = _take_pending(self._session_id)
+            if lines:
+                _flush_to_session(self._session_id, lines)
 
 
 def debug(msg: str) -> None:
@@ -66,7 +78,8 @@ def show_in_session(msg: str) -> None:
     sid = _current_session.get()
     if sid:
         line = f"{datetime.now().strftime('%H:%M:%S')} | {msg}"
-        _flush_to_session(sid, [line])
+        with _pending_lock:
+            _pending.setdefault(sid, []).append(line)
         from . import session_events
         session_events.publish(sid, "debug", {"line": line})
 
@@ -86,6 +99,23 @@ def report_phase(phase: str, *, current: int = 0, total: int = 0, failed: int = 
             sid, "turn_phase", {"phase": phase, "current": current, "total": total, "failed": failed},
             replaces=frozenset({"turn_phase"}),
         )
+
+
+def _take_pending(session_id: str) -> list[str]:
+    """The waiting lines of a session, removed from the buffer."""
+    with _pending_lock:
+        return _pending.pop(session_id, [])
+
+
+def pending_lines(session_id: str) -> list[str]:
+    """The lines of the session's running scopes not yet in its file: a page opened mid-turn shows them too."""
+    with _pending_lock:
+        return list(_pending.get(session_id, []))
+
+
+def drop_pending(session_id: str) -> None:
+    """Forget the session's waiting lines: its chat was emptied, they must not come back with the scope's end."""
+    _take_pending(session_id)
 
 
 def _flush_to_session(session_id: str, messages: list[str]) -> None:

@@ -6,6 +6,7 @@ and the turn are stand-ins; session file and event hub run for real."""
 from __future__ import annotations
 
 import asyncio
+import io
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -82,10 +83,12 @@ def _chat() -> list[dict[str, Any]]:
 
 def _dictate(source: str = "mic", answers: tuple[bool, ...] = (), name: str = "aufnahme.webm") -> dictation.DictationJob:
     async def scenario() -> dictation.DictationJob:
-        job = dictation.accept(uuid.uuid4().hex, SESSION, name, b"audio", source, "de")
+        job = await dictation.accept(uuid.uuid4().hex, SESSION, name, io.BytesIO(b"audio"), source, "de")
         assert job.task is not None
         for reply in answers:
-            while job.answer is None:
+            for _ in range(10_000):      # bounded: a missing question fails the test instead of hanging it
+                if job.answer is not None:
+                    break
                 await asyncio.sleep(0)
             assert dictation.answer(SESSION, job.id, reply)
         await job.task
@@ -147,11 +150,45 @@ def test_a_transcription_above_the_time_limit_does_not_start(stt: dict[str, Any]
     assert stt["transcribed"] == [] and _events("notice")[0]["level"] == "error"
 
 
+def test_an_upload_above_the_limit_is_refused_without_reading_it(stt: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    class CountingUpload(io.BytesIO):
+        bytes_read = 0
+
+        def read(self, size: int | None = -1) -> bytes:
+            data = super().read(size)
+            self.bytes_read += len(data)
+            return data
+
+    monkeypatch.setattr(config, "AUDIO_UPLOAD_MAX_MB", 1)
+    upload = CountingUpload(b"\0" * (2 * 1024 * 1024))
+
+    async def scenario() -> None:
+        with pytest.raises(dictation.DictationRejected):
+            await dictation.accept(uuid.uuid4().hex, SESSION, "lang.wav", upload, "file", "de")
+
+    asyncio.run(scenario())
+    assert upload.bytes_read == 0 and dictation._jobs == {}
+
+
+def test_the_estimate_follows_the_device_of_the_request(stt: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    # Just over the confirm threshold with the CPU factor, far below it with the GPU factor.
+    stt["duration"] = (config.WHISPER_CONFIRM_THRESHOLD_S + 60) / config.WHISPER_RTF_CPU
+    _dictate()
+    assert _events("dictation_question") == []                      # device "auto": GPU factor
+    monkeypatch.setattr(config, "WHISPER_GPU_MIN_FILE_MB", 0)         # every file goes to the CPU
+    _dictate(answers=(True,))
+    [question] = _events("dictation_question")
+    assert "CPU" in question["text"]
+
+
 def test_an_unknown_format_is_refused_before_anything_is_stored(stt: dict[str, Any]) -> None:
-    with pytest.raises(dictation.DictationRejected):
-        dictation.accept(uuid.uuid4().hex, SESSION, "notiz.txt", b"x", "mic", "de")
-    with pytest.raises(dictation.DictationRejected):
-        dictation.accept("kein-uuid", SESSION, "aufnahme.webm", b"x", "mic", "de")
+    async def scenario() -> None:
+        with pytest.raises(dictation.DictationRejected):
+            await dictation.accept(uuid.uuid4().hex, SESSION, "notiz.txt", io.BytesIO(b"x"), "mic", "de")
+        with pytest.raises(dictation.DictationRejected):
+            await dictation.accept("kein-uuid", SESSION, "aufnahme.webm", io.BytesIO(b"x"), "mic", "de")
+
+    asyncio.run(scenario())
 
 
 def test_an_answer_needs_an_open_question_of_the_own_session(stt: dict[str, Any]) -> None:
@@ -182,6 +219,13 @@ def test_the_endpoints_take_uploads_for_the_own_sessions_only(client: TestClient
     assert client.post(f"/sessions/{'e' * 32}/dictation", files=audio, data=other).status_code == 404
     assert client.post(f"/sessions/{SESSION}/dictation", files={"file": ("x.txt", b"x", "text/plain")}, data=other).status_code == 422
     assert client.post(f"/sessions/{SESSION}/dictation/nix/answer", json={"yes": True}).status_code == 404
+
+
+def test_the_endpoint_refuses_an_upload_above_the_limit(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config, "AUDIO_UPLOAD_MAX_MB", 1)
+    big = {"file": ("lang.wav", b"\0" * (2 * 1024 * 1024), "audio/wav")}
+    response = client.post(f"/sessions/{SESSION}/dictation", files=big, data={"job_id": uuid.uuid4().hex})
+    assert response.status_code == 422 and dictation._jobs == {}
 
 
 # ── The browser's own recognition ────────────────────────────────────────

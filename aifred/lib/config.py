@@ -1400,6 +1400,9 @@ WHISPER_GPU_MIN_FILE_MB = 10
 # Deliberately rough (content/VAD-dependent, accurate to ~1.5-2x) — good
 # enough for proceed/abort decisions, not for progress bars.
 WHISPER_RTF_GPU = 0.07   # medium float16 ≈ 15-20x realtime
+# CPU engine of the STT-Suite (Parakeet fp32), measured 18.11.2026 on a 71 s recording: 0.064 warm,
+# 0.18 cold (first request) — the cold value, so the estimate errs on the slow side.
+WHISPER_RTF_CPU = 0.2
 
 # Uploads whose estimated transcription time exceeds this ask the user for
 # confirmation before starting (estimates beyond the transcribe timeout are
@@ -1628,6 +1631,10 @@ BROWSER_RENDER_ACTION_TIMEOUT_MS = 5000      # per-action timeout (missing selec
 # to .env by scripts/install-all.sh with the first user; the app refuses to
 # start without it (aifred.py, _message_hub_lifespan).
 MESSAGE_HUB_OWNER = os.environ.get("MESSAGE_HUB_OWNER", "")
+
+# How long the server waits for the hub thread: to report its loop as started (start_all) and to end after the
+# stop (stop_all). Both waits run off the server's event loop (asyncio.to_thread).
+MESSAGE_HUB_THREAD_TIMEOUT_SEC = 10
 
 # Scheduler: each run of a job sees what its previous runs delivered, so a
 # job like "a new psalm every morning" does not repeat itself.

@@ -20,12 +20,13 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shutil
 import tempfile
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from . import session_events
 from .debug_bus import debug, session_scope
@@ -71,9 +72,13 @@ class DictationJob:
 _jobs: dict[str, DictationJob] = {}
 
 
-def accept(job_id: str, session_id: str, filename: str, content: bytes, source: str, lang: str) -> DictationJob:
+async def accept(job_id: str, session_id: str, filename: str, upload: BinaryIO, source: str, lang: str) -> DictationJob:
     """Check the upload and start its job. The client names the job (a UUID) before it uploads: its
     question or its text may reach the client's event stream before the upload's answer does.
+
+    ``upload`` is the file object the web framework already spooled (memory up to 1 MB, a temporary file
+    beyond): the size is read from it and the content is copied block by block, so a recording of
+    hundreds of MB never sits in memory as ``bytes``.
 
     Raises:
         DictationRejected: unknown audio format, a file above AUDIO_UPLOAD_MAX_MB, or a job id that
@@ -91,17 +96,25 @@ def accept(job_id: str, session_id: str, filename: str, content: bytes, source: 
     extension = os.path.splitext(filename)[1].lower()
     if extension not in AUDIO_EXTENSIONS:
         raise DictationRejected("dictation_format", ext=extension or "–", allowed=", ".join(AUDIO_EXTENSIONS))
-    size_mb = len(content) / (1024 * 1024)
+    size = upload.seek(0, os.SEEK_END)
+    upload.seek(0)
+    size_mb = size / (1024 * 1024)
     if size_mb > AUDIO_UPLOAD_MAX_MB:
         raise DictationRejected("dictation_too_large", size=format_number(size_mb, 1),
                                 limit=format_number(AUDIO_UPLOAD_MAX_MB, 0))
-    with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as upload:
-        upload.write(content)
-    size_display = f"{format_number(len(content) / 1024, 0)} KB" if size_mb < 1 else f"{format_number(size_mb, 1)} MB"
-    job = DictationJob(job_id, session_id, source, filename, Path(upload.name), size_display, lang)
+    path = await asyncio.to_thread(_store_upload, upload, extension)
+    size_display = f"{format_number(size / 1024, 0)} KB" if size_mb < 1 else f"{format_number(size_mb, 1)} MB"
+    job = DictationJob(job_id, session_id, source, filename, path, size_display, lang)
     _jobs[job.id] = job
     job.task = asyncio.create_task(_run(job), name=f"dictation-{session_id[:8]}")
     return job
+
+
+def _store_upload(upload: BinaryIO, extension: str) -> Path:
+    """The upload as a temporary file (off the event loop: a recording can be large)."""
+    with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as stored:
+        shutil.copyfileobj(upload, stored)
+    return Path(stored.name)
 
 
 def answer(session_id: str, job_id: str, yes: bool) -> bool:
@@ -155,9 +168,10 @@ def _t(job: DictationJob, key: str, **values: Any) -> str:
 
 async def _transcription(job: DictationJob) -> str | None:
     """The text of the recording; None when the user stopped it or nothing could be done (said so)."""
-    from .audio_processing import get_audio_duration
+    from .audio_processing import get_audio_duration, transcription_device
     from .config import (
         WHISPER_CONFIRM_THRESHOLD_S,
+        WHISPER_RTF_CPU,
         WHISPER_RTF_GPU,
         WHISPER_TRANSCRIBE_TIMEOUT_S,
     )
@@ -170,18 +184,22 @@ async def _transcription(job: DictationJob) -> str | None:
         await asyncio.to_thread(stt.ensure_ready)
 
     duration_s = await asyncio.to_thread(get_audio_duration, str(job.path))
-    estimate_s = duration_s * WHISPER_RTF_GPU
+    # Before the request the device is known only for "cpu"; for "auto" the service decides (cards,
+    # free memory) and says so in its answer, so that estimate keeps the GPU factor.
+    device = transcription_device(str(job.path))
+    engine = device.upper()
+    estimate_s = duration_s * (WHISPER_RTF_CPU if device == "cpu" else WHISPER_RTF_GPU)
     if duration_s:
         debug(
             f"🎤 Audio duration {format_number(duration_s / 60, 1)} min — estimated transcription "
-            f"~{format_number(max(estimate_s, 6) / 60, 1)} min (GPU engine)"
+            f"~{format_number(max(estimate_s, 6) / 60, 1)} min ({engine} engine)"
         )
     if estimate_s > WHISPER_TRANSCRIBE_TIMEOUT_S:
         debug(f"⚠️ Estimated ~{round(estimate_s / 60)} min exceeds the {WHISPER_TRANSCRIBE_TIMEOUT_S // 60} min transcribe timeout — aborted")
         _notice(job, "error", _t(job, "stt_estimate_too_long", minutes=round(estimate_s / 60), limit=WHISPER_TRANSCRIBE_TIMEOUT_S // 60))
         return None
     if estimate_s > WHISPER_CONFIRM_THRESHOLD_S:
-        question = _t(job, "stt_confirm_long", filename=job.filename, minutes=round(estimate_s / 60), engine="GPU")
+        question = _t(job, "stt_confirm_long", filename=job.filename, minutes=round(estimate_s / 60), engine=engine)
         if not await _ask(job, "long", question):
             debug("🎤 Transcription cancelled by user")
             _notice(job, "info", _t(job, "stt_cancelled"))
@@ -191,9 +209,9 @@ async def _transcription(job: DictationJob) -> str | None:
         from .turn_service import post_bubble
 
         post_bubble(job.session_id, "aifred", _t(
-            job, "stt_bubble_started", filename=job.filename, size=job.size_display, engine="GPU",
+            job, "stt_bubble_started", filename=job.filename, size=job.size_display, engine=engine,
         ), job.lang, in_history=False)
-    debug(f"🎤 Transcribing audio: {job.filename} ({job.size_display}, GPU engine)...")
+    debug(f"🎤 Transcribing audio: {job.filename} ({job.size_display}, {engine} engine)...")
     return await _transcribe(job)
 
 

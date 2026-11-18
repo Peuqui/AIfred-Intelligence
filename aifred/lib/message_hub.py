@@ -17,6 +17,7 @@ import time
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 
+from .config import MESSAGE_HUB_THREAD_TIMEOUT_SEC
 from .logging_utils import LogCategory, log_exception, log_message
 
 
@@ -179,8 +180,8 @@ class MessageHub:
         )
         self._thread.start()
 
-        # Wait for the thread to start its event loop
-        self._started.wait(timeout=10)
+        # Wait for the thread to start its event loop; the wait blocks, so it runs off the server's loop
+        await asyncio.to_thread(self._started.wait, MESSAGE_HUB_THREAD_TIMEOUT_SEC)
 
     async def stop_all(self) -> None:
         """Stop all workers and shut down the worker thread."""
@@ -196,8 +197,8 @@ class MessageHub:
         # Stop the event loop (thread-safe)
         self._loop.call_soon_threadsafe(self._loop.stop)
 
-        # Wait for thread to finish
-        self._thread.join(timeout=10)
+        # Wait for thread to finish; the join blocks, so it runs off the server's loop
+        await asyncio.to_thread(self._thread.join, MESSAGE_HUB_THREAD_TIMEOUT_SEC)
         if self._thread.is_alive():
             _hub_log("Message Hub: WARNING — worker thread did not stop cleanly", "warning")
 
