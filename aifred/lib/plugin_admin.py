@@ -87,8 +87,7 @@ def tools(lang: str) -> list[ToolRow]:
         plugin = get_tool_plugin(entry["name"])     # None while switched off
         oauth = bool(plugin is not None and getattr(plugin, "oauth_provider", None))
         rows.append(ToolRow(
-            name=entry["name"], label=entry[f"display_{lang}"],
-            description=plugin_description(plugin, lang) if plugin is not None else "",
+            name=entry["name"], label=entry[f"display_{lang}"], description=entry[f"description_{lang}"],
             enabled=bool(entry["enabled"]), has_settings=bool(entry["has_credentials"]),
             needs_connection=oauth and not _oauth_current(plugin),
         ))

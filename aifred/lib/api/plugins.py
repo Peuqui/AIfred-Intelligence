@@ -15,7 +15,7 @@ from .schemas import ChoiceOption
 class ToolPluginRow(BaseModel):
     name: str
     label: str
-    description: str = Field(description="'' while the plugin is switched off (it is not loaded)")
+    description: str = Field(description="From the plugin's own i18n.json, switched on or off")
     enabled: bool
     has_settings: bool
     needs_connection: bool = Field(description="An OAuth plugin without a connection with the rights it needs")

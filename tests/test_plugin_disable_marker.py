@@ -19,7 +19,8 @@ def _package(base: Path, name: str) -> Path:
     folder.mkdir(parents=True)
     (folder / "__init__.py").write_text("", encoding="utf-8")
     (folder / "i18n.json").write_text(
-        json.dumps({"plugin_display_name": {"de": name, "en": name}}), encoding="utf-8",
+        json.dumps({"plugin_display_name": {"de": name, "en": name},
+                    "plugin_description": {"de": f"{name} beschrieben", "en": f"{name} described"}}), encoding="utf-8",
     )
     return folder
 
@@ -57,6 +58,13 @@ def test_the_manager_lists_plugins_switched_off_too(tree: Path, monkeypatch: pyt
     monkeypatch.setattr(plugin_registry, "get_tool_plugin_on_or_off", lambda name: None)      # the stand-ins have no module
     listed = {(entry["type"], entry["name"]): entry["enabled"] for entry in plugin_registry.list_all_plugins()}
     assert listed == {("tool", "alpha"): "1", ("tool", "beta"): ""}      # a channel is switched in the settings
+
+
+def test_a_plugin_switched_off_keeps_its_description(tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Read from the plugin's folder: a switched-off plugin is not loaded, and its row in the settings had no text.
+    monkeypatch.setattr(plugin_registry, "get_tool_plugin_on_or_off", lambda name: None)
+    beta = next(entry for entry in plugin_registry.list_all_plugins() if entry["name"] == "beta")
+    assert (beta["enabled"], beta["description_de"], beta["description_en"]) == ("", "beta beschrieben", "beta described")
 
 
 def test_switching_off_and_on_sets_and_removes_the_marker_only(tree: Path, reloads: list[str]) -> None:

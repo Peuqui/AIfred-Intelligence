@@ -302,8 +302,6 @@ function switchMask(event: Event): void {
 .icon { background: none; border: none; color: inherit; font-size: 1.2rem; cursor: pointer; padding: 0 4px; }
 .icon.on { filter: drop-shadow(0 0 4px var(--aifred-accent-gold)); }
 /* The help bulb looks like HelpButton's. */
-.icon.help { padding: 0; color: var(--aifred-accent-amber); transition: transform 0.2s ease; --icon-own: currentColor; }
-.icon.help:hover { transform: scale(1.15); }
 .help { display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; padding: 10px 12px; background: var(--aifred-input-bg); border-radius: 8px; max-width: 760px; }
 .help p { margin: 0; line-height: 1.45; }
 .kind-help { display: flex; gap: 8px; align-items: baseline; }

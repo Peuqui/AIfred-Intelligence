@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // The plugins on the settings page (GET plugins): the channels with their switches (on, listening, answering on
-// their own) and security tier, the tool plugins with theirs; ⚙️ opens a plugin's settings form. Switching on a
-// channel that is not set up opens its form instead.
-import { Lock, Settings, TriangleAlert } from "lucide-vue-next";
+// their own) and security tier, the tool plugins with theirs; 💡 shows a plugin's description under its row (on a phone
+// there is no tooltip), ⚙️ opens its settings form. Switching on a channel that is not set up opens its form instead.
+import { Lightbulb, Lock, Settings, TriangleAlert } from "lucide-vue-next";
 import { computed, ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { PluginOverview } from "../api/types";
@@ -14,6 +14,11 @@ const plugins = usePlugins();
 const overview = computed(() => plugins.overview);
 const notice = ref("");
 const editing = ref("");
+// The plugins whose description is shown under their row.
+const described = ref<string[]>([]);
+const describe = (name: string): void => {
+  described.value = described.value.includes(name) ? described.value.filter((other) => other !== name) : [...described.value, name];
+};
 
 async function call(work: () => Promise<PluginOverview>): Promise<void> {
   notice.value = "";
@@ -54,10 +59,12 @@ const picked = (event: Event): number => Number((event.target as HTMLSelectEleme
         <input type="checkbox" :checked="row.auto_reply" :disabled="!row.monitor" @change="channel(row.name, row.configured, { auto_reply: checked($event) })" /> {{ t("auto_reply") }}
       </label>
       <span class="spacer" />
+      <button v-if="row.description" class="icon help" :class="{ on: described.includes(row.name) }" :title="t('plugin_description_title')" @click="describe(row.name)"><Lightbulb :size="16" /></button>
       <button :title="t('cred_title_suffix')" @click="editing = row.name"><Settings :size="16" /></button>
       <label class="switch main">
         <input type="checkbox" :checked="row.monitor" @change="channel(row.name, row.configured, { monitor: checked($event) })" />
       </label>
+      <p v-if="described.includes(row.name)" class="description">{{ row.description }}</p>
     </div>
 
     <h3>{{ t("plugin_tools") }}</h3>
@@ -65,10 +72,12 @@ const picked = (event: Event): number => Number((event.target as HTMLSelectEleme
       <span class="name" :title="row.description">{{ row.label }}</span>
       <span v-if="row.needs_connection" class="hint"><Lock :size="16" /> {{ t("plugin_needs_connection") }}</span>
       <span class="spacer" />
+      <button v-if="row.description" class="icon help" :class="{ on: described.includes(row.name) }" :title="t('plugin_description_title')" @click="describe(row.name)"><Lightbulb :size="16" /></button>
       <button v-if="row.has_settings" :title="t('cred_title_suffix')" @click="editing = row.name"><Settings :size="16" /></button>
       <label class="switch main">
         <input type="checkbox" :checked="row.enabled" @change="tool(row.name, checked($event))" />
       </label>
+      <p v-if="described.includes(row.name)" class="description">{{ row.description }}</p>
     </div>
     <PluginForm v-if="editing" :plugin="editing" @close="editing = ''" @saved="plugins.load()" />
   </section>
@@ -86,5 +95,6 @@ input[type="checkbox"] { accent-color: var(--aifred-primary); width: 16px; heigh
 select { background: var(--aifred-card-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 2px 8px; font: inherit; font-size: 0.8rem; }
 button { padding: 2px 8px; font-size: 0.8rem; }
 .hint { font-size: 0.8rem; color: var(--aifred-accent-amber); --icon-own: currentColor; }
+.description { flex-basis: 100%; margin: 0 0 4px; font-size: 0.85rem; line-height: 1.45; color: var(--aifred-text-secondary); white-space: pre-line; }
 .notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 </style>

@@ -68,3 +68,7 @@ svg.lucide-target, svg.lucide-eye {
 svg.lucide-send { --icon-tint: var(--aifred-accent-warning); }
 svg.lucide-lightbulb { --icon-tint: var(--aifred-accent-gold); }
 svg.lucide-eye-off { --icon-tint: var(--aifred-icon-off); }
+
+/* The help bulb (💡) that unfolds an explanation beside what it explains (zone editor, plugin list): amber, no box. */
+:where(button.icon.help) { padding: 0; background: none; color: var(--aifred-accent-amber); transition: transform 0.2s ease; --icon-own: currentColor; }
+:where(button.icon.help):hover { transform: scale(1.15); }

@@ -99,7 +99,8 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     monkeypatch.setattr(plugin_registry, "all_channels", lambda: dict(channels))
     monkeypatch.setattr(plugin_registry, "get_channel", lambda name: channels.get(name))
     monkeypatch.setattr(plugin_registry, "list_all_plugins", lambda: [
-        {"name": name, "display_de": name.title(), "display_en": name.title(), "file": name, "type": "tool",
+        {"name": name, "display_de": name.title(), "display_en": name.title(), "description_de": "", "description_en": "",
+         "file": name, "type": "tool",
          "enabled": "" if name in switched_off else "1", "has_credentials": ""} for name in ("rechner", "wetter")
     ])
     monkeypatch.setattr(plugin_registry, "is_plugin_enabled", lambda name: name not in switched_off)

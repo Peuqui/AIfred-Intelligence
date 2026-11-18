@@ -99,6 +99,7 @@
   "agent_choices_title": "Agents and models",
   "dialog_close": "Close",
   "auto_reply": "Auto-Reply",
+  "plugin_description_title": "Description",
   "plugin_channels": "Channels",
   "plugin_tools": "Tool Plugins",
   "security_tiers_title": "Security Levels",

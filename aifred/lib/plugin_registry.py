@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .plugin_base import (
+    PLUGIN_DESCRIPTION_KEY,
     PLUGIN_DISPLAY_NAME_KEY,
     BaseChannel,
     ToolPlugin,
@@ -275,11 +276,12 @@ def list_all_plugins() -> list[dict[str, str]]:
     """
     result: list[dict[str, str]] = []
 
-    def _display(path: Path) -> dict[str, str]:
-        """Display names in both UI languages, read from the plugin's own
+    def _texts(path: Path) -> dict[str, str]:
+        """Name and description in both UI languages, read from the plugin's own
         i18n.json — works for plugins switched off too, which are not loaded."""
         return {
-            f"display_{lang}": plugin_i18n_text(path, PLUGIN_DISPLAY_NAME_KEY, lang)
+            f"{field}_{lang}": plugin_i18n_text(path, key, lang)
+            for field, key in (("display", PLUGIN_DISPLAY_NAME_KEY), ("description", PLUGIN_DESCRIPTION_KEY))
             for lang in ("de", "en")
         }
 
@@ -290,7 +292,7 @@ def list_all_plugins() -> list[dict[str, str]]:
     for plugin_dir in _plugin_dirs("tool"):
         name = plugin_dir.name
         result.append({
-            "name": name, **_display(plugin_dir), "file": name, "type": "tool",
+            "name": name, **_texts(plugin_dir), "file": name, "type": "tool",
             "enabled": "" if _is_switched_off(plugin_dir) else "1",
             "has_credentials": _has_credentials(name),
         })
