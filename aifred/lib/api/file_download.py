@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 from fastapi.responses import FileResponse, Response
 
+from ..config import PAGE_SANDBOX
 from ..standalone_page import standalone_page
 
 PAGE_SUFFIXES = (".html", ".htm")
@@ -17,8 +18,6 @@ def is_page(name: str) -> bool:
     return name.lower().endswith(PAGE_SUFFIXES)
 
 
-# A page the viewer opens runs its scripts, but in a sandbox without an origin: it cannot read AIfred's API or cookies.
-PAGE_SANDBOX = "sandbox allow-scripts"
 
 
 def attachment(name: str, inline: bool = False) -> dict[str, str]:

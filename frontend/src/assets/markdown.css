@@ -1,0 +1,10 @@
+/* Rendered Markdown (lib/markdown.ts renderMarkdown), the one place for its look: a chat answer (MessageBubble) and a
+   Markdown file in the viewer (FileViewer). What only an answer has (collapsibles, the metrics line, sandbox pages)
+   stays in MessageBubble. Colours only as var(--aifred-*) from aifred/theme.py. */
+
+.markdown p { margin: 0.5em 0; }
+.markdown pre { overflow-x: auto; background: var(--aifred-page-bg); padding: 8px; border-radius: 6px; }
+.markdown table { border-collapse: collapse; }
+.markdown td, .markdown th { border: 1px solid var(--aifred-border); padding: 2px 6px; }
+.markdown img { max-width: 100%; }
+.markdown a { color: var(--aifred-accent-blue); }

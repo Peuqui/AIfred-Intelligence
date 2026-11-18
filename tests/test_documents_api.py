@@ -211,7 +211,7 @@ def test_inline_shows_a_page_sandboxed_and_other_files_inline_with_their_type(tm
 
     from aifred.lib import file_manager as fm
     from aifred.lib.api.app import api_app
-    from aifred.lib.api.file_download import PAGE_SANDBOX
+    from aifred.lib.config import PAGE_SANDBOX
     from aifred.lib.auth import USERNAME_COOKIE_NAME, sign_username
 
     monkeypatch.setattr(fm, "DOCUMENTS_DIR", tmp_path)

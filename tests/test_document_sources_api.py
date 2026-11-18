@@ -212,7 +212,7 @@ def test_a_damaged_source_file_has_a_reason_instead_of_a_preview(client: TestCli
 
 
 def test_a_source_file_is_viewed_inline_and_a_page_sandboxed(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    from aifred.lib.api.file_download import PAGE_SANDBOX
+    from aifred.lib.config import PAGE_SANDBOX
 
     monkeypatch.setitem(FILES, "Seite.html", "<p>Hallo</p>")
     monkeypatch.setitem(FILES, "skript.py", "print(1)")

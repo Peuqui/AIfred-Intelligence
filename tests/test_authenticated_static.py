@@ -45,6 +45,18 @@ def test_missing_file_still_needs_auth_first(client: TestClient) -> None:
     assert resp.status_code == 403
 
 
+def test_a_page_opens_sandboxed_however_it_is_reached(client: TestClient, tmp_path: Path) -> None:
+    # 18.11.2026: a page an agent wrote, opened by a link under /_upload/, ran with the login cookie.
+    from aifred.lib.config import PAGE_SANDBOX
+
+    (tmp_path / "spiel.html").write_text("<script>fetch('/api/sessions')</script>")
+    client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))
+    page = client.get("/_upload/vigilantia/spiel.html")
+    assert page.status_code == 200 and page.headers["content-security-policy"] == PAGE_SANDBOX
+    # Anything else is served as before.
+    assert "content-security-policy" not in client.get("/_upload/vigilantia/secret.jpg").headers
+
+
 def test_every_upload_folder_needs_the_login_except_shared_previews(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from aifred.lib import upload_files
 

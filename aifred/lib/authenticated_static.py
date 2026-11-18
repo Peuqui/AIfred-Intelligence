@@ -14,14 +14,19 @@ automatically (``path=/``, ``SameSite=Lax``), so embedded images keep working.
 
 from __future__ import annotations
 
+import os
+
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse
-from starlette.staticfiles import StaticFiles
+from starlette.responses import PlainTextResponse, Response
+from starlette.staticfiles import PathLike, StaticFiles
 from starlette.types import Receive, Scope, Send
 
 # Reuse the framework-agnostic verifier — keeps the HMAC/secret logic in one
 # place (lib/auth) instead of re-implementing the check here.
 from .auth import USERNAME_COOKIE_NAME, verify_signed_username
+from .config import PAGE_SANDBOX
+
+PAGE_SUFFIXES = (".html", ".htm")
 
 
 class AuthenticatedStaticFiles(StaticFiles):
@@ -39,3 +44,13 @@ class AuthenticatedStaticFiles(StaticFiles):
                 await response(scope, receive, send)
                 return
         await super().__call__(scope, receive, send)
+
+    def file_response(
+        self, full_path: PathLike, stat_result: os.stat_result, scope: Scope, status_code: int = 200
+    ) -> Response:
+        """A page opens sandboxed, however it is reached (a link in a chat answer, the tab of an embedded page):
+        written by an agent, it must not use AIfred's API with the login cookie (18.11.2026, before it could)."""
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        if str(full_path).lower().endswith(PAGE_SUFFIXES):
+            response.headers["Content-Security-Policy"] = PAGE_SANDBOX
+        return response

@@ -240,7 +240,7 @@ def test_the_text_needs_the_preview_action(client: TestClient, area: Path, monke
 
 
 def test_an_area_shows_a_page_sandboxed_and_media_inline_with_its_type(client: TestClient, area: Path) -> None:
-    from aifred.lib.api.file_download import PAGE_SANDBOX
+    from aifred.lib.config import PAGE_SANDBOX
 
     (area / "Seite.html").write_text("<p>Hallo</p>", encoding="utf-8")
     page = client.get("/files/test/preview", params={"path": "test://Seite.html"})

@@ -1729,6 +1729,9 @@ DOCUMENT_ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv", ".docx", ".xlsx", 
 # formats only (write_text would corrupt binary formats)
 WORKSPACE_WRITE_EXTENSIONS = {".txt", ".md", ".csv", ".json", ".xml", ".html", ".htm"}
 # Files the viewer shows as their raw text where the search index has no parser for them (an index parser comes first).
+# Every HTML page AIfred shows (the viewer, the chat's embedded pages, any link to /_upload/…html) runs its scripts in a
+# sandbox without an origin: it cannot reach AIfred's API with the login cookie. The one definition of that header.
+PAGE_SANDBOX = "sandbox allow-scripts"
 TEXT_PREVIEW_EXTENSIONS = WORKSPACE_WRITE_EXTENSIONS | {
     ".py", ".log", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".sh", ".js", ".ts", ".css", ".tsv", ".sql", ".rst", ".vue",
 }

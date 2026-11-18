@@ -141,7 +141,7 @@ function pictureGone(event: Event): void {
     </div>
     <p v-if="isUser" ref="content" class="content plain" :class="{ folded }">{{ userText }}</p>
     <!-- eslint-disable-next-line vue/no-v-html -- sanitized by renderMarkdown (DOMPurify) -->
-    <div v-else ref="content" class="content" :class="{ folded }" @click="enlarge" @error.capture="pictureGone" v-html="html" />
+    <div v-else ref="content" class="content markdown" :class="{ folded }" @click="enlarge" @error.capture="pictureGone" v-html="html" />
     <button v-if="linkShown" type="button" class="more" @click="toggleMore">
       {{ linkOpen ? t("question_less") : t("question_more") }}
     </button>
@@ -184,9 +184,7 @@ header { font-size: var(--text-small); font-weight: 600; color: var(--aifred-pri
 .thumbs img { width: 50px; height: 50px; object-fit: cover; border-radius: 4px; cursor: zoom-in; }
 .content.folded { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--pinned-question-lines); overflow: hidden; }
 .more { background: none; border: none; padding: 0; margin-top: 2px; font: inherit; font-size: var(--text-small); color: var(--aifred-text-muted); text-decoration: underline; cursor: pointer; }
-.content :deep(p) { margin: 0.5em 0; }
 .content :deep(em.metrics) { font-size: var(--text-small); color: var(--aifred-text-secondary); }
-.content :deep(pre) { overflow-x: auto; background: var(--aifred-page-bg); padding: 8px; border-radius: 6px; }
 /* Every collapsible (thinking, sources, …) a box of its own inside the answer, as on the Reflex page: lighter than the
    bubble, at most so high (config.py, theme.css) with a scrollbar of its own; its title line sticks at its top. A
    sandbox page keeps its own height and no frame. */
@@ -209,10 +207,6 @@ header { font-size: var(--text-small); font-weight: 600; color: var(--aifred-pri
 @media (max-width: 760px) {
   .content :deep(details:not([data-sandbox])) { max-height: var(--thinking-max-height-mobile); }
 }
-.content :deep(table) { border-collapse: collapse; }
-.content :deep(td), .content :deep(th) { border: 1px solid var(--aifred-border); padding: 2px 6px; }
-.content :deep(img) { max-width: 100%; }
 .content :deep(img[src*="/_upload/"]) { cursor: zoom-in; }
 .thumbs :deep(.gone), .content :deep(.gone) { display: inline-block; margin: 2px 0; color: var(--aifred-text-muted); font-style: italic; font-size: 0.85rem; }
-.content :deep(a) { color: var(--aifred-accent-blue); }
 </style>
