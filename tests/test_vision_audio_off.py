@@ -170,7 +170,7 @@ def test_the_describer_list_is_not_visions(client: TestClient, plugin_on: dict[s
 
 def test_the_endpoints_of_the_player_refuse_while_it_is_off(client: TestClient, plugin_on: dict[str, bool]) -> None:
     plugin_on["audio_player"] = False
-    for method, path in (("get", "/audio/file?key=a.mp3"), ("post", "/audio/position"), ("get", "/audio/test"),
+    for method, path in (("get", "/audio/file?key=a.mp3"), ("post", "/audio/position"),
                          ("post", "/audio/sources"), ("delete", "/audio/sources/x")):
         assert getattr(client, method)(path).status_code == 409, path
 

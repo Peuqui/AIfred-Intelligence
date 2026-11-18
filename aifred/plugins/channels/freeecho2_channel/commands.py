@@ -368,10 +368,9 @@ class CommandsMixin(BaseChannel):
         """
         from ....lib import audio_channels
         from ....lib.audio_player_settings import (
-            build_configured_source_map,
+            build_configured_resolver,
             load_audio_player_settings,
         )
-        from ....lib.audio_sources import SourceResolver
         from ....lib.audio_state import audio_state
 
         target_id = f"freeecho2:{room}"
@@ -399,8 +398,8 @@ class CommandsMixin(BaseChannel):
 
         # Source-Map über die lib-SSOT (kein Tool-Context hier; und kein
         # Plugin→Plugin-Import — audio_player könnte deaktiviert sein).
+        resolver = build_configured_resolver()
         try:
-            resolver = SourceResolver(build_configured_source_map())
             src = resolver.resolve(key)
         except (ValueError, OSError) as exc:  # unknown or missing source: nothing to resume
             self.channel_log(

@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from .logging_utils import log_message
+from .atomic_write import write_text_atomic
+
+if TYPE_CHECKING:
+    from .audio_sources import SourceResolver
 
 AUDIO_PLAYER_SETTINGS_PATH = (
     Path(__file__).parent.parent / "plugins" / "tools" / "audio_player" / "settings.json"
@@ -23,29 +26,22 @@ AUDIO_PLAYER_SETTINGS_PATH = (
 def load_audio_player_settings() -> dict[str, Any]:
     """settings.json frisch lesen (kleine Datei, kein Hot-Path).
 
-    Fehlende Datei = normaler First-Run; korrupte Datei wird geloggt
-    statt still ``{}`` zu liefern (ohne sie fehlen Streams und
-    Resume-Konfiguration).
+    Fehlende Datei = normaler First-Run. Eine unlesbare oder keine JSON-Objekt-Datei
+    löst aus (OSError, ValueError, TypeError): still ``{}`` zu liefern ließe Streams und
+    Resume-Konfiguration verschwinden und ein Speichern die Datei überschreiben.
     """
     if not AUDIO_PLAYER_SETTINGS_PATH.exists():
         return {}
-    try:
-        with open(AUDIO_PLAYER_SETTINGS_PATH, encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            log_message("audio_player settings.json is not a JSON object — ignoring it", "warning")
-            return {}
-        return data
-    except (OSError, json.JSONDecodeError) as exc:
-        log_message(f"audio_player settings.json unreadable — {exc}", "warning")
-        return {}
+    with open(AUDIO_PLAYER_SETTINGS_PATH, encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise TypeError(f"{AUDIO_PLAYER_SETTINGS_PATH} is not a JSON object")
+    return data
 
 
 def save_audio_player_settings(settings: dict[str, Any]) -> None:
     """Die einzige Schreibstelle der settings.json (OSError, wenn sie nicht geschrieben werden kann)."""
-    temporary = AUDIO_PLAYER_SETTINGS_PATH.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(AUDIO_PLAYER_SETTINGS_PATH)
+    write_text_atomic(AUDIO_PLAYER_SETTINGS_PATH, json.dumps(settings, ensure_ascii=False, indent=2) + "\n")
 
 
 def build_configured_source_map() -> dict[str, Any]:
@@ -62,3 +58,9 @@ def build_configured_source_map() -> dict[str, Any]:
         if src.get("type") == "http_stream"
     }
     return build_source_map(MEDIA_AUDIO_DIR, streams)
+
+
+def build_configured_resolver() -> SourceResolver:
+    """Frischer Resolver über die Source-Map-SSOT (jeder Aufruf liest die Settings neu)."""
+    from .audio_sources import SourceResolver
+    return SourceResolver(build_configured_source_map())

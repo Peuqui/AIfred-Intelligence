@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from ....lib.audio_player_settings import (
+    build_configured_resolver,
     build_configured_source_map,
     load_audio_player_settings,
 )
@@ -49,12 +50,6 @@ def _finite_seconds(value: Any, field_name: str) -> tuple[float, str | None]:
 # Settings-Lektüre und Source-Map leben als lib-SSOT in
 # lib/audio_player_settings.py (weitere Konsumenten: Audio-Bibliothek,
 # TTS-Listen-Filter, FreeEcho2-Voice-Resume).
-
-
-def _make_resolver():
-    """Build a fresh SourceResolver: filesystem-discovery + http_streams."""
-    from ....lib.audio_sources import SourceResolver
-    return SourceResolver(build_configured_source_map())
 
 
 def _natural_key(p: str) -> list:
@@ -207,7 +202,7 @@ class AudioPlayerPlugin:
         async def _play(item: str, target: str | None = None, restart: bool = True) -> str:
             from ....lib.audio_state import audio_state
             try:
-                resolver = _make_resolver()
+                resolver = build_configured_resolver()
                 src = resolver.resolve(item)
             except ValueError as exc:
                 return json.dumps({"success": False, "error": str(exc)})
@@ -544,7 +539,7 @@ class AudioPlayerPlugin:
             # proper ResolvedSource (with label, is_stream, uri, …) — same
             # path audio_play takes. This is what makes browser routing work.
             try:
-                resolver = _make_resolver()
+                resolver = build_configured_resolver()
                 src = resolver.resolve(key)
             except ValueError as exc:
                 return json.dumps({"success": False, "error": f"cannot resolve '{key}': {exc}"})
@@ -694,7 +689,7 @@ class AudioPlayerPlugin:
             # limit=None (default) → return ALL files. The token-budget cap
             # in tool_output_cap.py protects the context if the result is huge.
             # Caller can pass an explicit limit to cap earlier.
-            resolver = _make_resolver()
+            resolver = build_configured_resolver()
             if source is None:
                 # Top-level: just list configured sources + per-source counts
                 from ....lib.audio_index import audio_index

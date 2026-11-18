@@ -4,47 +4,12 @@ import asyncio
 from pathlib import Path
 
 from fastapi import Request
-from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from ...theme import css_variables
+from ..audio_player_settings import build_configured_resolver
+from ..logging_utils import log_message
 from ..user_error import BadRequest, Missing, UserError
 from .app import audio_player_api
-
-
-def _audio_resolver():
-    """Build a fresh SourceResolver: filesystem-discovery + http_streams.
-
-    Mirrors the plugin's _make_resolver() — local sources come from the
-    data/media/audio/ filesystem (folders + symlinks), HTTP streams from
-    plugin settings.json. Without this, the file endpoint would only see
-    http_stream entries and 404 on every NAS-mounted source.
-    """
-    import json as _json
-    from pathlib import Path as _Path
-
-    from ..audio_sources import SourceResolver, build_source_map
-    from ..config import MEDIA_AUDIO_DIR
-
-    settings_path = (
-        _Path(__file__).parent.parent.parent
-        / "plugins" / "tools" / "audio_player" / "settings.json"
-    )
-    streams: dict[str, dict[str, str]] = {}
-    if settings_path.exists():
-        try:
-            with open(settings_path, encoding="utf-8") as f:
-                data = _json.load(f)
-            if isinstance(data, dict):
-                streams = {
-                    label: src
-                    for label, src in data.get("sources", {}).items()
-                    if src.get("type") == "http_stream"
-                }
-        except (OSError, _json.JSONDecodeError):
-            pass
-    sources = build_source_map(MEDIA_AUDIO_DIR, streams)
-    return SourceResolver(sources)
 
 
 class UnsupportedAudio(UserError):
@@ -70,8 +35,11 @@ async def audio_file(request: Request, key: str):
 
     from ..audio_sources import ALLOWED_EXTENSIONS
 
+    # Built outside the try: a corrupt settings.json raises JSONDecodeError, a ValueError
+    # that must not be mistaken for the resolver's "unknown key".
+    resolver = build_configured_resolver()
     try:
-        src = _audio_resolver().resolve(key)
+        src = resolver.resolve(key)
     except ValueError as exc:  # the resolver's reasons are written for the model (English)
         raise Missing("no_audio", reason=str(exc)) from exc
 
@@ -184,49 +152,6 @@ class AudioPositionRequest(BaseModel):
     completed: bool = False
 
 
-@audio_player_api.get("/audio/test", tags=["Audio"], response_class=HTMLResponse)
-async def audio_test_page(key: str = "music/05-Ausgefressen.mp3"):
-    """Standalone test page — verifies endpoint + browser playback without LLM/State."""
-    import html as _html
-    from urllib.parse import quote
-    safe_key = _html.escape(key)
-    audio_src = f"/api/audio/file?key={quote(key)}"
-    return f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>AIfred Audio Test</title>
-<style>{css_variables()}
-body{{font-family:system-ui;max-width:720px;margin:40px auto;padding:0 16px;background:var(--aifred-card-bg);color:var(--aifred-text-soft)}}
-h1{{font-size:18px;color:var(--aifred-accent-blue)}} code{{background:var(--aifred-border);padding:2px 6px;border-radius:3px}}
-audio{{width:100%;margin:16px 0}} .ok{{color:var(--aifred-accent-success)}} .err{{color:var(--aifred-danger)}}</style>
-</head><body>
-<h1>Audio-Endpoint Test</h1>
-<p>State-Key: <code>{safe_key}</code></p>
-<p>Source URL: <code>{audio_src}</code></p>
-<audio id="testplayer" controls preload="metadata" src="{audio_src}"></audio>
-<p>Status: <span id="status">loading…</span></p>
-<pre id="log" style="background:var(--aifred-input-bg);padding:10px;border-radius:4px;font-size:12px;max-height:300px;overflow:auto"></pre>
-<script>
-const a = document.getElementById('testplayer');
-const s = document.getElementById('status');
-const L = document.getElementById('log');
-function log(msg, cls) {{
-  const t = new Date().toLocaleTimeString();
-  L.textContent += `[${{t}}] ${{msg}}\\n`;
-  if (cls) {{ s.textContent = msg; s.className = cls; }}
-}}
-['loadstart','loadedmetadata','canplay','play','playing','pause','ended','error','stalled','waiting'].forEach(ev => {{
-  a.addEventListener(ev, e => log(`event: ${{ev}} | currentTime=${{a.currentTime.toFixed(2)}} | duration=${{isFinite(a.duration)?a.duration.toFixed(1):'?'}} | networkState=${{a.networkState}} | readyState=${{a.readyState}}`));
-}});
-a.addEventListener('error', () => {{
-  const e = a.error;
-  log(`ERROR code=${{e?e.code:'?'}} message=${{e?e.message:'?'}}`, 'err');
-}});
-a.addEventListener('canplay', () => log('✅ canplay — pressing play', 'ok'));
-a.addEventListener('play', () => log('▶ playing', 'ok'));
-fetch("{audio_src}", {{method:'HEAD'}}).then(r => log(`HEAD response: HTTP ${{r.status}} | content-type=${{r.headers.get('content-type')}} | content-length=${{r.headers.get('content-length')}}`));
-</script>
-</body></html>"""
-
-
 @audio_player_api.post("/audio/position", tags=["Audio"])
 async def audio_position(req: AudioPositionRequest):
     """Update audio_state.json from the browser's currentTime."""
@@ -234,12 +159,14 @@ async def audio_position(req: AudioPositionRequest):
     if req.completed:
         audio_state.mark_completed(req.state_key)
         return {"status": "ok", "completed": True}
-    # Resolve URI for the state_key (best-effort; failures are non-fatal —
-    # the URI is informational, not authoritative)
+    # The URI is informational: a key whose source was removed meanwhile may
+    # still report its position. Only that resolver verdict is tolerated; an
+    # unreadable configuration propagates.
+    resolver = build_configured_resolver()
     try:
-        src = _audio_resolver().resolve(req.state_key)
-        uri = src.uri
-    except ValueError:
+        uri = resolver.resolve(req.state_key).uri
+    except ValueError as exc:
+        log_message(f"audio position for unresolvable key {req.state_key!r}: {exc}", "warning")
         uri = ""
     audio_state.update(
         key=req.state_key,
