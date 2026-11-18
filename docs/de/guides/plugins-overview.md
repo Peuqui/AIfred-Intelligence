@@ -13,7 +13,7 @@ AIfred verwendet ein einheitliches Plugin-System. Plugins werden automatisch erk
 
 Tool Plugins stellen dem LLM Werkzeuge zur Verfügung, die es autonom aufrufen kann.
 
-### Workspace (Dateien & Dokumente)
+### Scriptorium (Workspace: Dateien & Dokumente)
 
 **Datei:** `plugins/tools/workspace/`
 
@@ -91,7 +91,7 @@ Termine, Aufgaben und Kontakte aus Nextcloud über CalDAV und CardDAV. Jedes Mod
 
 ---
 
-### Web Research
+### Investigatio (Web-Recherche)
 
 **Datei:** `plugins/tools/research/`
 
@@ -110,7 +110,7 @@ Automatische Web-Recherche mit mehreren Such-APIs — jede Recherche läuft fris
 
 ---
 
-### Sandbox (Code-Ausführung)
+### Laboratorium (Sandbox: Code-Ausführung)
 
 **Datei:** `plugins/tools/sandbox/`
 
@@ -132,7 +132,7 @@ Isolierte Python-Code-Ausführung in Subprocess.
 
 ---
 
-### Sub-Agenten
+### Sub-Agentes (Sub-Agenten)
 
 **Datei:** `plugins/tools/subagent/`
 
@@ -160,7 +160,7 @@ Mathematische Berechnungen.
 
 ---
 
-### Audio Player
+### Auditorium (Audio-Player)
 
 **Datei:** `plugins/tools/audio_player/`
 
@@ -275,7 +275,7 @@ Vertont ganze Textdokumente aus dem Workspace zu einer MP3-Datei — serverseiti
 
 ---
 
-### Drucker (CUPS)
+### Typographus (Drucker, CUPS)
 
 **Datei:** `plugins/tools/printer/`
 
@@ -312,7 +312,7 @@ Tools für das Vision-Subsystem — Bild-Snapshots, VLM-Analyse, Gesichtserkennu
 
 ---
 
-### Bibel
+### Biblia (Bibel)
 
 **Datei:** `plugins/tools/bible/`
 

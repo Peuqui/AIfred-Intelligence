@@ -1,7 +1,7 @@
 {
   "plugin_display_name": {
-    "de": "Drucker",
-    "en": "Printer"
+    "de": "Typographus",
+    "en": "Typographus"
   },
   "plugin_description": {
     "de": "Druckt Dateien aus dem Dokumentenbereich über CUPS und liest Druckerzustand, Warnungen und Füllstände.",

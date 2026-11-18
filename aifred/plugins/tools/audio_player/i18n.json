@@ -1,7 +1,7 @@
 {
   "plugin_display_name": {
-    "de": "Audio Player",
-    "en": "Audio Player"
+    "de": "Auditorium",
+    "en": "Auditorium"
   },
   "plugin_description": {
     "de": "Spielt lokale Audio-Dateien und Internet-Streams (Musik, Hörbücher, Radio) mit Pause/Resume und Positions-Speicherung ab.",

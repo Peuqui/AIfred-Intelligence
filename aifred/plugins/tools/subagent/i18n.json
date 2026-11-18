@@ -1,7 +1,7 @@
 {
   "plugin_display_name": {
-    "de": "Sub-Agents",
-    "en": "Sub-Agents"
+    "de": "Sub-Agentes",
+    "en": "Sub-Agentes"
   },
   "plugin_description": {
     "de": "Hauptagenten delegieren abgegrenzte Aufgaben an Sub-Agenten: frischer Modellaufruf mit eigenem Kontext und Werkzeugkasten, nur der Bericht geht zurück, das Transkript erscheint aufklappbar in der Bubble.",

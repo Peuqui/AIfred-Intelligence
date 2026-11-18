@@ -1,7 +1,7 @@
 {
   "plugin_display_name": {
-    "de": "Workspace",
-    "en": "Workspace"
+    "de": "Scriptorium",
+    "en": "Scriptorium"
   },
   "plugin_description": {
     "de": "Lese-/Schreibzugriff aufs Arbeitsverzeichnis und semantische Dokument-Indexierung in ChromaDB (Vektor-Suche).",

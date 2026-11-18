@@ -1,7 +1,7 @@
 {
   "plugin_display_name": {
-    "de": "Web Research",
-    "en": "Web Research"
+    "de": "Investigatio",
+    "en": "Investigatio"
   },
   "plugin_description": {
     "de": "Web-Recherche per Multi-Query-Suche (Brave, Tavily, SearXNG) plus Inhalts-Scraping und Quellen-Ranking.",
