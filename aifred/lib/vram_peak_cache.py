@@ -14,6 +14,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from .atomic_write import write_text_atomic
+
 logger = logging.getLogger(__name__)
 
 
@@ -56,10 +58,7 @@ class JsonPeakCache:
     def _save(self, data: dict[str, Any]) -> None:
         """Write cache to disk and refresh in-memory copy."""
         self._file.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._file.with_suffix(".json.tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        tmp.replace(self._file)
+        write_text_atomic(self._file, json.dumps(data, indent=2, ensure_ascii=False))
         self._cache = data
         self._mtime = self._file.stat().st_mtime
 

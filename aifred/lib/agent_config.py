@@ -19,6 +19,7 @@ import re
 from collections.abc import Collection
 from dataclasses import asdict, dataclass, field
 
+from .atomic_write import write_text_atomic
 from .browser_push import notify_changed
 from .config import DATA_DIR
 from .user_error import Invalid, Missing, UserError
@@ -225,8 +226,8 @@ def load_agents_raw() -> dict[str, dict]:
 def save_agents_raw(agents: dict[str, dict]) -> None:
     """Save agent configurations from raw dicts."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(AGENTS_FILE, "w", encoding="utf-8") as f:
-        json.dump({"agents": agents}, f, indent=2, ensure_ascii=False)
+    # Write beside the file and swap it in: a crash mid-write leaves the old agents.json, not half a new one
+    write_text_atomic(AGENTS_FILE, json.dumps({"agents": agents}, indent=2, ensure_ascii=False))
     notify_changed("agents")
 
 

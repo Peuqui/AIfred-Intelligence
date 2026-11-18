@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from .atomic_write import write_text_atomic
 from .user_error import Conflict, Invalid
 
 logger = logging.getLogger(__name__)
@@ -615,9 +616,7 @@ def change_vision_rule(category: str, *, sink: str | None = None, sink_on: bool 
             rule["compose"] = "vlm"
         else:
             rule.pop("compose", None)
-    temporary = path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(rules, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    write_text_atomic(path, json.dumps(rules, indent=2, ensure_ascii=False) + "\n")
     reload_rules()
 
 

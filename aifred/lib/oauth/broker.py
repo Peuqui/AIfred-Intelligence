@@ -18,7 +18,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import secrets
 import threading
 import time
@@ -28,6 +27,7 @@ from dataclasses import asdict, dataclass
 import httpx
 from cryptography.fernet import Fernet
 
+from ..atomic_write import write_text_atomic
 from ..config import DATA_DIR
 from ..user_error import Missing
 
@@ -287,17 +287,7 @@ def _save_all_tokens(tokens: dict[str, TokenSet]) -> None:
     }
     payload = json.dumps(raw, indent=2)
     with _save_lock:
-        tmp_path = _TOKENS_FILE.with_suffix(".json.tmp")
-        tmp_path.write_text(payload)
-        try:
-            tmp_path.chmod(0o600)
-        except OSError:
-            pass
-        os.replace(tmp_path, _TOKENS_FILE)
-        try:
-            _TOKENS_FILE.chmod(0o600)
-        except OSError:
-            pass
+        write_text_atomic(_TOKENS_FILE, payload, mode=0o600)
 
 
 def _load_token(provider_name: str) -> TokenSet | None:

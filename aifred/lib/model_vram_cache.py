@@ -45,6 +45,7 @@ import threading
 from datetime import datetime
 from typing import Any
 
+from .atomic_write import write_text_atomic
 from .config import DATA_DIR
 
 logger = logging.getLogger(__name__)
@@ -129,14 +130,10 @@ def save_cache(cache: dict[str, Any]) -> bool:
     global _cache, _cache_mtime
     ensure_cache_dir()
 
-    tmp_path = CACHE_FILE.with_suffix(".json.tmp")
     try:
-        # Atomic write via tmp + os.replace so a crash mid-write doesn't
-        # leave the cache file truncated/corrupt (which would wipe every
-        # earlier calibration on the next load).
-        with open(tmp_path, 'w', encoding='utf-8') as f:
-            json.dump(cache, f, indent=2, ensure_ascii=False)
-        os.replace(tmp_path, CACHE_FILE)
+        # Atomic so a crash mid-write doesn't leave the cache file truncated/corrupt
+        # (which would wipe every earlier calibration on the next load).
+        write_text_atomic(CACHE_FILE, json.dumps(cache, indent=2, ensure_ascii=False))
         logger.info(f"Saved unified model cache: {len(cache)} models")
         # Invalidate in-memory cache so next load picks up fresh data
         _cache = None
@@ -144,10 +141,6 @@ def save_cache(cache: dict[str, Any]) -> bool:
         return True
     except OSError as e:
         logger.error(f"Failed to save cache file {CACHE_FILE}: {e}")
-        try:
-            tmp_path.unlink(missing_ok=True)
-        except OSError:
-            pass
         return False
 
 

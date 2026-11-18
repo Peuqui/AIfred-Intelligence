@@ -12,12 +12,12 @@ trash, as a message of the channel must not be routed into a chat that is not th
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .atomic_write import write_text_atomic
 from .browser_push import notify_changed
 from .config import DATA_DIR, SESSION_TRASH_RETENTION_DAYS
 from .session_storage import _remove_chat_files, get_session_path
@@ -50,10 +50,7 @@ def _read(path: Path) -> dict[str, Any]:
 def _write(path: Path, session: dict[str, Any]) -> None:
     """Atomic like the session files: a crash leaves the old file, not half a new one."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    with open(temporary, "w", encoding="utf-8") as file:
-        json.dump(session, file, ensure_ascii=False, indent=2)
-    os.replace(temporary, path)
+    write_text_atomic(path, json.dumps(session, ensure_ascii=False, indent=2))
 
 
 def _owned_by(session: dict[str, Any], owner: str) -> bool:

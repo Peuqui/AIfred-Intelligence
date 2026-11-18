@@ -30,6 +30,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .atomic_write import write_text_atomic
 from .config import AUDIO_STATE_CLEANUP_AGE_DAYS, DATA_DIR
 from .logging_utils import log_exception, log_message
 
@@ -63,10 +64,7 @@ class AudioState:
     def _save_unlocked(self) -> None:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self._path.with_suffix(".tmp")
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(self._data, f, ensure_ascii=False, indent=2)
-            tmp.replace(self._path)
+            write_text_atomic(self._path, json.dumps(self._data, ensure_ascii=False, indent=2))
         except OSError as exc:
             log_message(f"AudioState: failed to save: {exc}", "error")
 
