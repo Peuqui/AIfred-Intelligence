@@ -4,7 +4,7 @@
     "en": "MCP Client"
   },
   "plugin_description": {
-    "de": "Bindet beliebige MCP-Server an: Ihre Werkzeuge erscheinen als AIfred-Tools. Server stehen in servers.json neben dem Plugin (stdio, SSE oder HTTP).",
-    "en": "Connects arbitrary MCP servers: their tools appear as AIfred tools. Servers are listed in servers.json next to the plugin (stdio, SSE or HTTP)."
+    "de": "Bindet externe MCP-Server an, deren Werkzeuge AIfred dann wie eigene nutzt (benannt Servername_Werkzeug). Die Server trägt man von Hand in die Datei servers.json im Plugin-Ordner ein: lokaler Prozess, SSE oder HTTP, mit Berechtigungsstufe und Zeitlimit. Ist ein Server beim Laden nicht erreichbar, fehlen seine Werkzeuge bis zum nächsten Neuladen.",
+    "en": "Connects external MCP servers whose tools AIfred then uses like built-in ones (named servername_tool). The servers are entered by hand in the servers.json file in the plugin folder: local process, SSE or HTTP, with permission tier and timeout. If a server is unreachable at load time, its tools are missing until the next reload."
   }
 }

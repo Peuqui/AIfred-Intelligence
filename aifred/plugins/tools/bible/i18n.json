@@ -4,8 +4,8 @@
     "en": "Biblia"
   },
   "plugin_description": {
-    "de": "Bibel-Zugriff: exakter Stellen-Lookup (z. B. Psalm 5) und thematische Suche in der Bibel.",
-    "en": "Bible access: exact passage lookup (e.g. Psalm 5) and topical search in the Bible."
+    "de": "Schlägt Bibelstellen wie Psalm 5 oder Joh 3,16 wörtlich nach und sucht sonst thematisch nach passenden Versen. Welche vorhandene Übersetzung beim Nachschlagen benutzt wird, wählt man in den Plugin-Einstellungen.",
+    "en": "Looks up Bible passages such as Psalm 5 or John 3:16 word for word and otherwise searches by topic for fitting verses. Which of the available translations is used for lookups is chosen in the plugin settings."
   },
   "bible_cred_translation": {
     "de": "Übersetzung",

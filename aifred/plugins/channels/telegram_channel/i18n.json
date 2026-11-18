@@ -4,8 +4,8 @@
     "en": "Telegram"
   },
   "plugin_description": {
-    "de": "Telegram-Bot mit Long-Polling — Chat-Nachrichten von Usern in der Allowlist.",
-    "en": "Telegram bot with long polling — chat messages from users on the allowlist."
+    "de": "Telegram-Bot, über den man AIfred im Chat anschreibt. Beantwortet werden nur Textnachrichten von Benutzern aus der Liste erlaubter IDs; der erste Eintrag gilt als Besitzer. Verpasste Nachrichten werden nachgeholt. /clear setzt das Gespräch zurück und löscht, soweit möglich, die Chat-Nachrichten. AIfred kann auf Anfrage Nachrichten und Dateien senden. Nötig: Bot-Token.",
+    "en": "Telegram bot through which you chat with AIfred. Only text messages from users on the allowed ID list are answered; the first entry counts as owner. Missed messages are picked up afterwards. /clear resets the conversation and deletes the chat messages where possible. On request AIfred can send messages and files. Required: bot token."
   },
   "telegram_cred_bot_token": {
     "de": "Bot Token",
@@ -16,7 +16,7 @@
     "en": "Allowed user IDs (comma-separated; no '*' — blocked senders' IDs appear in the log)"
   },
   "telegram_cred_allowed_users_tooltip": {
-    "de": "Kommagetrennte Telegram User-IDs.\nUser-ID herausfinden: @userinfobot in Telegram anschreiben.\nBeispiel: 123456789, 987654321\nLeer = niemand erlaubt (fail-closed); '*' wird nicht unterstützt.\nErster Eintrag = Owner (bekommt erhoehte Rechte).",
+    "de": "Kommagetrennte Telegram User-IDs.\nUser-ID herausfinden: @userinfobot in Telegram anschreiben.\nBeispiel: 123456789, 987654321\nLeer = niemand erlaubt (fail-closed); '*' wird nicht unterstützt.\nErster Eintrag = Owner (bekommt erhöhte Rechte).",
     "en": "Comma-separated Telegram user IDs.\nFind your ID: message @userinfobot on Telegram.\nExample: 123456789, 987654321\nEmpty = allow none (fail-closed); '*' is not supported.\nFirst entry = owner (gets elevated permissions)."
   }
 }

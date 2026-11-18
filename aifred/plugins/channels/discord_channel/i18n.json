@@ -4,8 +4,8 @@
     "en": "Discord"
   },
   "plugin_description": {
-    "de": "Discord-Bot für Server-Kanäle — Watching, Auto-Reply und Slash-Commands.",
-    "en": "Discord bot for server channels — watching, auto-reply and slash commands."
+    "de": "Discord-Bot, der in den eingetragenen Kanälen (ohne Eintrag in allen) und in Direktnachrichten antwortet, aber nur Benutzern aus der Liste erlaubter User-IDs. Mit /clear wird das Gespräch zurückgesetzt und, soweit die Rechte reichen, der Kanal geleert. AIfred kann auf Anfrage in einen Kanal schreiben, auch mit Datei. Nötig: Bot-Token.",
+    "en": "Discord bot that answers in the listed channels (in all of them if none is listed) and in direct messages, but only to users on the allowed user IDs list. /clear resets the conversation and, where permissions allow, empties the channel. AIfred can write to a channel on request, with a file if wanted. Required: bot token."
   },
   "discord_cred_bot_token": {
     "de": "Bot Token",

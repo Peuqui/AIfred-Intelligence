@@ -4,7 +4,7 @@
     "en": "System Monitor"
   },
   "plugin_description": {
-    "de": "Liest Systemzustand: CPU, RAM, GPU-VRAM, Datenträger, Netzwerk, laufende Prozesse.",
-    "en": "Reads system state: CPU, RAM, GPU VRAM, disks, network, running processes."
+    "de": "Liest den Zustand des Rechners: CPU-Last, Arbeitsspeicher, Grafikkarten mit VRAM und Temperatur, Festplatten, Laufzeit seit dem Start, das geladene Sprachmodell sowie Spracherkennung und Sprachausgabe samt Restzeit bis zum Entladen. Verändert wird nichts.",
+    "en": "Reads the state of the machine: CPU load, memory, graphics cards with VRAM and temperature, disks, uptime, the loaded language model, and speech recognition and speech output with the time left until they unload. Nothing is changed."
   }
 }

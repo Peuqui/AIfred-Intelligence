@@ -4,7 +4,7 @@
     "en": "Horarium"
   },
   "plugin_description": {
-    "de": "Plant Aufgaben und Reminder zu bestimmten Uhrzeiten oder als wiederkehrende Cron-Jobs.",
-    "en": "Schedules tasks and reminders at specific times or as recurring cron jobs."
+    "de": "Plant Aufgaben und Erinnerungen: einmalig zu einem Zeitpunkt, in festem Abstand oder nach Cron-Ausdruck, auf Wunsch mit Enddatum. Zum Termin führt AIfred den Auftrag aus und zeigt das Ergebnis an, sendet es an einen Kanal (bei FreeEcho.2 gesprochen) oder an einen Webhook. Für genaue Zeiten wie einen Wecker gibt es feste Ansagen ohne Modelllauf.",
+    "en": "Schedules tasks and reminders: once at a given time, at a fixed interval or by cron expression, with an end date if wanted. At the due time AIfred runs the job and shows the result, sends it to a channel (spoken on FreeEcho.2) or to a webhook. For exact times such as an alarm there are fixed announcements without a model run."
   }
 }

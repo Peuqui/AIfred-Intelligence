@@ -4,8 +4,8 @@
     "en": "Nextcloud"
   },
   "plugin_description": {
-    "de": "Kalender, Aufgaben, Kontakte, Notizen und Dateien aus Nextcloud über CalDAV, CardDAV und WebDAV. Jedes Modul einzeln aus, lesbar oder beschreibbar; Schreiben nur, wo Nextcloud es dem AIfred-Benutzer erlaubt.",
-    "en": "Calendars, tasks, contacts, notes and files from Nextcloud via CalDAV, CardDAV and WebDAV. Each module off, readable or writable on its own; writing only where Nextcloud grants it to the AIfred user."
+    "de": "Greift auf Nextcloud zu: Termine, Aufgaben, Kontakte und Notizen suchen, lesen und ändern, dazu Dateien im Agentenordner lesen, schreiben, kopieren, verschieben und löschen (in den Papierkorb). Jedes Modul ist aus, nur lesend oder lesend und schreibend einstellbar. Nötig: Adresse, Benutzer und App-Passwort; was dem Benutzer erlaubt ist, erzwingt Nextcloud selbst.",
+    "en": "Accesses Nextcloud: search, read and change appointments, tasks, contacts and notes, plus read, write, copy, move and delete (to the trash) files in the agent folder. Each module can be set to off, read only, or read and write. Required: address, user and app password; what the user may do is enforced by Nextcloud itself."
   },
   "module_access_off": {
     "de": "Aus",

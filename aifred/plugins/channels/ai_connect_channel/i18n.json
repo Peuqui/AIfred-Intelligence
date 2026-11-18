@@ -4,8 +4,8 @@
     "en": "AI-Connect"
   },
   "plugin_description": {
-    "de": "AIfred als Teilnehmer im AI-Connect-Netz: antwortet auf Nachrichten erlaubter Peers (andere Assistenten wie Coding-Sessions) und kann Peers auf Anfrage anschreiben.",
-    "en": "AIfred as a participant in the AI-Connect network: answers messages of allowed peers (other assistants such as coding sessions) and can write to peers on request."
+    "de": "Macht AIfred zum eigenen Teilnehmer im AI-Connect-Netz, über das sich Assistenten wie Coding-Sitzungen Nachrichten schicken. AIfred antwortet nur Peers aus der Liste erlaubter Peers; ein Antwort-Limit pro Peer stoppt Endlosschleifen. Er kann Peers auflisten, den Verlauf lesen und auf Anfrage anschreiben. Nötig: Bridge-Adresse, Token und ein eigener Peer-Name.",
+    "en": "Makes AIfred a participant in the AI-Connect network, through which assistants such as coding sessions exchange messages. AIfred only answers peers on the allowed-peers list, and a reply limit per peer stops endless loops. It can list peers, read the history and write to peers on request. Required: bridge address, token and a peer name for AIfred."
   },
   "ai_connect_cred_bridge_host": {
     "de": "Bridge-Host",

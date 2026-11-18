@@ -4,8 +4,8 @@
     "en": "Vigilantia"
   },
   "plugin_description": {
-    "de": "Macht Fotos und kurze Bildbeschreibungen über Webcam oder andere Bildquellen. Erkennt Bewegung und bekannte Gesichter.",
-    "en": "Captures snapshots and short scene descriptions from webcams or other image sources. Detects motion and recognised faces."
+    "de": "Arbeitet mit Kameras und anderen Bildquellen: AIfred kann Fotos und kurze Filme aufnehmen, Bilder beschreiben lassen, Gesichter von Personen einlernen und eine Quelle dauerhaft beobachten. Bewegung und bekannte Gesichter werden als Ereignisse gespeichert und lassen sich später abfragen. Die Aufbewahrungsfrist der Ereignisse ist einstellbar.",
+    "en": "Works with cameras and other image sources: AIfred can take photos and short films, have images described, enrol people's faces and watch a source continuously. Motion and known faces are stored as events that can be queried later. The retention period of the events is adjustable."
   },
   "status_listing_sources": {
     "de": "Verfügbare Bildquellen werden gesucht …",

@@ -4,7 +4,7 @@
     "en": "Scriptorium"
   },
   "plugin_description": {
-    "de": "Lese-/Schreibzugriff aufs Arbeitsverzeichnis und semantische Dokument-Indexierung in ChromaDB (Vektor-Suche).",
-    "en": "Read/write access to the working directory and semantic document indexing in ChromaDB (vector search)."
+    "de": "Dateiarbeit im Dokumentenordner: auflisten, lesen (auch PDF-Seiten und Office-Dokumente), schreiben, gezielt ändern, kopieren, verschieben, umbenennen und löschen. Dazu die Dokumentensuche, die indexierte Dokumente nach Bedeutung und genauen Wörtern zugleich durchsucht. Hochgeladene Dateien werden von selbst indexiert, von Agenten geschriebene nur auf Anweisung.",
+    "en": "File work in the documents folder: list, read (including PDF pages and Office documents), write, edit precisely, copy, move, rename and delete. Plus the document search, which searches indexed documents by meaning and by exact words at once. Uploaded files are indexed automatically, files written by agents only on instruction."
   }
 }

@@ -4,7 +4,7 @@
     "en": "Investigatio"
   },
   "plugin_description": {
-    "de": "Web-Recherche per Multi-Query-Suche (Brave, Tavily, SearXNG) plus Inhalts-Scraping und Quellen-Ranking.",
-    "en": "Web research via multi-query search (Brave, Tavily, SearXNG) plus content scraping and source ranking."
+    "de": "Recherchiert im Web: Für aktuelle Fragen sucht AIfred mit mehreren Suchanfragen, bewertet die Treffer, liest die besten Seiten und fasst die Inhalte zusammen. Eine bekannte Adresse kann er auch direkt abrufen. Gesucht wird über eine eigene SearXNG-Instanz sowie Tavily und Brave, sofern deren Zugangsschlüssel in der .env stehen.",
+    "en": "Researches the web: for current questions AIfred searches with several queries, ranks the hits, reads the best pages and summarises their content. AIfred can also fetch a known address directly. Searching goes through a self-hosted SearXNG instance plus Tavily and Brave, provided their API keys are in the .env file."
   }
 }

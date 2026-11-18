@@ -4,8 +4,8 @@
     "en": "EPIM"
   },
   "plugin_description": {
-    "de": "Zugriff auf den persönlichen EPIM-Datenbestand: Termine, Kontakte, Notizen, Aufgaben, Passwort-Titel. Jedes Modul einzeln aus, lesbar oder beschreibbar.",
-    "en": "Access to the personal EPIM data: appointments, contacts, notes, todos, password titles. Each module off, readable or writable on its own."
+    "de": "Liest und ändert den persönlichen EPIM-Datenbestand (EssentialPIM): Termine, Kontakte, Notizen, Aufgaben und Passwort-Einträge. Jedes Modul ist aus, nur lesbar oder beschreibbar; Passwörter sind vorgabemäßig aus und zeigen auch lesend nur die Titel. Gelöschtes landet im EPIM-Papierkorb. Nötig: Pfad zur .epim-Datei.",
+    "en": "Reads and changes the personal EPIM data (EssentialPIM): appointments, contacts, notes, todos and password entries. Each module is off, readable or writable; passwords are off by default and show only titles even when readable. Deleted items go to the EPIM trash. Required: path to the .epim file."
   },
   "epim_cred_db_path": {
     "de": "Datenbank-Pfad",

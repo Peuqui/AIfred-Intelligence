@@ -4,8 +4,8 @@
     "en": "Sub-Agentes"
   },
   "plugin_description": {
-    "de": "Hauptagenten delegieren abgegrenzte Aufgaben an Sub-Agenten: frischer Modellaufruf mit eigenem Kontext und Werkzeugkasten, nur der Bericht geht zurück, das Transkript erscheint aufklappbar in der Bubble.",
-    "en": "Main agents delegate self-contained tasks to sub-agents: a fresh model run with its own context and toolkit, only the report comes back, the transcript appears collapsible in the chat bubble."
+    "de": "Ein Hauptagent kann abgegrenzte Aufgaben an einen Sub-Agenten übergeben: ein frischer Modelllauf mit eigenem Kontext und Werkzeugen, der das Gespräch nicht kennt und nur einen Bericht zurückgibt. Einstellbar sind die erlaubten Werkzeugstufen (Vorgabe: lesen und Daten schreiben, nicht senden), die Verschachtelungstiefe und ob ein Sub-Agent als anderer Hauptagent laufen darf.",
+    "en": "A main agent can hand self-contained tasks to a sub-agent: a fresh model run with its own context and tools that does not know the conversation and returns only a report. Settings: the permitted tool tiers (default: read and write data, no sending), the nesting depth and whether a sub-agent may run as another main agent."
   },
   "subagent_cred_allowed_tiers": {
     "de": "Erlaubte Tiers",

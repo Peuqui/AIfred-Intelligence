@@ -4,8 +4,8 @@
     "en": "FreeEcho.2"
   },
   "plugin_description": {
-    "de": "WebSocket-Server für FreeEcho.2-Speaker: Sprachsteuerung mit Wake-Word, STT (Whisper) und TTS-Rückkanal.",
-    "en": "WebSocket server for FreeEcho.2 speakers: voice control with wake word, STT (Whisper) and TTS return channel."
+    "de": "Verbindet FreeEcho.2-Sprachterminals (umgebaute Echo Dots) mit AIfred: Das Wake-Word startet die Aufnahme, die Sprache wird erkannt und AIfred antwortet gesprochen. Stopp, Pause und Weiter gehen per Sprachbefehl. AIfred kann auf Anfrage Ansagen in einzelnen oder allen verbundenen Räumen sprechen. Nötig: Port, Auth-Token und Haushaltssprache.",
+    "en": "Connects FreeEcho.2 voice terminals (modified Echo Dots) to AIfred: the wake word starts the recording, speech is recognised and AIfred answers aloud. Stop, pause and resume work by voice command. On request AIfred can speak announcements in single or all connected rooms. Required: port, auth token and household language."
   },
   "freeecho2_cred_port": {
     "de": "WebSocket Port",

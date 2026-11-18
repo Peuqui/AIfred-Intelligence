@@ -4,7 +4,7 @@
     "en": "Auditorium"
   },
   "plugin_description": {
-    "de": "Spielt lokale Audio-Dateien und Internet-Streams (Musik, Hörbücher, Radio) mit Pause/Resume und Positions-Speicherung ab.",
-    "en": "Plays local audio files and internet streams (music, audiobooks, radio) with pause/resume and saved playback position."
+    "de": "Spielt Musik, Hörbücher und Internetradio aus Ordnern und Streams, die in den Plugin-Einstellungen eingetragen sind. AIfred kann Titel suchen, ganze Ordner abspielen, pausieren, spulen, die Geschwindigkeit ändern und Unfertiges an der gespeicherten Stelle fortsetzen. Die Wiedergabe läuft im Browser-Tab, an einem FreeEcho.2-Raum oder am Server.",
+    "en": "Plays music, audiobooks and internet radio from folders and streams entered in the plugin settings. AIfred can search titles, play whole folders, pause, seek, change the speed and continue unfinished items from the saved position. Playback runs in the browser tab, in a FreeEcho.2 room or on the server."
   }
 }

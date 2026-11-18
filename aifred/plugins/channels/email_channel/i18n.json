@@ -4,8 +4,8 @@
     "en": "Email"
   },
   "plugin_description": {
-    "de": "IMAP-IDLE-Listener für E-Mail-Eingang plus optionaler Auto-Reply per SMTP. Optional ein zweites Postfach, das Agenten nur lesen.",
-    "en": "IMAP IDLE listener for incoming email plus optional auto-reply via SMTP. Optionally a second mailbox that agents can only read."
+    "de": "Beantwortet Mails erlaubter Absender automatisch (abschaltbar) und gibt AIfred Mailwerkzeuge: Posteingang ansehen, Mails und Anhänge lesen, in allen Ordnern suchen, Mails senden (nach Bestätigung des Entwurfs) und markieren. Löschen, Verschieben und Ordner anlegen nur im Chat der Weboberfläche. Ein zweites Postfach kann AIfred nur lesen. Nötig: IMAP- und SMTP-Zugang.",
+    "en": "Answers mail from allowed senders automatically (can be switched off) and gives AIfred mail tools: view the inbox, read mails and attachments, search all folders, send mail (after the draft is confirmed) and mark mail. Deleting, moving and creating folders work only in the web chat. A second mailbox is read-only for AIfred. Required: IMAP and SMTP access."
   },
   "email_cred_imap_host": {
     "de": "IMAP Host",
@@ -40,7 +40,7 @@
     "en": "Allowed Senders"
   },
   "email_cred_allowed_senders_tooltip": {
-    "de": "Kommagetrennte Liste von E-Mail-Adressen oder Domains.\nBeispiel: user@mail.de, @family.de\n* = alle erlaubt, leer = niemand erlaubt.\nErster Eintrag = Owner (bekommt erhoehte Rechte).",
+    "de": "Kommagetrennte Liste von E-Mail-Adressen oder Domains.\nBeispiel: user@mail.de, @family.de\n* = alle erlaubt, leer = niemand erlaubt.\nErster Eintrag = Owner (bekommt erhöhte Rechte).",
     "en": "Comma-separated email addresses or domains.\nExample: user@mail.de, @family.de\n* = allow all, empty = allow none.\nFirst entry = owner (gets elevated permissions)."
   },
   "email_cred_sent_folder": {

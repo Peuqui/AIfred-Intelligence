@@ -4,7 +4,7 @@
     "en": "Judaica"
   },
   "plugin_description": {
-    "de": "Judaica-Zugriff: exakter Stellen-Lookup (z. B. Berakhot 3) und thematische Suche im jüdischen Quellkorpus — Tanach, Talmud, Mischna, Midrasch und die klassischen Tora-Kommentare.",
-    "en": "Judaica access: exact passage lookup (e.g. Berakhot 3) and topical search in the Jewish source corpus — Tanakh, Talmud, Mishnah, Midrash and the classic Torah commentaries."
+    "de": "Schlägt Stellen aus der jüdischen Literatur genau nach, etwa Berakhot 3, Pirkei Avot 1,1 oder Rashi zu Genesis 1,1, und sucht sonst thematisch in Tanach, Talmud, Mischna, Midrasch, Halacha und den klassischen Torakommentaren. Verfügbar nur, wenn die Quelltexte unter data/documents/judaica liegen.",
+    "en": "Looks up passages of Jewish literature exactly, such as Berakhot 3, Pirkei Avot 1,1 or Rashi on Genesis 1,1, and otherwise searches by topic in Tanakh, Talmud, Mishnah, Midrash, Halakha and the classic Torah commentaries. Available only if the source texts are in data/documents/judaica."
   }
 }

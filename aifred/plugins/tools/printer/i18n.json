@@ -4,8 +4,8 @@
     "en": "Typographus"
   },
   "plugin_description": {
-    "de": "Druckt Dateien aus dem Dokumentenbereich über CUPS und liest Druckerzustand, Warnungen und Füllstände.",
-    "en": "Prints files from the documents area through CUPS and reads printer state, warnings and supply levels."
+    "de": "Druckt Dateien aus dem Dokumentenordner auf einem CUPS-Drucker (PDF, Text, PNG, JPG, PostScript; wählbar sind Kopien, Seiten und beidseitig) und liest den Druckerstatus mit Warnungen, Warteschlange und Füllständen. Standarddrucker und Höchstzahl der Kopien stellt man in den Plugin-Einstellungen ein.",
+    "en": "Prints files from the documents folder on a CUPS printer (PDF, text, PNG, JPG, PostScript; copies, pages and duplex are selectable) and reads the printer status with warnings, queue and supply levels. Default printer and maximum number of copies are set in the plugin settings."
   },
   "printer_cred_default": {
     "de": "Standarddrucker",

@@ -4,7 +4,7 @@
     "en": "Laboratorium"
   },
   "plugin_description": {
-    "de": "Sicherer Code-Ausführungsbereich: Python und Bash in isolierter Umgebung — für Berechnungen, Skripte und ad-hoc-Logik.",
-    "en": "Safe code execution: Python and Bash in an isolated environment — for calculations, scripts and ad-hoc logic."
+    "de": "Führt Python-Code abgeschottet und ohne Netzwerk aus, mit begrenzter Laufzeit: für Berechnungen, Statistik, Diagramme, Dateien wie PDF, Word und Excel sowie kleine HTML-Seiten. Ergebnisse erscheinen im Chat. Den Dokumentenordner sieht der Code nur lesend; nur die Schreibvariante darf dort speichern. HTML-Seiten lassen sich in einem Headless-Browser prüfen.",
+    "en": "Runs Python code isolated and without network, with a limited run time: for calculations, statistics, plots, files such as PDF, Word and Excel, and small HTML pages. Results appear in the chat. The code sees the documents folder read-only; only the write variant may save there. HTML pages can be checked in a headless browser."
   }
 }

@@ -4,8 +4,8 @@
     "en": "DeepL Translator"
   },
   "plugin_description": {
-    "de": "Hochwertige Übersetzungen via DeepL-API zwischen vielen Sprachen — präziser als generische LLM-Übersetzungen.",
-    "en": "High-quality translations via the DeepL API between many languages — more precise than generic LLM translations."
+    "de": "Übersetzt mit DeepL zwischen rund 30 Sprachen: kurze Texte direkt, ganze Dokumente aus dem Dokumentenordner in einem Aufruf als neue Datei. Markdown bleibt erhalten, Codeblöcke werden nicht übersetzt; die Anrede (du oder Sie) ist wählbar. Nötig: DeepL-API-Key; der kostenlose (endet auf :fx) reicht für 500.000 Zeichen im Monat.",
+    "en": "Translates with DeepL between about 30 languages: short texts directly, whole documents from the documents folder in one call as a new file. Markdown is preserved, code blocks are not translated, and the form of address (informal or formal) is selectable. Required: DeepL API key; the free one (ends in :fx) covers 500,000 characters per month."
   },
   "deepl_cred_api_key": {
     "de": "DeepL API Key",

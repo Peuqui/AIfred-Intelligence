@@ -4,7 +4,7 @@
     "en": "Narrator"
   },
   "plugin_description": {
-    "de": "Vertont Textdateien aus dem Dokumentenbaum zu einer einzelnen Audio-Datei — absatzweise über die lokale TTS-Engine, Ergebnis als MP3 neben der Quelldatei (handytauglich, '.wav' optional).",
-    "en": "Narrates text files from the document tree into a single audio file — paragraph by paragraph via the local TTS engine, saved as MP3 next to the source file (phone-friendly, '.wav' optional)."
+    "de": "Wandelt eine Textdatei aus dem Dokumentenordner mit der lokalen Sprachausgabe in eine einzige Audiodatei um (MP3, auf Wunsch WAV), die neben der Quelldatei liegt. Mehrere Sprecher gehen über Zeilenmarken wie [FRAGE]:, auch mit eigenen geklonten Stimmen. Lange Texte brauchen ein Mehrfaches ihrer Hörzeit.",
+    "en": "Turns a text file from the documents folder into a single audio file (MP3, WAV on request) using the local speech output, saved next to the source file. Several speakers work through line markers such as [QUESTION]:, also with your own cloned voices. Long texts take several times their listening length."
   }
 }

@@ -4,7 +4,7 @@
     "en": "Calculator"
   },
   "plugin_description": {
-    "de": "Mathematische Berechnungen — Grundrechenarten und Potenzen (sicherer AST-Parser, keine Funktionen/Symbolik).",
-    "en": "Mathematical calculations — basic arithmetic and powers (safe AST parser, no functions or symbolic math)."
+    "de": "Rechnet exakt, statt dass das Sprachmodell im Kopf rechnet: Grundrechenarten, Ganzzahldivision, Rest, Potenzen und Klammern. Funktionen wie Wurzel oder Sinus und Variablen gibt es nicht; Exponenten sind auf 1000 begrenzt.",
+    "en": "Calculates exactly instead of the language model doing mental math: basic arithmetic, integer division, remainder, powers and parentheses. There are no functions such as square root or sine and no variables; exponents are limited to 1000."
   }
 }

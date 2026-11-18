@@ -4,8 +4,8 @@
     "en": "Google Suite"
   },
   "plugin_description": {
-    "de": "Zugriff auf Google Calendar, Kontakte, Tasks und Drive — je Dienst aus, nur lesen oder lesen und schreiben (OAuth 2.0).",
-    "en": "Access to Google Calendar, Contacts, Tasks and Drive — per service off, read only, or read and write (OAuth 2.0)."
+    "de": "Greift auf Google Kalender, Kontakte, Aufgaben und Drive zu: Einträge suchen, anlegen, ändern und löschen, in Drive nur im festgelegten Agentenordner. Jeder Dienst ist aus, nur lesend oder lesend und schreibend einstellbar. Nötig: bei Google angelegte Client-ID und Client-Secret sowie die Anmeldung bei Google (OAuth).",
+    "en": "Accesses Google Calendar, Contacts, Tasks and Drive: search, create, change and delete entries, in Drive only inside the designated agent folder. Each service can be set to off, read only, or read and write. Required: a client ID and client secret created at Google, and signing in to Google (OAuth)."
   },
   "google_client_id": {
     "de": "Google Client ID",
