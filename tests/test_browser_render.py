@@ -7,6 +7,8 @@ import uuid
 import pytest
 
 from aifred.lib.browser_render import (
+    RenderResult,
+    _apply_action,
     console_message_ignored,
     render_html_in_browser,
     resolve_sandbox_html_path,
@@ -271,3 +273,87 @@ def test_the_model_gets_the_values_under_their_own_heading(session_html):
         actions=[{"evaluate": "document.getElementById('state').textContent"}],
     ))
     assert 'EVALUATE RESULTS (1):\naction 1: "initial"' in answer
+
+
+# ── click with force, and the error text of a failed click ───────
+
+# A big button that never holds still (it shakes by a few pixels every frame): Playwright's "stable" check
+# never passes, a click without force times out, a forced one hits it.
+_SHAKING_BUTTON_PAGE = """<!DOCTYPE html><html><body style="margin:0">
+<button id="go" style="position:absolute;left:300px;top:300px;width:300px;height:200px"
+  onclick="document.getElementById('state').textContent='CLICKED'">Go</button>
+<div id="state">initial</div>
+<script>
+let tick = 0;
+(function shake() { document.getElementById('go').style.transform = `translateX(${(tick++ % 2) * 4}px)`; requestAnimationFrame(shake); })();
+</script></body></html>"""
+
+
+class _RecordingPage:
+    """Stand-in for a Playwright page: remembers how click was called."""
+
+    def __init__(self, failure: Exception | None = None) -> None:
+        self.clicks: list[tuple[str, dict]] = []
+        self.failure = failure
+
+    async def click(self, selector: str, **options) -> None:
+        self.clicks.append((selector, options))
+        if self.failure:
+            raise self.failure
+
+
+def _apply(page: _RecordingPage, action: dict) -> RenderResult:
+    result = RenderResult()
+    asyncio.run(_apply_action(page, action, 0, result, take_screenshot=None))
+    return result
+
+
+def test_force_reaches_the_click_and_is_off_by_default():
+    page = _RecordingPage()
+    _apply(page, {"click": "#go", "force": True})
+    _apply(page, {"click": "#go"})
+    assert page.clicks == [("#go", {"force": True}), ("#go", {"force": False})]
+
+
+def test_a_failed_click_tells_about_force_and_evaluate():
+    result = _apply(_RecordingPage(TimeoutError("element is not stable")), {"click": "#go"})
+    assert "element is not stable" in result.action_errors[0]
+    assert '"force": true' in result.action_errors[0] and "evaluate" in result.action_errors[0]
+
+
+def test_a_failed_forced_click_does_not_repeat_the_force_advice():
+    result = _apply(_RecordingPage(TimeoutError("no such element")), {"click": "#go", "force": True})
+    assert "no such element" in result.action_errors[0] and "retry with" not in result.action_errors[0]
+
+
+@pytest.mark.skipif(_chrome_missing, reason="google-chrome not installed")
+def test_a_forced_click_hits_a_button_that_never_holds_still(tmp_path, monkeypatch):
+    from aifred.lib import config
+    out_root = tmp_path / "sandbox_output"
+    monkeypatch.setattr(config, "SANDBOX_OUTPUT_DIR", out_root)
+    fname = _write_html(out_root, _SHAKING_BUTTON_PAGE)
+    url = f"/_upload/sandbox_output/{SESSION}/{fname}"
+    state = {"evaluate": "document.getElementById('state').textContent"}
+    plain = asyncio.run(render_html_in_browser(
+        url, SESSION, wait_ms=200, actions=[{"click": "#go"}, state],
+    ))
+    forced = asyncio.run(render_html_in_browser(
+        url, SESSION, wait_ms=200, actions=[{"click": "#go", "force": True}, state],
+    ))
+    assert len(plain.action_errors) == 1 and "force" in plain.action_errors[0]
+    assert plain.evaluations == ['action 2: "initial"']
+    assert forced.action_errors == [] and forced.evaluations == ['action 2: "CLICKED"']
+
+
+# ── a URL that is no HTML page ───────────────────────────────────
+
+
+@pytest.mark.parametrize("url", ["/_upload/documents/bild.png", "/_upload/images/abc/shot.png?x=1", "documents/skizze.JPG"])
+def test_an_image_url_gets_its_own_error_that_points_to_read_file_and_vision_analyze(url):
+    result = asyncio.run(render_html_in_browser(url, SESSION))
+    assert "HTML pages only" in result.error and "read_file" in result.error and "vision_analyze" in result.error
+
+
+def test_a_missing_html_page_keeps_the_invalid_url_error():
+    result = asyncio.run(render_html_in_browser("/_upload/documents/gibt-es-nicht.html", SESSION))
+    assert "SANDBOX_HTML_URL" in result.error

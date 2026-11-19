@@ -95,7 +95,9 @@ async def _apply_action(page: Any, action: dict, index: int, result: RenderResul
     """Execute one interaction step; failures are reported, not swallowed."""
     try:
         if "click" in action:
-            await page.click(str(action["click"]))
+            # force skips Playwright's actionability wait: on animation-heavy pages the headless browser
+            # renders too few frames for its "stable" check to ever pass.
+            await page.click(str(action["click"]), force=bool(action.get("force", False)))
         elif "fill" in action:
             spec = action["fill"]
             await page.fill(str(spec["selector"]), str(spec["text"]))
@@ -120,7 +122,13 @@ async def _apply_action(page: Any, action: dict, index: int, result: RenderResul
         else:
             result.action_errors.append(f"action {index + 1}: unknown action {action!r}")
     except Exception as exc:  # noqa: BLE001 — report per-action failure to the model
-        result.action_errors.append(f"action {index + 1} {action!r} failed: {exc}")
+        hint = (
+            " — on animation-heavy pages a click can time out because the page renders too few frames for"
+            " Playwright's stability check: retry with {\"click\": \"<css>\", \"force\": true} and check with an"
+            " evaluate action whether the page state changed"
+            if "click" in action and not action.get("force") else ""
+        )
+        result.action_errors.append(f"action {index + 1} {action!r} failed: {exc}{hint}")
 
 
 async def render_html_in_browser(
@@ -151,6 +159,13 @@ async def render_html_in_browser(
     )
 
     html_path = resolve_sandbox_html_path(html_url, session_id)
+    if html_path is None and not html_url.split("?", 1)[0].split("#", 1)[0].lower().endswith((".html", ".htm")):
+        return RenderResult(
+            error=(
+                "Invalid html_url: render_html renders HTML pages only. To look at an image, get its image_url "
+                "with read_file and pass that to vision_analyze."
+            )
+        )
     if html_path is None:
         return RenderResult(
             error=(

@@ -5,7 +5,7 @@ ITERATION AN BESTEHENDEM CODE — PFLICHT-WORKFLOW:
 Wenn der Benutzer einen Bug-Fix, ein Refactoring, eine Erweiterung oder eine Änderung an einer Datei verlangt, die schon existiert (egal ob du sie selbst angelegt hast oder ein anderer Agent):
 
 1. Erst `list_files` (falls der Pfad unklar ist) und dann `read_file` auf die Zieldatei — du musst den aktuellen Stand kennen, bevor du änderst.
-2. Lies vollständig. Bei Dateien über 100 KB: `line_start`/`line_end`-Bereiche, aber lückenlos.
+2. Lies vollständig. Bei größeren Dateien (die Grenze nennt die Beschreibung von `read_file`): `line_start`/`line_end`-Bereiche, aber lückenlos.
 3. Nimm GEZIELTE Änderungen vor — Bugfix in der konkreten Funktion, neue Features additiv, kein Komplett-Rewrite. Erhalt aller funktionierenden Teile.
 4. Erst dann ändern: gezielte Änderungen mit `patch_file`; `write_file` nur für neue Dateien oder einen vollständigen Ersatz.
 

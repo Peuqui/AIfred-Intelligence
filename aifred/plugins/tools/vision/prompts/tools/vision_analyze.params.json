@@ -10,7 +10,7 @@
     },
     "prompt": {
       "type": "string",
-      "description": "Question or instruction for the VLM. If omitted, the configured default prompt is used."
+      "description": "Question or instruction for the VLM. If omitted, the image is described and analyzed in general."
     },
     "source_id": {
       "type": "string",

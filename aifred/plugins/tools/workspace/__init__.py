@@ -14,7 +14,7 @@ from collections.abc import AsyncGenerator
 
 from ....lib.config import (
     DOCUMENTS_DIR,
-    DOCUMENT_SEARCH_DISTANCE_STRONG, READ_MEMORY_GUARD_BYTES,
+    DOCUMENT_SEARCH_DISTANCE_STRONG, READ_FILE_CHUNK_THRESHOLD_KB, READ_MEMORY_GUARD_BYTES,
     WORKSPACE_WRITE_EXTENSIONS,
 )
 from ....lib import file_manager as fm
@@ -239,9 +239,8 @@ class WorkspacePlugin:
         tools.append(Tool(
             name="read_file",
             tier=TIER_READONLY,
-            description=(
-                load_tool_description(__file__, "read_file")
-            ),
+            description=load_tool_description(__file__, "read_file")
+            .replace("{CHUNK_THRESHOLD_KB}", str(READ_FILE_CHUNK_THRESHOLD_KB)),
             parameters=load_tool_parameters(__file__, "read_file"),
             executor=_read_file,
         ))

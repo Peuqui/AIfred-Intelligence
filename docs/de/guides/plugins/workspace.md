@@ -37,7 +37,8 @@ Das Workspace Plugin bietet dem LLM direkten Dateizugriff auf das Dokumenten-Ver
 
 ### Dateizugriff
 - **PDF seitenweise lesen:** `read_file(filename="report.pdf", pages="1-5")` oder `pages="3,7,10-12"`
-- **Große Textdateien abschnittweise:** `read_file(filename="log.txt", line_start=100, line_end=200)`
+- **Große Textdateien abschnittweise:** `read_file(filename="log.txt", line_start=100, line_end=200)`; ab `READ_FILE_CHUNK_THRESHOLD_KB` (30 KB) sagt die Beschreibung dem Modell, in Zeilenbereichen zu lesen
+- **Pfade gelten ab dem Dokumentenordner:** ein Pfad, der mit `documents/` beginnt, wird von jedem Werkzeug abgelehnt (er landete sonst in `documents/documents/`), nicht stillschweigend gekürzt
 - **Path-Traversal-Schutz:** Alle Pfade werden gegen `data/documents/` validiert — kein Ausbruch möglich
 - **Write-Verify:** Jede geschriebene Datei wird zurückgelesen und die Länge verglichen
 - **Erlaubte Schreibformate:** .txt, .md, .csv, .json, .xml, .html

@@ -415,6 +415,29 @@ class TestAnalyze:
         assert result["n_frames"] == 3
         assert len(captured["images"]) == 3
 
+    def test_analyze_without_prompt_asks_the_shared_default_question(self, patched_plugin, ctx, monkeypatch, tmp_path: Path):
+        """No prompt from the caller and none in the settings: the question comes from the one prompt file
+        (vision/default_question), not from a literal in the plugin."""
+        from aifred.lib.prompt_loader import load_prompt
+
+        self._patch_dirs(monkeypatch, tmp_path)
+        captured = {}
+
+        async def fake_generate(self, **kwargs):
+            captured.update(kwargs)
+            return {"response": "ok"}
+
+        import ollama
+
+        monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
+        register(FakeSource("cam/test-default", frames=[_blank()]))
+        tools = {t.name: t for t in vp.plugin.get_tools(ctx)}
+        url = _exec_tool(tools["vision_capture"], source_id="cam/test-default")["image_url"]
+        result = _exec_tool(tools["vision_analyze"], image_urls=[url], source_id="cam/test-default")
+        assert result["success"] is True
+        assert load_prompt("vision/default_question") in captured["prompt"]
+        assert "Beschreibe knapp" not in captured["prompt"]
+
 
 # ── enroll_face ────────────────────────────────────────────────────
 

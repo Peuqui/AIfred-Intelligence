@@ -66,8 +66,8 @@ Liste und der Assistent sieht das Plugin gar nicht.
   mit dem letzten gelöschten Ereignis ihres Vorkommnisses. Ein Ereignis nach einem Burst hat kein Einzelbild mehr
   (`image_url` und `zoom_image_url` leer); sein Bild lebt in den Filmen, und seine Beschreibung hängt die Bubble an
   den gezeigten Film.
-- **`vision_analyze`** — `image_urls` (Pflicht: URL(s) von `vision_capture` oder Uploads, oder ein Film allein), `prompt` (optional; fällt auf den
-  konfigurierten Default-Prompt zurück), `source_id` (optional; wendet das Kamera-Briefing an).
+- **`vision_analyze`** — `image_urls` (Pflicht: URL(s) von `vision_capture` oder Uploads, oder ein Film allein), `prompt` (optional; ohne ihn gilt die allgemeine Standardfrage
+  `prompts/<sprache>/vision/default_question.txt`, dieselbe wie bei Bildern im Chat), `source_id` (optional; wendet das Kamera-Briefing an).
   Die Beschreibung hat keine Längengrenze, ihre Grenze ist der Kontext des Modells. Wiederholt ein Modell denselben Satz
   `REPETITION_GUARD_REPEATS`-mal (3), schließt der Aufruf den Strom und behält den Text bis zur Wiederholung
   (`lib/repetition_guard.py`, `vision_analyzer._stream_completion`); das Log meldet es.
@@ -562,7 +562,7 @@ Alle Einstellungen liegen in `aifred/plugins/tools/vision/settings.json` und
 werden bei jedem Call frisch geladen, sodass man sie aus dem Plugin-Manager ohne
 Neustart anpassen kann. Wichtige Gruppen:
 
-- **`vlm`** — `model`, `num_ctx`, `keep_alive`, `host`, `default_prompt`.
+- **`vlm`** — `model`, `num_ctx`, `keep_alive`, `host`.
 - **`face_recognition`** — `providers`, `gpu_id` (int / `"auto"` / `null` für
   Nur-CPU), `det_size`, `model_name` (`buffalo_l`), `threshold_known`,
   `threshold_unsure`, `retention_days`, `gc_describe` und `gc_prune` (die zwei
