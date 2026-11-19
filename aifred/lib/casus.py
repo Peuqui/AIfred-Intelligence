@@ -1,6 +1,6 @@
 """The vision's events (the Casus) for every interface (the vision page of Vue): the
 filters a page offers, a page of the list (every event, or one row per occurrence), the choices of the filters, the
-pictures of one occurrence in order (its film), a person assigned to an event, events deleted one by one or as
+film of one occurrence (burst films, else its pictures in order), a person assigned to an event, events deleted one by one or as
 filtered; and the image model on events: one event analysed, every event without a description described. Both are
 runs of the server, one at a time each for every interface; a page follows their state. The events live in vision.db
 (``VisionStore``), their pictures on disk.
@@ -14,6 +14,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from .user_error import Conflict, Invalid, Missing, UserError
+from .vision_film import FilmClip, cluster_films
 from .vision_store import VisionStore
 
 logger = logging.getLogger(__name__)
@@ -100,16 +101,33 @@ def choices(lang: str) -> Choices:
     )
 
 
-def film(event_id: int) -> list[tuple[int, bool]]:
-    """The pictures of the occurrence of ``event_id``, oldest first, one per picture file (the series of a passing
-    as a flip-book): ``(event id, has a tele picture)``. An event without a cluster is its own film. KeyError for an
-    event that does not exist."""
+@dataclass(frozen=True)
+class Film:
+    clips: list[FilmClip]                 # the burst films of the occurrence (one per lens and burst), oldest first
+    pictures: list[tuple[int, bool]]      # without films: ``(event id, has a tele picture)`` per picture, oldest first
+
+
+def has_film(source_id: str, cluster_id: str) -> bool:
+    """Whether the occurrence has something to play: burst films, or a series of more than one picture."""
+    if not cluster_id:
+        return False
+    return bool(cluster_films(source_id, cluster_id)) or len(VisionStore().list_cluster_event_ids(cluster_id)) > 1
+
+
+def film(event_id: int) -> Film:
+    """What the film button of ``event_id`` plays: the burst films of its occurrence; an occurrence without them
+    (no burst) is its series of pictures as a flip-book, one per picture file. An event without a cluster is its own
+    series; an event whose pictures are gone has none. Missing for an event that does not exist."""
     store = VisionStore()
     event = store.get_event(event_id)
     if event is None:
         raise Missing("no_event", event=event_id)
-    ids = list(reversed(store.list_cluster_event_ids(str(event.get("cluster_id") or "")))) or [event_id]
-    return [(each, bool(store.get_event_frame_path(each, zoom=True))) for each in ids]
+    cluster_id = str(event.get("cluster_id") or "")
+    clips = cluster_films(str(event["source_id"]), cluster_id)
+    if clips:
+        return Film(clips=clips, pictures=[])
+    ids = list(reversed(store.list_cluster_event_ids(cluster_id))) or ([event_id] if event.get("frame_path") else [])
+    return Film(clips=[], pictures=[(each, bool(store.get_event_frame_path(each, zoom=True))) for each in ids])
 
 
 def assign_face(event_id: int, face_id: int | None) -> None:

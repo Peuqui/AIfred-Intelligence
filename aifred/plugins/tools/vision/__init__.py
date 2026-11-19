@@ -48,7 +48,7 @@ from ....lib.vision_cleanup import (
     cleanup_form_values,
     save_cleanup_form_values,
 )
-from ....lib.vision_film import film_lens
+from ....lib.vision_film import cluster_films
 from ....lib.vision_filters.face_detect import get_default_detector
 from ....lib.vision_gpu_select import resolve_gpu_id
 from ....lib.vision_settings import VISION_SETTINGS_PATH, load_vision_settings
@@ -57,7 +57,6 @@ from ....lib.vision_utils import (
     TOOLCALL_IMAGES_DIR,
     annotate_frame,
     filename_timestamp,
-    cluster_film_files,
     get_image_url,
     is_video_file,
     jpeg_size,
@@ -134,9 +133,8 @@ def _ok(**payload: Any) -> str:
 def _film_urls(source_id: str, cluster_id: str) -> dict[str, list[str]]:
     """URLs of a happening's burst films by lens ("wide", "zoom"), one per burst in time order; {} when it has none."""
     urls: dict[str, list[str]] = {}
-    if cluster_id:
-        for film in cluster_film_files(source_id, cluster_id):
-            urls.setdefault(film_lens(str(film)), []).append(get_image_url(film))
+    for clip in cluster_films(source_id, cluster_id):
+        urls.setdefault(clip.lens, []).append(clip.url)
     return urls
 
 
@@ -887,6 +885,8 @@ class VisionPlugin:
                 # Dual-Lens-Events tragen den Tele-Snap desselben Moments in
                 # der classification — als eigene URL anbieten, damit der
                 # Assistent Szene (wide) UND Subjekt (zoom) einbetten kann.
+                # Burst-Ereignisse haben nach dem Burst-Ende keine Einzelbilder mehr (image_url und
+                # zoom_image_url leer): ihr Bild lebt in den Filmen (film_urls).
                 zfp = str((ev.get("classification") or {}).get("zoom_frame_path") or "")
                 return {
                     "id": ev["id"],

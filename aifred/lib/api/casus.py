@@ -1,5 +1,5 @@
 """The vision's events (the Casus): a page of the list with its filters (every event, or one row per occurrence), the
-choices of the filters, the pictures of one occurrence in order (its film), a stream that says when an event was
+choices of the filters, the film of one occurrence (its burst films, else its pictures in order), a stream that says when an event was
 stored, a person assigned to a face event, events deleted one by one or as filtered. Thin over ``lib/casus.py``.
 
 Under ``/vision/casus/…``: ``/vision/events/{source}`` is the live stream of a camera's image analysis."""
@@ -7,6 +7,7 @@ Under ``/vision/casus/…``: ``/vision/events/{source}`` is the live stream of a
 import asyncio
 import json
 from collections.abc import AsyncGenerator
+from typing import Any
 
 from fastapi import Query
 from pydantic import BaseModel, ConfigDict, Field
@@ -29,14 +30,26 @@ class CasusEvent(BaseModel):
     date_display: str
     time_display: str
     crop_url: str = Field(description="The face crop (face events), '' without")
-    has_frame: bool = Field(description="The wide picture is kept: /vision/frame?id=")
+    has_frame: bool = Field(description="The wide picture is kept (not after a burst: it lives in the film): /vision/frame?id=")
     has_zoom: bool = Field(description="A tele picture of the same moment: /vision/frame?id=&zoom=1")
+    has_film: bool = Field(description="The occurrence has burst films or a series of pictures to play (its film)")
     face_id: int | None
     face_name: str = Field(description="The person assigned")
     matched_name: str = Field(description="The person the recognition guesses, while none is assigned")
     description: str = Field(description="What the image model said about the event")
     cluster_id: str = Field(description="Its occurrence ('' = on its own)")
     cluster_member_count: int = Field(description="Grouped: how many events the occurrence has (0 on its own)")
+
+
+def _casus_events(events: list[dict[str, Any]]) -> list[CasusEvent]:
+    """The rows as the page gets them (touches the disk and the database per row: call it in a thread)."""
+    from ..casus import has_film
+
+    return [
+        CasusEvent(**event, has_frame=bool(event["frame_path"]),
+                   has_film=has_film(str(event["source_id"]), str(event["cluster_id"])))
+        for event in events
+    ]
 
 
 class CasusPage(BaseModel):
@@ -82,7 +95,7 @@ async def casus_events(
         page, EventFilter(source=source, type=type, face=face), grouped=grouped, offset=offset, limit=limit,
     )
     return CasusPage(
-        events=[CasusEvent(**event, has_frame=bool(event["frame_path"])) for event in events],
+        events=await asyncio.to_thread(_casus_events, events),
         total=total, offset=offset, page_size=VISION_CASUS_PAGE_SIZE,
     )
 
@@ -115,7 +128,7 @@ async def casus_recent() -> CasusRecent:
         armed=(await asyncio.to_thread(vigilantia)).armed,
         has_watched_camera=any(source.get("auto_start") for source in sources),
         window_minutes=VISION_BADGE_WINDOW_MIN, recent=count,
-        events=[CasusEvent(**event, has_frame=bool(event["frame_path"])) for event in events],
+        events=await asyncio.to_thread(_casus_events, events),
         refresh_seconds=VISION_BADGE_REFRESH_SEC,
     )
 
@@ -139,13 +152,27 @@ class FilmPicture(BaseModel):
     has_zoom: bool
 
 
-@vision_api.get("/vision/casus/events/{event_id}/film", response_model=list[FilmPicture], tags=["Vision"])
-async def casus_film(event_id: int) -> list[FilmPicture]:
-    """The pictures of the event's occurrence, oldest first (the event alone without one); 404 for no event."""
+class FilmClipInfo(BaseModel):
+    label: str = Field(description="The lens, in the language of the interface")
+    url: str = Field(description="The burst film (.mp4) as the browser loads it")
+
+
+class CasusFilm(BaseModel):
+    clips: list[FilmClipInfo] = Field(description="The burst films of the occurrence, oldest first")
+    pictures: list[FilmPicture] = Field(description="Without films: the occurrence's pictures, oldest first")
+
+
+@vision_api.get("/vision/casus/events/{event_id}/film", response_model=CasusFilm, tags=["Vision"])
+async def casus_film(event_id: int) -> CasusFilm:
+    """What the event's film button plays: the burst films of its occurrence, or without them its pictures, oldest
+    first (the event alone without a cluster); 404 for no event."""
     from ..casus import film
 
-    pictures = await asyncio.to_thread(film, event_id)
-    return [FilmPicture(id=picture_id, has_zoom=has_zoom) for picture_id, has_zoom in pictures]
+    played = await asyncio.to_thread(film, event_id)
+    return CasusFilm(
+        clips=[FilmClipInfo(label=clip.label, url=clip.url) for clip in played.clips],
+        pictures=[FilmPicture(id=picture_id, has_zoom=has_zoom) for picture_id, has_zoom in played.pictures],
+    )
 
 
 @vision_api.get("/vision/casus/stream", tags=["Vision"])

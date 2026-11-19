@@ -63,7 +63,9 @@ Liste und der Assistent sieht das Plugin gar nicht.
   `interval_s` (nur beim Film, Standard `0.5`). `film_url` und `image_url` gehen an `vision_analyze`; für einen Film
   bekommt das Modell gleichmäßig verteilte Einzelbilder (`VISION_DESCRIBE_MAX_FRAMES`, 10), ein Film geht allein in den
   Aufruf. Die Burst-Filme eines Vorkommnisses nennt `vision_query_events` als `film_urls` (je Linse `wide`, `zoom` eine Liste, ein Film je Burst); sie verschwinden
-  mit dem letzten gelöschten Ereignis ihres Vorkommnisses.
+  mit dem letzten gelöschten Ereignis ihres Vorkommnisses. Ein Ereignis nach einem Burst hat kein Einzelbild mehr
+  (`image_url` und `zoom_image_url` leer); sein Bild lebt in den Filmen, und seine Beschreibung hängt die Bubble an
+  den gezeigten Film.
 - **`vision_analyze`** — `image_urls` (Pflicht: URL(s) von `vision_capture` oder Uploads, oder ein Film allein), `prompt` (optional; fällt auf den
   konfigurierten Default-Prompt zurück), `source_id` (optional; wendet das Kamera-Briefing an).
   Die Beschreibung hat keine Längengrenze, ihre Grenze ist der Kontext des Modells. Wiederholt ein Modell denselben Satz
@@ -428,7 +430,11 @@ fährt (siehe *Bulk-Beschreibung* unten).
 
 Jede Zeile zeigt ein Vorschaubild (Gesichts-Crop oder verkleinertes Vollbild);
 ein Klick öffnet das Vollbild groß, durch das man wie in einer Slideshow per
-Pfeiltasten und Pfeil-Buttons blättert (links = älter, rechts = neuer). Ein
+Pfeiltasten und Pfeil-Buttons blättert (links = älter, rechts = neuer). Ereignisse
+eines abgeschlossenen Bursts haben kein Einzelbild mehr (es lebt im Film des
+Vorkommnisses): ihre Zeile zeigt höchstens den Gesichts-Ausschnitt, und der
+Film-Knopf spielt die Burst-Filme im Datei-Viewer ab (je Linse einer, bei mehreren
+erst die Wahl). Ein Vorkommnis ohne Burst läuft dort als Bilderserie zum Durchblättern. Ein
 Aktualisieren-Button lädt die Liste manuell neu — bewusst manuell statt
 Auto-Refresh, damit Filtern/Taggen/Scrollen nicht gestört wird (der Live-Strom
 läuft im Vigilantia-Feed).

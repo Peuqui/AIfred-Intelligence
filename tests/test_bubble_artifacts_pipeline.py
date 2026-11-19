@@ -139,3 +139,44 @@ def test_a_message_written_before_and_after_the_tools_is_delivered_once():
     assert result is not None
     assert result.text_clean == "Guten Morgen! Psalm 37."
     assert result.text.count("Guten Morgen!") == 2  # the bubble still shows the turn as it ran
+
+
+FILM_WIDE = "/_upload/vigilantia/films/cam/2026-11-04/c1_140300_wide.mp4"
+FILM_ZOOM = "/_upload/vigilantia/films/cam/2026-11-04/c1_140300_zoom.mp4"
+
+
+class _BurstEventShown:
+    """vision_query_events returns a burst happening (no picture, two films) next to a single-picture one; the model
+    links both films and embeds the other happening's picture."""
+
+    backend_type = "vllm"
+
+    async def chat_stream(self, model, messages, options, toolkit=None, compression=None):
+        yield {"type": "tool_call", "name": "vision_query_events", "arguments": "{}"}
+        yield {"type": "tool_result", "name": "vision_query_events", "result": json.dumps({
+            "success": True, "count": 2, "events": [
+                {"id": 1, "source_name": "Garten", "timestamp": "2026-11-04T14:03:00", "image_url": "",
+                 "zoom_image_url": "", "film_urls": {"wide": [FILM_WIDE], "zoom": [FILM_ZOOM]},
+                 "classification": {"description": "Ein Mann geht zur Tür."}},
+                {"id": 2, "source_name": "Büro", "timestamp": "2026-11-04T15:00:00", "image_url": BURST[0],
+                 "zoom_image_url": "", "film_urls": {}, "classification": {"description": "Eine Katze."}},
+            ],
+        })}
+        yield {"type": "content", "text": f"[Weitwinkel]({FILM_WIDE}) [Zoom]({FILM_ZOOM}) ![Büro]({BURST[0]})"}
+        yield {"type": "done", "metrics": {}}
+
+
+def test_the_description_of_a_burst_event_hangs_on_the_film_shown():
+    async def run():
+        async for event in run_llm_stream(
+            _BurstEventShown(), "m", [], SimpleNamespace(enable_thinking=False), "AIfred", source="browser",  # type: ignore[arg-type]
+        ):
+            if event["type"] == "pipeline_result":
+                return event["result"]
+        return None
+
+    result = asyncio.run(run())
+    assert result is not None
+    block = result.text[: result.text.index("</image_descriptions>")]
+    assert block.count("Ein Mann geht zur Tür.") == 1        # both films carry it: shown once
+    assert "Garten · 14:03" in block and "Eine Katze." in block and "Büro · 15:00" in block

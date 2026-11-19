@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -26,7 +27,7 @@ from .config import (
     VISION_FILM_KEYFRAME_SEC,
 )
 from .i18n import t
-from .vision_utils import FILMS_DIR, film_source_dir
+from .vision_utils import FILMS_DIR, cluster_film_files, film_source_dir, get_image_url
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,22 @@ def film_label(path: str) -> str:
     Dateinamen; ein Film ohne Linse im Namen heißt wie seine Datei."""
     lens = film_lens(path)
     return t(f"vision_film_lens_{lens}") if lens in LENSES else Path(path).stem
+
+
+@dataclass(frozen=True)
+class FilmClip:
+    lens: str     # "wide" / "zoom"
+    label: str    # Beschriftung in der Sprache der Oberfläche
+    url: str      # ausgelieferte URL (/_upload/vigilantia/…)
+
+
+def cluster_films(source_id: str, cluster_id: str) -> list[FilmClip]:
+    """Die Burst-Filme eines Vorkommnisses mit URL und Beschriftung, in Zeitfolge; leer ohne Vorkommnis oder ohne
+    Film. Die eine Stelle für Casus und Vision-Werkzeug."""
+    if not cluster_id:
+        return []
+    return [FilmClip(film_lens(str(path)), film_label(str(path)), get_image_url(path))
+            for path in cluster_film_files(source_id, cluster_id)]
 
 
 def _lens_frames(events: list[dict[str, Any]]) -> tuple[str, str, dict[str, list[tuple[datetime, str]]]]:

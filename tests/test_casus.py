@@ -95,11 +95,72 @@ def test_an_unknown_filter_is_refused(bad: EventFilter) -> None:
 def test_the_film_runs_oldest_first_and_knows_its_tele_pictures(store: VisionStore) -> None:
     motion = [row for row in store.list_events_with_summary() if row["cluster_id"] == "b"]
     newest, oldest = motion[0]["id"], motion[1]["id"]
-    assert casus.film(newest) == [(oldest, False), (newest, True)]
+    played = casus.film(newest)
+    assert played.clips == [] and played.pictures == [(oldest, False), (newest, True)]
     vehicle = next(row["id"] for row in store.list_events_with_summary() if row["event_type"] == "vehicle")
-    assert casus.film(vehicle) == [(vehicle, False)]
+    assert casus.film(vehicle).pictures == [(vehicle, False)]
     with pytest.raises(KeyError):
         casus.film(9999)
+
+
+@pytest.fixture
+def burst_films(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    """Two burst films (wide, zoom) of the occurrence "b" in the films tree (served below /_upload/vigilantia)."""
+    from aifred.lib import vision_utils
+
+    monkeypatch.setattr(vision_utils, "VIGILANTIA_DIR", tmp_path / "vigilantia")
+    monkeypatch.setattr(vision_utils, "FILMS_DIR", tmp_path / "vigilantia" / "films")
+    day = tmp_path / "vigilantia" / "films" / "cam_garden" / "2026-11-04"
+    day.mkdir(parents=True)
+    films = [day / "b_140300_wide.mp4", day / "b_140300_zoom.mp4"]
+    for film in films:
+        film.write_bytes(b"mp4")
+    return films
+
+
+def _burst_over(store: VisionStore) -> int:
+    """The occurrence "b" after its burst ended: the pictures are gone (frame and tele path emptied). Returns an event."""
+    motion = [row["id"] for row in store.list_events_with_summary() if row["cluster_id"] == "b"]
+    store.drop_event_frames(motion)
+    return int(motion[0])
+
+
+def test_an_occurrence_with_burst_films_plays_them_and_has_no_pictures(store: VisionStore, burst_films: list[Path]) -> None:
+    from aifred.lib.vision_film import film_label
+
+    event = _burst_over(store)
+    played = casus.film(event)
+    assert played.pictures == []
+    assert [clip.url for clip in played.clips] == [
+        "/_upload/vigilantia/films/cam_garden/2026-11-04/b_140300_wide.mp4",
+        "/_upload/vigilantia/films/cam_garden/2026-11-04/b_140300_zoom.mp4",
+    ]
+    assert [clip.label for clip in played.clips] == [film_label(str(path)) for path in burst_films]
+    assert casus.has_film("cam/garden", "b")
+
+
+def test_a_burst_occurrence_whose_films_are_missing_has_nothing_to_play(store: VisionStore) -> None:
+    event = _burst_over(store)
+    played = casus.film(event)
+    assert played.clips == [] and played.pictures == []
+    assert not casus.has_film("cam/garden", "b")
+
+
+def test_the_film_over_the_api_burst_films_or_pictures(client: TestClient, store: VisionStore, burst_films: list[Path]) -> None:
+    motion = [row["id"] for row in store.list_events_with_summary() if row["cluster_id"] == "b"]
+    persons = [row["id"] for row in store.list_events_with_summary() if row["cluster_id"] == "a"]
+    film = client.get(f"/vision/casus/events/{persons[0]}/film").json()
+    assert film["clips"] == [] and len(film["pictures"]) == 3        # no films for "a": its pictures, as before
+    assert client.get(f"/vision/casus/events/{motion[0]}/film").json()["clips"][0]["url"].endswith("b_140300_wide.mp4")
+    _burst_over(store)
+    film = client.get(f"/vision/casus/events/{motion[0]}/film").json()
+    assert [clip["url"].rsplit("_", 1)[-1] for clip in film["clips"]] == ["wide.mp4", "zoom.mp4"] and film["pictures"] == []
+    assert all(clip["label"] for clip in film["clips"])
+    page = client.get("/vision/casus/events", params={"grouped": "true"}).json()["events"]
+    burst_row = next(row for row in page if row["cluster_id"] == "b")
+    assert (burst_row["has_frame"], burst_row["has_zoom"], burst_row["has_film"]) == (False, False, True)
+    single = next(row for row in page if row["event_type"] == "vehicle")
+    assert single["has_film"] is False
 
 
 def test_a_person_is_assigned_only_to_a_face_event_and_only_if_it_exists(store: VisionStore) -> None:

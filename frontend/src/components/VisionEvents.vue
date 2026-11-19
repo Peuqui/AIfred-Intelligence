@@ -2,7 +2,8 @@
 // The vision's events (the Casus), newest first: filtered by source, type and person, every event or one row per
 // occurrence (grouped), page by page. Per row the pictures (face crop or wide picture, the tele picture beside it),
 // the type, the source, the person assigned or guessed, what the image model said; a person assigned or taken
-// back, the occurrence's film, the event analysed by the image model, the event deleted. Every event the filter
+// back, the occurrence's film (its burst films in the viewer, one per lens; an occurrence without a burst: its pictures
+// as a flip-book), the event analysed by the image model, the event deleted. Every event the filter
 // lists can be deleted at once (asked first); every event without a description can be described (by occurrence,
 // with progress, cancelled at will). Both analyses are runs of the server, one at a time; this page follows them. A click on a picture opens the slideshow over every page (grouped: the occurrence's film). New events
 // arrive over a stream; the list loads again then, unless a picture or an assignment is open (it waits for that).
@@ -10,8 +11,9 @@ import { Check, Film, Hourglass, RefreshCw, Sparkles, Trash2, User, X } from "lu
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { ApiError, PROGRESS_POLL_MS, api, apiUrl } from "../api/client";
-import type { CasusChoices, CasusEvent, CasusPage, CasusRuns, FilmPicture } from "../api/types";
+import type { CasusChoices, CasusEvent, CasusFilm, CasusPage, CasusRuns, FilmClipInfo } from "../api/types";
 import { formatNumber, t, tCount } from "../i18n";
+import { viewFile } from "../lib/fileViewer";
 import ImageLightbox from "./ImageLightbox.vue";
 import HelpButton from "./help/HelpButton.vue";
 
@@ -28,6 +30,7 @@ const tagging = reactive({ event: 0, face: "" });
 const confirming = ref(false);
 const slideshow = ref<{ count: number; start: number; pictures: (position: number) => Promise<string[]> | string[] } | null>(null);
 const runs = ref<CasusRuns | null>(null);
+const clips = ref<{ event: number; clips: FilmClipInfo[] } | null>(null);   // the burst films to choose from, under their row
 let stream: EventSource | null = null;
 let polling: number | null = null;
 let latest: number | null = null;
@@ -69,7 +72,11 @@ const pageLabel = computed(() => {
 
 const frame = (id: number, zoom: boolean, width = 0): string =>
   apiUrl(`vision/frame?id=${id}${zoom ? "&zoom=1" : ""}${width ? `&w=${width}` : ""}`);
-const pictures = (id: number, hasZoom: boolean): string[] => [frame(id, false), ...(hasZoom ? [frame(id, true)] : [])];
+// An event after a burst has no pictures any more (they live in its film): then there is nothing to show.
+const pictures = (id: number, hasFrame: boolean, hasZoom: boolean): string[] => [
+  ...(hasFrame ? [frame(id, false)] : []),
+  ...(hasZoom ? [frame(id, true)] : []),
+];
 
 // The slideshow runs from the oldest to the newest event of the filter (→ = newer), the list newest first.
 function openSlideshow(index: number): void {
@@ -80,24 +87,38 @@ function openSlideshow(index: number): void {
     pictures: async (position) => {
       const at = await api<CasusPage>(`vision/casus/events?${query(total - 1 - position, 1)}`);
       const event = at.events[0];
-      return event ? pictures(event.id, event.has_zoom) : [];
+      return event ? pictures(event.id, event.has_frame, event.has_zoom) : [];
     },
   };
 }
+// The film button: burst films play in the viewer (one chosen first when there are several), an occurrence without
+// a burst runs its pictures as a flip-book.
 async function openFilm(event: CasusEvent): Promise<void> {
-  const film = await call(() => api<FilmPicture[]>(`vision/casus/events/${event.id}/film`));
-  if (!film?.length) return;
+  const film = await call(() => api<CasusFilm>(`vision/casus/events/${event.id}/film`));
+  if (!film) return;
+  if (film.clips.length) {
+    const [only] = film.clips;
+    if (only && film.clips.length === 1) playClip(only);
+    else clips.value = { event: event.id, clips: film.clips };
+    return;
+  }
+  if (!film.pictures.length) return;
   slideshow.value = {
-    count: film.length,
+    count: film.pictures.length,
     start: 0,
     pictures: (position) => {
-      const picture = film[position];
-      return picture ? pictures(picture.id, picture.has_zoom) : [];
+      const picture = film.pictures[position];
+      return picture ? pictures(picture.id, true, picture.has_zoom) : [];
     },
   };
 }
+function playClip(clip: FilmClipInfo): void {
+  clips.value = null;
+  void viewFile({ name: decodeURIComponent(clip.url.split("/").pop() ?? clip.label), viewUrl: clip.url, text: async () => null });
+}
+// A picture opens what its event keeps: its pictures in the slideshow, after a burst its film.
 function open(event: CasusEvent, index: number): void {
-  if (grouped.value) void openFilm(event);
+  if (grouped.value || !event.has_frame) void openFilm(event);
   else openSlideshow(index);
 }
 function closeSlideshow(): void {
@@ -282,7 +303,10 @@ const value = (event: Event): string => (event.target as HTMLSelectElement).valu
           <button :title="t('casus_tag_cancel')" @click="cancelTag"><X :size="16" /></button>
         </template>
         <button v-else-if="taggable(event)" :title="t('casus_tag_button')" @click="startTag(event)"><User :size="16" /></button>
-        <button v-if="event.cluster_id" :title="t('casus_film_tooltip')" @click="openFilm(event)"><Film :size="16" /></button>
+        <button v-if="event.has_film" :title="t('casus_film_tooltip')" @click="openFilm(event)"><Film :size="16" /></button>
+        <template v-if="clips?.event === event.id">
+          <button v-for="clip in clips.clips" :key="clip.url" @click="playClip(clip)">{{ clip.label }}</button>
+        </template>
         <button
           v-if="event.has_frame && runs"
           :class="{ done: event.description }"

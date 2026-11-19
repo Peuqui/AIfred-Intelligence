@@ -112,6 +112,32 @@ class TestQueryEventsDedup:
         # Every returned happening carries a browser image_url.
         assert all(e["image_url"].startswith("/_upload/vigilantia/") for e in out["events"])
 
+    def test_a_burst_happening_has_films_and_no_dead_picture_urls(
+        self, store: VisionStore, monkeypatch, tmp_path: Path
+    ):
+        """After a burst the pictures are gone (frame_path empty, zoom_frame_path removed): the row names the films
+        and gives no image_url that leads nowhere."""
+        from aifred.lib import vision_utils
+
+        monkeypatch.setattr(vision_utils, "VIGILANTIA_DIR", tmp_path / "vigilantia")
+        monkeypatch.setattr(vision_utils, "FILMS_DIR", tmp_path / "vigilantia" / "films")
+        day = tmp_path / "vigilantia" / "films" / "cam_test" / "2026-06-03"
+        day.mkdir(parents=True)
+        for lens in ("wide", "zoom"):
+            (day / f"burst-1_090000_{lens}.mp4").write_bytes(b"mp4")
+        ids = [_add(store, i, frame="", cls={"description": "Besuch"}) for i in range(2)]
+        for eid in ids:
+            store.set_event_cluster(eid, "burst-1")
+
+        out = self._run(store, monkeypatch)
+        (row,) = out["events"]
+        assert row["image_url"] == "" and row["zoom_image_url"] == ""
+        assert row["film_urls"] == {
+            "wide": ["/_upload/vigilantia/films/cam_test/2026-06-03/burst-1_090000_wide.mp4"],
+            "zoom": ["/_upload/vigilantia/films/cam_test/2026-06-03/burst-1_090000_zoom.mp4"],
+        }
+        assert "zoom_frame_path" not in row["classification"]
+
     def test_unclustered_events_stay_individual(self, store: VisionStore, monkeypatch):
         frame = str(VIGILANTIA_DIR / "motion" / "cam_test" / "2026-06-03" / "b.jpg")
         for i in range(3):

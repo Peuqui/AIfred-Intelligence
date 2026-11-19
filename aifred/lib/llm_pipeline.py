@@ -140,6 +140,50 @@ def _normalize_image_urls(text: str) -> str:
 
 
 
+def _event_descriptions(query_result: dict[str, Any]) -> dict[str, tuple[str, str]]:
+    """URL → (label, VLM description) for the events of a ``vision_query_events`` result. A single-picture event is
+    keyed by its ``image_url``; a burst event has no picture any more, only films (``film_urls`` by lens), so its
+    description hangs on each film URL."""
+    described: dict[str, tuple[str, str]] = {}
+    for ev in (query_result.get("events") or []):
+        if not isinstance(ev, dict):
+            continue
+        desc = str((ev.get("classification") or {}).get("description") or "").strip()
+        if not desc:
+            continue
+        film_urls = [str(url) for urls in (ev.get("film_urls") or {}).values() for url in urls]
+        name = str(ev.get("source_name") or ev.get("source_id") or "")
+        ts = str(ev.get("timestamp") or "")
+        tlabel = ts[11:16] if len(ts) >= 16 else ts
+        label = " · ".join(p for p in (name, tlabel) if p)
+        for url in (str(ev.get("image_url") or "").strip(), *film_urls):
+            if url:
+                described[url] = (label, desc)
+    return described
+
+
+def _image_descriptions_block(text: str, event_descriptions: dict[str, tuple[str, str]]) -> str:
+    """The ``<image_descriptions>`` collapsible for the pictures and films ``text`` actually shows (``![alt](url)``
+    and ``[text](url)`` alike), each entry headed by its label; "" when none of them has a description."""
+    shown_urls = [u for _alt, u in re.findall(r"!?\[([^\]]*)\]\(([^)]+)\)", text)]
+    # Akzent-Orange aus dem Theme (SSoT, CSS-Variable aus theme.css_variables()).
+    orange = "var(--aifred-primary)"
+    # Trennlinie zwischen den Einträgen im Lieblingsorange.
+    sep = f'<hr style="border:none;border-top:1px solid {orange};opacity:0.6;margin:0.7em 0">'
+    seen_entries: set[tuple[str, str]] = set()
+    entries: list[str] = []
+    for u in shown_urls:
+        # Both films (wide, zoom) of a burst carry the same description: show it once.
+        if u in event_descriptions and event_descriptions[u] not in seen_entries:
+            seen_entries.add(event_descriptions[u])
+            label, desc = event_descriptions[u]
+            head = f'<b style="color:{orange}">{label}</b><br>\n' if label else ""
+            entries.append(f"{head}{desc}")
+    if not entries:
+        return ""
+    return "<image_descriptions>\n" + ("\n" + sep + "\n").join(entries) + "\n</image_descriptions>"
+
+
 async def run_llm_stream(
     llm_client: 'LLMClient',
     model: str,
@@ -237,9 +281,9 @@ async def run_llm_stream(
     def source_alias(source_id: Any) -> str:
         from .vision_utils import resolve_source_alias
         return str(resolve_source_alias(str(source_id), fallback="Snapshot"))
-    # image_url → (label, VLM-Beschreibung) aus vision_query_events. Wird im
+    # URL (Event-Bild oder Burst-Film) → (label, VLM-Beschreibung) aus vision_query_events. Wird im
     # Post-Processing als <image_descriptions>-Collapsible über die tatsächlich
-    # gezeigten Event-Bilder gehängt.
+    # gezeigten Bilder und Filme gehängt.
     event_descriptions: dict[str, tuple[str, str]] = {}
 
     async for chunk in llm_client.chat_stream(model, messages, options, toolkit=toolkit, compression=compression):
@@ -393,24 +437,11 @@ async def run_llm_stream(
 
             # vision_query_events: VLM-Beschreibung je Event einsammeln, damit
             # das Post-Processing sie als Collapsible über die gezeigten Bilder
-            # hängt (image_url → (Label, Beschreibung)).
+            # und Filme hängt (URL → (Label, Beschreibung)). Ein Burst-Ereignis hat kein Bild mehr,
+            # nur Filme (film_urls je Linse): seine Beschreibung hängt an jedem davon.
             if result_text and '"events"' in result_text and '"image_url"' in result_text:
                 try:
-                    parsed = json.loads(result_text)
-                    for ev in (parsed.get("events") or []):
-                        if not isinstance(ev, dict):
-                            continue
-                        url = str(ev.get("image_url") or "").strip()
-                        desc = str(
-                            (ev.get("classification") or {}).get("description") or ""
-                        ).strip()
-                        if not url or not desc:
-                            continue
-                        name = str(ev.get("source_name") or ev.get("source_id") or "")
-                        ts = str(ev.get("timestamp") or "")
-                        tlabel = ts[11:16] if len(ts) >= 16 else ts
-                        label = " · ".join(p for p in (name, tlabel) if p)
-                        event_descriptions[url] = (label, desc)
+                    event_descriptions.update(_event_descriptions(json.loads(result_text)))
                 except (ValueError, json.JSONDecodeError):
                     pass
 
@@ -511,33 +542,7 @@ async def run_llm_stream(
         # Collapsible gerendert (SSoT get_xml_tag_config), aus dem Klartext gestript
         # und vom TTS nicht vorgelesen.
         if event_descriptions:
-            shown_urls = [
-                u for _alt, u in re.findall(r"!\[([^\]]*)\]\(([^)]+)\)", full_response)
-            ]
-            # Akzent-Orange aus dem Theme (SSoT, CSS-Variable aus theme.css_variables()).
-            _orange = "var(--aifred-primary)"
-            # Trennlinie zwischen den Einträgen im Lieblingsorange.
-            sep = (
-                f'<hr style="border:none;border-top:1px solid {_orange};'
-                'opacity:0.6;margin:0.7em 0">'
-            )
-            seen_urls: set[str] = set()
-            entries: list[str] = []
-            for u in shown_urls:
-                if u in event_descriptions and u not in seen_urls:
-                    seen_urls.add(u)
-                    label, desc = event_descriptions[u]
-                    head = (
-                        f'<b style="color:{_orange}">{label}</b><br>\n' if label else ""
-                    )
-                    entries.append(f"{head}{desc}")
-            if entries:
-                full_response = (
-                    "<image_descriptions>\n"
-                    + ("\n" + sep + "\n").join(entries)
-                    + "\n</image_descriptions>"
-                    + full_response
-                )
+            full_response = _image_descriptions_block(full_response, event_descriptions) + full_response
 
         # Artifact anchors → offsets in the final text
         return resolve_artifact_anchors(full_response)

@@ -61,7 +61,8 @@ the assistant does not see the plugin at all.
   `interval_s` (film only, default `0.5`). `film_url` and `image_url` go to `vision_analyze`; for a film the model gets
   pictures spread evenly over its length (`VISION_DESCRIBE_MAX_FRAMES`, 10); a film goes in alone. A happening's burst
   films are named by `vision_query_events` as `film_urls` (per lens `wide`, `zoom` a list, one film per burst); they go with the last deleted event of their
-  happening.
+  happening. An event after a burst has no single picture any more (`image_url` and `zoom_image_url` empty); its
+  picture lives in the films, and the bubble hangs its description on the film shown.
 - **`vision_analyze`** — `image_urls` (required: URL(s) from `vision_capture` or uploads, or one film alone), `prompt` (optional; falls back to
   the configured default prompt), `source_id` (optional; applies the camera briefing).
   The description has no length limit; its limit is the model's context. If a model repeats the same sentence
@@ -412,7 +413,11 @@ the same run the nightly job performs (see *Bulk-describe* below).
 
 Each row shows a preview thumbnail (face crop or downscaled full frame); a click
 opens the full image large, which you page through like a slideshow with the
-arrow keys and arrow buttons (left = older, right = newer). A refresh button
+arrow keys and arrow buttons (left = older, right = newer). Events of a finished
+burst have no single picture any more (it lives in the happening's film): their
+row shows at most the face crop, and the film button plays the burst films in the
+file viewer (one per lens, a choice first when there are several). A happening
+without a burst runs there as a series of pictures to page through. A refresh button
 reloads the list manually — deliberately manual rather than auto-refresh so
 filtering/tagging/scrolling is not disturbed (the live stream lives in the
 Vigilantia feed).

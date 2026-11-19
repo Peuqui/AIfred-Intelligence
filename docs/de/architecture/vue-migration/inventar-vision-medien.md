@@ -75,7 +75,7 @@ Private Felder: keine.
 | Feld | Typ | Zweck |
 |---|---|---|
 | `casus_open`, `casus_help_open` | bool | Modal / Hilfe offen (CA:48, 103) |
-| `casus_events` | list[dict] | aktuelle Seite (50): id, event_type, date_display, time_display, source_name, crop_url, frame_path, has_zoom, face_name, matched_name, description, cluster_id, cluster_member_count (CA:50) |
+| `casus_events` | list[dict] | aktuelle Seite (50): id, event_type, date_display, time_display, source_name, crop_url, frame_path (nach einem Burst leer), has_zoom, face_name, matched_name, description, cluster_id, cluster_member_count (CA:50) |
 | `casus_total_count`, `casus_page` | int | Gesamtzahl, Seite; `casus_page` liest nur State-Code (CA:51–52) |
 | `casus_all_ids` | list[int] | alle IDs der Filtermenge für die Diaschau; öffentlich, wird also komplett zum Client geschickt (CA:56) |
 | `casus_filter_source`, `_type`, `_face` | str | Filter (CA:58–60) |
@@ -249,7 +249,7 @@ Die eigentliche Steuerung (spielen, pausieren, springen, Tempo, Ordner) liegt im
 | Live-Bild | `<img src="/api/vision/stream/<id>?fps=…&cb=…&width=…">`, MJPEG (`multipart/x-mixed-replace`), gedrosselt im Generator | VP:284–287; aV:132–228 |
 | Einzelbild-Modus | `<img src="/api/vision/snapshot/<id>?cb=<Zähler>">`, Neu-Laden über `vision_preview_cache_buster` | VP:284–285, 789–793; aV:22–52 |
 | Zonen-Editor | eigenes HTML (`assets/zone_editor.html`), spricht nur REST: snapshot, stream mit `overlay=motion`, zone-mask, motion-min | aV:534–707 |
-| Casus- und Feed-Vorschaubilder | `/api/vision/frame?id=…&w=80` bzw. `w=64`, Zoom `&zoom=1` | uCA:51–98; uVF:41; aV:486–522 |
+| Casus- und Feed-Vorschaubilder | `/api/vision/frame?id=…&w=80` bzw. `w=64`, Zoom `&zoom=1` (Ereignisse nach einem Burst haben kein Einzelbild mehr: nur der Gesichts-Ausschnitt, sonst kein `<img>`) | uCA:51–98; uVF:41; aV:486–522 |
 | Gesichtsausschnitte, Fotos | statisch unter `/_upload/vigilantia/…` (`AuthenticatedStaticFiles`) | aifred.py:1236–1241; `lib/vision_photo.py:46` |
 | Multipose-Live-Bild | Base64-JPEG im State, alle 800 ms über `rx.moment` | MP:303–312; uMP:271–279 |
 | VLM-Text und Gesichter live | SSE `/api/vision/events/<id>` je Quelle; `vlm_sse_manager.js` sucht alle 2 s im DOM nach Zielen und öffnet je Quelle einen `EventSource` | aV:231–270; SSE.js:221–284 |
@@ -346,7 +346,7 @@ Kennzeichnung: **vorhanden** = Endpunkt gibt es und passt; alle anderen sind neu
 | POST `/vision/ptz/{id}/press` `{direction, speed}`, `/keepalive`, `/release`, `/home` | Kopfsteuerung; Herzschlag als `setInterval` in Vue | `ptz_*` |
 | POST `/vision/photo/{id}` | Foto, Antwort `{url}` | `take_vision_photo` |
 | GET `/vision/casus/events?source&type&face&grouped&offset&limit&since` | Seite + `total`; mit `limit=10` auch die Feed-Karte, mit `since` die Zählung | `_refresh_events`, `_refresh_vigilantia_feed` |
-| GET `/vision/casus/event-ids?…`, GET `/vision/casus/clusters/{cluster_id}/event-ids` | IDs für Diaschau und Film | `casus_all_ids`, `_open_film` |
+| GET `/vision/casus/event-ids?…`, GET `/vision/casus/events/{id}/film` | IDs für Diaschau; Film: die Burst-Filme des Vorkommnisses (URL + Linse, spielt der Datei-Viewer), ohne Burst seine Bilderserie | `casus_all_ids`, `_open_film` |
 | GET `/vision/casus/filter-options` | Quellen, Personen | `_refresh_filter_options` |
 | DELETE `/vision/casus/events/{id}`, POST `/vision/casus/events/delete` `{filter}` | einzeln / nach Filter | `casus_delete_event`, `casus_confirm_delete_all_now` |
 | PUT `/vision/casus/events/{id}/face` `{face_id \| null}` | zuordnen/lösen | `casus_save_tag` |
