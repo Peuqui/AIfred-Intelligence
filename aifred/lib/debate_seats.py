@@ -1,8 +1,7 @@
-"""The seats of the debate modes (critical_review, auto_consensus, tribunal): the author, the critic
-and the judge. The author is the agent that answers the user first (the session's active or the
-addressed agent); it refines and defends its own answer. Who sits as critic and judge a session
-chooses (its config ``debate_seats``), by default as settings.json says (``debate_seats``: Sokrates
-and Salomo). Any agent can take a seat and speaks there with its own persona; the seat brings the
+"""The seats of the debate modes (critical_review, recensio, auto_consensus, tribunal): the author, the
+critic and the judge. The author is the agent that answers the user first; it refines and defends its own
+answer. Who sits where is the line-up of the mode (lib/mode_lineups.py), never a default: a seat nobody was
+chosen for is empty. Any agent can take a seat and speaks there with its own persona; the seat brings the
 task (``prompts/<lang>/debate/<key>.txt``, the same for every agent in it), which names the others by
 their seats, never by a fixed name.
 
@@ -19,25 +18,28 @@ from .user_error import Invalid
 SEAT_MAIN = "main"       # the author
 SEAT_CRITIC = "critic"
 SEAT_JUDGE = "judge"
-# The seats a session chooses; the author is whoever answers first.
+# The seats that speak after the author's direct answer, per debate mode (the author speaks in every one).
+SPEAKING_SEATS: dict[str, tuple[str, ...]] = {
+    "critical_review": (SEAT_CRITIC,),
+    "recensio": (SEAT_MAIN, SEAT_CRITIC),
+    "auto_consensus": (SEAT_MAIN, SEAT_CRITIC, SEAT_JUDGE),
+    "tribunal": (SEAT_MAIN, SEAT_CRITIC, SEAT_JUDGE),
+}
 CHOSEN_SEATS = (SEAT_CRITIC, SEAT_JUDGE)
+
+
+def chosen_seats(mode: str) -> tuple[str, ...]:
+    """The seats of ``mode`` besides the author (critic, judge); standard and symposion have none."""
+    return tuple(seat for seat in SPEAKING_SEATS.get(mode, ()) if seat != SEAT_MAIN)
+
+
+def mode_places(mode: str) -> tuple[str, ...]:
+    """The places of ``mode`` that have to be filled: the author and the chosen seats of a debate mode."""
+    return (SEAT_MAIN, *chosen_seats(mode)) if mode in SPEAKING_SEATS else ()
 
 
 class SeatError(Invalid):
     """A seat names no agent that can take it (deleted, or a system agent)."""
-
-
-def default_seats() -> dict[str, str]:
-    """Critic and judge as settings.json says (``debate_seats``)."""
-    from .settings import persisted_settings
-
-    seats: dict[str, str] = dict(persisted_settings()["debate_seats"])
-    return seats
-
-
-def session_seats(session_config: dict[str, Any]) -> dict[str, str]:
-    """Critic and judge of a session: its own choice over the default of the settings."""
-    return {**default_seats(), **session_config["debate_seats"]}
 
 
 def check_seat_agent(seat: str, agent: str) -> None:

@@ -16,7 +16,7 @@ and add their own concerns (streaming to UI, TTS, debug routing).
 
 import json
 import re
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -39,7 +39,7 @@ from .perf_metrics import InferenceWork
 from .timer import Timer
 
 if TYPE_CHECKING:
-    from ..backends.base import LLMOptions
+    from ..backends.base import Interjections, LLMOptions
     from .llm_client import LLMClient
 
 
@@ -195,7 +195,7 @@ async def run_llm_stream(
     toolkit: Any = None,
     on_debug: Callable[[str], None] | None = None,
     compression: LoopCompression | None = None,
-    interjections: Callable[[], Awaitable[list[str]]] | None = None,
+    interjections: "Interjections | None" = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Unified LLM chunk-processing pipeline.
 

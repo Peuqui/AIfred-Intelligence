@@ -58,6 +58,7 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
 - `aifred/lib/` - Kern-Bibliotheken (IMMER hier zuerst suchen!)
   - `turn_service.py` - ein Zug: Nachricht bis zur fertigen Antwort, im Server, mit oder ohne Tab
   - `turn_debate.py` - die Diskussionsmodi (Plätze: Verfasser, Kritiker, Richter; `debate_seats.py`)
+  - `mode_lineups.py` - die Besetzung je Modus (`apply_config_changes`, `public_config`), die EINE Stelle für Config-Änderungen einer Sitzung
   - `session_events.py` - Ereignisstrom je Sitzung (den die Tabs lesen)
   - `prompt_loader.py` - Prompt-Handling
   - `message_builder.py` - Message-Formatting
@@ -78,7 +79,8 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
   Umbaus von Reflex: `docs/de/architecture/vue-migration/README.md`
 - Backends: llama.cpp und vLLM (beide via llama-swap), Ollama, Cloud-APIs (Claude, Qwen, DeepSeek, Kimi)
 - Multi-Agent System: AIfred ist der Grundagent; in den Diskussionsmodi nimmt jeder Agent einen Platz ein
-  (Verfasser, Kritiker, Richter), Vorgabe Sokrates und Salomo aus `settings.json`
+  (Verfasser, Kritiker, Richter); jeder Modus merkt sich seine Besetzung (`lib/mode_lineups.py`), zuletzt Gewähltes
+  gilt global, es gibt keine Vorgabe: ein nie gewählter Platz bleibt leer und der Zug wird abgelehnt
 
 ---
 
@@ -229,11 +231,12 @@ mit Login-Cookie.
 - `session_id` ist der Dateiname unter `data/sessions/<session_id>.json`; eine unbekannte
   Sitzung gibt `404`. Läuft in der Sitzung schon ein Zug, wartet die Nachricht in der
   Warteschlange `pending_messages` und startet, wenn er endet (derselbe Weg wie eine
-  Chat-Nachricht oder ein Diktat, `turn_service.submit_turn`). Arbeitet der Agent gerade mit
+  Chat-Nachricht oder ein Diktat, `turn_service.submit_turn`). Arbeitet ein Agent gerade mit
   Werkzeugen, nimmt er sie schon zwischen zwei Werkzeugrunden auf, wenn der Schalter der Sitzung
-  es erlaubt (`interjections`, Standard an), sie an ihn geht (Automatik), kein Bild und keinen
-  Moduswechsel hat (`turn_service.interjection_source`); nicht in Diskussionsmodi und nicht in
-  Zügen eines Kanals oder Auftrags
+  an ist (`interjections`, Standard an): jede Nachricht, in jedem Modus, egal wen sie nennt; ihre
+  Bilder sieht sein Modell selbst, sonst beschreibt sie der Beschreiber (`turn_service.interjection_source`).
+  Nicht in Zügen eines Kanals oder Auftrags (deren Antwort geht an jemand anderen, mit dessen Rechten).
+  Ein Moduswechsel per Text wird dabei nicht ausgeführt
 - Ob der Zug fertig ist: `GET /api/chat/status?session_id=…` (`is_generating`, Login-Cookie)
 - **`token` ist Pflicht** — Wert aus `INJECT_API_TOKEN` (`.env`). Ohne gültiges
   Token antwortet der Endpoint mit `403` (falsch) bzw. `503` (nicht konfiguriert).

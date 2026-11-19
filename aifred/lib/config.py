@@ -155,9 +155,9 @@ DEFAULT_SETTINGS = {
     # ("majority" = 2 of 3, "unanimous" = 3 of 3).
     "max_debate_rounds": 3,
     "consensus_type": "majority",
-    # Who sits as critic and judge in the debate modes when a session chooses nobody else
-    # (lib/debate_seats.py); the author is the agent that answers first.
-    "debate_seats": {"critic": "sokrates", "judge": "salomo"},
+    # The last line-up chosen per discussion mode (mode → place → agent, lib/mode_lineups.py): a session that
+    # enters a mode it has no line-up for takes it. No defaults: a place never chosen is empty.
+    "last_lineups": {},
 }
 
 # ============================================================

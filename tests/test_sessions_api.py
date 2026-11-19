@@ -87,16 +87,32 @@ def test_the_config_accepts_known_agents_and_modes_only(client: TestClient) -> N
     assert [event.kind for event in session_events.replay_after(MINE, 0)] == ["session_config"]
 
 
-def test_the_debate_seats_are_the_sessions_choice_over_the_default(client: TestClient) -> None:
-    from aifred.lib.debate_seats import default_seats
+def test_the_debate_seats_and_the_author_are_per_mode_and_empty_until_chosen(client: TestClient) -> None:
+    configure = lambda **changes: client.patch(f"/sessions/{MINE}/config", json=changes)
+    shown = configure(multi_agent_mode="recensio").json()
+    assert (shown["active_agent"], shown["debate_seats"]) == (None, {})              # no defaults
+    response = configure(active_agent="salomo", debate_seats={"critic": "sokrates"})
+    assert response.status_code == 200 and (response.json()["active_agent"], response.json()["debate_seats"]) == ("salomo", {"critic": "sokrates"})
+    assert session_storage.get_session_config(MINE)["lineups"] == {"recensio": {"main": "salomo", "critic": "sokrates"}}
+    assert session_storage.get_session_config(MINE)["active_agent"] == "aifred"       # standard's agent is untouched
+    for seats in ({"critic": "vision"}, {"critic": "gibt-es-nicht"}, {"richter": "salomo"}, {"judge": "salomo"}):
+        assert configure(debate_seats=seats).status_code == 422                        # recensio has no judge
+    assert configure(symposion_agents=["salomo"]).status_code == 422                  # no symposion here
+    assert session_storage.get_session_config(MINE)["lineups"] == {"recensio": {"main": "salomo", "critic": "sokrates"}}
+    other = configure(multi_agent_mode="critical_review").json()
+    assert (other["active_agent"], other["debate_seats"]) == (None, {})                # the other mode has its own
+    standard = configure(multi_agent_mode="standard").json()
+    assert (standard["active_agent"], standard["debate_seats"]) == ("aifred", {})
+    assert configure(debate_seats={"critic": "sokrates"}).status_code == 422          # standard has no seats
+    assert client.get(f"/sessions/{MINE}").json()["config"] == standard
 
-    assert client.get(f"/sessions/{MINE}").json()["config"]["debate_seats"] == default_seats()
-    response = client.patch(f"/sessions/{MINE}/config", json={"debate_seats": {"critic": "pater"}})
-    assert response.status_code == 200 and response.json()["debate_seats"] == {**default_seats(), "critic": "pater"}
-    assert session_storage.get_session_config(MINE)["debate_seats"] == {"critic": "pater"}      # only the choice
-    for seats in ({"critic": "vision"}, {"critic": "gibt-es-nicht"}, {"richter": "salomo"}):
-        assert client.patch(f"/sessions/{MINE}/config", json={"debate_seats": seats}).status_code == 422
-    assert session_storage.get_session_config(MINE)["debate_seats"] == {"critic": "pater"}
+
+def test_a_session_entering_a_mode_takes_the_last_choice_of_any_session(client: TestClient) -> None:
+    client.patch(f"/sessions/{MINE}/config", json={"multi_agent_mode": "tribunal", "debate_seats": {"critic": "salomo", "judge": "sokrates"}})
+    created = client.post("/sessions").json()["session_id"]
+    assert client.get(f"/sessions/{created}").json()["config"]["debate_seats"] == {}   # a new session starts in standard
+    entered = client.patch(f"/sessions/{created}/config", json={"multi_agent_mode": "tribunal"}).json()
+    assert entered["debate_seats"] == {"critic": "salomo", "judge": "sokrates"}
 
 
 def test_every_mode_names_the_seats_a_session_chooses_for_it(client: TestClient) -> None:
@@ -110,7 +126,9 @@ def test_every_mode_names_the_seats_a_session_chooses_for_it(client: TestClient)
 def test_the_config_model_names_every_field_of_a_session_config() -> None:
     from aifred.lib.api.sessions import SessionConfig
 
-    assert set(SessionConfig.model_fields) == set(session_storage.DEFAULT_SESSION_CONFIG)
+    from aifred.lib.mode_lineups import public_config
+
+    assert set(SessionConfig.model_fields) == set(public_config(session_storage.DEFAULT_SESSION_CONFIG))
 
 
 def test_a_session_turns_incognito_and_back(client: TestClient) -> None:

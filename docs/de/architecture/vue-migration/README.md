@@ -57,8 +57,8 @@ ein Tab offen ist. Mehrere Tabs oder Geräte sehen dieselbe Sitzung live.
   `agent` und `system` (Vision, Kalibrierung), AIfred ist der Grundagent über seine ID. Die
   Diskussionsmodi haben Plätze (`lib/debate_seats.py`): den Verfasser (wer zuerst antwortet; er
   überarbeitet und verteidigt, vorher fest AIfred, was Code-Review mit Refaktorierung brach), Kritiker
-  und Richter, **je Sitzung wählbar** (`config.debate_seats`), Vorgabe Sokrates und Salomo aus
-  `settings.json`. Jeder Agent kann einen Platz einnehmen und spricht dort mit seiner Persona; die
+  und Richter, **je Modus und Sitzung wählbar** (`config.lineups`, `lib/mode_lineups.py`; zuletzt Gewähltes
+  gilt global in `settings.json` `last_lineups`, keine Vorgabe: ein nie gewählter Platz bleibt leer, der Zug wird abgelehnt). Jeder Agent kann einen Platz einnehmen und spricht dort mit seiner Persona; die
   Aufgabe gehört dem Platz (`prompts/<lang>/debate/`, je Datei einmal, vorher Kopien in den Ordnern der
   Inhaber). Fehlt der Agent eines Platzes, lehnt der Zug laut ab (`seat`). Jeder Agent spricht mit seiner
   eigenen Temperatur, eine automatische gibt es nicht mehr. Der frühere Reflex-Weg (`lib/multi_agent.py`,
@@ -617,8 +617,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   mitten im Gespräch); Message Hub (Weckwort, Auslöser, Sitzungsagent) und Scheduler (auch fester Text,
   er spricht im Namen des Agenten) melden einen Fehler. AIfred (`agent_config.BASE_AGENT`) und die
   Systemagenten bleiben an; gelöscht wird nach `deletion_refusal`: AIfred nie, Systemagenten nie,
-  Sokrates und Salomo seit 08.11.2026 wie jeder andere, außer einer sitzt in der Voreinstellung eines
-  Platzes (vorher erst mit Schritt 6, weil die Reflex-Kopie an rund 100 Stellen fest auf ihre Tuning-Eimer griff). Vision stand in den eingebauten Standards (frische Installation) als Chat-Agent
+  Sokrates und Salomo seit 08.11.2026 wie jeder andere (seit 19.11.2026 gibt es keine Voreinstellung der Plätze mehr, die das verhinderte) (vorher erst mit Schritt 6, weil die Reflex-Kopie an rund 100 Stellen fest auf ihre Tuning-Eimer griff). Vision stand in den eingebauten Standards (frische Installation) als Chat-Agent
   statt als Systemagent; korrigiert.
 - **Agenten-Seite, Teil 2 (erledigt 07.11.2026):** ✏️ an jeder Karte öffnet `AgentEditor.vue`: 🎭 Persona
   (Name, Emoji, Beschreibung, weitere Namen für die Spracherkennung), 📝 Prompt-Ebenen je Sprache (mit
@@ -865,9 +864,12 @@ Alle Schritte sind erledigt (Stand 08.11.2026; die Produktion läuft auf `aifred
    Daten der Produktion dabei: `role` in `data/agents.json` von `main`/`critic`/`judge`/`custom` auf
    `agent` — **beim Umschalten einmal `venv/bin/python scripts/migrate_agent_roles.py`** (legt eine Sicherung daneben;
    seit 08.11.2026 lehnt `agent_config.config_from_raw` die alten Rollen ab). Sokrates und Salomo sind seit 08.11.2026
-   löschbar wie jeder Agent, außer er sitzt in der Voreinstellung eines Platzes (`deletion_refusal`); fest sind nur
+   löschbar wie jeder Agent (`deletion_refusal`; die Voreinstellung der Plätze entfiel am 19.11.2026); fest sind nur
    noch AIfred und Vision (`agent_tuning.PERMANENT_AGENTS`), jeder andere Agent von agents.json bekommt seinen Eimer
    in `runtime_settings.registered_agent_tuning`.
+   **Beim Einspielen der Besetzung je Modus (19.11.2026) einmal `venv/bin/python scripts/migrate_mode_lineups.py [--dry-run] data/sessions`**
+   bei gestopptem Dienst: wandelt `debate_seats` und `symposion_agents` der Sitzungsdateien in `lineups` um (Sicherung
+   `<name>.json.bak-lineups` daneben); zur Laufzeit gibt es dafür keinen Übergangscode.
    Gesichtserkennung (08.11.2026 im eigenen Arbeitsprozess, für GPU-Orc freigebbar): **beim Umschalten**
    `GPU_RELEASE_API_TOKEN` in die `.env` der Produktion, dasselbe Token in eine Datei nur für den Dienstnutzer
    (`~/.config/gpu-orc/aifred.token`) und in `~/.config/gpu-orc/config.yaml` einen Verbraucher `aifred`

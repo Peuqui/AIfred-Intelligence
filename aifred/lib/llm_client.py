@@ -5,13 +5,14 @@ Provides async chat completions (streaming and non-streaming)
 with proper integration into the existing Backend system.
 """
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, cast
 
 from ..backends import BackendFactory
 from ..backends.base import LLMBackend, LLMMessage, LLMOptions, LLMResponse
 
 if TYPE_CHECKING:
+    from ..backends.base import Interjections
     from .context_manager import LoopCompression
     from .runtime_settings import RuntimeSettings
 
@@ -192,7 +193,7 @@ class LLMClient:
         options: dict[str, Any] | LLMOptions | None = None,
         toolkit: Any = None,
         compression: "LoopCompression | None" = None,
-        interjections: Callable[[], Awaitable[list[str]]] | None = None,
+        interjections: "Interjections | None" = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """
         Async streaming chat completion

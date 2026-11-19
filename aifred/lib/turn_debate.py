@@ -34,17 +34,19 @@ from .agent_config import (
 )
 from .config import RECENSIO_CENSOR_TOOLS
 from .debate_seats import (
-    CHOSEN_SEATS,
     SEAT_CRITIC,
     SEAT_JUDGE,
     SEAT_MAIN,
+    SPEAKING_SEATS,
     SeatError,
     check_seat_agent,
+    chosen_seats,
     round_rules,
     seat_prompt,
 )
 from .debug_bus import debug
 from .formatting import format_number
+from .mode_lineups import SYMPOSION_AGENTS, incomplete, mode_lineup
 from .prompt_loader import CRITIQUE_ROLES, DEBATE_ROLES, REVIEW_ROLES
 from .turn_service import (
     AgentCall,
@@ -68,20 +70,14 @@ if TYPE_CHECKING:
     from .runtime_settings import RuntimeSettings
 
 
-# The debate modes: the seats that speak after the direct answer, and how the prompts describe them
-# (prompt_loader.*_ROLES).
-_DEBATE_MODES: dict[str, tuple[tuple[str, ...], str]] = {
-    "critical_review": ((SEAT_CRITIC,), CRITIQUE_ROLES),
-    "recensio": ((SEAT_MAIN, SEAT_CRITIC), REVIEW_ROLES),
-    "auto_consensus": ((SEAT_MAIN, SEAT_CRITIC, SEAT_JUDGE), DEBATE_ROLES),
-    "tribunal": ((SEAT_MAIN, SEAT_CRITIC, SEAT_JUDGE), DEBATE_ROLES),
+# How the prompts describe the seats of each debate mode (prompt_loader.*_ROLES); the seats that speak after the
+# direct answer are debate_seats.SPEAKING_SEATS.
+_MODE_ROLES: dict[str, str] = {
+    "critical_review": CRITIQUE_ROLES,
+    "recensio": REVIEW_ROLES,
+    "auto_consensus": DEBATE_ROLES,
+    "tribunal": DEBATE_ROLES,
 }
-
-
-def chosen_seats(mode: str) -> tuple[str, ...]:
-    """The seats of ``mode`` a session chooses (critic, judge); standard and symposion have none."""
-    speaking = _DEBATE_MODES[mode][0] if mode in _DEBATE_MODES else ()
-    return tuple(seat for seat in speaking if seat != SEAT_MAIN)
 
 
 # ── Who speaks ───────────────────────────────────────────────────────────
@@ -104,29 +100,30 @@ class TurnPlan:
         return list(dict.fromkeys([*speakers, *self.debate.values()]))
 
 
-def plan_turn(
-    mode: str, routed: str, addressed_to: str | None, symposion_agents: list[str], seats: dict[str, str],
-) -> TurnPlan:
-    """Who speaks in ``mode``. ``routed`` is the turn's addressee (lib/turn_service._route) and the
-    author of the first answer; ``seats`` the session's critic and judge (debate_seats.session_seats)."""
-    if mode == "standard":
-        return TurnPlan(_speaker(routed))
+def plan_turn(mode: str, routed: str | None, addressed_to: str | None, lineup: dict[str, Any]) -> TurnPlan:
+    """Who speaks in ``mode``. ``routed`` is the turn's addressee, else the author of the mode
+    (lib/turn_service._route; None: nobody chosen); ``lineup`` the mode's line-up (mode_lineups.mode_lineup).
+    A place the mode needs and nobody was chosen for refuses the turn."""
     if mode == "symposion":
-        return _plan_symposion(routed, symposion_agents)
-    if mode not in _DEBATE_MODES:
+        return _plan_symposion(routed, lineup.get(SYMPOSION_AGENTS, []))
+    if mode != "standard" and mode not in SPEAKING_SEATS:
         raise TurnRejected("mode", Invalid("unknown_mode", value=mode))
+    answers_alone = mode == "standard" or addressed_to == BASE_AGENT   # AIfred by name in a debate mode: his answer alone
+    seats_missing = [] if answers_alone else [seat for seat in chosen_seats(mode) if seat not in lineup]
+    if routed is None or seats_missing:
+        missing = [*([SEAT_MAIN] if routed is None else []), *seats_missing]
+        raise TurnRejected("lineup", incomplete(mode, missing))
     _speaker(routed)
-    if addressed_to == BASE_AGENT:   # addressing AIfred by name in a debate mode asks for his answer alone
+    if answers_alone:
         return TurnPlan(routed)
-    speaking, roles = _DEBATE_MODES[mode]
-    seated = {SEAT_MAIN: routed, **{seat: seats[seat] for seat in CHOSEN_SEATS}}
+    seated = {SEAT_MAIN: routed, **{seat: lineup[seat] for seat in chosen_seats(mode)}}
     try:
-        for seat in speaking:
-            if seat != SEAT_MAIN:
-                check_seat_agent(seat, seated[seat])
+        for seat in chosen_seats(mode):
+            check_seat_agent(seat, seated[seat])
     except SeatError as error:
         raise TurnRejected("seat", error) from error
-    return TurnPlan(routed, {seat: seated[seat] for seat in speaking}, seats=seated, roles=roles)
+    speaking = SPEAKING_SEATS[mode]
+    return TurnPlan(routed, {seat: seated[seat] for seat in speaking}, seats=seated, roles=_MODE_ROLES[mode])
 
 
 def _speaker(agent: str) -> str:
@@ -140,10 +137,10 @@ def _speaker(agent: str) -> str:
     return agent
 
 
-def _plan_symposion(routed: str, agents: list[str]) -> TurnPlan:
+def _plan_symposion(routed: str | None, agents: list[str]) -> TurnPlan:
     # An agent switched off leaves the round table. Fewer than two agents is a plain direct answer, so the
     # user can switch agents off mid-session and go on with one; the one selected answers, with none the
-    # turn's addressing decides.
+    # turn's addressing decides (an agent addressed by name or pinned by a job); without that the turn is refused.
     selectable = selectable_agents()
     gone = [agent for agent in agents if agent not in selectable]
     if gone:
@@ -154,7 +151,9 @@ def _plan_symposion(routed: str, agents: list[str]) -> TurnPlan:
     if len(agents) == 1:
         debug(f"🏛️ Symposion with a single agent → direct response by {agents[0]}")
         return TurnPlan(agents[0])
-    debug("⚠️ Symposion: no agents selected → falling back to direct response")
+    if routed is None:
+        raise TurnRejected("lineup", incomplete("symposion", [SYMPOSION_AGENTS]))
+    debug("⚠️ Symposion: no agents selected → direct response by the addressed agent")
     return TurnPlan(_speaker(routed))
 
 
@@ -590,7 +589,7 @@ async def run_symposion(ctx: TurnContext, plan: TurnPlan) -> None:
     for round_num in range(1, max_rounds + 1):
         # The lineup is read again every round: the user can change the selection meanwhile (or switch
         # an agent off), and every speaker is told the participants of the round it speaks in.
-        lineup = _round_table(get_session_config(ctx.session_id)["symposion_agents"])
+        lineup = _round_table(mode_lineup(get_session_config(ctx.session_id), "symposion").get(SYMPOSION_AGENTS, []))
         if len(lineup) < 2:
             debug("⚠️ Symposion requires at least 2 agents")
             break
