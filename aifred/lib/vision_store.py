@@ -962,6 +962,47 @@ class VisionStore:
             out.append(int(r["id"]))
         return out
 
+    def list_cluster_frame_events(self, cluster_id: str) -> list[dict[str, Any]]:
+        """ALLE Ereignisse eines Vorkommnisses, die noch ein Einzelbild tragen (nicht leerer ``frame_path``),
+        älteste zuerst, mit geparster classification/metadata wie ``get_event``. Anders als
+        :meth:`list_cluster_event_ids` ohne Dubletten-Abgleich: ein Gesichts- und ein Personen-Ereignis
+        desselben Ticks teilen sich ein Bild, beim Löschen und Ablegen der Beschreibung zählen beide."""
+        if not cluster_id:
+            return []
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM events WHERE cluster_id = ? AND frame_path != '' ORDER BY timestamp ASC, id ASC",
+                (cluster_id,),
+            ).fetchall()
+        events = []
+        for row in rows:
+            event = dict(row)
+            event["classification"] = json.loads(event.get("classification") or "{}")
+            event["metadata"] = json.loads(event.get("metadata") or "{}")
+            events.append(event)
+        return events
+
+    def drop_event_frames(self, event_ids: list[int]) -> int:
+        """Löscht die Einzelbilder dieser Ereignisse von der Platte und leert ihre Pfade (``frame_path`` leer,
+        ``zoom_frame_path`` aus der classification entfernt); die Ereignisse selbst bleiben. Für den Burst-
+        Abschluss: das Bild lebt danach nur noch im Film. Returnt die Anzahl gelöschter Dateien."""
+        if not event_ids:
+            return 0
+        placeholders = ",".join("?" * len(event_ids))
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT id, frame_path, classification FROM events WHERE id IN ({placeholders})",
+                [int(event_id) for event_id in event_ids],
+            ).fetchall()
+            for row in rows:
+                classification = json.loads(row["classification"] or "{}")
+                classification.pop("zoom_frame_path", None)
+                conn.execute(
+                    "UPDATE events SET frame_path = '', classification = ? WHERE id = ?",
+                    (json.dumps(classification), int(row["id"])),
+                )
+        return self._unlink_frame_files(rows)
+
     def latest_event_id(self) -> int:
         """Höchste Event-ID (0 wenn leer) — billiger Änderungs-Marker für
         UI-Polling (Casus-Auto-Refresh): eine neue ID = neue Events da."""
@@ -1272,7 +1313,7 @@ class VisionStore:
             return cur.rowcount
 
     def apply_description_to_events(
-        self, event_ids: list[int], description: str, analyzed_by: str,
+        self, event_ids: list[int], description: str, analyzed_by: str, analyzed_via: str = "segment",
     ) -> int:
         """Beschreibung an GENAU diese Events schreiben. Returnt die Anzahl
         aktualisierter Zeilen.
@@ -1300,7 +1341,7 @@ class VisionStore:
                 cls["description"] = description
                 cls["analyzed_at"] = analyzed_at
                 cls["analyzed_by"] = analyzed_by
-                cls["analyzed_via"] = "segment"
+                cls["analyzed_via"] = analyzed_via
                 conn.execute(
                     "UPDATE events SET classification = ? WHERE id = ?",
                     (json.dumps(cls), int(eid)),

@@ -985,6 +985,10 @@ VISION_FILM_FPS = 2
 VISION_FILM_CRF = 23
 VISION_FILM_KEYFRAME_SEC = 10
 
+# Kennung (``classification.analyzed_by``) für Beschreibungen, die der Alarmweg erzeugt und an die Ereignisse
+# schreibt (Burst-Abschluss, Kapitel, Cluster); sie unterscheidet sie von Casus-Beschreibungen und vom Nachbeschreiben.
+VISION_ALERT_ANALYZED_BY = "alert-vlm"
+
 # Aufnahme auf Zuruf (Werkzeug ``vision_capture`` mit ``duration_s``): ein Agent nimmt eine Bilderfolge auf, die in Echtzeit
 # (Bildabstand = Abstand der Aufnahme) zu einem Film wird, ohne Beschleunigung (Peuqui 12.11.2026).
 # * RECORD_MAX_DURATION_S — Obergrenze der Aufnahmedauer; damit höchstens MAX_DURATION / MIN_INTERVAL Bilder

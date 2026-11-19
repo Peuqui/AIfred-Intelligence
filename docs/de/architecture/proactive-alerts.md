@@ -203,8 +203,14 @@ Restrisiko: Watcher-Neustart setzt offene Cluster zurück → ein Vorkommnis
   mehr Personen; ohne VLM und Bild, `AlertEvent.describe=False`; ein Hinweis wartet
   `VISION_BURST_NEWS_SETTLE_SEC`, bis sich der Stand beruhigt hat, damit schnell
   aufeinanderfolgende Erkennungen EINE Nachricht ergeben) und zum
-  Burst-Ende die Zusammenfassung: kurze VLM-Beschreibung des ganzen Vorkommnisses
-  (`vision_event_summary`, ohne Bildnummern) plus je Linse (Weitwinkel, Zoom) mit
+  Burst-Ende der Abschluss (`BurstReport.finish`, bei JEDEM normal beendeten Burst, auch ohne Meldung, nicht bei
+  Abbruch). `vision_burst_media.finish_burst_media` arbeitet in fester Reihenfolge auf der EINMAL festgehaltenen Menge
+  der Ereignisse des Vorkommnisses mit Einzelbild (`VisionStore.list_cluster_frame_events`): (1) je Linse ein Film,
+  (2) EINE Beschreibung aus denselben Bildern (`vision_event_summary`, ohne Bildnummern), an alle Ereignisse der Menge
+  geschrieben (kein Beschreiber frei: Info-Zeile, echter Fehler: Warnung, Burst ohne Beschreibung), (3) nur wenn alle
+  Filme da sind, die Einzelbilder löschen und ihre Pfade leeren (`drop_event_frames`; sonst bleiben sie). Danach, nur
+  mit Beobachtung, die Zusammenfassung ohne Standbild und Galerie, mit der fertigen Beschreibung (`AlertEvent.description`,
+  der Alarmbus beschreibt nicht neu; im Text nur bei "vlm" in der Regel) und den Filmen. Die Filme: je Linse (Weitwinkel, Zoom) mit
   mindestens einem Bild ein Film aus allen Burst-Bildern (auch denen, auf denen nichts erkannt wurde — sie bleiben als `edge_ai_burst_frame`-Film-Bilder erhalten) samt Vorlauf
   (`vision_film`, MP4 unter `data/vigilantia/films/`, `<Vorkommnis>_<HHMMSS des ersten Bildes>_<Linse>.mp4`, jede Linse in ihrer vollen Auflösung (Leinwand = größtes Bild des Films, der Vorlauf wird mit Rändern hochskaliert), `VISION_FILM_KEYFRAME_SEC` Schlüsselbild-Abstand, `AlertEvent.media_album`;
   Telegram als Album aus bis zu 10 Videos/Fotos, Browser-Session als Links). Der

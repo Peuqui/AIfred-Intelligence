@@ -21,6 +21,7 @@ from datetime import datetime
 from typing import Any
 
 from .atomic_write import write_text_atomic
+from .config import VISION_ALERT_ANALYZED_BY
 from .user_error import Conflict, Invalid
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,10 @@ class AlertEvent:
     media_album: list[str] = field(default_factory=list)
     # False = keine VLM-Beschreibung holen (kurzer Hinweis bei Neuigkeiten im laufenden Burst).
     describe: bool = True
+    # Fertige Beschreibung des Vorkommnisses (Burst-Abschluss: schon beschrieben und an die Ereignisse
+    # geschrieben). Leer = der Alarmbus holt sie, soweit ``describe`` es erlaubt. Steht nur im Text, wenn die
+    # Regel "vlm" im compose-Modus hat.
+    description: str = ""
     # Additional image URLs for the browser session (e.g. wide + zoom + crop).
     # ``media`` is the subject view; this is the full gallery shown in chat.
     media_gallery: list[str] = field(default_factory=list)
@@ -220,7 +225,6 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> tuple[str | None, list[str]
       zeitliche Keyframe-Sequenz (Einzel-Trigger ohne Burst).
     * sonst → die Bilder dieses einen Moments (Zoom + Weitwinkel-Kontext).
     """
-    from .prompt_loader import get_vision_event_summary_prompt
     from .vision_event_analysis import (
         analyze_cluster_with_frames,
         analyze_frames_with_vlm,
@@ -250,10 +254,7 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> tuple[str | None, list[str]
     cluster_id = str(ev.metadata.get("cluster_id") or "")
     if cluster_id:
         try:
-            summary_prompt = get_vision_event_summary_prompt() if ev.metadata.get("summary") else None
-            return await describe_cluster_by_id(
-                cluster_id, headcount=headcount, prompt=summary_prompt,
-            ), []
+            return await describe_cluster_by_id(cluster_id, headcount=headcount), []
         except Exception as e:  # any VLM failure: the alert goes out without a description
             logger.warning(
                 "alert: cluster VLM describe failed for %s (%s): %s",
@@ -391,7 +392,9 @@ async def _deliver_in_session(ev: AlertEvent, rule: AlertRule) -> bool:
     # pro Vorkommnis, nicht pro Frame.
     vlm_desc: str | None = None
     album_paths: list[str] = list(ev.media_album)
-    if "vlm" in mode and ev.describe:
+    if "vlm" in mode and ev.description:
+        vlm_desc = ev.description
+    elif "vlm" in mode and ev.describe:
         vlm_desc, keyframes = await _describe_media_via_vlm(ev)
         album_paths = album_paths or keyframes
         # Beschreibung in die Vision-Events des Clusters zurückschreiben:
@@ -413,12 +416,12 @@ async def _deliver_in_session(ev: AlertEvent, rule: AlertRule) -> bool:
                     # geschrieben würde jedes Kapitel die vorherigen
                     # überschreiben — im Casus bliebe nur das letzte.
                     n = store.apply_description_to_events(
-                        segment, vlm_desc, "alert-vlm",
+                        segment, vlm_desc, VISION_ALERT_ANALYZED_BY,
                     )
                     where = f"segment of {len(segment)} event(s)"
                 else:
                     n = store.apply_cluster_description(
-                        cluster, vlm_desc, "alert-vlm",
+                        cluster, vlm_desc, VISION_ALERT_ANALYZED_BY,
                     )
                     where = f"cluster {cluster}"
                 if n:

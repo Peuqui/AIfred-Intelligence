@@ -204,8 +204,14 @@ spanning the restart is split (rare, acceptable).
   name, band upgrade, more people; no VLM and no image, `AlertEvent.describe=False`;
   a note waits `VISION_BURST_NEWS_SETTLE_SEC` until the state has settled, so detections
   in quick succession give ONE message)
-  and, when the burst ends, the summary: a short VLM description of the whole
-  occurrence (`vision_event_summary`, no image numbers) plus one film per lens (wide,
+  and, when the burst ends, the wrap-up (`BurstReport.finish`, at EVERY normally ended burst, also without a report,
+  not on cancel). `vision_burst_media.finish_burst_media` works in a fixed order on the set of the occurrence's events
+  with a still image, captured ONCE (`VisionStore.list_cluster_frame_events`): (1) one film per lens, (2) ONE description
+  from the same images (`vision_event_summary`, no image numbers), written to all events of the set (no describer free:
+  info line, real error: warning, burst without description), (3) only when all films exist, delete the still images
+  and clear their paths (`drop_event_frames`; otherwise they stay). Then, only with an observation, the summary without
+  still image and gallery, with the finished description (`AlertEvent.description`, the alert bus does not describe
+  again; in the text only with "vlm" in the rule) and the films. The films, one per lens (wide,
   zoom) with at least one image, made from all burst images (including those where nothing was detected — kept as
   `edge_ai_burst_frame` film images) including the
   pre-roll (`vision_film`, MP4 under `data/vigilantia/films/` as `<occurrence>_<HHMMSS of the first image>_<lens>.mp4`, each lens at its full resolution (canvas = the largest image of the film, the pre-roll is scaled up with borders), a key frame every `VISION_FILM_KEYFRAME_SEC`,

@@ -4,6 +4,7 @@ event shape). The dispatcher/sink are faked — no Telegram, no real config."""
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from datetime import datetime
 
 import aifred.lib.vision_alerts as va
@@ -216,14 +217,13 @@ class _StubStore:
         return datetime(2026, 10, 29, 17, 0, 9), datetime(2026, 10, 29, 17, 6, 40)
 
 
-def _burst_report(monkeypatch, films=None) -> tuple[va.BurstReport, _FakeDispatcher]:
+def _burst_report(monkeypatch, films=None, description="") -> tuple[va.BurstReport, _FakeDispatcher]:
     disp = _dispatcher_with_urls(monkeypatch)
 
-    async def fake_films(store, cluster_id):
-        return films or []
+    async def fake_finish(store, cluster_id, headcount):
+        return va.BurstMedia(films=films or [], description=description)
 
-    import aifred.lib.vision_film as vf
-    monkeypatch.setattr(vf, "make_cluster_films", fake_films)
+    monkeypatch.setattr(va, "finish_burst_media", fake_finish)
     report = va.BurstReport("cam/door", "cluster-1", _StubStore())
     report.observe_person(1, 0.9, "/x/wide.jpg", "/x/zoom.jpg")
     return report, disp
@@ -268,15 +268,14 @@ def test_burst_unknown_face_upgrade_is_news(monkeypatch):
 def test_burst_final_summary_carries_the_films(monkeypatch):
     report, disp = _burst_report(monkeypatch, films=["/f/wide.mp4", "/f/zoom.mp4"])
     asyncio.run(report.send())
-    asyncio.run(report.send_final())
+    asyncio.run(report.finish())
     final = disp.events[-1]
-    assert final.describe is True
     assert final.media_album == ["/f/wide.mp4", "/f/zoom.mp4"]
 
 
 def test_burst_final_without_films_still_reports(monkeypatch):
     report, disp = _burst_report(monkeypatch, films=[])
-    asyncio.run(report.send_final())  # kurzer Burst: nur die Zusammenfassung
+    asyncio.run(report.finish())  # kurzer Burst: nur die Zusammenfassung
     assert len(disp.events) == 1
     assert disp.events[0].media_album == []
 
@@ -284,20 +283,50 @@ def test_burst_final_without_films_still_reports(monkeypatch):
 def test_burst_header_names_the_occurrence_not_the_send_time(monkeypatch):
     report, disp = _burst_report(monkeypatch)
     asyncio.run(report.send())
-    asyncio.run(report.send_final())
+    asyncio.run(report.finish())
     first, final = disp.events
     # Erstmeldung: Beginn des Vorkommnisses; Zusammenfassung: Beginn bis Ende.
     assert "29.10.2026 - 17:00" in first.body and "bis" not in first.body
     assert "29.10.2026 - 17:00 bis 17:06" in final.body
 
 
-def test_only_the_final_report_is_a_summary(monkeypatch):
-    report, disp = _burst_report(monkeypatch)
+def test_the_final_report_brings_its_description_and_no_still_image(monkeypatch):
+    report, disp = _burst_report(monkeypatch, films=["/f/wide.mp4"], description="Zwei Personen am Tor.")
+    report.observe_face("face_unknown", "", 0.2, 0.9, "/x/w.jpg", "/x/z.jpg", "/crop.jpg")
     asyncio.run(report.send())
-    asyncio.run(report.send_final())
+    asyncio.run(report.finish())
     first, final = disp.events
-    assert not first.metadata.get("summary")
-    assert final.metadata["summary"] is True
+    assert first.description == "" and first.describe is True and first.media == "/x/z.jpg"
+    assert final.description == "Zwei Personen am Tor."
+    assert final.describe is False  # nothing to fetch: the description is there (or there is none)
+    assert final.media is None and final.media_context is None and final.media_gallery == []
+    assert final.media_album == ["/f/wide.mp4"]
+
+
+def test_a_busy_database_keeps_the_pictures_but_the_summary_still_goes_out(monkeypatch):
+    report, disp = _burst_report(monkeypatch)
+
+    async def busy(store, cluster_id, headcount):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(va, "finish_burst_media", busy)
+    asyncio.run(report.finish())
+    (final,) = disp.events
+    assert final.media_album == [] and final.description == ""
+
+
+def test_finish_without_observation_sends_nothing_but_still_finishes_the_media(monkeypatch):
+    _report, disp = _burst_report(monkeypatch)
+    finished: list[str] = []
+
+    async def fake_finish(store, cluster_id, headcount):
+        finished.append(cluster_id)
+        return va.BurstMedia()
+
+    monkeypatch.setattr(va, "finish_burst_media", fake_finish)
+    silent = va.BurstReport("cam/door", "cluster-2", _StubStore())  # observed nothing
+    asyncio.run(silent.finish())
+    assert finished == ["cluster-2"] and disp.events == []
 
 
 def test_source_line_spans_midnight():

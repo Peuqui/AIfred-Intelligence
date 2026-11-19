@@ -54,7 +54,7 @@ def _frame_count(path: Path) -> int:
 def test_one_film_per_lens_in_time_order(store, tmp_path):
     for index in range(6):
         _event(store, tmp_path, index, zoom=True)
-    films = asyncio.run(vf.make_cluster_films(store, "c-1"))
+    films = asyncio.run(vf.make_cluster_films("c-1", store.list_cluster_frame_events("c-1")))
     assert [vf.film_label(str(f)) for f in films] == ["Weitwinkel", "Zoom"]
     assert all(f.exists() and f.stat().st_size > 0 for f in films)
     assert all(_frame_count(f) == 6 for f in films)
@@ -63,7 +63,7 @@ def test_one_film_per_lens_in_time_order(store, tmp_path):
 
 def test_a_lens_with_a_single_frame_still_makes_a_film(store, tmp_path):
     _event(store, tmp_path, 0, zoom=True)
-    films = asyncio.run(vf.make_cluster_films(store, "c-1"))
+    films = asyncio.run(vf.make_cluster_films("c-1", store.list_cluster_frame_events("c-1")))
     assert [vf.film_label(str(f)) for f in films] == ["Weitwinkel", "Zoom"]
     assert all(_frame_count(f) == 1 for f in films)
 
@@ -72,12 +72,12 @@ def test_missing_files_are_skipped(store, tmp_path):
     for index in range(7):
         _event(store, tmp_path, index, zoom=False)
     (tmp_path / "wide1.jpg").unlink()
-    films = asyncio.run(vf.make_cluster_films(store, "c-1"))
+    films = asyncio.run(vf.make_cluster_films("c-1", store.list_cluster_frame_events("c-1")))
     assert _frame_count(films[0]) == 6
 
 
 def test_unknown_cluster_has_no_films(store):
-    assert asyncio.run(vf.make_cluster_films(store, "gibt-es-nicht")) == []
+    assert asyncio.run(vf.make_cluster_films("gibt-es-nicht", store.list_cluster_frame_events("gibt-es-nicht"))) == []
 
 
 def _jpeg(path: Path, size: tuple[int, int], color: int = 128) -> str:
@@ -134,6 +134,6 @@ def test_key_frames_sit_at_the_configured_interval(tmp_path):
 def test_the_file_name_carries_the_time_of_the_first_image_of_the_film(store, tmp_path):
     for index in range(7):
         _event(store, tmp_path, index, zoom=index >= 2)  # the zoom lens starts two seconds later
-    films = asyncio.run(vf.make_cluster_films(store, "c-1"))
+    films = asyncio.run(vf.make_cluster_films("c-1", store.list_cluster_frame_events("c-1")))
     assert [f.name for f in films] == ["c-1_170000_wide.mp4", "c-1_170002_zoom.mp4"]
     assert [vf.film_lens(str(f)) for f in films] == ["wide", "zoom"]

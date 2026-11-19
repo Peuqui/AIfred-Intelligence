@@ -18,6 +18,7 @@ from typing import Any
 from .config import VISION_QUIET_HOURS_DEFAULT
 from .i18n import t
 from .vision_autostart import in_clock_window
+from .vision_burst_media import BurstMedia, finish_burst_media
 from .vision_settings import load_vision_settings
 
 logger = logging.getLogger(__name__)
@@ -191,6 +192,7 @@ async def _emit(
     shown_media: set[str] | None = None,
     describe: bool = True,
     media_album: list[str] | None = None,
+    description: str = "",
 ) -> None:
     """Build + dispatch one AlertEvent. A busy event database costs this alert
     (logged); the dispatcher guards each rule's delivery itself. The shared
@@ -269,6 +271,7 @@ async def _emit(
             media_is_new=media_is_new,
             media_album=list(media_album or []),
             describe=describe,
+            description=description,
             media_gallery=gallery,
             timestamp=timestamp,
             metadata=metadata or {},
@@ -301,7 +304,7 @@ async def emit_face_alert(
     describe: bool = True,
     media_album: list[str] | None = None,
     timestamp_end: datetime | None = None,
-    summary: bool = False,
+    description: str = "",
 ) -> None:
     """Emit an aggregated face-band detection as a proactive AlertEvent —
     one per band per happening, only while armed. ``names`` = alle erkannten
@@ -317,7 +320,7 @@ async def emit_face_alert(
     ``describe=False``: kurzer Hinweis ohne VLM. ``media_album``: fertiges
     Medienpaket (Burst-Filme) für Album-Kanäle. ``timestamp`` ist der Beginn
     des Vorkommnisses, ``timestamp_end`` sein Ende (Zeitspanne in der Kopfzeile);
-    ``summary``: Zusammenfassung am Burst-Ende (eigener, knapper VLM-Prompt)."""
+    ``description``: fertige Beschreibung (Zusammenfassung am Burst-Ende), der Alarmbus beschreibt dann nicht neu."""
     if event_type not in _ALERT_EVENT_TYPES:
         return
     if not _vigilantia_armed():
@@ -350,8 +353,6 @@ async def emit_face_alert(
         meta["person_count"] = person_count
     if segment_event_ids:
         meta["segment_event_ids"] = list(segment_event_ids)
-    if summary:
-        meta["summary"] = True
     await _emit(
         source_id=source_id,
         category=event_type,
@@ -372,6 +373,7 @@ async def emit_face_alert(
         shown_media=shown_media,
         describe=describe,
         media_album=media_album,
+        description=description,
     )
 
 
@@ -392,7 +394,7 @@ async def emit_person_alert(
     describe: bool = True,
     media_album: list[str] | None = None,
     timestamp_end: datetime | None = None,
-    summary: bool = False,
+    description: str = "",
 ) -> None:
     """Emit a YOLO person detection (whole body) as a proactive AlertEvent —
     but only while armed. Coarser than faces: "a person is present", even
@@ -416,8 +418,6 @@ async def emit_person_alert(
         meta["person_count"] = count
     if segment_event_ids:
         meta["segment_event_ids"] = list(segment_event_ids)
-    if summary:
-        meta["summary"] = True
     body = _source_line(alias, ts, timestamp_end)
     if yolo_unconfirmed:
         meta["yolo_unconfirmed"] = True
@@ -439,6 +439,7 @@ async def emit_person_alert(
         shown_media=shown_media,
         describe=describe,
         media_album=media_album,
+        description=description,
     )
 
 
@@ -656,7 +657,7 @@ class BurstReport:
     def due(self, deadline_sec: float) -> bool:
         """Erstmeldung fällig? Einmal, ``deadline_sec`` nach Burst-Beginn. Danach
         meldet der Burst nur noch Neuigkeiten (``has_news``) und zum Schluss die
-        Zusammenfassung mit dem Film (``send_final``): die Bilder selbst zeigen,
+        Zusammenfassung mit dem Film (``finish``): die Bilder selbst zeigen,
         was die Personen tun."""
         if self._sent_messages or not self.has_observations():
             return False
@@ -730,26 +731,23 @@ class BurstReport:
         span: tuple[datetime, datetime] | None = self._store.cluster_time_span(self.cluster_id)
         return span
 
-    async def send_final(self) -> None:
-        """Zusammenfassung am Burst-Ende: VLM-Beschreibung des ganzen Vorkommnisses
-        und je Linse (Weitwinkel, Zoom) ein Film aus allen Burst-Bildern — der
-        Verlauf von der ersten bis zur letzten Detektion. Schlägt der Film fehl,
-        geht die Zusammenfassung ohne ihn raus (Warnung im Log)."""
-        if not self.has_observations():
-            return
-        from .vision_film import FilmEncodeError, make_cluster_films
-
-        films: list[str] = []
+    async def finish(self) -> None:
+        """Abschluss des Bursts, immer am Ende eines normal beendeten Bursts: erst die Medien (Filme, EINE
+        Beschreibung, Einzelbilder weg; ``finish_burst_media``), danach — nur mit Beobachtung — die
+        Zusammenfassung mit Filmen und Beschreibung, ohne Standbild: die Einzelbilder sind dann gelöscht. Ist die
+        Ereignisdatenbank belegt, bleiben die Bilder liegen und die Zusammenfassung geht ohne Film raus."""
+        media = BurstMedia()
         if self.cluster_id and self._store is not None:
             try:
-                films = [str(path) for path in await make_cluster_films(self._store, self.cluster_id)]
-            except (sqlite3.Error, OSError, FilmEncodeError) as e:  # the summary goes out without the film
-                logger.warning("burst film for %s failed: %s", self.cluster_id, e)
-        await self._send_once(films=films, summary=True)
+                media = await finish_burst_media(self._store, self.cluster_id, self._person_count_max)
+            except sqlite3.Error as e:  # busy database: the pictures stay, the summary goes out without film
+                logger.warning("burst media for %s failed: %s", self.cluster_id, e, exc_info=True)
+        if self.has_observations():
+            await self._send_once(films=media.films, description=media.description, summary=True)
 
     async def _send_once(
         self, *, segment_ids: list[int] | None = None, news: bool = False,
-        films: list[str] | None = None, summary: bool = False,
+        films: list[str] | None = None, description: str = "", summary: bool = False,
     ) -> None:
         self._sent_messages += 1
         key = f"{self.cluster_id or self.source_id}:burst-report-{self._sent_messages}"
@@ -762,8 +760,9 @@ class BurstReport:
         sent_band_rank = self._current_band_rank()
         sent_names = set(self.known_named)
         sent_person_count = self._person_count_max
-        # Ein Hinweis bei Neuigkeiten ist reiner Text: kein Bild, keine Galerie, kein VLM.
-        show_media = not news
+        # Ein Hinweis bei Neuigkeiten ist reiner Text: kein Bild, keine Galerie, kein VLM. Die Zusammenfassung
+        # zeigt den Film statt der Einzelbilder (die sind gelöscht) und bringt ihre Beschreibung fertig mit.
+        show_media = not news and not summary
         span = self._span()
         started = span[0] if span else None
         # Die Zusammenfassung nennt die Zeitspanne, Erstmeldung und Hinweise den Beginn.
@@ -793,10 +792,10 @@ class BurstReport:
                 dedup_key=key,
                 shown_media=self._shown_media,
                 describe=show_media,
+                description=description,
                 media_album=films,
                 timestamp=started,
                 timestamp_end=ended,
-                summary=summary,
             )
         else:
             frame_path, zoom_path = self._best_person_paths if show_media else ("", "")
@@ -813,10 +812,10 @@ class BurstReport:
                 shown_media=self._shown_media,
                 yolo_unconfirmed=not self._person_confirmed,
                 describe=show_media,
+                description=description,
                 media_album=films,
                 timestamp=started,
                 timestamp_end=ended,
-                summary=summary,
             )
         self._sent_band_rank = sent_band_rank
         self._sent_names = sent_names

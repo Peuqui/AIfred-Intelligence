@@ -1,7 +1,7 @@
 """Burst-Film: ein kurzes Video je Linse aus den Bildern eines Vorkommnisses.
 
 Der Face-Hunt-Burst speichert jeden Tick, der etwas zeigt, als Ereignis im
-Burst-Cluster (Weitwinkelbild + Zoombild). Am Burst-Ende werden diese Bilder in
+Burst-Cluster (Weitwinkelbild + Zoombild). Am Burst-Ende (``vision_burst_media``) werden diese Bilder in
 Zeitfolge — samt Vorlauf vor dem Auslösen — zu je einem MP4 pro Linse
 zusammengesetzt. Wenige Bilder, deshalb langsam (``VISION_FILM_FPS``) und ohne
 Längenlimit. Die Dateien liegen unter ``data/vigilantia/films/<quelle>/<datum>/``
@@ -16,6 +16,7 @@ import logging
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from PIL import Image
 
@@ -24,7 +25,6 @@ from .config import (
     VISION_FILM_FPS,
     VISION_FILM_KEYFRAME_SEC,
 )
-from .vision_store import VisionStore
 from .vision_utils import FILMS_DIR, film_source_dir
 
 logger = logging.getLogger(__name__)
@@ -53,15 +53,10 @@ def film_label(path: str) -> str:
     return LENS_LABELS.get(film_lens(path), Path(path).stem)
 
 
-def _lens_frames(store: VisionStore, cluster_id: str) -> tuple[str, str, dict[str, list[tuple[datetime, str]]]]:
+def _lens_frames(events: list[dict[str, Any]]) -> tuple[str, str, dict[str, list[tuple[datetime, str]]]]:
     """Bilder je Linse in Zeitfolge als ``(Zeitpunkt, Pfad)`` (ohne Dubletten, nur existierende Dateien).
     Returnt ``(source_id, Datum des ersten Bildes, {Linse: [Bilder]})``."""
-    events = []
-    for event_id in store.list_cluster_event_ids(cluster_id):
-        event = store.get_event(int(event_id))
-        if event:
-            events.append(event)
-    events.sort(key=lambda event: (str(event["timestamp"]), int(event["id"])))
+    events = sorted(events, key=lambda event: (str(event["timestamp"]), int(event["id"])))
     frames: dict[str, list[tuple[datetime, str]]] = {lens: [] for lens in LENS_LABELS}
     for event in events:
         taken = datetime.fromisoformat(str(event["timestamp"]))
@@ -119,11 +114,12 @@ async def encode_film(paths: list[str], out: Path, fps: float = VISION_FILM_FPS)
         raise FilmEncodeError(f"ffmpeg ({process.returncode}): {stderr.decode(errors='replace')[-300:]}")
 
 
-async def make_cluster_films(store: VisionStore, cluster_id: str) -> list[Path]:
-    """Je Linse mit mindestens einem Bild ein Film des
-    Vorkommnisses. Returnt die Dateipfade in Anzeigereihenfolge (Weitwinkel, Zoom);
-    leer, wenn keine Linse ein Bild hat. Wirft :class:`FilmEncodeError` bei einem ffmpeg-Fehler."""
-    source_id, day, frames = await asyncio.to_thread(_lens_frames, store, cluster_id)
+async def make_cluster_films(cluster_id: str, events: list[dict[str, Any]]) -> list[Path]:
+    """Je Linse mit mindestens einem Bild ein Film aus genau diesen ``events`` (Ereignisse mit Bildpfaden,
+    wie ``VisionStore.list_cluster_frame_events`` sie liefert; ``cluster_id`` benennt nur die Datei).
+    Returnt die Dateipfade in Anzeigereihenfolge (Weitwinkel, Zoom); leer, wenn keine Linse ein Bild hat.
+    Wirft :class:`FilmEncodeError` bei einem ffmpeg-Fehler."""
+    source_id, day, frames = await asyncio.to_thread(_lens_frames, events)
     films: list[Path] = []
     for lens, lens_frames in frames.items():
         if not lens_frames:

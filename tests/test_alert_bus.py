@@ -241,33 +241,46 @@ class TestSinkMedia:
         assert "media_album" not in sent["metadata"]
 
 
-class TestSummaryPrompt:
-    """Die Zusammenfassung am Burst-Ende nimmt den knappen Zusammenfassungs-Prompt
-    (ohne Bildnummern), jede andere Cluster-Beschreibung den Sequenz-Prompt."""
+class TestReadyDescription:
+    """Eine fertige Beschreibung (Burst-Abschluss) wird nicht neu geholt; sie steht nur bei "vlm" im Text."""
 
-    def _describe(self, monkeypatch, metadata: dict) -> dict[str, Any]:
+    def _deliver(self, monkeypatch, compose: str, **event: Any) -> tuple[str, list[str]]:
         import aifred.lib.alert_bus as ab
-        import aifred.lib.vision_event_analysis as vea
+        import aifred.lib.message_processor as mp
 
-        seen: dict[str, Any] = {}
+        asked: list[str] = []
+        recorded: list[str] = []
 
-        async def fake_describe(cluster_id, *, headcount=0, prompt=None, **kw):
-            seen["prompt"] = prompt
-            return "Beschreibung"
+        async def describe(ev):
+            asked.append("vlm")
+            return "geholt", []
 
-        monkeypatch.setattr(vea, "describe_cluster_by_id", fake_describe)
-        asyncio.run(ab._describe_media_via_vlm(_ev(metadata={"cluster_id": "c-1", **metadata})))
-        return seen
+        async def announce(channel, recipient, text, **kw):
+            return True
 
-    def test_summary_uses_the_summary_prompt(self, monkeypatch):
-        from aifred.lib.prompt_loader import get_vision_event_summary_prompt
+        monkeypatch.setattr(ab, "_describe_media_via_vlm", describe)
+        monkeypatch.setattr(mp, "announce_to_channel", announce)
+        monkeypatch.setattr(mp, "record_autonomous_turn", lambda *a, **kw: recorded.append(a[3]))
+        monkeypatch.setattr(mp, "resolve_announce_targets", lambda channel, target: [target])
+        rule = AlertRule(producer="vision", sinks=["telegram"], compose=compose, rule_id="r")
+        assert asyncio.run(ab._deliver_in_session(_ev(**event), rule))
+        return recorded[0], asked
 
-        seen = self._describe(monkeypatch, {"summary": True})
-        assert seen["prompt"] == get_vision_event_summary_prompt()
-        assert "Bildnummern" in seen["prompt"]
+    def test_a_rule_with_vlm_uses_it_without_asking_the_describer(self, monkeypatch):
+        text, asked = self._deliver(monkeypatch, "vlm", description="Fertig beschrieben.", describe=False)
+        assert "Fertig beschrieben." in text and asked == []
 
-    def test_other_cluster_descriptions_keep_the_default_prompt(self, monkeypatch):
-        assert self._describe(monkeypatch, {})["prompt"] is None
+    def test_a_ready_description_wins_over_describe(self, monkeypatch):
+        text, asked = self._deliver(monkeypatch, "vlm", description="Fertig beschrieben.", describe=True)
+        assert "Fertig beschrieben." in text and "geholt" not in text and asked == []
+
+    def test_a_rule_without_vlm_keeps_it_out_of_the_text(self, monkeypatch):
+        text, asked = self._deliver(monkeypatch, "template", description="Fertig beschrieben.", describe=False)
+        assert "Fertig beschrieben." not in text and asked == []
+
+    def test_without_a_ready_description_the_describer_is_asked(self, monkeypatch):
+        text, asked = self._deliver(monkeypatch, "vlm")
+        assert "geholt" in text and asked == ["vlm"]
 
 
 class TestFilmPlayers:

@@ -222,15 +222,15 @@ class BurstRunner:
             self._reports.pop(source_id, None)
         # Laufende Zwischen-Bilanz erst zu Ende bringen: sie hält die
         # Historie, an die die Abschluss-Bilanz anknüpft — und
-        # ``send_final`` kann erst danach beurteilen, was noch offen ist.
+        # ``finish`` kann erst danach beurteilen, was noch offen ist.
         if pending_sends:
             await asyncio.gather(*pending_sends, return_exceptions=True)
-        # Zusammenfassung (nur normales Burst-Ende): Beschreibung des ganzen
-        # Vorkommnisses plus je Linse ein Film aus allen Burst-Bildern.
+        # Abschluss (nur normales Burst-Ende, auch ohne Meldung): je Linse ein Film aus allen
+        # Burst-Bildern, EINE Beschreibung, Einzelbilder weg, dann die Zusammenfassung.
         try:
-            await report.send_final()
+            await report.finish()
         except Exception:
-            logger.exception("burst final report failed for %s", source_id)
+            logger.exception("burst finish failed for %s", source_id)
         # Bilanz ins Debug-Log — im Journal ging die info-Zeile unter, und
         # genau diese Zahlen beantworten "warum nur N Bilder?".
         duration = (datetime.now() - started).total_seconds()
