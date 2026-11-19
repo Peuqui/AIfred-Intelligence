@@ -1207,6 +1207,7 @@
   "error_path_type": "Ungültiger Pfad (Typ {type}).",
   "error_path_absolute": "Absolute Pfade sind nicht erlaubt: {path}",
   "error_path_escapes": "Der Pfad führt aus dem Dokumentenordner hinaus: {path}",
+  "error_path_documents_prefix": "Pfade gelten schon ab dem Dokumentenordner — das führende „documents/“ weglassen: {path}",
   "error_folder_not_found": "Den Ordner gibt es nicht: {path}",
   "error_invalid_folder_name": "Ungültiger Ordnername: {name}",
   "error_folder_is_no_file": "„{name}“ ist kein Ordner, sondern eine Datei.",

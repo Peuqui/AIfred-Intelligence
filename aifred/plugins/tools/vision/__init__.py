@@ -439,9 +439,8 @@ class VisionPlugin:
                 resolved_paths.append(p)
 
             vlm_cfg = load_vision_settings().get("vlm", {})
-            actual_prompt = prompt or vlm_cfg.get(
-                "default_prompt", "Beschreibe knapp, was zu sehen ist."
-            )
+            from ....lib.prompt_loader import load_prompt
+            actual_prompt = prompt or load_prompt("vision/default_question")
             # Per-camera briefing (prompt_context) — only when the caller passes
             # the source_id from the snapshot result. Optional static context
             # ("Eingang, Tür mit Briefkasten"), prepended to the prompt. Without

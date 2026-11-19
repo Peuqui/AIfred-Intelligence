@@ -1207,6 +1207,7 @@
   "error_path_type": "Invalid path type: {type}",
   "error_path_absolute": "Absolute paths not allowed: {path}",
   "error_path_escapes": "Path escapes documents tree: {path}",
+  "error_path_documents_prefix": "Paths are relative to the documents folder already — drop the leading \"documents/\": {path}",
   "error_folder_not_found": "Folder not found: {path}",
   "error_invalid_folder_name": "Invalid folder name: {name}",
   "error_folder_is_no_file": "Not a folder: {name}. Use delete_file.",

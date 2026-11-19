@@ -62,6 +62,15 @@ def _refused(problem: UserError, metadata: dict[str, Any] | None = None) -> File
 # ─────────────────────────────────────────────────────────────────────────
 
 
+def documents_prefix_refusal(rel_path: str) -> Invalid | None:
+    """Refusal for a path that starts with the documents folder's own name: every path is relative to
+    documents/ already, so ``documents/x.txt`` would land in ``documents/documents/x.txt`` and could not be
+    read back as ``x.txt``. Refused instead of stripped (a silent correction would be a fallback)."""
+    if Path(rel_path).parts[:1] == (DOCUMENTS_DIR.name,):
+        return Invalid("path_documents_prefix", path=rel_path)
+    return None
+
+
 def safe_resolve(rel_path: str) -> tuple[Path | None, Invalid | None]:
     """Resolve a path relative to DOCUMENTS_DIR, refusing escape attempts.
 
@@ -74,6 +83,9 @@ def safe_resolve(rel_path: str) -> tuple[Path | None, Invalid | None]:
         return None, Invalid("path_type", type=type(rel_path).__name__)
     if rel_path.startswith(("/", "\\")):
         return None, Invalid("path_absolute", path=rel_path)
+    refusal = documents_prefix_refusal(rel_path)
+    if refusal:
+        return None, refusal
 
     candidate = (DOCUMENTS_DIR / rel_path).resolve()
     docs_root = DOCUMENTS_DIR.resolve()
@@ -209,6 +221,8 @@ def create_folder(parent_rel: str, name: str) -> FileOpResult:
     """
     if not _is_safe_name(name):
         return _refused(Invalid("invalid_folder_name", name=name))
+    if not parent_rel and (refusal := documents_prefix_refusal(name)):
+        return _refused(refusal)
     parent, err = safe_resolve(parent_rel) if parent_rel else (DOCUMENTS_DIR.resolve(), None)
     if err:
         return _refused(err)
@@ -543,6 +557,8 @@ def rename(
         return _refused(Invalid("invalid_new_name", name=new_name))
     if old_name == new_name:
         return _refused(Invalid("same_name"))
+    if not folder_rel and (refusal := documents_prefix_refusal(new_name)):
+        return _refused(refusal)
 
     parent, err = safe_resolve(folder_rel) if folder_rel else (DOCUMENTS_DIR.resolve(), None)
     if err:

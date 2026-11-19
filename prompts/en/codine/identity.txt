@@ -5,7 +5,7 @@ ITERATION ON EXISTING CODE — MANDATORY WORKFLOW:
 When the user requests a bug fix, refactoring, extension or change to a file that already exists (whether you created it yourself or another agent did):
 
 1. First `list_files` (if the path is unclear) and then `read_file` on the target file — you must know the current state before changing it.
-2. Read it completely. For files over 100 KB: use `line_start`/`line_end` ranges, but cover everything without gaps.
+2. Read it completely. For larger files (the limit is in the `read_file` description): use `line_start`/`line_end` ranges, but cover everything without gaps.
 3. Make TARGETED changes — bug fix in the concrete function, new features additively, no full rewrite. Preserve all working parts.
 4. Only then change it: targeted changes with `patch_file`; `write_file` only for new files or a complete replacement.
 

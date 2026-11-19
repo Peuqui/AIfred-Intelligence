@@ -11,7 +11,7 @@
     },
     "actions": {
       "type": "array",
-      "description": "Optional interaction sequence, run in order, each item ONE of: {\"click\": \"<css-selector>\"} | {\"fill\": {\"selector\": \"<css>\", \"text\": \"...\"}} | {\"press\": \"<key e.g. Enter>\"} | {\"mouse_drag\": {\"from\": [x, y], \"to\": [x, y]}} (viewport pixels, viewport 1280x800) | {\"wait_ms\": <int>} | {\"screenshot\": true} (intermediate shot) | {\"evaluate\": \"<JS expression>\"} (its value comes back as JSON under EVALUATE RESULTS; a Promise is awaited, so one expression can sample over time; top-level const/let/function of classic scripts are reachable by name, variables inside a type=module script are not). A final screenshot is always taken.",
+      "description": "Optional interaction sequence, run in order, each item ONE of: {\"click\": \"<css-selector>\", \"force\": true} (force is optional: skips the wait for the element to be stable, needed on animation-heavy pages where a normal click times out) | {\"fill\": {\"selector\": \"<css>\", \"text\": \"...\"}} | {\"press\": \"<key e.g. Enter>\"} | {\"mouse_drag\": {\"from\": [x, y], \"to\": [x, y]}} (viewport pixels, viewport 1280x800) | {\"wait_ms\": <int>} | {\"screenshot\": true} (intermediate shot) | {\"evaluate\": \"<JS expression>\"} (its value comes back as JSON under EVALUATE RESULTS; a Promise is awaited, so one expression can sample over time; top-level const/let/function of classic scripts are reachable by name, variables inside a type=module script are not). A final screenshot is always taken.",
       "items": {
         "type": "object"
       }

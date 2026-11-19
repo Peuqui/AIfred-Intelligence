@@ -37,7 +37,8 @@ The Workspace Plugin provides the LLM with direct file access to the documents d
 
 ### File Access
 - **Page-by-page PDF reading:** `read_file(filename="report.pdf", pages="1-5")` or `pages="3,7,10-12"`
-- **Line-range reading for large files:** `read_file(filename="log.txt", line_start=100, line_end=200)`
+- **Line-range reading for large files:** `read_file(filename="log.txt", line_start=100, line_end=200)`; from `READ_FILE_CHUNK_THRESHOLD_KB` (30 KB) the description tells the model to read in line ranges
+- **Paths are relative to the documents folder:** every tool refuses a path starting with `documents/` (it would land in `documents/documents/`) instead of silently trimming it
 - **Path traversal protection:** All paths validated against `data/documents/` — no escape possible
 - **Write verify:** Every written file is read back and length compared
 - **Allowed write formats:** .txt, .md, .csv, .json, .xml, .html

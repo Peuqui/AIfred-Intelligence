@@ -63,8 +63,8 @@ the assistant does not see the plugin at all.
   films are named by `vision_query_events` as `film_urls` (per lens `wide`, `zoom` a list, one film per burst); they go with the last deleted event of their
   happening. An event after a burst has no single picture any more (`image_url` and `zoom_image_url` empty); its
   picture lives in the films, and the bubble hangs its description on the film shown.
-- **`vision_analyze`** — `image_urls` (required: URL(s) from `vision_capture` or uploads, or one film alone), `prompt` (optional; falls back to
-  the configured default prompt), `source_id` (optional; applies the camera briefing).
+- **`vision_analyze`** — `image_urls` (required: URL(s) from `vision_capture` or uploads, or one film alone), `prompt` (optional; without it the general default question
+  `prompts/<lang>/vision/default_question.txt` applies, the same as for images in the chat), `source_id` (optional; applies the camera briefing).
   The description has no length limit; its limit is the model's context. If a model repeats the same sentence
   `REPETITION_GUARD_REPEATS` times (3), the call closes the stream and keeps the text up to the repetition
   (`lib/repetition_guard.py`, `vision_analyzer._stream_completion`); the log reports it.
@@ -537,7 +537,7 @@ All settings live in `aifred/plugins/tools/vision/settings.json` and are loaded
 fresh on every call, so you can tune them from the plugin manager without
 restarting. Key groups:
 
-- **`vlm`** — `model`, `num_ctx`, `keep_alive`, `host`, `default_prompt`.
+- **`vlm`** — `model`, `num_ctx`, `keep_alive`, `host`.
 - **`face_recognition`** — `providers`, `gpu_id` (int / `"auto"` / `null` for
   CPU-only), `det_size`, `model_name` (`buffalo_l`), `threshold_known`,
   `threshold_unsure`, `retention_days`, `gc_describe` and `gc_prune` (the two

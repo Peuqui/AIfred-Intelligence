@@ -283,6 +283,7 @@ Additional `.env` keys read by the code (names and meaning only):
 | `ANNOUNCE_PAUSE_MS` | Default pause between paragraphs |
 | `LIST_DEFAULT` | Default size of a list or search (20). The answer always names the total, more can be fetched |
 | `READ_MEMORY_GUARD_BYTES` | What may sit in memory at once while reading (25 MiB): a file, a line, a web page. What the model sees follows its context (`lib/tool_output_cap.py`) |
+| `READ_FILE_CHUNK_THRESHOLD_KB` | From this size (30 KB) the `read_file` description tells the model to read in line ranges |
 | `SANDBOX_TIMEOUT_SECONDS` | Wall-clock limit of one code-execution run (120 s) |
 | `SANDBOX_MAX_RAM_MB`, `SANDBOX_MAX_FILE_SIZE_MB`, `SANDBOX_MAX_PROCESSES` | Safety limits of code execution |
 | `SECURITY_MAX_TOOL_CHAIN_DEPTH`, `SECURITY_MAX_IDENTICAL_TOOL_CALLS`, `SECURITY_RATE_LIMIT_WINDOW_SEC` | Protection against tool loops and flooding |

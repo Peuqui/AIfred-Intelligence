@@ -1683,6 +1683,9 @@ READ_MEMORY_GUARD_BYTES = env_int("READ_MEMORY_GUARD_BYTES", 25 * 1024 * 1024)
 # Standardmenge einer Liste oder Suche. Nur der erste Schritt: Die Antwort nennt die Gesamtzahl,
 # und das Modell kann mehr holen. Eine Obergrenze gibt es nicht.
 LIST_DEFAULT = env_int("LIST_DEFAULT", 20)
+# read_file: from this size on, the tool's description tells the model to read in line ranges (reading a larger
+# text file whole costs 10k+ tokens a time, and often again).
+READ_FILE_CHUNK_THRESHOLD_KB = env_int("READ_FILE_CHUNK_THRESHOLD_KB", 30)
 READ_FILE_RENDER_DPI = 150           # read_file: PDF pages without a text layer
                                      # (scans) are rendered as images at this
                                      # resolution (A4 ≈ 1240×1754 px) for vision_analyze.
