@@ -95,6 +95,7 @@ class ContinuousVlm:
             lambda describer: analyze_sequence(
                 [vlm_frame],
                 prompt,
+                while_held="refuse",  # the watcher runs outside any turn: it must not block for hours
                 model=describer.model,
                 num_ctx=int(vlm_cfg.get("num_ctx", DEFAULT_NUM_CTX)),
                 keep_alive=keep_alive,

@@ -165,7 +165,12 @@ Profil dort erscheint von selbst, ausgeschaltet am Ende.
   Ampel, bis `DELETE /hold`; der Halt liegt dort in einer Datei und übersteht einen Neustart. Solange
   passt dort nichts (`check_fits`), der Burn-in verweigert, und die TTS-Suite startet dort keine
   Container (sie fragt die Ampel des Rechners vor jedem Start). Dieselbe Ampel bremst auch die
-  Describer dieses Rechners (`load_in_progress`), wenn jemand dessen Karten freihält.
+  Describer dieses Rechners (`load_in_progress`), wenn jemand dessen Karten freihält. Ein schon geladener
+  Describer wird dann ebenfalls nicht benutzt (`fitting_visiond`, `check_fits` fragen den Hold zuerst), und
+  jede Beschreibungsanfrage geht durch `vision_analyzer.analyze_sequence`, das ein Pflicht-Argument `while_held`
+  hat: im Zug (`vision_analyze`, Sandbox-Screenshots) `"wait"`, bei Vigilantia (Watcher, Alarme, Burst, Casus,
+  Nachbeschreiben) `"refuse"` (`NoVisionModelError`, wie „kein Describer frei“). Die Frage stellt
+  `lib/gpu_hold.py` beim GPU-Orc des Rechners, auf dem der Describer läuft.
 - **Ausfall mitten in der Anfrage:** `describe_with_second_attempt` (alle Bildwege). Antwortet der
   Rechner danach nicht mehr, meldet die Debug-Konsole das laut, und dieselbe Wahl läuft genau ein
   zweites Mal: Sie findet den Rechner nicht mehr und nimmt die nächste Stufe. Antwortet er noch,

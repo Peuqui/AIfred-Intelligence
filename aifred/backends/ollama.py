@@ -231,6 +231,7 @@ class OllamaBackend(LLMBackend):
         Returns:
             LLMResponse
         """
+        await self._wait_while_held(model)
         # Check if this is a hybrid model and unload if needed
         await self._handle_hybrid_model_unload(model)
 
@@ -295,10 +296,18 @@ class OllamaBackend(LLMBackend):
         except Exception as e:
             raise BackendInferenceError(f"Ollama chat failed: {e}") from e
 
+    async def _wait_while_held(self, model: str) -> None:
+        """Ollama runs on the cards of this machine: no request goes to it while somebody holds them
+        (``lib/gpu_hold``)."""
+        from ..lib import gpu_hold
+
+        await gpu_hold.wait_until_free(gpu_hold.resolve_client(), f"'{model}'")
+
     async def _pre_request_check(self, model: str) -> float:
         """A hybrid model (CPU+GPU offload) needs the others unloaded first. Once per turn: after the
         first round the model is loaded and the check skips. Ollama loads inside the request, so no
         load time is reported before it."""
+        await self._wait_while_held(model)
         await self._handle_hybrid_model_unload(model)
         return 0.0
 
@@ -331,6 +340,8 @@ class OllamaBackend(LLMBackend):
         A model without think mode answers 400 to ``think=true``: that request goes out again without
         it, before any piece was yielded, and the debug console says so.
         """
+        # Every round: a hold set during the turn stops the next round as well.
+        await self._wait_while_held(model)
         payload = self._build_chat_payload(model, messages, options, stream=True, tools=tools)
         without_think = False
         while True:
@@ -578,6 +589,7 @@ class OllamaBackend(LLMBackend):
         Returns:
             Tuple of (success: bool, load_time: float in seconds)
         """
+        await self._wait_while_held(model)  # before the timer: the hold is not load time
         try:
             from ..lib.logging_utils import log_message
 

@@ -718,10 +718,21 @@ Speicher je Karte); er beendet nie selbst einen Prozess.
   mit `STT_GPU_ORC_DIR` und `STT_GPU_ORC_TOKEN_FILE`). Lädt etwas oder antwortet GPU-Orc nicht, geht
   TTS zum nächsten Listeneintrag und STT zur CPU, und ein Describer kommt erst danach dazu.
 - **Hold:** Hält jemand die Karten frei (`POST /hold`, etwa vllm-research für eine Messkette oder der Knopf
-  in der Statusleiste), schickt AIfred keine Anfrage an ein Modell auf diesen Karten, auch nicht an eines,
-  das schon läuft (`backends/base.py` `_wait_while_held`, vor jeder Anfrage über llama-swap). Der Zug wartet
-  sichtbar (Phase „Die Karten sind freigehalten“), lässt sich stoppen und geht weiter, sobald der Hold endet;
-  nachgefragt wird alle `GPU_ORC_HOLD_POLL_S` Sekunden (Standard 10). Cloud-APIs sind nicht betroffen.
+  in der Statusleiste), legt AIfred nichts Neues auf diese Karten, auf keinem Weg (GPU-Orc erzwingt nichts, jeder
+  Verbraucher fragt selbst; die eine Stelle ist `lib/gpu_hold.py`). **Im Zug wartet** die Arbeit sichtbar
+  (Phase „Die Karten sind freigehalten“), lässt sich stoppen und geht weiter, sobald der Hold endet; nachgefragt
+  wird alle `GPU_ORC_HOLD_POLL_S` Sekunden (Standard 10): jede Anfrage an ein Modell (llama-swap und Ollama, auch
+  an ein schon laufendes, auch jede weitere Runde der Werkzeugschleife), jede Bildbeschreibung im Zug
+  (`vision_analyzer.analyze_sequence(while_held="wait")`; ein Beschreiber auf einem anderen Rechner fragt dessen
+  GPU-Orc) und Embeddings, die auf einer Karte rechnen (das Profil ohne `-ngl 0` und ohne leeres
+  `CUDA_VISIBLE_DEVICES`, oder der Ollama-Index-Modus; auf der CPU wird nichts gefragt). **Außerhalb eines Zuges
+  wird die Arbeit abgewiesen**, statt Stunden zu blockieren: Vigilantia-Beschreibungen (Watcher, Alarme, Burst,
+  Casus, Nachbeschreiben) enden wie „kein Describer frei“; ein schon geladener Describer (lokal wie auf einem
+  anderen Rechner) wird nicht benutzt; `prewarm_vlm` lädt nichts; die Kalibrierung startet nicht
+  (`calibration_cards_held`); llama-swap wird nicht gestartet oder neu gestartet (`llamaswap_cards_held`, Stoppen
+  bleibt erlaubt; endet eine Kalibrierung unter einem Hold, bleibt llama-swap aus und sagt es); der
+  Personen-Detektor (nur mit `PERSON_DETECT_USE_GPU`) rechnet auf der CPU und zieht um, wenn die Karten frei sind.
+  Cloud-APIs sind nicht betroffen; TTS- und STT-Suite und der Gesichts-Worker fragen die Ampel selbst.
 - **AIfreds Seite:** `GPU_ORC_URL` in `.env` (Standard `http://127.0.0.1:5070`) und
   `GPU_ORC_MODEL_SERVER` (der Name des Modellservers unter den Verbrauchern in GPU-Orcs Konfiguration,
   Standard `llama-swap`). Sein HTTP-Timeout nimmt AIfred aus GPU-Orcs `/health`. Das Protokoll steht in

@@ -293,7 +293,7 @@ Zusätzliche `.env`-Schlüssel, die der Code liest (nur Namen und Bedeutung):
 | `TTS_CONTROL_API_TOKEN` | Bearer-Token der TTS-Start/Stopp-API für die Dienste-Steuerseite |
 | `GPU_RELEASE_API_TOKEN` | Bearer-Token der GPU-Freigabe (`/api/gpu/holders`, `/api/gpu/release`): GPU-Orc beendet damit den Arbeitsprozess der Gesichtserkennung, um ihre Karte freizuräumen |
 | `GPU_ORC_URL` | Adresse des GPU-Orc dieses Rechners (Standard `http://127.0.0.1:5070`). **Leer = GPU-Orc aus:** nichts wird gefragt, nichts geloggt, Modelle laden direkt, die Ampel ist grün, kein Hold wird beachtet, keine Arbeit wird gemeldet. Der Installer setzt es leer, wenn GPU-Orc nicht installiert ist |
-| `GPU_ORC_HOLD_POLL_S` | Solange jemand die Karten freihält (GPU-Orc `/hold`), wartet ein Zug vor seiner Anfrage und fragt alle so viele Sekunden nach (Standard 10) |
+| `GPU_ORC_HOLD_POLL_S` | Solange jemand die Karten freihält (GPU-Orc `/hold`), wartet Arbeit im Zug (Modellanfragen, Bildbeschreibungen, Embeddings auf einer Karte) vor ihrer Anfrage und fragt alle so viele Sekunden nach (Standard 10); Arbeit außerhalb eines Zuges wird abgewiesen (siehe Deployment, GPU-Orc) |
 | `OUTBOUND_ATTACHMENT_MAX_BYTES` | Größte Datei, die ein Kanal-Sendetool anhängen darf |
 
 Wichtige Plugin-Einstellungen:

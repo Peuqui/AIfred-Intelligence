@@ -189,6 +189,18 @@ class CalibrationRun:
         log_message(msg)
         self._line(msg)
 
+    async def _start_llama_swap(self) -> bool:
+        """Start llama-swap again after the run stopped it; ``False`` when it did not come up (logged by the start),
+        also when somebody holds the cards meanwhile: it then stays stopped (its autoscan would load onto them)
+        and the run says so."""
+        from ..process_utils import start_llama_swap
+
+        try:
+            return await asyncio.to_thread(start_llama_swap)
+        except Conflict as refusal:
+            self._report(f"⚠️ llama-swap stays stopped: {refusal}")
+            return False
+
     async def steps(self) -> AsyncGenerator[None, None]:
         """The run: vLLM, llama.cpp or Ollama by the backend."""
         async for _ in self._calibrate_context_impl():
@@ -230,7 +242,7 @@ class CalibrationRun:
         # (prozessbasiert, SSOT-Primitiv) macht der Flow selbst; der
         # Neustart im finally laedt zugleich die frisch persistierte
         # Config des neuen Betriebspunkts.
-        from ..process_utils import start_llama_swap, stop_llama_swap
+        from ..process_utils import stop_llama_swap
         llama_swap_stopped = False
         try:
             if await asyncio.to_thread(stop_llama_swap):
@@ -338,7 +350,7 @@ class CalibrationRun:
             # base unticked returned early and left it stopped.
             if llama_swap_stopped:
                 try:
-                    if await asyncio.to_thread(start_llama_swap):
+                    if await self._start_llama_swap():
                         self._report(
                             "🔄 llama-swap restarted (loads the freshly "
                             "persisted operating point)"
@@ -1050,8 +1062,7 @@ class CalibrationRun:
                 )
                 yield
                 # llama-swap wieder hochfahren, sonst hängt das System
-                from ..process_utils import start_llama_swap
-                if await asyncio.to_thread(start_llama_swap):
+                if await self._start_llama_swap():
                     llama_swap_stopped = False  # the finally must not start it a second time
                     self._report("🔄 llama-swap restarted")
                 else:
@@ -2497,8 +2508,7 @@ class CalibrationRun:
 
             # Step 6: Restart llama-swap
             self._report("🔄 Restarting llama-swap service...")
-            from ..process_utils import start_llama_swap
-            if await asyncio.to_thread(start_llama_swap):
+            if await self._start_llama_swap():
                 llama_swap_stopped = False
                 self._report("   llama-swap started")
             else:
@@ -2534,8 +2544,7 @@ class CalibrationRun:
         finally:
             # Always restart llama-swap if we stopped it
             if llama_swap_stopped:
-                from ..process_utils import start_llama_swap
-                await asyncio.to_thread(start_llama_swap)  # logs its own failure
+                await self._start_llama_swap()  # logs its own failure
             # KEIN yield hier — dieses finally läuft beim aclose() des Aufrufers unter
             # GeneratorExit, ein yield würde ihn schlucken (RuntimeError).
             # Final persistence — catches the "everything done" snapshot
@@ -2652,16 +2661,21 @@ def start_server_run(request: CalibrationRequest) -> ServerRun:
     """Start a run as a task of the server's event loop.
 
     Raises:
-        Conflict: a calibration runs already (this or another way in: the gate is process-wide).
+        Conflict: a calibration runs already (this or another way in: the gate is process-wide), or somebody holds the cards.
         Invalid, Missing: see ``check_request``.
     """
     global _server_run, _server_task
     from datetime import datetime
 
+    from .. import gpu_hold
     from ..calibration_gate import is_calibration_active, set_calibration_active
 
     if is_calibration_active():
         raise Conflict("calibration_already_running")
+    # The run stops llama-swap and takes every card: not while somebody holds them (GPU-Orc /hold).
+    hold = gpu_hold.hold_refusal(gpu_hold.resolve_client())
+    if hold is not None:
+        raise Conflict("calibration_cards_held", hold=hold)
     state = ServerRun(request.model_id, request.backend_type, datetime.now().strftime("%H:%M"))
 
     def line(msg: str) -> None:

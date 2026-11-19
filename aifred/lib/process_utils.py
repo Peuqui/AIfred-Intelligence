@@ -167,12 +167,21 @@ def docker_compose_action(
 
 
 def _systemctl_llama_swap(action: str, done: str) -> bool:
-    """``systemctl <action> llama-swap``; ``True`` once the job is done.
+    """``systemctl <action> llama-swap``; ``True`` once the job is done. ``start`` and ``restart`` raise ``Conflict``
+    (``llamaswap_cards_held``) while somebody holds the cards.
 
     No timeout of our own: systemctl waits for the job, and the unit's TimeoutStartSec/TimeoutStopSec
     bound it. A start runs the model autoscan first and can take over a minute — a shorter limit here
     reported a failure while the service was still coming up (25.10.2026: 74 s).
     """
+    if action in ("start", "restart"):
+        # Its autoscan starts llama-server on the cards: not while somebody holds them (GPU-Orc /hold). Stop stays.
+        from . import gpu_hold
+        from .user_error import Conflict
+
+        hold = gpu_hold.hold_refusal(gpu_hold.resolve_client())
+        if hold is not None:
+            raise Conflict("llamaswap_cards_held", action=action, hold=hold)
     result = subprocess.run(["systemctl", action, "llama-swap"], capture_output=True, text=True, check=False)
     if result.returncode != 0:
         log_message(f"❌ llama-swap {action} failed: {result.stderr.strip()}", "error")

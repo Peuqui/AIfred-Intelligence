@@ -171,6 +171,15 @@ def check_fits(model: RemoteModel) -> VRAMCheckResult:
 
     host = model.host
     if model.loaded:
+        # Loaded does not mean usable: under a hold a request would distort the holder's work.
+        try:
+            hold = gpu_orc(host).traffic_light().held
+        except GpuOrcError as error:
+            return VRAMCheckResult(fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
+                                   reason=UserError("vram_remote_card_usage_unknown", host=host.name, error=error))
+        if hold is not None:
+            return VRAMCheckResult(fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
+                                   reason=UserError("vram_remote_held", host=host.name, reason=hold["reason"]))
         return VRAMCheckResult(fits=True, needed_mb=0, free_mb=0, gpu_index=-1,
                                reason=UserError("vram_profile_loaded", profile=model.qualified))
     if model.context is None:

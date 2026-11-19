@@ -66,7 +66,7 @@ class TestAnalyzeFrame:
 
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
 
-        result = run(analyze_sequence([_make_frame(0)], "What is in this image?"))
+        result = run(analyze_sequence([_make_frame(0)], "What is in this image?", while_held="wait"))
 
         assert isinstance(result, VisionAnalysis)
         assert result.text == "A cat sitting on a chair."
@@ -103,6 +103,7 @@ class TestAnalyzeFrame:
             analyze_sequence(
                 [_make_frame(0)],
                 "Describe",
+                while_held="wait",
                 model="qwen2.5vl:7b",
                 num_ctx=2048,
                 keep_alive="5m",
@@ -129,7 +130,7 @@ class TestAnalyzeSequence:
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
 
         frames = [_make_frame(i) for i in range(3)]
-        result = run(analyze_sequence(frames, "What is happening?"))
+        result = run(analyze_sequence(frames, "What is happening?", while_held="wait"))
 
         assert result.n_frames == 3
         imgs = captured["images"]
@@ -139,7 +140,7 @@ class TestAnalyzeSequence:
 
     def test_empty_sequence_raises(self):
         with pytest.raises(ValueError):
-            run(analyze_sequence([], "anything"))
+            run(analyze_sequence([], "anything", while_held="wait"))
 
 
 class TestErrorHandling:
@@ -152,7 +153,7 @@ class TestErrorHandling:
         monkeypatch.setattr(ollama.AsyncClient, "generate", boom)
 
         with pytest.raises(RuntimeError, match="VLM call failed"):
-            run(analyze_sequence([_make_frame(0)], "hi"))
+            run(analyze_sequence([_make_frame(0)], "hi", while_held="wait"))
 
 
 class TestResponseParsing:
@@ -171,7 +172,7 @@ class TestResponseParsing:
 
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
 
-        result = run(analyze_sequence([_make_frame(0)], "hi"))
+        result = run(analyze_sequence([_make_frame(0)], "hi", while_held="wait"))
         assert result.text == "ok"
         assert result.metadata["eval_count"] == 5
 
@@ -197,7 +198,7 @@ class TestLlamacppDispatch:
         }))
 
         result = run(analyze_sequence(
-            [_make_frame(0)], "Was ist zu sehen?", model="main-llm"
+            [_make_frame(0)], "Was ist zu sehen?", model="main-llm", while_held="wait"
         ))
 
         assert result.text == "Beschreibung vom Hauptmodell."
@@ -226,7 +227,7 @@ class TestLlamacppDispatch:
         monkeypatch.setattr(vr, "release_side_channels_for_describer", lambda profile: None)
         sent: list[dict] = []
         monkeypatch.setattr(httpx, "AsyncClient", streaming_client(sent, ["Eine Person."]))
-        run(analyze_sequence([_make_frame(0)], "Was ist zu sehen?", model="Small-VL-4B-visiond"))
+        run(analyze_sequence([_make_frame(0)], "Was ist zu sehen?", while_held="wait", model="Small-VL-4B-visiond"))
         # No length cap for any model (its limit is its context); the loop guard reads the stream.
         assert "max_tokens" not in sent[0]["payload"] and "repeat_penalty" in sent[0]["payload"]
 
@@ -247,8 +248,8 @@ class TestLlamacppDispatch:
                             lambda: {"agent_tuning": {"vision": {"thinking_by_model": choices}}})
         sent: list[dict] = []
         monkeypatch.setattr(httpx, "AsyncClient", streaming_client(sent, ["Ein Plan."]))
-        run(analyze_sequence([_make_frame(0)], "Was steht da?", model="GLM-X-vllm"))
-        run(analyze_sequence([_make_frame(0)], "Was steht da?", model="Small-VL-4B-visiond"))
+        run(analyze_sequence([_make_frame(0)], "Was steht da?", while_held="wait", model="GLM-X-vllm"))
+        run(analyze_sequence([_make_frame(0)], "Was steht da?", while_held="wait", model="Small-VL-4B-visiond"))
         assert sent[0]["payload"]["chat_template_kwargs"] == {"enable_thinking": True, "reasoning_effort": "high"}
         assert sent[1]["payload"]["chat_template_kwargs"] == {"enable_thinking": False}
 
@@ -264,7 +265,7 @@ class TestLlamacppDispatch:
         monkeypatch.setattr(httpx, "AsyncClient", streaming_client(
             sent, ["Ein Paketbote kommt den Weg herauf. ", loop, loop, loop, loop, "Nie erreicht."],
         ))
-        result = run(analyze_sequence([_make_frame(0)], "Was ist zu sehen?", model="Small-VL-4B-visiond"))
+        result = run(analyze_sequence([_make_frame(0)], "Was ist zu sehen?", while_held="wait", model="Small-VL-4B-visiond"))
         assert result.text == "Ein Paketbote kommt den Weg herauf. Die Person steht vor der Haustür."
 
     def test_non_mmproj_model_stays_on_ollama(self, monkeypatch):
@@ -277,7 +278,7 @@ class TestLlamacppDispatch:
         import ollama
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
 
-        result = run(analyze_sequence([_make_frame(0)], "hi", model="qwen3-vl:4b"))
+        result = run(analyze_sequence([_make_frame(0)], "hi", while_held="wait", model="qwen3-vl:4b"))
         assert result.text == "ollama-pfad"
 
 
@@ -301,7 +302,7 @@ class TestEmptyResponseRetry:
         import ollama
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
 
-        result = run(analyze_sequence([_make_frame(0)], "Was ist zu sehen?"))
+        result = run(analyze_sequence([_make_frame(0)], "Was ist zu sehen?", while_held="wait"))
         assert calls["n"] == 2  # retried exactly once
         assert result.text == "Ein Hauseingang mit Tür."
 
@@ -318,7 +319,7 @@ class TestEmptyResponseRetry:
         import ollama
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
 
-        result = run(analyze_sequence([_make_frame(0)], "hi"))
+        result = run(analyze_sequence([_make_frame(0)], "hi", while_held="wait"))
         assert calls["n"] == 1  # no needless retry
         assert result.text == "Sofort gut."
 
@@ -335,6 +336,6 @@ class TestEmptyResponseRetry:
         import ollama
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
 
-        result = run(analyze_sequence([_make_frame(0)], "hi"))
+        result = run(analyze_sequence([_make_frame(0)], "hi", while_held="wait"))
         assert calls["n"] == 2  # one retry, then give up
         assert result.text == ""

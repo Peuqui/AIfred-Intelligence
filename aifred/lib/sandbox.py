@@ -330,7 +330,7 @@ async def describe_sandbox_screenshots(
 
         analysis = await describe_with_second_attempt(
             chosen, choose_again,
-            lambda d: analyze_sequence(frames, vlm_prompt, model=d.model, max_pixels=0),
+            lambda d: analyze_sequence(frames, vlm_prompt, while_held="wait", model=d.model, max_pixels=0),
         )
         if len(frames) == 1:
             described = load_prompt(

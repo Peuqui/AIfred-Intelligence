@@ -158,7 +158,12 @@ off at the end.
   `DELETE /hold`; the hold lives in a file there and outlasts a restart. Meanwhile nothing fits there
   (`check_fits`), the burn-in refuses, and the TTS-Suite starts no container there (it asks the machine's
   traffic light before every start). The same light also stops this machine's describers
-  (`load_in_progress`) while somebody holds its cards.
+  (`load_in_progress`) while somebody holds its cards. A describer that is already loaded is not used then
+  either (`fitting_visiond` and `check_fits` ask for the hold first), and every description request passes
+  `vision_analyzer.analyze_sequence`, which has a required argument `while_held`: `"wait"` inside a turn
+  (`vision_analyze`, sandbox screenshots), `"refuse"` for Vigilantia (watcher, alerts, burst, Casus, describing
+  afterwards; `NoVisionModelError`, like "no describer free"). `lib/gpu_hold.py` asks the GPU-Orc of the
+  machine the describer runs on.
 - **Failure mid-request:** `describe_with_second_attempt` (every image path). If the machine answers
   no more afterwards, the debug console says so loudly and the same choice runs exactly once more: it
   no longer finds the machine and takes the next stage. If it still answers, the error lies in the

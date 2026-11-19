@@ -123,6 +123,13 @@ async def prewarm_vlm(
         logger.warning("prewarm_vlm: no vlm.model configured")
         return False
 
+    # Both ways (llama-swap profile, Ollama) put the model onto the cards: not while somebody holds them.
+    from . import gpu_hold
+    held = await asyncio.to_thread(gpu_hold.hold_refusal, gpu_hold.resolve_client())
+    if held is not None:
+        logger.warning("prewarm_vlm: not loading the VLM, the cards are held: %s", held)
+        return False
+
     # llama.cpp-Describer-Pfad: Existiert ein -visiond-Profil, läuft die
     # Bildanalyse über llama-swap (SSOT-Umleitung in analyze_sequence).
     # Dann warmlaufen lassen heißt: das Profil per Mini-Request laden.

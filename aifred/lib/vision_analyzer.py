@@ -37,6 +37,7 @@ from .perf_metrics import InferenceWork
 
 if TYPE_CHECKING:
     from .frame_sources import Frame
+    from .gpu_hold import WhileHeld
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,7 @@ async def analyze_sequence(
     frames: list[Frame],
     prompt: str,
     *,
+    while_held: WhileHeld,
     model: str = DEFAULT_MODEL,
     num_ctx: int = DEFAULT_NUM_CTX,
     keep_alive: str = DEFAULT_KEEP_ALIVE,
@@ -125,6 +127,10 @@ async def analyze_sequence(
     ausreichend. ``max_pixels <= 0`` schaltet den Downscale ab (volle
     Auflösung); das nutzt der bewusste ``vision_analyze``-Tool-Call, wenn
     der User echte Detailanalyse will.
+
+    ``while_held``: was geschieht, solange jemand die Karten hält (GPU-Orc ``/hold``, SSOT ``gpu_hold``), vor jeder
+    Anfrage an den Beschreiber: ``"wait"`` (im Zug: der Zug wartet sichtbar) oder ``"refuse"`` (außerhalb eines
+    Zuges: ``NoVisionModelError``, wie wenn keiner frei ist). Kein Default: jeder Aufrufer entscheidet.
     """
     if not frames:
         raise ValueError("analyze_sequence requires at least 1 frame")
@@ -156,6 +162,7 @@ async def analyze_sequence(
     use_llamacpp = has_native_vision(model)
 
     async def _once() -> VisionAnalysis:
+        await _respect_hold(model, while_held)
         if use_llamacpp:
             return await _analyze_via_llamacpp(
                 model, prompt, images_b64, n_frames=len(frames)
@@ -184,6 +191,24 @@ async def analyze_sequence(
                 "VLM still empty after retry (model=%s) — giving up", model
             )
     return result
+
+
+async def _respect_hold(model: str, while_held: WhileHeld) -> None:
+    """The one place every describer request passes (llama-swap describers, the main model, a describer of another
+    machine, the Ollama VLM): nothing goes to the cards while somebody holds them. GPU-Orc of the machine the
+    describer runs on is asked."""
+    import asyncio
+
+    from . import gpu_hold
+    from .vision_routing import NoVisionModelError
+
+    client = gpu_hold.resolve_client(model_id=model)
+    if while_held == "wait":
+        await gpu_hold.wait_until_free(client, f"the description by '{model}'")
+        return
+    refusal = await asyncio.to_thread(gpu_hold.hold_refusal, client)
+    if refusal is not None:
+        raise NoVisionModelError(f"describing with '{model}' refused: {refusal}, nothing is sent now")
 
 
 async def _analyze_via_ollama(

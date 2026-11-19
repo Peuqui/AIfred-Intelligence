@@ -35,6 +35,7 @@ class CloudAPIBackend(OpenAICompatibleBackend):
 
     BACKEND_NAME = "Cloud API"
     DEFAULT_TIMEOUT = 300.0
+    RUNS_ON_CARDS = False
 
     def __init__(self, base_url: str, api_key: str, provider: str = "qwen"):
         """

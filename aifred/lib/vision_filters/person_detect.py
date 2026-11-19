@@ -281,6 +281,7 @@ class PersonDetector:
 # ── Module-level singleton ────────────────────────────────────────────
 
 _default_detector: PersonDetector | None = None
+_default_is_stand_in = False  # the CPU detector that stands in while the cards are not free
 _default_lock = Lock()
 
 
@@ -289,23 +290,33 @@ def get_default_detector() -> PersonDetector:
 
     * ``PERSON_DETECT_USE_GPU=False`` (Default): CPUExecutionProvider.
     * ``PERSON_DETECT_USE_GPU=True``: cuDNN/CUDA vorladen + CUDA-EP, sonst
-      eindeutiger Fehler (kein silent CPU-Fallback)."""
-    global _default_detector
-    if _default_detector is not None:
-        return _default_detector
+      eindeutiger Fehler (kein silent CPU-Fallback). Hält jemand die Karten (GPU-Orc ``/hold``) oder lädt ein großes
+      Modell, rechnet er auf der CPU (wie der Gesichts-Worker, ``load_in_progress``) und zieht auf die Karte
+      um, sobald sie frei ist."""
+    global _default_detector, _default_is_stand_in
     with _default_lock:
-        if _default_detector is None:
-            from ..config import PERSON_DETECT_USE_GPU
-            if PERSON_DETECT_USE_GPU:
-                from .face_detect import _preload_cuda_runtime
-                if not _preload_cuda_runtime():
-                    raise RuntimeError(
-                        "PERSON_DETECT_USE_GPU=True but CUDA libs could not "
-                        "be preloaded. Check nvidia-cudnn-cu12 in venv."
-                    )
-                providers = ["CUDAExecutionProvider"]
-            else:
-                providers = ["CPUExecutionProvider"]
+        if _default_detector is not None and not _default_is_stand_in:
+            return _default_detector
+        from ..config import PERSON_DETECT_USE_GPU
+        from ..vision_routing import load_in_progress
+        refusal = load_in_progress() if PERSON_DETECT_USE_GPU else None
+        if _default_detector is not None and refusal is not None:
+            return _default_detector
+        if PERSON_DETECT_USE_GPU and refusal is None:
+            from .face_detect import _preload_cuda_runtime
+            if not _preload_cuda_runtime():
+                raise RuntimeError(
+                    "PERSON_DETECT_USE_GPU=True but CUDA libs could not "
+                    "be preloaded. Check nvidia-cudnn-cu12 in venv."
+                )
+            providers = ["CUDAExecutionProvider"]
+        else:
+            providers = ["CPUExecutionProvider"]
+        if refusal is not None:
+            logger.warning("person_detect: using the CPU, not the cards: %s", refusal)
+        else:
             logger.info("person_detect: using %s", providers[0])
-            _default_detector = PersonDetector(providers=providers)
+        _default_detector = PersonDetector(providers=providers)
+        _default_is_stand_in = refusal is not None
         return _default_detector
+

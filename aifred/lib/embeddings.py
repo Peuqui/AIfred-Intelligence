@@ -7,6 +7,8 @@ group); otherwise via Ollama with a CPU/GPU mode.
 """
 
 
+from typing import Any
+
 import numpy as np
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 
@@ -16,21 +18,33 @@ OLLAMA_EMBEDDING_MODEL = "bge-m3"
 OLLAMA_HOST = DEFAULT_OLLAMA_URL
 
 
-def _llamaswap_embed_available() -> bool:
-    """True, wenn das llama-swap-Embed-Profil in der YAML existiert.
+def _llamaswap_embed_profile() -> dict[str, Any] | None:
+    """Der Eintrag des llama-swap-Embed-Profils aus der YAML (``parse_llamaswap_config``), ``None`` ohne Profil.
 
-    Dann laufen Embeddings über llama-server --embedding (persistente
-    embed-Gruppe, Reserve-GPU) statt über Ollama — gleiche Präzedenz wie
-    beim Vision-Describer-Pfad. Ohne Profil bleibt der Ollama-Pfad für
+    Existiert er, laufen Embeddings über llama-server --embedding (persistente
+    embed-Gruppe) statt über Ollama — gleiche Präzedenz wie beim
+    Vision-Describer-Pfad. Ohne Profil bleibt der Ollama-Pfad für
     Setups, die Ollama als Backend fahren."""
     from .calibration.llamaswap_io import parse_llamaswap_config
     from .config import LLAMASWAP_CONFIG_PATH, LLAMASWAP_EMBEDDING_PROFILE
     try:
-        return LLAMASWAP_EMBEDDING_PROFILE in parse_llamaswap_config(
-            LLAMASWAP_CONFIG_PATH
-        )
+        return parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(LLAMASWAP_EMBEDDING_PROFILE)
     except (OSError, ValueError):
-        return False
+        return None
+
+
+def _profile_runs_on_cards(profile: dict[str, Any]) -> bool:
+    """Rechnet das Profil auf einer Karte? Nicht, wenn es ``-ngl 0`` hat oder seine YAML ``CUDA_VISIBLE_DEVICES``
+    leer setzt (dann sieht llama-server keine Karte)."""
+    return bool(profile["ngl"] != 0 and profile["env"].get("CUDA_VISIBLE_DEVICES") != "")
+
+
+def _wait_while_cards_held() -> None:
+    """Embeddings auf einer Karte warten, solange jemand sie hält (GPU-Orc ``/hold``, SSOT ``gpu_hold``). Läuft im
+    Thread des Aufrufers: blockierend."""
+    from . import gpu_hold
+
+    gpu_hold.wait_until_free_blocking(gpu_hold.resolve_client(), "the embedding on the cards")
 
 
 class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
@@ -80,7 +94,10 @@ class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
         calls. A real hang still surfaces (the client raises ReadTimeout)
         but normal indexing runs through.
         """
-        if _llamaswap_embed_available():
+        profile = _llamaswap_embed_profile()
+        if profile is not None:
+            if _profile_runs_on_cards(profile):
+                _wait_while_cards_held()
             return self._embed_via_llamaswap(input)
 
         from ollama import Client
@@ -90,6 +107,8 @@ class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
         # Index mode honours EMBEDDING_USE_GPU; query mode is always CPU.
         on_gpu = self.mode == "index" and EMBEDDING_USE_GPU
         options = {} if on_gpu else {"num_gpu": 0}
+        if on_gpu:
+            _wait_while_cards_held()
 
         if self._timeout_override is not None:
             dyn_timeout = self._timeout_override

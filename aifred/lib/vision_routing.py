@@ -145,8 +145,10 @@ def fitting_visiond(name: str) -> tuple[str | None, VRAMCheckResult | None]:
     Karte, dort liegt der Describer allein), wenn sie passt; sonst die
     passende Variante mit dem meisten freien VRAM. Rückgabe ``(profil,
     prüfergebnis)`` — ``(None, prüfergebnis der heimat)``, wenn keine passt,
-    ``(None, None)`` ohne ``-visiond``-Profil.
+    ``(None, None)`` ohne ``-visiond``-Profil. Hält jemand die Karten, bekommt auch ein schon geladenes Profil
+    keine Anfrage: ``(None, Ergebnis „später“)``.
     """
+    from . import gpu_hold
     from .calibration.llamaswap_io import parse_llamaswap_config
     from .config import LLAMASWAP_CONFIG_PATH
     from .vision_vram_check import VRAMCheckResult, check_visiond_fits
@@ -159,6 +161,13 @@ def fitting_visiond(name: str) -> tuple[str | None, VRAMCheckResult | None]:
         p for p in parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
         if p != home and visiond_home(p) == home
     )
+    # A describer already loaded is not used under a hold either: a request to it would distort the holder's work.
+    held = gpu_hold.hold_refusal(gpu_hold.resolve_client())
+    if held is not None:
+        return None, VRAMCheckResult(
+            fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
+            reason=UserError("vram_blocked_describer_later", blocked=held),
+        )
     loaded = set(loaded_llamaswap_profiles())
     for profile in placements:
         if profile in loaded:
@@ -498,6 +507,7 @@ def load_in_progress() -> UserError | None:
     Gibt GPU-Orc keine Auskunft, ist das keine grüne Ampel; ist GPU-Orc aus (``GPU_ORC_URL`` leer), gibt es
     keine Ampel und nichts, worauf zu warten wäre.
     """
+    from . import gpu_hold
     from .gpu_orc_client import GpuOrcError, get_gpu_orc_client
     client = get_gpu_orc_client()
     if client is None:
@@ -507,8 +517,8 @@ def load_in_progress() -> UserError | None:
     except GpuOrcError as error:
         logger.warning("GPU-Orc says nothing about loading models: %s", error)
         return UserError("vram_gpu_orc_silent", error=error)
-    if light.held is not None:
-        return UserError("vram_cards_held", reason=light.held["reason"])
+    if (hold := gpu_hold.refusal_for(light)) is not None:
+        return hold
     return UserError("vram_model_loading", models=", ".join(light.loading)) if light.loading else None
 
 

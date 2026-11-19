@@ -709,10 +709,21 @@ process itself.
   with `STT_GPU_ORC_DIR` and `STT_GPU_ORC_TOKEN_FILE`). While something loads or GPU-Orc does not
   answer, TTS goes to the next list entry, STT to the CPU, and a describer only comes afterwards.
 - **Hold:** While somebody holds the cards (`POST /hold`, e.g. vllm-research for a measurement chain or the
-  button in the status line), AIfred sends no request to a model on them, not even to one already running
-  (`backends/base.py` `_wait_while_held`, before every request through llama-swap). The turn waits visibly
-  (phase "The cards are held"), can be stopped and goes on once the hold ends; it asks again every
-  `GPU_ORC_HOLD_POLL_S` seconds (default 10). Cloud APIs are not affected.
+  button in the status line), AIfred puts nothing new on them, on no path (GPU-Orc enforces nothing, every
+  consumer asks itself; the one place is `lib/gpu_hold.py`). **Inside a turn the work waits** visibly (phase
+  "The cards are held"), can be stopped and goes on once the hold ends; it asks again every
+  `GPU_ORC_HOLD_POLL_S` seconds (default 10): every request to a model (llama-swap and Ollama, also to one
+  already running, also every further round of the tool loop), every image description inside a turn
+  (`vision_analyzer.analyze_sequence(while_held="wait")`; a describer on another machine asks that machine's
+  GPU-Orc) and embeddings that run on a card (the profile without `-ngl 0` and without an empty
+  `CUDA_VISIBLE_DEVICES`, or Ollama's index mode; on the CPU nothing is asked). **Outside a turn the work is
+  refused** instead of blocking for hours: Vigilantia descriptions (watcher, alerts, burst, Casus, describing
+  afterwards) end like "no describer free"; a describer that is already loaded (local or on another machine) is
+  not used; `prewarm_vlm` loads nothing; the calibration does not start (`calibration_cards_held`); llama-swap is
+  not started or restarted (`llamaswap_cards_held`, stopping stays allowed; when a calibration ends under a hold,
+  llama-swap stays off and says so); the person detector (only with `PERSON_DETECT_USE_GPU`) runs on the CPU and
+  moves back when the cards are free. Cloud APIs are not affected; the TTS and STT suites and the face worker ask
+  the light themselves.
 - **AIfred's side:** `GPU_ORC_URL` in `.env` (default `http://127.0.0.1:5070`) and
   `GPU_ORC_MODEL_SERVER` (the consumer name of the model server in GPU-Orc's configuration, default
   `llama-swap`). AIfred takes its HTTP timeout from GPU-Orc's `/health`. The protocol is

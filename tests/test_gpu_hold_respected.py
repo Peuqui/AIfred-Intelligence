@@ -14,7 +14,7 @@ from fake_gpu_orc import FakeGpuOrc, install_fake_gpu_orc
 
 from aifred.backends import base
 from aifred.backends.vllm import vLLMBackend
-from aifred.lib import debug_bus, gpu_orc_client, remote_describers, service_status
+from aifred.lib import gpu_hold, gpu_orc_client, remote_describers, service_status
 
 MODEL = "Big-Model"
 HOLD = {"since": "2026-11-19T15:55:00+01:00", "reason": "vllm-research: v13"}
@@ -32,8 +32,8 @@ def orc(monkeypatch: pytest.MonkeyPatch) -> FakeGpuOrc:
 def seen(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
     """What the wait did: the phases it reported, its log lines, the sleeps between two looks."""
     seen: dict[str, list[Any]] = {"phases": [], "log": [], "sleeps": []}
-    monkeypatch.setattr(debug_bus, "report_phase", lambda phase, **_kw: seen["phases"].append(phase))
-    monkeypatch.setattr("aifred.lib.logging_utils.log_message", lambda message, *_a, **_k: seen["log"].append(message))
+    monkeypatch.setattr(gpu_hold, "report_phase", lambda phase, **_kw: seen["phases"].append(phase))
+    monkeypatch.setattr(gpu_hold, "log_message", lambda message, *_a, **_k: seen["log"].append(message))
     return seen
 
 

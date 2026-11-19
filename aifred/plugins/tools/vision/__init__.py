@@ -487,6 +487,7 @@ class VisionPlugin:
                     lambda describer: analyze_sequence(
                         frames,
                         actual_prompt,
+                        while_held="wait",  # the agent's own tool call inside a turn
                         model=describer.model,
                         num_ctx=int(vlm_cfg.get("num_ctx", DEFAULT_NUM_CTX)),
                         keep_alive=keep_alive,

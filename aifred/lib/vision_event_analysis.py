@@ -118,7 +118,8 @@ async def analyze_frames_with_vlm(
     )
     result = await describe_via(
         lambda: camera_describer(str(target_model), explicit=explicit),
-        lambda describer: analyze_sequence(frames, prompt, model=describer.model),
+        # Vigilantia describes outside any turn (watcher, alerts, Casus, bulk): a hold ends it, it never waits.
+        lambda describer: analyze_sequence(frames, prompt, while_held="refuse", model=describer.model),
     )
     description = (result.text or "").strip()
     if not description:

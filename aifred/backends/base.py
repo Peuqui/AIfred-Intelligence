@@ -407,6 +407,9 @@ class OpenAICompatibleBackend(LLMBackend):
     # Server nicht sendet, verliert den Denkblock kommentarlos — vLLM las
     # hier bis 2026-09-11 nichts, der Flash-Next-Denkblock fehlte seit 07.09.
     REASONING_FIELD: str | None = None
+    # The server runs on this machine's cards (or another machine's of ours), so a hold of the cards stops its
+    # requests; a cloud API is not on them.
+    RUNS_ON_CARDS: bool = True
 
     def __init__(self, base_url: str, api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
@@ -555,44 +558,14 @@ class OpenAICompatibleBackend(LLMBackend):
         return load_s
 
     async def _wait_while_held(self, model: str) -> None:
-        """While somebody holds the cards of the machine this llama-swap runs on (GPU-Orc ``/hold``), no request
-        goes to a model there: not a load, and not a request to a model already running (it would swap out or
-        distort the holder's work). The turn waits where everyone sees it (phase ``gpu_hold``) and can be stopped;
-        it goes on once the hold ends. Without GPU-Orc (empty GPU_ORC_URL) nothing is asked. A GPU-Orc that does
-        not answer is logged loudly and the request goes on, as the clearing before a load does."""
-        from ..lib.config import GPU_ORC_HOLD_POLL_S
-        from ..lib.debug_bus import report_phase
-        from ..lib.gpu_orc_client import GpuOrcError, get_gpu_orc_client
-        from ..lib.logging_utils import log_message
-        from ..lib.remote_describers import gpu_orc_for_llamaswap
+        """No request goes to a model of this llama-swap while somebody holds the cards of its machine
+        (``lib/gpu_hold``): not a load, and not a request to a model already running."""
+        from ..lib import gpu_hold
 
-        try:
-            client = gpu_orc_for_llamaswap(self._llamaswap_root()) or get_gpu_orc_client()
-        except GpuOrcError as error:
-            log_message(f"⚠️ GPU-Orc unknown for '{model}', the request goes on without asking for a hold: {error}", "warning")
+        if not self.RUNS_ON_CARDS:
             return
-        if client is None:
-            return
-        waiting = False
-        try:
-            while True:
-                try:
-                    held = (await asyncio.to_thread(client.traffic_light)).held
-                except GpuOrcError as error:
-                    log_message(f"⚠️ GPU-Orc did not say whether the cards are held, '{model}' goes on: {error}", "warning")
-                    return
-                if held is None:
-                    if waiting:
-                        log_message(f"▶️ The hold of the cards has ended, '{model}' goes on")
-                    return
-                if not waiting:
-                    log_message(f"⏸️ The cards are held since {held['since']} ({held['reason']}): '{model}' waits until they are free", "warning")
-                    report_phase("gpu_hold")
-                    waiting = True
-                await asyncio.sleep(GPU_ORC_HOLD_POLL_S)
-        finally:
-            if waiting:
-                report_phase("")
+        client = gpu_hold.resolve_client(llamaswap_root=self._llamaswap_root())
+        await gpu_hold.wait_until_free(client, f"'{model}'")
 
     async def _free_gpus_for_load(self, model: str) -> None:
         """Have GPU-Orc clear the cards before llama-swap loads ``model``.
@@ -810,6 +783,8 @@ class OpenAICompatibleBackend(LLMBackend):
         from ..lib.timer import Timer
 
         kwargs = self._chat_stream_kwargs(model, messages, options, tools)
+        # Every round, not only the first: a hold set during the turn stops round 2..n and the retry as well.
+        await self._wait_while_held(model)
         self._before_stream_request()
         timer = Timer()
         stream = await self.client.chat.completions.create(**kwargs)

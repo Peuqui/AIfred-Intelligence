@@ -86,3 +86,46 @@ def test_no_work_is_reported(standing_by: FakeGpuOrc, monkeypatch: pytest.Monkey
     assert gpu_orc_work.make_work_reporter() is None
     asyncio.run(scenario())
     assert standing_by.requests == []
+
+
+def test_no_path_asks_for_a_hold(standing_by: FakeGpuOrc, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The hold is checked at every path onto the cards (lib/gpu_hold); with GPU-Orc off none of them asks."""
+    import numpy as np
+    from types import SimpleNamespace
+
+    from aifred.backends.ollama import OllamaBackend
+    from aifred.backends.vllm import vLLMBackend
+    from aifred.lib import embeddings, gpu_hold, process_utils, vision_analyzer, vision_utils
+    from aifred.lib.calibration import service
+
+    standing_by.held = {"since": "2026-11-19T15:55:00+01:00", "reason": "somebody"}
+    assert gpu_hold.resolve_client() is None and gpu_hold.hold_refusal(None) is None
+    asyncio.run(gpu_hold.wait_until_free(gpu_hold.resolve_client(), "x"))
+    gpu_hold.wait_until_free_blocking(gpu_hold.resolve_client(), "x")
+    asyncio.run(vLLMBackend(base_url="http://127.0.0.1:9/v1")._wait_while_held("m"))
+    asyncio.run(OllamaBackend("http://ollama.test")._wait_while_held("m"))
+
+    async def via_llamacpp(model: str, prompt: str, images_b64: list[str], *, n_frames: int) -> vision_analyzer.VisionAnalysis:
+        return vision_analyzer.VisionAnalysis(text="x", model=model, prompt=prompt, n_frames=n_frames, duration_ms=1.0)
+
+    from datetime import datetime
+
+    from aifred.lib.frame_sources import Frame
+    monkeypatch.setattr(vision_analyzer, "_analyze_via_llamacpp", via_llamacpp)
+    monkeypatch.setattr(vision_utils, "has_native_vision", lambda _model: True)
+    frame = Frame(source_id="c", timestamp=datetime.now(), image_bytes=b"x", format="jpeg", width=1, height=1)
+    for policy in ("wait", "refuse"):
+        asyncio.run(vision_analyzer.analyze_sequence([frame], "p", model=PROFILE, while_held=policy))
+
+    monkeypatch.setattr(embeddings, "_llamaswap_embed_profile", lambda: {"ngl": 99, "env": {}})
+    monkeypatch.setattr(embeddings.OllamaEmbeddingFunction, "_embed_via_llamaswap", lambda self, _input: [np.zeros(3, dtype=np.float32)])
+    embeddings.OllamaEmbeddingFunction()(["t"])
+
+    monkeypatch.setattr(process_utils.subprocess, "run", lambda cmd, **_kw: SimpleNamespace(returncode=0, stderr=""))
+    assert process_utils.start_llama_swap() and process_utils.restart_llama_swap()
+    monkeypatch.setattr(service.asyncio, "create_task", lambda coro: coro.close())
+    monkeypatch.setattr(service, "_server_run", None)   # restored after the test
+    service.start_server_run(service.CalibrationRequest("llamacpp", "http://127.0.0.1:9/v1", "m", cells={"|": True}))
+    from aifred.lib import calibration_gate
+    calibration_gate.set_calibration_active(False)
+    assert standing_by.requests == []

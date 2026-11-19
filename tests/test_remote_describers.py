@@ -411,7 +411,7 @@ def test_the_image_request_goes_to_the_machine_with_the_id_there(box, monkeypatc
     monkeypatch.setattr(httpx, "AsyncClient", streaming_client(sent, ["Eine Person am Briefkasten."]))
     frame = Frame(source_id="cam/test", timestamp=datetime.now(), image_bytes=b"FAKEJPEG", format="jpeg",
                   width=320, height=240)
-    result = asyncio.run(analyze_sequence([frame], "Was ist zu sehen?", model=f"Box/{BIG}"))
+    result = asyncio.run(analyze_sequence([frame], "Was ist zu sehen?", model=f"Box/{BIG}", while_held="wait"))
     assert sent[0]["url"] == "http://box.test:11435/v1/chat/completions"
     assert sent[0]["payload"]["model"] == BIG
     assert result.model == f"Box/{BIG}" and result.text == "Eine Person am Briefkasten."
