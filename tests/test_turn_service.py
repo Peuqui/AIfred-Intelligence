@@ -796,3 +796,23 @@ def test_a_turn_from_outside_the_chat_hands_the_loop_no_source(world: dict[str, 
     origin = turn_service.TurnOrigin({"role": "user", "content": "Mail"}, "Mail", 2, "owner", {})
     asyncio.run(turn_service.run_turn(turn_service.TurnRequest(SESSION, "Mail", source="hub", origin=origin)))
     assert world["stream_kwargs"] and world["stream_kwargs"][0]["interjections"] is None
+
+
+def test_several_messages_for_the_running_agent_are_all_taken_in_one_round_in_order(world: dict[str, Any]) -> None:
+    taken = asyncio.run(_pickup(world, [("Nimm auch Bonn", ()), ("Und Köln", ()), ("Danach Aachen", ())]))
+    assert [next(text for text in ("Bonn", "Köln", "Aachen") if text in frame) for frame in taken] == ["Bonn", "Köln", "Aachen"]
+    assert world["asked"] == ["Nimm auch Bonn", "Und Köln", "Danach Aachen"]   # one Automatik call each
+    assert _waiting() == []
+    users = [entry["content"] for entry in _data()["chat_history"] if entry["role"] == "user"]
+    assert users == ["Erste Frage", "Nimm auch Bonn", "Und Köln", "Danach Aachen"]
+    assert [entry["role"] for entry in _data()["llm_history"]] == ["user", "user", "user", "user", "assistant"]
+
+
+def test_a_message_that_waits_stops_the_pickup_but_keeps_what_was_taken_before_it(world: dict[str, Any]) -> None:
+    intents = {"Sokrates, was meinst du?": turn_service._Intent("sokrates", "de", {}, False, 0.0)}
+    taken = asyncio.run(_pickup(world, [("Nimm auch Bonn", ()), ("Sokrates, was meinst du?", ()), ("Und Köln", ())], intents))
+    assert len(taken) == 1 and "Bonn" in taken[0]
+    # The other two became turns of their own after the first one ended, in order.
+    assert [e["content"] for e in _data()["chat_history"] if e["role"] == "user"] == [
+        "Erste Frage", "Nimm auch Bonn", "Sokrates, was meinst du?", "Und Köln",
+    ]
