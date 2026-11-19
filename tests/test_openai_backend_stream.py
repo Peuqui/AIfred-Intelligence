@@ -22,6 +22,8 @@ from openai.types.chat import ChatCompletionChunk
 
 from aifred.backends.base import LLMMessage
 from aifred.backends.llamacpp import LlamaCppBackend
+from aifred.backends.round_pieces import TextDelta, ThinkingDelta
+from aifred.backends.tool_loop import RoundText
 from aifred.backends.vllm import vLLMBackend
 
 # aifred.lib zuerst: aifred.backends allein laeuft in einen Zirkelimport
@@ -41,28 +43,33 @@ async def _stream(chunks: list[ChatCompletionChunk]):
         yield chunk
 
 
-def _consume(backend: Any, chunks: list[ChatCompletionChunk]) -> tuple[str, dict[str, Any]]:
-    state: dict[str, Any] = {}
+def _consume(backend: Any, chunks: list[ChatCompletionChunk]) -> tuple[str, RoundText]:
+    """The text a stream becomes for the consumers (the pieces of the backend, wrapped by the tool loop's
+    RoundText), and that RoundText with what it kept apart."""
     counters: dict[str, Any] = {"prompt_tokens": 0, "total_tokens": 0,
                                 "server_timings": {}, "last_finish_reason": None}
+    round_text = RoundText()
 
     async def run() -> str:
-        texts = [item["text"] async for item in backend._consume_stream(
-            _stream(chunks), state, counters, [])]
-        return "".join(texts)
+        items = [
+            item async for piece in backend._pieces(_stream(chunks), counters, [])
+            if isinstance(piece, TextDelta | ThinkingDelta) for item in round_text.feed(piece)
+        ]
+        items += round_text.finish()
+        return "".join(item["text"] for item in items)
 
-    return asyncio.run(run()), state
+    return asyncio.run(run()), round_text
 
 
 def test_vllm_reasoning_field_becomes_a_think_block() -> None:
-    text, state = _consume(vLLMBackend(), [
+    text, round_text = _consume(vLLMBackend(), [
         _chunk({"reasoning": "Psalm 91 "}),
         _chunk({"reasoning": "passt."}),
         _chunk({"content": "Der Herr ist meine Zuflucht."}),
     ])
     assert text == "<think>Psalm 91 passt.</think>\n\nDer Herr ist meine Zuflucht."
-    assert state["_reasoning_acc"] == "Psalm 91 passt."
-    assert state["_visible_acc"] == "Der Herr ist meine Zuflucht."
+    assert round_text.reasoning == "Psalm 91 passt."
+    assert round_text.visible == "Der Herr ist meine Zuflucht."
 
 
 def test_llamacpp_keeps_reading_reasoning_content() -> None:
@@ -121,7 +128,7 @@ def test_swallowed_tool_call_is_reported(monkeypatch) -> None:
     debug = [i["message"] for i in items if i.get("type") == "debug"]
     assert any("delivered no tool call" in m for m in debug)
     # Forced final round without tools still produces the answer
-    assert requests[1]["tools"] is None
+    assert "tools" not in requests[1]
     assert "Ohne Werkzeug." in "".join(i.get("text", "") for i in items)
 
 

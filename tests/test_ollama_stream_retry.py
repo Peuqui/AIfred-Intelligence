@@ -87,4 +87,4 @@ def test_a_model_without_think_mode_is_asked_again_without_it(monkeypatch: pytes
     assert text_of(items) == "Antwort"
     assert sent[0]["think"] is True and sent[1]["think"] is False
     assert waits == []
-    assert any(item["type"] == "thinking_warning" for item in items)
+    assert any(item["type"] == "debug" and "without think mode" in item["message"] for item in items)

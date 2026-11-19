@@ -13,7 +13,6 @@ __all__ = [
     "DoneChunk",
     "StreamChunk",
     "StreamMetrics",
-    "ThinkingWarningChunk",
 ]
 
 
@@ -65,17 +64,6 @@ class DebugChunk(TypedDict):
     message: str
 
 
-class ThinkingWarningChunk(TypedDict):
-    """
-    Warning chunk for thinking mode (Qwen3).
-
-    Example:
-        {"type": "thinking_warning", "message": "Model is in thinking mode"}
-    """
-    type: Literal["thinking_warning"]
-    message: str
-
-
 class DoneChunk(TypedDict):
     """
     Final chunk signaling stream completion with metrics.
@@ -88,4 +76,4 @@ class DoneChunk(TypedDict):
 
 
 # Union type for all possible stream chunks
-StreamChunk = ContentChunk | DebugChunk | ThinkingWarningChunk | DoneChunk
+StreamChunk = ContentChunk | DebugChunk | DoneChunk

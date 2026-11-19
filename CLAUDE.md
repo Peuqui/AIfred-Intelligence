@@ -71,7 +71,7 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
   - `text_search.py` - Wörter für FTS5 mit Trigrammen, gemeinsam für Dokumentensuche und Mail-Index
   - `research_tools.py` - Recherche-Pipeline (`run_web_search`)
 - `prompts/de/` und `prompts/en/` - Alle Prompts (NICHT hardcodiert im Code!)
-- `aifred/backends/` - LLM-Backend Adapter
+- `aifred/backends/` - LLM-Backend Adapter; EINE Werkzeugschleife für alle (`tool_loop.py`), ein Backend liefert nur `stream_round()` (Stücke aus `round_pieces.py`)
 
 ### Architektur
 - Python-Server (FastAPI unter uvicorn, ein Prozess, ein Port) mit Vue-3-Oberfläche; Plan und Stand des

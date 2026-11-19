@@ -3,7 +3,7 @@ Cloud API Backend Adapter
 
 Supports Claude (Anthropic), Qwen (DashScope), DeepSeek and Kimi (Moonshot) APIs.
 All providers use OpenAI-compatible endpoints.
-chat() and chat_stream() are inherited from OpenAICompatibleBackend.
+chat() and stream_round() are inherited from OpenAICompatibleBackend (the tool loop is shared, tool_loop.py).
 """
 
 import logging
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class CloudAPIBackend(OpenAICompatibleBackend):
     """Cloud API backend implementation (OpenAI-compatible)
 
-    Inherits chat() and chat_stream() from OpenAICompatibleBackend.
+    Inherits chat() and stream_round() from OpenAICompatibleBackend.
     Overrides:
     - _build_extra_body(): returns empty dict (cloud APIs don't use extra params)
     - _classify_error(): additional auth error detection

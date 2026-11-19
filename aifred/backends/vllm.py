@@ -3,7 +3,7 @@ vLLM Backend Adapter
 
 vLLM-Checkpoints laufen als ``-vllm``-Einträge unter llama-swap (gleiche
 URL wie das llamacpp-Backend). Dieses Backend spricht das OpenAI-API des
-jeweils geswappten vLLM-Servers; chat() und chat_stream() erben von
+jeweils geswappten vLLM-Servers; chat() und stream_round() erben von
 OpenAICompatibleBackend (inkl. chat_template_kwargs mit enable_thinking
 und reasoning_effort).
 """

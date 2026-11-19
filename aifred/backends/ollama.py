@@ -4,8 +4,9 @@ Ollama Backend Adapter
 Wraps Ollama API into unified LLMBackend interface
 """
 
+import json
 import logging
-import time
+import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -15,24 +16,29 @@ from ..lib.config import (
     DEFAULT_OLLAMA_URL,
     MIN_FREE_RAM_MB,
     MIN_USEFUL_CONTEXT_TOKENS,
-    STREAM_RETRY_DELAY_S,
-    STREAM_RETRY_WINDOW_S,
 )
 from ..lib.gpu_utils import wait_for_vram_stable
 from ..lib.logging_utils import log_message
-from ..lib.perf_metrics import InferenceWork, ThinkingClock
+from ..lib.perf_metrics import InferenceWork
 from ..lib.timer import Timer
 from .base import (
     BackendConnectionError,
+    BackendError,
     BackendInferenceError,
     BackendModelNotFoundError,
     LLMBackend,
     LLMMessage,
     LLMOptions,
     LLMResponse,
-    done_metrics,
-    wait_before_retry,
-    worth_retrying,
+)
+from .round_pieces import (
+    RoundEnd,
+    RoundPiece,
+    TextDelta,
+    ThinkingDelta,
+    ToolCall,
+    ToolCallStarted,
+    UiItem,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,39 +57,56 @@ class OllamaBackend(LLMBackend):
         self.client = httpx.AsyncClient(timeout=timeout, limits=limits)
 
     @staticmethod
-    def _convert_messages(messages: list[LLMMessage]) -> list[dict[str, Any]]:
-        """Convert LLMMessage list to Ollama format (supports multimodal content)."""
-        ollama_messages: list[dict[str, Any]] = []
+    def _text_and_images(content: str | list[dict[str, Any]] | None) -> dict[str, Any]:
+        """``content`` (text, or a list of text and image parts) as Ollama's ``content`` and ``images``."""
+        if not isinstance(content, list):
+            return {"content": content or ""}
+        text_parts: list[str] = []
+        image_base64_list: list[str] = []
+        for part in content:
+            if part.get("type") == "text":
+                text_parts.append(part.get("text", ""))
+            elif part.get("type") == "image_url":
+                image_url = part.get("image_url", {}).get("url", "")
+                if image_url.startswith("data:image"):
+                    base64_data = image_url.split("base64,", 1)[1] if "base64," in image_url else ""
+                    if base64_data:
+                        image_base64_list.append(base64_data)
+        converted: dict[str, Any] = {"content": " ".join(text_parts)}
+        if image_base64_list:
+            converted["images"] = image_base64_list
+            logger.info(f"🖼️ Added {len(image_base64_list)} image(s) to message (base64 length: {len(image_base64_list[0])})")
+        return converted
+
+    @classmethod
+    def _convert_messages(cls, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """The OpenAI-shaped messages of the tool loop in Ollama's format.
+
+        - tool calls: ``function.arguments`` is an object (the loop keeps JSON text), no ``id``/``type``
+        - tool result: ``tool_name`` instead of ``tool_call_id``, looked up in the call it answers
+        - the round's reasoning (``reasoning_content``, only when SEND_TURN_REASONING) as ``thinking``
+        """
+        names_by_call_id: dict[str, str] = {}
+        converted: list[dict[str, Any]] = []
         for msg in messages:
-            if isinstance(msg.content, list):
-                text_parts: list[str] = []
-                image_base64_list: list[str] = []
-
-                for part in msg.content:
-                    if part.get("type") == "text":
-                        text_parts.append(part.get("text", ""))
-                    elif part.get("type") == "image_url":
-                        image_url = part.get("image_url", {}).get("url", "")
-                        if image_url.startswith("data:image"):
-                            base64_data = image_url.split("base64,", 1)[1] if "base64," in image_url else ""
-                            if base64_data:
-                                image_base64_list.append(base64_data)
-
-                ollama_msg: dict[str, Any] = {
-                    "role": msg.role,
-                    "content": " ".join(text_parts)
-                }
-                if image_base64_list:
-                    ollama_msg["images"] = image_base64_list
-                    logger.info(f"🖼️ Added {len(image_base64_list)} image(s) to message (base64 length: {len(image_base64_list[0])})")
-
-                ollama_messages.append(ollama_msg)
-            elif isinstance(msg.content, str):
-                ollama_messages.append({
-                    "role": msg.role,
-                    "content": msg.content
+            if msg["role"] == "tool":
+                converted.append({
+                    "role": "tool",
+                    "content": msg["content"],
+                    "tool_name": names_by_call_id[msg["tool_call_id"]],
                 })
-        return ollama_messages
+                continue
+            ollama_msg = {"role": msg["role"], **cls._text_and_images(msg["content"])}
+            if msg.get("tool_calls"):
+                names_by_call_id.update({call["id"]: call["function"]["name"] for call in msg["tool_calls"]})
+                ollama_msg["tool_calls"] = [
+                    {"function": {"name": call["function"]["name"], "arguments": json.loads(call["function"]["arguments"])}}
+                    for call in msg["tool_calls"]
+                ]
+            if msg.get("reasoning_content"):
+                ollama_msg["thinking"] = msg["reasoning_content"]
+            converted.append(ollama_msg)
+        return converted
 
     async def list_models(self) -> list[str]:
         """Get list of available Ollama models"""
@@ -99,12 +122,13 @@ class OllamaBackend(LLMBackend):
     def _build_chat_payload(
         self,
         model: str,
-        messages: list[LLMMessage],
+        messages: list[dict[str, Any]],
         options: LLMOptions,
-        stream: bool
+        stream: bool,
+        tools: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """
-        Build the /api/chat request payload (options dict + think flag).
+        Build the /api/chat request payload (options dict + think flag; ``tools`` only when given).
 
         Thinking Mode: Set based on options AND model capability
         - If supports_thinking=False (known not supported), skip thinking even if enabled
@@ -138,6 +162,8 @@ class OllamaBackend(LLMBackend):
             "options": ollama_options,
             "stream": stream
         }
+        if tools:
+            payload["tools"] = tools
 
         if options.supports_thinking is False:
             # Model known to NOT support thinking - skip it
@@ -200,7 +226,7 @@ class OllamaBackend(LLMBackend):
             model: Ollama model name (e.g., 'qwen3:8b')
             messages: List of LLMMessage
             options: Generation options
-            stream: Ignored (use chat_stream for streaming)
+            stream: Ignored (streaming is chat_stream of LLMBackend, over stream_round)
 
         Returns:
             LLMResponse
@@ -211,7 +237,7 @@ class OllamaBackend(LLMBackend):
         if options is None:
             options = LLMOptions()
 
-        payload = self._build_chat_payload(model, messages, options, stream=False)
+        payload = self._build_chat_payload(model, [msg.as_dict() for msg in messages], options, stream=False)
 
         try:
             timer = Timer()
@@ -269,138 +295,101 @@ class OllamaBackend(LLMBackend):
         except Exception as e:
             raise BackendInferenceError(f"Ollama chat failed: {e}") from e
 
-    async def chat_stream(
+    async def _pre_request_check(self, model: str) -> float:
+        """A hybrid model (CPU+GPU offload) needs the others unloaded first. Once per turn: after the
+        first round the model is loaded and the check skips. Ollama loads inside the request, so no
+        load time is reported before it."""
+        await self._handle_hybrid_model_unload(model)
+        return 0.0
+
+    def _classify_error(self, error: Exception, model: str) -> BackendError:
+        if isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 404:
+            return BackendModelNotFoundError(f"Model '{model}' not found")
+        return BackendInferenceError(f"Ollama streaming error: {error}")
+
+    @staticmethod
+    async def _rejects_thinking(response: httpx.Response, payload: dict[str, Any]) -> bool:
+        """Did Ollama answer 400 "does not support thinking" to a request that asked for it? Reads the
+        body only then."""
+        if response.status_code != 400 or not payload.get("think"):
+            return False
+        try:
+            error = json.loads(await response.aread()).get("error", "")
+        except ValueError:
+            return False  # not Ollama's error format: raise_for_status reports the 400 as it is
+        return "does not support thinking" in str(error)
+
+    async def stream_round(
         self,
         model: str,
-        messages: list[LLMMessage],
-        options: LLMOptions | None = None
-    ) -> AsyncIterator[dict]:
+        messages: list[dict[str, Any]],
+        options: LLMOptions,
+        tools: list[dict[str, Any]] | None,
+    ) -> AsyncIterator[RoundPiece]:
+        """One request over the native /api/chat (not /v1: it cannot set num_ctx per request).
+
+        A model without think mode answers 400 to ``think=true``: that request goes out again without
+        it, before any piece was yielded, and the debug console says so.
         """
-        Streaming chat with Ollama
-
-        Args:
-            model: Ollama model name
-            messages: List of LLMMessage
-            options: Generation options
-
-        Yields:
-            Dict with either:
-            - {"type": "content", "text": str} for content chunks
-            - {"type": "done", "metrics": {...}} for final metrics
-        """
-        # Check if this is a hybrid model and unload if needed
-        await self._handle_hybrid_model_unload(model)
-
-        if options is None:
-            options = LLMOptions()
-
-        payload = self._build_chat_payload(model, messages, options, stream=True)
-
-        # A new try goes out while nothing has been yielded yet (once the caller has seen a chunk,
-        # it would duplicate content): once without think mode when the model has none, and on an
-        # error a new try can get past (worth_retrying) within STREAM_RETRY_WINDOW_S.
-        retry_message_shown = False
-        first_content_sent = False
-        yielded_any = False
-        without_think = False  # the model said it has no think mode: this try runs without it
-        start_time = time.monotonic()
+        payload = self._build_chat_payload(model, messages, options, stream=True, tools=tools)
+        without_think = False
         while True:
-
-            try:
-                timer = Timer()
-                thinking_started = False
-                thinking_buffer = ""
-                think_clock = ThinkingClock()
-
-                def content_item(
-                    text: str, clock: ThinkingClock = think_clock, try_timer: Timer = timer,
-                ) -> dict[str, Any]:
-                    clock.observe(text, try_timer.elapsed())
-                    return {"type": "content", "text": text}
-
-                async with self.client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
-                    # Check for 400 error with thinking mode BEFORE raise_for_status
-                    if response.status_code == 400 and options.enable_thinking and not without_think and not yielded_any:
-                        # Read error body while stream is still open
-                        import json
-                        error_body = await response.aread()
-                        error_data = json.loads(error_body.decode('utf-8'))
-                        error_msg = error_data.get("error", "")
-
-                        if "does not support thinking" in error_msg:
-                            log_message(f"⚠️ Model '{model}' does not support thinking mode, retrying with think=false")
-                            payload["think"] = False
-                            without_think = True
-                            continue  # the warning is shown with the first content
-                        else:
-                            # Different 400 error
-                            response.raise_for_status()
-                    elif response.status_code == 404:
-                        raise BackendModelNotFoundError(f"Model '{model}' not found")
-                    elif response.status_code >= 400:
-                        response.raise_for_status()
-
-                    # Process stream
-                    async for line in response.aiter_lines():
-                        if line.strip():
-                            import json
-                            try:
-                                data = json.loads(line)
-                                message = data.get("message", {})
-                                content = message.get("content", "")
-                                thinking = message.get("thinking", "")
-
-                                # Handle thinking chunks
-                                if thinking:
-                                    if not thinking_started:
-                                        yield content_item("<think>")
-                                        yielded_any = True
-                                        thinking_started = True
-                                    thinking_buffer += thinking
-                                    yield content_item(thinking)
-                                    yielded_any = True
-
-                                # Handle content chunks
-                                if content:
-                                    # Show the warning before the first content of the try without think mode
-                                    if not first_content_sent and without_think and not retry_message_shown:
-                                        yield {"type": "thinking_warning", "model": model}
-                                        yield {"type": "debug", "message": f"⚠️ Model '{model}' doesn't support reasoning - running without think mode"}
-                                        yielded_any = True
-                                        retry_message_shown = True
-                                        first_content_sent = True
-
-                                    if thinking_started and thinking_buffer:
-                                        yield content_item("</think>\n\n")
-                                        thinking_started = False
-                                        thinking_buffer = ""
-                                    yield content_item(content)
-                                    yielded_any = True
-
-                                # Check if done - extract metrics
-                                if data.get("done", False):
-                                    work = InferenceWork.from_ollama(data)
-                                    work = work + InferenceWork(thinking_s=think_clock.total_s)
-                                    yield {
-                                        "type": "done",
-                                        "metrics": done_metrics(
-                                            int(data.get("prompt_eval_count") or 0), work, timer.elapsed(), model,
-                                        ),
-                                    }
-                                    return  # Success, exit function
-                            except json.JSONDecodeError as e:
-                                logger.warning(f"Invalid JSON in Ollama stream: {line[:100]}... Error: {e}")
-                                continue
-
-            except (httpx.HTTPStatusError, httpx.TransportError) as e:
-                remaining = STREAM_RETRY_WINDOW_S - (time.monotonic() - start_time)
-                if not yielded_any and worth_retrying(e) and remaining > STREAM_RETRY_DELAY_S:
-                    await wait_before_retry(model, e, remaining)
+            async with self.client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
+                if await self._rejects_thinking(response, payload):
+                    log_message(f"⚠️ Model '{model}' does not support thinking mode, retrying with think=false")
+                    payload["think"] = False
+                    without_think = True
                     continue
-                if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404:
-                    raise BackendModelNotFoundError(f"Model '{model}' not found") from e
-                raise BackendInferenceError(f"Ollama streaming error: {e}") from e
+                response.raise_for_status()
+                if without_think:
+                    yield UiItem({
+                        "type": "debug",
+                        "message": f"⚠️ Model '{model}' doesn't support reasoning - running without think mode",
+                    })
+                async for piece in self._pieces(response):
+                    yield piece
+                return
 
+    @staticmethod
+    async def _pieces(response: httpx.Response) -> AsyncIterator[RoundPiece]:
+        """Translate the NDJSON lines of one /api/chat stream into pieces.
+
+        Ollama delivers a tool call complete in one chunk (arguments as an object) and without an id; the
+        id is made here, random: counting the rounds in the messages would repeat an id once the loop compression
+        has summarized old rounds while a later one with that id is still kept (its result would get the wrong tool name).
+        """
+        tool_calls: list[ToolCall] = []
+        async for line in response.aiter_lines():
+            if not line.strip():
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Invalid JSON in Ollama stream: {line[:100]}... Error: {e}")
+                continue
+            message = data.get("message", {})
+            if message.get("thinking"):
+                yield ThinkingDelta(message["thinking"])
+            if message.get("content"):
+                yield TextDelta(message["content"])
+            for call in message.get("tool_calls") or []:
+                name = call["function"]["name"]
+                yield ToolCallStarted(name)
+                tool_calls.append(ToolCall(
+                    id=f"ollama-{uuid.uuid4().hex}",
+                    name=name,
+                    arguments=json.dumps(call["function"]["arguments"], ensure_ascii=False),
+                ))
+            if data.get("done"):
+                yield RoundEnd(
+                    tool_calls=tool_calls,
+                    finish_reason=data.get("done_reason"),
+                    prompt_tokens=int(data.get("prompt_eval_count") or 0),
+                    completion_tokens=int(data.get("eval_count") or 0),
+                    work=InferenceWork.from_ollama(data),
+                )
+                return
+        raise BackendInferenceError("Ollama stream ended without its final chunk (done)")
     async def test_thinking_capability(self, model: str) -> bool:
         """
         Test if a model supports thinking mode (<think> tags).
@@ -578,7 +567,7 @@ class OllamaBackend(LLMBackend):
         Preload a model into VRAM by sending a minimal chat request.
         This warms up the model so future requests are faster.
 
-        Hybrid model handling is done automatically in chat() and chat_stream().
+        Hybrid model handling is done automatically in chat() and, once per turn, in the tool loop (_pre_request_check).
 
         Args:
             model: Model name to preload (e.g., 'qwen3:8b')
@@ -596,7 +585,7 @@ class OllamaBackend(LLMBackend):
             log_message(f"⏱️ preload_model: START for {model} (Context={num_ctx})")
 
             # Hybrid model unloading is handled in _handle_hybrid_model_unload()
-            # which is called from chat() and chat_stream()
+            # which is called from chat() and _pre_request_check() (the tool loop)
             await self._handle_hybrid_model_unload(model)
 
             # Load the requested model

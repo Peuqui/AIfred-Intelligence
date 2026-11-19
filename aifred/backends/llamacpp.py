@@ -3,7 +3,7 @@ llama.cpp Backend Adapter (via llama-swap)
 
 llama-swap is an OpenAI-compatible proxy that manages llama-server instances.
 It handles model loading/unloading, GPU allocation, and hot-swapping.
-chat() and chat_stream() are inherited from OpenAICompatibleBackend.
+chat() and stream_round() are inherited from OpenAICompatibleBackend (the tool loop is shared, tool_loop.py).
 
 See docs/en/guides/llamacpp-setup.md for hardware configuration and performance tuning.
 """
@@ -46,10 +46,10 @@ def _require_timings(server_timings: dict[str, Any]) -> None:
 class LlamaCppBackend(OpenAICompatibleBackend):
     """llama.cpp backend via llama-swap (OpenAI-compatible)
 
-    Inherits chat() and chat_stream() from OpenAICompatibleBackend.
+    Inherits chat() and stream_round() from OpenAICompatibleBackend.
     - _build_extra_body(): ALWAYS sends all sampling params (override server CLI defaults)
-    - reasoning: llama-server streams it as ``reasoning_content``; the
-      <think> state machine lives in the base class (REASONING_FIELD)
+    - reasoning: llama-server streams it as ``reasoning_content`` (REASONING_FIELD);
+      the base class hands it on as ThinkingDelta, the tool loop wraps it in <think>
     """
 
     BACKEND_NAME = "llama.cpp"

@@ -11,11 +11,14 @@ from typing import TYPE_CHECKING, Any
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 
-from aifred.lib.config import DEFAULT_OLLAMA_URL, STREAM_RETRY_DELAY_S, STREAM_RETRY_WINDOW_S
-from aifred.lib.perf_metrics import InferenceWork, ThinkingClock
+from aifred.lib.config import DEFAULT_OLLAMA_URL, STREAM_RETRY_DELAY_S
+from aifred.lib.perf_metrics import InferenceWork
+
+from .round_pieces import RoundEnd, RoundPiece, TextDelta, ThinkingDelta, ToolCall, ToolCallStarted
 
 if TYPE_CHECKING:
     from aifred.lib.context_manager import LoopCompression
+    from aifred.lib.function_calling import ToolKit
 
 # llama-swap's answer when the upstream process died before serving.
 UPSTREAM_EXIT_MARKER = "upstream command exited prematurely"
@@ -70,6 +73,10 @@ class LLMMessage:
     """
     role: str  # "system", "user", "assistant"
     content: str | list[dict[str, Any]]  # String for text-only, list for multimodal
+
+    def as_dict(self) -> dict[str, Any]:
+        """The message as the OpenAI-shaped dict the backends and the tool loop work with."""
+        return {"role": self.role, "content": self.content}
 
 
 @dataclass
@@ -130,6 +137,16 @@ class LLMBackend(ABC):
     Implementations: OllamaBackend, vLLMBackend, LlamaCppBackend, OpenAIBackend
     """
 
+    # Turn-internes Reasoning in den Runden-Messages des Tool-Loops
+    # zurückreichen (Feld ``reasoning_content``). Default aus: Cloud-APIs
+    # lehnen das Feld teils hart ab (DeepSeek: 400) und vLLM verwirft es
+    # still (Issue #38488, nutzt ``reasoning``). llama.cpp akzeptiert es
+    # und rendert es trainingsgemäß ins Template — das llamacpp-Backend
+    # schaltet frei. Bewusst ein Backend-Gate, kein Modell-Gate: Templates
+    # ohne Reasoning-Support ignorieren das Feld einfach. Ollama: aus, bis ein
+    # Live-Test belegt, dass die Chat-Vorlage ``thinking`` rendert.
+    SEND_TURN_REASONING: bool = False
+
     def __init__(self, base_url: str = DEFAULT_OLLAMA_URL, api_key: str | None = None):
         self.base_url = base_url
         self.api_key = api_key
@@ -161,33 +178,66 @@ class LLMBackend(ABC):
         """
 
     @abstractmethod
-    def chat_stream(
+    def stream_round(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        options: LLMOptions,
+        tools: list[dict[str, Any]] | None,
+    ) -> AsyncIterator[RoundPiece]:
+        """Send ONE request of the tool loop and yield its answer as pieces (``round_pieces``).
+
+        ``messages`` are the loop's OpenAI-shaped messages (``tool_calls`` with ``function.arguments`` as
+        JSON text, ``role: tool`` with ``tool_call_id``, content as text or a list of text/image parts); a
+        backend with another wire format translates them. ``tools`` are OpenAI-shaped definitions, None
+        = this request carries no tools.
+
+        Yields ``TextDelta`` / ``ThinkingDelta`` (never an empty text), ``ToolCallStarted`` as soon as a
+        call's name is known, ``UiItem`` for debug items of its own, and exactly once, last, ``RoundEnd``
+        with the complete tool calls, the finish reason, the counters and what the server computed.
+        Errors are raised as they are (httpx / openai); the loop retries and classifies them
+        (``worth_retrying``, ``_backend_error``).
+
+        Like any async generator function, implementations use 'async def' with 'yield'.
+        """
+
+    async def chat_stream(
         self,
         model: str,
         messages: list[LLMMessage],
-        options: LLMOptions | None = None
+        options: LLMOptions | None = None,
+        toolkit: "ToolKit | None" = None,
+        compression: "LoopCompression | None" = None,
+        interjections: Callable[[], Awaitable[list[str]]] | None = None,
     ) -> AsyncIterator[dict]:
+        """Stream the answer; with a ``toolkit`` the tools run in rounds. One implementation for every
+        backend (``tool_loop.run_tool_loop``), the backend only provides ``stream_round``.
+
+        ``compression``: who summarizes when the loop's messages reach HISTORY_COMPRESSION_TRIGGER; without
+        it the loop ends the tool phase there. ``interjections``: asked after every tool round for the
+        texts the user sent meanwhile.
+
+        Yields dicts of ``type``:
+        - ``model_load`` first, when the request had to load the model (llama-swap backends)
+        - ``content`` for text (reasoning as <think>...</think>), ``tool_call_start`` / ``tool_call`` /
+          ``tool_progress`` / ``tool_note`` / ``tool_artifacts`` / ``tool_result``, ``progress`` / ``debug``
+        - ``done`` with the metrics, last
         """
-        Streaming chat completion (async generator)
+        from .tool_loop import run_tool_loop  # tool_loop imports this module
 
-        Args:
-            model: Model name/ID
-            messages: List of messages
-            options: Generation options
+        loop_messages = [msg.as_dict() for msg in messages]
+        async for item in run_tool_loop(
+            self, model, loop_messages, options or LLMOptions(), toolkit, compression, interjections,
+        ):
+            yield item
 
-        Yields:
-            Dict with either:
-            - {"type": "model_load", "seconds": float} first, when the
-              request had to load the model (llama-swap backends)
-            - {"type": "content", "text": str} for content chunks
-            - {"type": "done", "metrics": {...}} for final metrics
+    async def _backend_error(self, error: Exception, model: str) -> "BackendError":
+        """BackendError for a failed request; a backend that can say more about the cause overrides this."""
+        return self._classify_error(error, model)
 
-        Note:
-            This returns an AsyncIterator, so implementations should use
-            'async def' with 'yield' (async generator function).
-            The abstract method signature does NOT use 'async def' because
-            it declares the return type AsyncIterator directly.
-        """
+    @abstractmethod
+    def _classify_error(self, error: Exception, model: str) -> "BackendError":
+        """Map an exception of a request to a specific BackendError subtype."""
 
     @abstractmethod
     async def health_check(self) -> bool:
@@ -332,8 +382,7 @@ class OpenAICompatibleBackend(LLMBackend):
     Subclasses override hooks to customize behavior:
     - _build_extra_body(): sampling params in extra_body
     - _process_response_text(): extract text from non-streaming response
-    - _process_stream_delta(): handle streaming chunks
-    - _finalize_stream(): cleanup after stream ends
+    - _before_stream_request() / _request_work() / _extract_server_timings(): per-request measurement
     - _classify_error(): map exceptions to BackendError types
     """
 
@@ -342,14 +391,6 @@ class OpenAICompatibleBackend(LLMBackend):
     # (235B ~165s reines Read + Pre-Init); zu knappe Timeouts brechen
     # den ersten Request nach Modell-Eviction unnötig ab.
     DEFAULT_TIMEOUT: float = 300.0
-    # Turn-internes Reasoning in den Runden-Messages des Tool-Loops
-    # zurückreichen (Feld ``reasoning_content``). Default aus: Cloud-APIs
-    # lehnen das Feld teils hart ab (DeepSeek: 400) und vLLM verwirft es
-    # still (Issue #38488, nutzt ``reasoning``). llama.cpp akzeptiert es
-    # und rendert es trainingsgemäß ins Template — das llamacpp-Backend
-    # schaltet frei. Bewusst ein Backend-Gate, kein Modell-Gate: Templates
-    # ohne Reasoning-Support ignorieren das Feld einfach.
-    SEND_TURN_REASONING: bool = False
     # Name des Felds, in dem der Server den Denkteil GETRENNT vom Antworttext
     # liefert: llama.cpp (``--reasoning-format``) nennt es
     # ``reasoning_content``, vLLM (``--reasoning-parser``) ``reasoning``.
@@ -445,47 +486,12 @@ class OpenAICompatibleBackend(LLMBackend):
             return f"<think>{reasoning}</think>\n\n{content}"
         return content
 
-    def _process_stream_delta(self, delta: Any, delta_dict: dict, stream_state: dict) -> list[dict]:
-        """Stream the reasoning field as <think> tags (state machine).
-
-        Nebenbei werden Reasoning und sichtbarer Text getrennt akkumuliert
-        (``_reasoning_acc``/``_visible_acc``): Der Tool-Loop reicht beide in
-        der Runden-History zurück, damit das Modell im laufenden Turn sein
-        eigenes Denken und seine Zwischenmeldungen wiedersieht (Qwen3.8-
-        Template rendert turn-internes Reasoning immer; ältere Templates
-        ignorieren das Feld einfach).
-        """
-        chunks: list[dict] = []
-        reasoning = (delta_dict.get(self.REASONING_FIELD) or "") if self.REASONING_FIELD else ""
-
-        if reasoning:
-            if not stream_state.get("thinking_started"):
-                chunks.append({"type": "content", "text": "<think>"})
-                stream_state["thinking_started"] = True
-            chunks.append({"type": "content", "text": reasoning})
-            stream_state["_reasoning_acc"] = stream_state.get("_reasoning_acc", "") + reasoning
-
-        if delta.content:
-            if stream_state.get("thinking_started"):
-                chunks.append({"type": "content", "text": "</think>\n\n"})
-                stream_state["thinking_started"] = False
-            chunks.append({"type": "content", "text": delta.content})
-            stream_state["_visible_acc"] = stream_state.get("_visible_acc", "") + delta.content
-
-        return chunks
-
     def _before_stream_request(self) -> None:
         """Hook right before each streamed server request, tool rounds included.
 
         vLLM reads its own counters here; ``_request_work`` reads them again
         right after the request, so the delta is exactly that one request.
         """
-
-    def _finalize_stream(self, stream_state: dict) -> list[dict]:
-        """Close open <think> tag if stream ends during thinking (edge case)."""
-        if stream_state.get("thinking_started"):
-            return [{"type": "content", "text": "</think>\n\n"}]
-        return []
 
     # The upstream log stream sends its history first and then stays open;
     # this bounds how long we collect it.
@@ -680,7 +686,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
         load_s = await self._pre_request_check(model)
 
-        openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
+        openai_messages = [msg.as_dict() for msg in messages]
 
         kwargs: dict[str, Any] = {
             "model": model,
@@ -722,40 +728,76 @@ class OpenAICompatibleBackend(LLMBackend):
         except Exception as e:  # noqa: BLE001 — every error reaches the caller as a BackendError (_backend_error)
             raise await self._backend_error(e, model)
 
-    @staticmethod
-    def _truncation_debug(finish_reason: str | None) -> list[dict[str, str]]:
-        """Debug item when the model stopped at the token/context limit.
+    # === One request of the tool loop ===
 
-        ``finish_reason="length"`` means the answer is cut off: with
-        ``--no-context-shift`` the context window ran full, otherwise a
-        max_tokens cap was hit. Both leave the response incomplete —
-        often mid-plan, before a tool call the model still intended to
-        make — so it must be visible instead of looking like a clean
-        finish. Empty list when the model stopped on its own.
-        """
-        if finish_reason != "length":
-            return []
-        message = (
-            "⚠️ Response truncated (finish_reason=length) — token or "
-            "context limit reached, answer is incomplete"
+    def _chat_stream_kwargs(
+        self, model: str, messages: list[dict[str, Any]], options: LLMOptions, tools: list[dict[str, Any]] | None,
+    ) -> dict[str, Any]:
+        """The streamed completion request; without ``tools`` the key is left out."""
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "temperature": options.temperature,
+            "top_p": options.top_p,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if options.num_predict:
+            kwargs["max_tokens"] = options.num_predict
+        if tools:
+            kwargs["tools"] = tools
+        extra_body = self._build_extra_body(options, model)
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+        return kwargs
+
+    async def stream_round(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        options: LLMOptions,
+        tools: list[dict[str, Any]] | None,
+    ) -> AsyncIterator[RoundPiece]:
+        from ..lib.timer import Timer
+
+        kwargs = self._chat_stream_kwargs(model, messages, options, tools)
+        self._before_stream_request()
+        timer = Timer()
+        stream = await self.client.chat.completions.create(**kwargs)
+        counters: dict[str, Any] = {
+            "prompt_tokens": 0,
+            "total_tokens": 0,
+            "server_timings": {},
+            "last_finish_reason": None,
+        }
+        tool_calls: list[dict[str, Any]] = []
+        first_piece_s: float | None = None
+        async for piece in self._pieces(stream, counters, tool_calls):
+            if first_piece_s is None:
+                first_piece_s = timer.elapsed()
+            yield piece
+        work = self._request_work(
+            counters["prompt_tokens"], counters["total_tokens"], counters["server_timings"],
+            first_piece_s, timer.elapsed(),
         )
-        from ..lib.logging_utils import log_message
-        log_message(message)
-        return [{"type": "debug", "message": message}]
+        yield RoundEnd(
+            tool_calls=[ToolCall(**call) for call in tool_calls],
+            finish_reason=counters["last_finish_reason"],
+            prompt_tokens=counters["prompt_tokens"],
+            completion_tokens=counters["total_tokens"],
+            work=work,
+        )
 
-    async def _consume_stream(
+    async def _pieces(
         self,
         stream: Any,
-        stream_state: dict[str, Any],
         counters: dict[str, Any],
-        tool_calls: list[dict[str, Any]] | None,
-    ) -> AsyncIterator[dict]:
-        """Consume one completion stream and yield UI items.
+        tool_calls: list[dict[str, Any]],
+    ) -> AsyncIterator[RoundPiece]:
+        """Translate one completion stream into pieces.
 
-        Updates counters in place (prompt_tokens, total_tokens,
-        server_timings, last_finish_reason). Accumulates streamed
-        tool-call deltas into tool_calls when a list is given
-        (pass None for tool-free rounds).
+        Updates counters in place (prompt_tokens, total_tokens, server_timings, last_finish_reason) and
+        accumulates the streamed tool-call deltas into tool_calls.
         """
         async for chunk in stream:
             if chunk.choices:
@@ -769,8 +811,7 @@ class OpenAICompatibleBackend(LLMBackend):
                 ):
                     delta_dict[self.REASONING_FIELD] = delta.model_extra[self.REASONING_FIELD]
 
-                # Accumulate tool calls from streaming deltas
-                if tool_calls is not None and hasattr(delta, "tool_calls") and delta.tool_calls:
+                if hasattr(delta, "tool_calls") and delta.tool_calls:
                     for tc_delta in delta.tool_calls:
                         idx = tc_delta.index
                         while idx >= len(tool_calls):
@@ -781,22 +822,20 @@ class OpenAICompatibleBackend(LLMBackend):
                             if tc_delta.function.name:
                                 tool_calls[idx]["name"] = tc_delta.function.name
                                 # Notify UI immediately when tool name is known
-                                yield {"type": "tool_call_start", "name": tc_delta.function.name}
+                                yield ToolCallStarted(tc_delta.function.name)
                             if tc_delta.function.arguments:
                                 tool_calls[idx]["arguments"] += tc_delta.function.arguments
 
-                # Normal content/thinking chunks
-                for item in self._process_stream_delta(delta, delta_dict, stream_state):
-                    yield item
-                    if item.get("type") == "content":
-                        counters["total_tokens"] += 1
-                        stream_state.setdefault("_content_acc", "")
-                        stream_state["_content_acc"] += item.get("text", "")
+                reasoning = (delta_dict.get(self.REASONING_FIELD) or "") if self.REASONING_FIELD else ""
+                if reasoning:
+                    counters["total_tokens"] += 1
+                    yield ThinkingDelta(reasoning)
+                if delta.content:
+                    counters["total_tokens"] += 1
+                    yield TextDelta(delta.content)
 
-                # Track finish_reason — set on the chunk that
-                # closes the stream. Used to detect a
-                # truncated tool-call (finish_reason="length"
-                # = hit max_tokens before the args were complete).
+                # finish_reason is set on the chunk that closes the stream; "length" on a tool call =
+                # hit max_tokens before the args were complete.
                 if chunk.choices[0].finish_reason:
                     counters["last_finish_reason"] = chunk.choices[0].finish_reason
 
@@ -804,429 +843,3 @@ class OpenAICompatibleBackend(LLMBackend):
                 counters["prompt_tokens"] = chunk.usage.prompt_tokens
                 counters["total_tokens"] = chunk.usage.completion_tokens
                 counters["server_timings"] = self._extract_server_timings(chunk)
-
-        for item in self._finalize_stream(stream_state):
-            yield item
-
-    async def chat_stream(
-        self,
-        model: str,
-        messages: list[LLMMessage],
-        options: LLMOptions | None = None,
-        toolkit: Any | None = None,
-        compression: "LoopCompression | None" = None,
-        interjections: Callable[[], Awaitable[list[str]]] | None = None,
-    ) -> AsyncIterator[dict]:
-        """Stream the answer; with a ``toolkit`` the tool loop runs here.
-
-        ``compression``: who summarizes when the loop's messages reach HISTORY_COMPRESSION_TRIGGER
-        (context_manager.compress_tool_loop); without it the loop ends the tool phase there.
-        ``interjections``: asked after every tool round for the texts the user sent meanwhile; each becomes a
-        user message the next request carries (not after the context guard stopped the tool rounds).
-        """
-        if options is None:
-            options = LLMOptions()
-
-        load_s = await self._pre_request_check(model)
-        if load_s:
-            yield {"type": "model_load", "seconds": load_s}
-
-        openai_messages: list[dict[str, Any]] = [
-            {"role": msg.role, "content": msg.content} for msg in messages
-        ]
-
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "messages": openai_messages,
-            "temperature": options.temperature,
-            "top_p": options.top_p,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
-        if options.num_predict:
-            kwargs["max_tokens"] = options.num_predict
-        if toolkit and toolkit.definitions:
-            kwargs["tools"] = toolkit.definitions
-
-        extra_body = self._build_extra_body(options, model)
-        if extra_body:
-            kwargs["extra_body"] = extra_body
-
-        import time
-
-        from ..lib.config import HISTORY_COMPRESSION_TRIGGER, MAX_TOOL_ROUNDS
-        max_tool_rounds = MAX_TOOL_ROUNDS
-        start_time = time.monotonic()
-        last_error: Exception | None = None
-
-        # Once we have yielded anything to the caller, retries are no longer
-        # safe: the caller has already received partial output (content chunks,
-        # tool_call/tool_result with side effects). Restarting the stream
-        # would duplicate content and re-execute non-idempotent tools.
-        yielded_any = False
-
-        while time.monotonic() - start_time < STREAM_RETRY_WINDOW_S:
-            try:
-                from ..lib.timer import Timer
-                timer = Timer()
-
-                total_tokens = 0
-                prompt_tokens = 0
-                server_timings: dict[str, Any] = {}
-                # Summed over every request of this turn and the sub-agents
-                # its tools ran (they report theirs as tool_work events).
-                work = InferenceWork()
-                thinking = ThinkingClock()
-                last_round_had_tool_calls = False
-                # True once any round hit finish_reason="length" — surfaces in
-                # the done metrics so the pipeline can mark the result as
-                # truncated (⚠️ in the done line instead of a clean ✅).
-                truncated_any = False
-                # True once the context guard stopped further tool rounds (the
-                # context stays over the trigger after compressing) —
-                # gates the text-extraction fallback below so a model that
-                # emits tool-call syntax as text can't sneak in another round.
-                context_guard_tripped = False
-                # Seconds from request start to the first streamed token —
-                # the decode fallback divides by the time after it.
-                first_token_s: float | None = None
-
-                for _tool_round in range(max_tool_rounds):
-                    self._before_stream_request()
-                    request_start = timer.elapsed()
-                    request_first: float | None = None
-                    stream = await self.client.chat.completions.create(**kwargs)
-
-                    stream_state: dict[str, Any] = {}
-                    tool_calls: list[dict[str, Any]] = []
-                    counters: dict[str, Any] = {
-                        "prompt_tokens": 0,
-                        "total_tokens": 0,
-                        "server_timings": {},
-                        "last_finish_reason": None,
-                    }
-                    async for item in self._consume_stream(
-                        stream, stream_state, counters, tool_calls
-                    ):
-                        if request_first is None:
-                            request_first = timer.elapsed() - request_start
-                        if item.get("type") == "content":
-                            if first_token_s is None:
-                                first_token_s = timer.elapsed()
-                            thinking.observe(item["text"], timer.elapsed())
-                        yield item
-                        yielded_any = True
-                    prompt_tokens = counters["prompt_tokens"]
-                    total_tokens = counters["total_tokens"]
-                    server_timings = counters["server_timings"]
-                    work = work + self._request_work(
-                        prompt_tokens, total_tokens, server_timings,
-                        request_first, timer.elapsed() - request_start,
-                    )
-                    last_finish_reason: str | None = counters["last_finish_reason"]
-
-                    # Surface a hit token/context limit. Without this a
-                    # truncated answer is indistinguishable from a finished
-                    # one — the loop would just break out below and report
-                    # success while the model was cut off mid-work.
-                    trunc_items = self._truncation_debug(last_finish_reason)
-                    if trunc_items:
-                        truncated_any = True
-                    for item in trunc_items:
-                        yield item
-
-                    # Discard tool calls if generation was truncated mid-args.
-                    # Executing partial JSON would just emit a noisy error to
-                    # the model and likely trigger the same broken call again.
-                    if tool_calls and last_finish_reason == "length":
-                        from ..lib.logging_utils import log_message
-                        log_message(
-                            "⚠️ Discarding partial tool calls — "
-                            "model will produce a normal answer"
-                        )
-                        yield {"type": "debug", "message": "⚠️ Partial tool calls discarded"}
-                        tool_calls = []
-
-                    # Fallback: extract tool calls from text content for models
-                    # that emit them as text instead of using the structured
-                    # tool_calls API (Hermes-tunes, model merges, llama.cpp
-                    # chat templates without OpenAI tools translation).
-                    # Loud by design: every detected pattern emits a debug
-                    # message — successful extractions, halluzinations and
-                    # unparsable patterns alike. No silent recoveries.
-                    if not tool_calls and toolkit and toolkit.definitions and not context_guard_tripped:
-                        from ..lib.function_calling import extract_text_tool_calls
-                        content_text = stream_state.get("_content_acc", "")
-                        extracted, cleaned, debug_msgs = extract_text_tool_calls(
-                            content_text, toolkit
-                        )
-                        for msg in debug_msgs:
-                            yield {"type": "debug", "message": msg}
-                        if extracted:
-                            tool_calls = extracted
-                            # Replace accumulated content with the cleaned
-                            # version so the next round's assistant_msg doesn't
-                            # echo the tool-call tag back to the model (which
-                            # would either confuse it or trigger a re-call).
-                            stream_state["_content_acc"] = cleaned
-                            # Same reason for the visible-text accumulator that
-                            # feeds assistant_msg["content"] below.
-                            if "_visible_acc" in stream_state:
-                                stream_state["_visible_acc"] = cleaned
-
-                    # The server announced tool calls, but none arrived: its
-                    # tool-call parser does not match the call format the
-                    # model's chat template prescribes. vLLM's hermes parser
-                    # swallowed Qwen3.8's XML calls exactly like this, without
-                    # a single log line, for two weeks (2026-09-11) — the
-                    # turn just ended or went into the forced final round.
-                    if not tool_calls and last_finish_reason == "tool_calls":
-                        from ..lib.logging_utils import log_message
-                        parser_msg = (
-                            "⚠️ Server reported finish_reason=tool_calls but "
-                            "delivered no tool call — its tool-call parser does "
-                            "not match the model's chat template"
-                        )
-                        log_message(parser_msg)
-                        yield {"type": "debug", "message": parser_msg}
-
-                    # No tool calls → done
-                    if not tool_calls or not toolkit:
-                        last_round_had_tool_calls = False
-                        break
-
-                    last_round_had_tool_calls = True
-
-                    # Execute tool calls and append results to messages.
-                    # Sichtbaren Text und (gated) das Runden-Reasoning
-                    # mitgeben statt content=None: Das Modell sieht im
-                    # laufenden Turn seine eigenen Zwischenmeldungen und
-                    # Gedanken wieder — vorher gingen BEIDE zwischen den
-                    # Tool-Runden verloren und es musste seinen Stand jede
-                    # Runde aus Tool-Args/Results rekonstruieren. Zwischen
-                    # den Turns strippt die llm_history weiterhin (bewusst).
-                    assistant_msg: dict[str, Any] = {
-                        "role": "assistant",
-                        "content": stream_state.get("_visible_acc") or None,
-                        "tool_calls": [
-                            {
-                                "id": tc["id"],
-                                "type": "function",
-                                "function": {"name": tc["name"], "arguments": tc["arguments"]},
-                            }
-                            for tc in tool_calls
-                        ],
-                    }
-                    if self.SEND_TURN_REASONING and stream_state.get("_reasoning_acc"):
-                        assistant_msg["reasoning_content"] = stream_state["_reasoning_acc"]
-                    kwargs["messages"].append(assistant_msg)
-
-                    round_result_tokens = 0
-                    for tc in tool_calls:
-                        # Full arguments: the sub-agent transcript shows the code a
-                        # tool ran; debug views shorten them themselves.
-                        yield {"type": "tool_call", "name": tc["name"], "arguments": tc["arguments"]}
-                        yielded_any = True
-                        # Use execute_streaming so streaming tools (web_search,
-                        # search_documents, …) can emit tool_progress events
-                        # while they run. Non-streaming tools just yield a
-                        # single tool_result — same end behaviour as before.
-                        result = ""
-                        async for item in toolkit.execute_streaming(tc["name"], tc["arguments"]):
-                            if item.get("type") == "tool_progress":
-                                yield {
-                                    "type": "tool_progress",
-                                    "name": tc["name"],
-                                    "message": item.get("message", ""),
-                                }
-                            elif item.get("type") == "tool_work":
-                                # A sub-agent's inference: part of this turn's work.
-                                work = work + InferenceWork.from_dict(item["work"])
-                            elif item.get("type") == "tool_note":
-                                # What the tool did, for the turn's llm_history
-                                # entry (PipelineResult.history_notes) — the
-                                # call itself is not kept between turns.
-                                yield {"type": "tool_note", "name": tc["name"], "note": item["note"]}
-                            elif item.get("type") == "tool_artifacts":
-                                # Bubble artifacts (sub-agent transcript and
-                                # results): forwarded to the consumer, never
-                                # appended to the messages the model sees.
-                                yield {
-                                    "type": "tool_artifacts",
-                                    "name": tc["name"],
-                                    "artifacts": item.get("artifacts", []),
-                                }
-                            elif item.get("type") == "tool_result":
-                                result = item.get("result", "") or ""
-                        # Cap the tool result against the active model's
-                        # context budget — large results would otherwise
-                        # crowd out the model's answer space. On a thread:
-                        # counting the tokens of a large result takes about
-                        # a second per MB, which would stop the whole backend.
-                        from ..lib.tool_output_cap import budget_var, cap_tool_output
-                        budget = budget_var.get()
-                        if budget > 0:
-                            result = await asyncio.to_thread(cap_tool_output, result, budget)
-                        # Sandbox screenshots/plots are invisible to a
-                        # text-only model — append a VLM text description
-                        # (SSOT describe_sandbox_screenshots; runs after the
-                        # cap so the description can't be truncated away).
-                        # Debug events use the local yield idiom and get
-                        # mirrored into the debug bus by the consumers —
-                        # forwarded live so they appear BEFORE the VLM runs,
-                        # not as a batch after it finished.
-                        from ..lib.sandbox import (
-                            SANDBOX_IMAGE_URL_MARKER,
-                            describe_sandbox_screenshots,
-                        )
-                        if SANDBOX_IMAGE_URL_MARKER in result:
-                            async for ev in describe_sandbox_screenshots(
-                                result, toolkit.session_id, model
-                            ):
-                                if ev["type"] == "debug":
-                                    yield {"type": "debug", "message": ev["message"]}
-                                else:
-                                    result = ev["text"]
-                        yield {"type": "tool_result", "name": tc["name"], "result": result}
-                        kwargs["messages"].append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": result,
-                        })
-                        from ..lib.context_manager import estimate_tokens
-                        round_result_tokens += estimate_tokens([{"content": result}])
-
-                    # Context guard: the loop's context is bounded by the same
-                    # thresholds as the history before a message. Compare the
-                    # server-reported usage of this round (prompt + completion,
-                    # the honest live value) plus the estimated size of the
-                    # just-appended tool results against HISTORY_COMPRESSION_TRIGGER.
-                    # When crossed, compress the earlier conversation and the
-                    # oldest tool rounds of this turn and go on. Only what stays
-                    # over the trigger then (nothing left to compress, the summary
-                    # failed, or the caller gave no compression) ends the tool
-                    # phase as before: the model still sees the results it
-                    # requested, but gets no further tool rounds — only an
-                    # explicit note to finalize now, with the reserve free for
-                    # thinking + answer (with --no-context-shift a full window
-                    # hard-truncates the answer; 2026-08-15 a 1h research loop
-                    # died at 92% mid-answer). That end is the loop's existing
-                    # stop, not a second path. Inactive when num_ctx is unknown
-                    # (no usable limit to measure against).
-                    used_tokens = prompt_tokens + total_tokens + round_result_tokens
-                    num_ctx = options.num_ctx
-                    if num_ctx and used_tokens >= HISTORY_COMPRESSION_TRIGGER * num_ctx and compression is not None:
-                        from ..lib.context_manager import compress_tool_loop
-                        async for item in compress_tool_loop(kwargs["messages"], used_tokens, num_ctx, compression):
-                            if item["type"] == "loop_compressed":
-                                kwargs["messages"] = item["messages"]
-                                used_tokens = item["used_tokens"]
-                            else:
-                                yield item
-                    if num_ctx and used_tokens >= HISTORY_COMPRESSION_TRIGGER * num_ctx:
-                        context_guard_tripped = True
-                        kwargs.pop("tools", None)
-                        from ..lib.prompt_loader import load_prompt
-                        kwargs["messages"].append({
-                            "role": "user",
-                            "content": load_prompt("utility/context_guard"),
-                        })
-                        from ..lib.formatting import format_number
-                        from ..lib.logging_utils import log_message
-                        pct = used_tokens / num_ctx * 100
-                        guard_msg = (
-                            f"⚠️ Context guard: ~{format_number(used_tokens)}/"
-                            f"{format_number(num_ctx)} tok "
-                            f"({format_number(pct, 1)}%) — tool rounds stopped, "
-                            f"forcing final answer"
-                        )
-                        log_message(guard_msg)
-                        yield {"type": "debug", "message": guard_msg}
-                    elif interjections is not None:
-                        for content in await interjections():
-                            kwargs["messages"].append({"role": "user", "content": content})
-                            yield {"type": "debug", "message": "💬 User message taken in between the tool rounds"}
-
-                    # Next round: LLM sees tool results and generates final response
-
-                # If the for-loop ended with tool_calls in the last round
-                # OR with no content at all, force one final round WITHOUT
-                # tools so the model has to verbalize an answer. Without
-                # this, two failure modes leak through:
-                #   1. Round N had tool_calls → results were appended to
-                #      messages but the model never sees them (loop exit).
-                #   2. Round N had no tool_calls but also no content
-                #      (model emitted only thinking) → no final answer.
-                content_so_far = stream_state.get("_content_acc", "").strip()
-                needs_force_final = toolkit and (
-                    last_round_had_tool_calls or not content_so_far
-                )
-                if needs_force_final:
-                    from ..lib.logging_utils import log_message
-                    reason = (
-                        "tool_calls in last round (results unprocessed)"
-                        if last_round_had_tool_calls
-                        else "no content produced"
-                    )
-                    log_message(
-                        f"⚠️ Tool rounds exhausted, {reason} — "
-                        f"forcing final response (no tools)"
-                    )
-                    kwargs_final = {**kwargs, "tools": None, "tool_choice": None}
-                    self._before_stream_request()
-                    request_start = timer.elapsed()
-                    request_first = None
-                    stream = await self.client.chat.completions.create(**kwargs_final)
-                    stream_state = {}
-                    counters = {
-                        "prompt_tokens": 0,
-                        "total_tokens": 0,
-                        "server_timings": {},
-                        "last_finish_reason": None,
-                    }
-                    async for item in self._consume_stream(
-                        stream, stream_state, counters, None
-                    ):
-                        if request_first is None:
-                            request_first = timer.elapsed() - request_start
-                        if item.get("type") == "content":
-                            if first_token_s is None:
-                                first_token_s = timer.elapsed()
-                            thinking.observe(item["text"], timer.elapsed())
-                        yield item
-                        yielded_any = True
-                    prompt_tokens = counters["prompt_tokens"]
-                    total_tokens = counters["total_tokens"]
-                    server_timings = counters["server_timings"]
-                    work = work + self._request_work(
-                        prompt_tokens, total_tokens, server_timings,
-                        request_first, timer.elapsed() - request_start,
-                    )
-                    trunc_items = self._truncation_debug(counters["last_finish_reason"])
-                    if trunc_items:
-                        truncated_any = True
-                    for item in trunc_items:
-                        yield item
-
-                inference_time = timer.elapsed()
-
-                work = work + InferenceWork(thinking_s=thinking.total_s)
-                metrics = done_metrics(prompt_tokens, work, inference_time, model)
-                # Carry the truncation flag into the done metrics so the
-                # pipeline result (and the "done" debug line built from it)
-                # can mark the answer as incomplete instead of reporting a
-                # clean finish.
-                if truncated_any:
-                    metrics["truncated"] = True
-                yield {"type": "done", "metrics": metrics}
-                return  # success
-
-            except Exception as e:  # noqa: BLE001 — every error reaches the caller as a BackendError; only a passing one is retried
-                last_error = e
-                remaining = STREAM_RETRY_WINDOW_S - (time.monotonic() - start_time)
-                # Output already went out: a new try would repeat it (and tools with side effects).
-                if yielded_any or not worth_retrying(e) or remaining <= STREAM_RETRY_DELAY_S:
-                    raise await self._backend_error(e, model)
-                await wait_before_retry(model, e, remaining)
-
-        raise await self._backend_error(last_error, model)  # type: ignore[arg-type]
