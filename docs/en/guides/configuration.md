@@ -129,18 +129,19 @@ the service as `device=auto|cpu|cuda` and is the same for browser, Echo Dot and 
 and quality per device, the order of the automatic mode and the memory margin are on the STT-Suite's
 own page (`/stt-suite/ui/` behind the proxy).
 
-**Dictation in the browser** (button *Recording*): the switch **Edit transcription: ✏️ Edit text** below
-the input field decides where the recognised text goes.
+**Dictation in the browser** (button *Recording*): the switch **Dictation into the input field first (to edit)**
+in the settings (section *Input settings*, `show_transcription` in `settings.json`) decides where the
+recognised text goes.
 
 - **On:** the text lands in the input field (appended to text already there); you correct it and send
   it yourself.
-- **Off** (the label changes to *⚡ Send directly*): the text goes straight to the AI. It enters the session's queue, and the browser starts a
-  turn of its own from it within half a second. Once the text is recognised nothing is lost: the
-  turn runs to its end and is saved even if you then close the tab or lock the phone; if you close
-  the tab before the browser has picked the text up, the turn starts the next time the session is
-  opened. If you dictate while AIfred is still answering, the dictation waits and goes out
-  afterwards, in order. If the connection breaks while the recording is still uploading, the
-  recording is lost.
+- **Off:** the text goes straight to the AI: the server starts the turn itself (`lib/dictation.py`, the
+  same path as a typed message). Once the text is recognised nothing is lost: the turn runs to its end
+  and is saved even if you then close the tab or lock the phone. If you dictate while AIfred is still
+  answering, the dictation waits in the session's queue and goes out afterwards, in order; while the
+  agent works with tools, it takes the dictation in between two tool rounds already if the switch below
+  the input field (speech bubble with a plus) is on. If the connection breaks while the recording is
+  still uploading, the recording is lost.
 - If AIfred finds an e-mail address or a link in the text, it always lands in the input field,
   because speech recognition often gets those wrong.
 
