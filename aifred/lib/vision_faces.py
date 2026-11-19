@@ -105,9 +105,7 @@ class FacePipeline:
             if collect is not None:
                 collect.observe_face(
                     event_type, match.name or "", float(match.similarity),
-                    float(det.detection_score), frame_path, zoom_frame_path,
-                    crop_url, faces_in_tick=len(detections),
-                    identity_key=crop.identity_key if crop else "",
+                    faces_in_tick=len(detections),
                 )
 
         # Burst-Pfad: Beobachtungen sind im Report gelandet — die Bilanz

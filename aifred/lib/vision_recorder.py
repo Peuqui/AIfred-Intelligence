@@ -198,9 +198,9 @@ class EventRecorder:
         cluster_id: str,
         zoom_frame_path: str | None = None,
         parent_event_id: int | None = None,
-    ) -> float:
+    ) -> None:
         """``person``-Ereignis aus YOLO-Körper-Detektionen (Motion-Pfad und
-        Burst-Tick ohne Gesicht). Returnt die höchste Konfidenz."""
+        Burst-Tick ohne Gesicht)."""
         max_score = max(p.score for p in persons)
         classification: dict[str, object] = {
             "count": len(persons),
@@ -222,7 +222,6 @@ class EventRecorder:
             metadata=metadata,
             cluster_id=cluster_id,
         )
-        return float(max_score)
 
     def record_burst_frame(
         self,

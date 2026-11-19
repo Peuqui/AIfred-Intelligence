@@ -137,15 +137,15 @@ it:
      session itself in the process — like the scheduler). Sees only title
      and body, not the image.
    - `"vlm"` — `_describe_media_via_vlm` has the active VLM describe the
-     happening (new images of a running burst as a chapter, otherwise the
+     happening (the
      cluster's image series, otherwise the single moment zoom + wide); the
-     description goes into the body.
+     description goes into the body. A burst does not describe here: its summary
+     brings the description ready-made (`AlertEvent.description`).
    - `"vlm+llm"` — VLM description, then AIfred phrases the final text with
      it as context.
 
    If the LLM or VLM fails, the template text stays. A VLM description
-   is written back to the vision events (`apply_description_to_events` /
-   `apply_cluster_description`), so the nightly bulk describe skips them.
+   is written back to the vision events (`apply_cluster_description`), so the nightly bulk describe skips them.
 2. **Browser session** (control trail): `record_autonomous_turn` writes the
    turn via the same primitives as `process_inbound` (`routing_table` +
    `create_empty_session` + `update_chat_data` + `write_hub_notification`) →
@@ -196,13 +196,14 @@ spanning the restart is split (rare, acceptable).
   rule (anymore).
 - Vision: `dedup_key` = `cluster_id` (one alert per occurrence; two
   different people shortly after each other = two clusters = two alerts),
-  fallback `source_id:category`. The burst report (`BurstReport`, on sources
-  with a face-hunt burst) appends a
+  fallback `source_id:category`. The burst messages (`BurstReport`, on sources
+  with a face-hunt burst) append a
   running index (`…:burst-report-<n>`): there, several messages per happening
-  are intended, but few: a first report (`burst_report_deadline_sec`) with a short
-  VLM description and its keyframes, then only short text notes on real news (new
-  name, band upgrade, more people; no VLM and no image, `AlertEvent.describe=False`;
-  a note waits `VISION_BURST_NEWS_SETTLE_SEC` until the state has settled, so detections
+  are intended, but few. During the burst there is text only, no images and no
+  description (`AlertEvent.describe=False`, no `media`, no gallery, no album): a first report
+  (`burst_report_deadline_sec`) with the result of the face or person recognition (names,
+  unknown/unsure, number of people in the title), then only short text notes on real news (new
+  name, band upgrade, more people; a note waits `VISION_BURST_NEWS_SETTLE_SEC` until the state has settled, so detections
   in quick succession give ONE message)
   and, when the burst ends, the wrap-up (`BurstReport.finish`, at EVERY normally ended burst, also without a report,
   not on cancel). `vision_burst_media.finish_burst_media` works in a fixed order on the set of the occurrence's events
@@ -220,8 +221,9 @@ spanning the restart is split (rare, acceptable).
   from the first to the last detection — the images show the progress, not a text
   per intermediate state. The header line names the moment of the occurrence (its
   start, in the summary start to end), not the time of sending. Without a burst (single alert) `media`/`media_context`
-  apply; an image the occurrence has already shown (`AlertEvent.media_is_new=False`)
-  is not sent to the channels again.
+  apply: still image, gallery and description as before. The send lock of the `BurstReport` (no second
+  send at the same time, a message that falls due meanwhile is caught up) stays, because even plain text
+  can take seconds over network channels and the compose mode `llm`.
 - Other producers would supply their own keys (scheduler → task ID,
   system → metric name).
 - Per rule optional `quiet_hours`. In addition, the vision producer
@@ -290,7 +292,7 @@ vision producer + rule config + wiring (4/5), rule UI, FreeEcho.2 sink,
 compose modes `template`/`llm`/`vlm`/`vlm+llm`. The vision producer reports
 faces (`face_known`, `face_unsure`, `face_unknown`), persons (`person`) and
 edge-AI objects (`vehicle`, `animal`) of armed cameras; on sources with a
-face-hunt burst, face and person detections go out as a burst report,
+face-hunt burst, face and person detections go out as burst messages (text, summary with film),
 elsewhere as immediate alerts.
 
 Open / later:

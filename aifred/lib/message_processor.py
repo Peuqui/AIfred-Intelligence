@@ -742,7 +742,6 @@ def record_routed_voice_turn(
 
 def record_autonomous_turn(
     channel: str, channel_id: str, title: str, text: str, *,
-    media: str | None = None,
     media_gallery: list[str] | None = None,
     owner: str = MESSAGE_HUB_OWNER,
     speaker: str | None = None,
@@ -750,16 +749,11 @@ def record_autonomous_turn(
     """SSoT for surfacing an autonomous event as a normal browser session.
     Routes to a (stable) session, appends an assistant chat turn, and writes a
     hub notification — same primitives process_inbound persists with, just
-    without the LLM. ``media`` (an on-disk frame path) is embedded as a
-    Markdown image so the browser session shows exactly what a channel like
-    Telegram received. Returns the session_id.
+    without the LLM. Returns the session_id.
 
-    ``media_gallery`` ist die SSoT für die Bubble, sobald der Aufrufer sie
-    mitgibt — auch als LEERE Liste. Die heißt „zu dieser Meldung gibt es
-    nichts Neues zu zeigen" (die Bilanz eines Vorkommnisses filtert bereits
-    Gezeigtes heraus) und darf nicht auf ``media`` zurückfallen, sonst stünde
-    genau das wiederholte Bild wieder in der Bubble. ``None`` = der Aufrufer
-    kennt keine Galerie, dann trägt ``media`` das Bild.
+    ``media_gallery``: die Bilder der Meldung als URLs (Weitwinkel, Zoom, Ausschnitte), als Markdown-Bilder in
+    die Bubble eingebettet, damit die Browser-Sitzung zeigt, was ein Kanal wie Telegram bekam. Leer oder ``None``
+    = reiner Text (Meldungen eines Bursts, Ansagen).
 
     ``speaker``: ein anderer Agent spricht (Name) — das Modell sieht dann eine
     „Nachricht von <speaker>“ statt einer automatischen Meldung. Die Bubble
@@ -770,7 +764,7 @@ def record_autonomous_turn(
 
     content = text
     image_urls: list[str] = []
-    if media_gallery is not None:
+    if media_gallery:
         # All views already as URLs (wide + zoom + crops) — embed each so the
         # browser session shows the full picture, not just one frame. Frames
         # get one paragraph each (full width); the crops share ONE paragraph
@@ -793,14 +787,6 @@ def record_autonomous_turn(
             )
         content = text + "".join(parts)
         image_urls = frames + crops
-    elif media:
-        from pathlib import Path
-
-        from .vision_utils import get_image_url
-        url = get_image_url(Path(media))
-        if url:
-            content = f"{text}\n\n![{title}]({url})"
-            image_urls = [url]
 
     # The model sees llm_history, not the bubble: without this entry it knows
     # nothing of the event and denies that any image was ever shown.

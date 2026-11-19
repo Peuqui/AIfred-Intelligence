@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .config import VISION_ALERT_ANALYZED_BY
-from .vision_event_analysis import analyze_cluster_with_frames
+from .vision_event_analysis import analyze_cluster_with_vlm
 from .vision_film import FilmEncodeError, make_cluster_films
 from .vision_routing import NoVisionModelError
 from .vision_store import VisionStore
@@ -53,7 +53,7 @@ async def _describe(
     from .prompt_loader import get_vision_event_summary_prompt
 
     try:
-        description, _keyframes = await analyze_cluster_with_frames(
+        description = await analyze_cluster_with_vlm(
             _one_event_per_picture(events),
             prompt=get_vision_event_summary_prompt(), store=store, headcount=headcount, explicit=False,
         )

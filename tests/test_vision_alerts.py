@@ -74,10 +74,7 @@ def test_dedup_key_falls_back_without_cluster(monkeypatch):
     assert "Peuqui" in disp.events[0].title
 
 
-# ── Keine Wiederholungen innerhalb eines Vorkommnisses ────────────────
-# Eine Bilanz meldet mehrfach (Bilanz + Follow-up-Kapitel). Frames und
-# Crops des besten Ticks bleiben dabei dieselben — ohne Gedächtnis stand
-# in jeder Folge-Bubble noch einmal exakt dasselbe Bild.
+# ── Meldungen ohne Burst behalten Standbild und Beschreibung ──────────
 
 
 def _dispatcher_with_urls(monkeypatch) -> _FakeDispatcher:
@@ -92,116 +89,68 @@ def _dispatcher_with_urls(monkeypatch) -> _FakeDispatcher:
     return disp
 
 
-def test_gallery_repeats_nothing_within_one_happening(monkeypatch):
+def test_a_face_alert_without_burst_keeps_its_still_image_and_description(monkeypatch):
+    """Der Einzel-Trigger (FacePipeline ohne collect) meldet wie bisher mit Standbild, Galerie und Beschreibung."""
+    import numpy as np
+
+    from aifred.lib.frame_sources import Frame
+    from aifred.lib.vision_faces import FacePipeline
+
     disp = _dispatcher_with_urls(monkeypatch)
-    shown: set[str] = set()
-    for _ in range(2):
-        asyncio.run(va.emit_face_alert(
-            source_id="cam/door", event_type="face_unknown",
-            frame_path="/x/wide.jpg", zoom_frame_path="/x/zoom.jpg",
-            crop_url="/_upload/face_crops/a.jpg", cluster_id="cluster-1",
-            count=1, timestamp=_TS, store=None, shown_media=shown,
-        ))
-    assert len(disp.events) == 2
+
+    class _Match:
+        name = "Anna"
+        similarity = 0.9
+        confidence_band = "known"
+
+    class _Det:
+        embedding = np.zeros(4)
+        detection_score = 0.9
+
+    class _Recognizer:
+        def match(self, embedding):
+            return _Match()
+
+    class _Detect:
+        face_recognizer = _Recognizer()
+
+        async def detect_faces(self, frame):
+            return [_Det()]
+
+    class _Recorder:
+        def save_face_crop(self, image_bytes, source_id, det, match):
+            return None
+
+        def cluster_id_for(self, frame):
+            return "cluster-1"
+
+        def record_face(self, **kwargs):
+            return None
+
+    pipeline = FacePipeline(None, _Detect(), _Recorder())  # type: ignore[arg-type]
+    asyncio.run(pipeline.run(
+        Frame(source_id="cam/door", timestamp=_TS, image_bytes=b"jpeg"), trigger="motion", frame_path="/x/wide.jpg", zoom_frame_path="/x/zoom.jpg",
+    ))
+    (ev,) = disp.events
+    assert ev.describe is True
+    assert ev.media == "/x/zoom.jpg" and ev.media_context == "/x/wide.jpg"
+    assert ev.media_gallery == ["/_upload/wide.jpg", "/_upload/zoom.jpg"]
+
+
+def test_a_non_burst_alert_with_crops_shows_every_crop(monkeypatch):
+    disp = _dispatcher_with_urls(monkeypatch)
+    asyncio.run(va.emit_person_alert(
+        source_id="cam/door", frame_path="/x/wide.jpg", cluster_id="c", count=2,
+        extra_crop_urls=["/_upload/face_crops/p1.jpg", "/_upload/face_crops/p2.jpg"],
+        timestamp=_TS, store=None,
+    ))
     assert disp.events[0].media_gallery == [
-        "/_upload/wide.jpg", "/_upload/zoom.jpg", "/_upload/face_crops/a.jpg",
+        "/_upload/wide.jpg", "/_upload/face_crops/p1.jpg", "/_upload/face_crops/p2.jpg",
     ]
-    # Zweite Meldung: alles schon gezeigt → keine Bilder, aber die Meldung
-    # geht raus (ihr Text ist das neue Kapitel).
-    assert disp.events[1].media_gallery == []
-    # media bleibt unangetastet — das VLM braucht sein Bild.
-    assert disp.events[1].media == "/x/zoom.jpg"
-    # …aber die Kanäle (Telegram-Album) bekommen es nur beim ersten Mal.
-    assert [e.media_is_new for e in disp.events] == [True, False]
+    assert disp.events[0].describe is True
 
 
-def test_media_is_new_again_when_the_best_frame_changes(monkeypatch):
-    disp = _dispatcher_with_urls(monkeypatch)
-    shown: set[str] = set()
-    for zoom in ("/x/zoom.jpg", "/x/zoom.jpg", "/x/zoom2.jpg"):
-        asyncio.run(va.emit_face_alert(
-            source_id="cam/door", event_type="face_unknown",
-            frame_path="/x/wide.jpg", zoom_frame_path=zoom,
-            cluster_id="cluster-1", count=1, timestamp=_TS, store=None,
-            shown_media=shown,
-        ))
-    # Weitwinkel schon gezeigt, aber ein neues Zoom-Bild → neu.
-    assert [e.media_is_new for e in disp.events] == [True, False, True]
-
-
-def test_media_is_always_new_without_shown_media(monkeypatch):
-    disp = _dispatcher_with_urls(monkeypatch)
-    for _ in range(2):
-        asyncio.run(va.emit_face_alert(
-            source_id="cam/door", event_type="face_unknown",
-            frame_path="/x/wide.jpg", cluster_id="c", count=1,
-            timestamp=_TS, store=None,
-        ))
-    assert [e.media_is_new for e in disp.events] == [True, True]
-
-
-def test_gallery_still_shows_what_is_new(monkeypatch):
-    disp = _dispatcher_with_urls(monkeypatch)
-    shown: set[str] = set()
-    asyncio.run(va.emit_face_alert(
-        source_id="cam/door", event_type="face_unknown", frame_path="/x/wide.jpg",
-        crop_url="/_upload/face_crops/a.jpg", cluster_id="c", count=1,
-        timestamp=_TS, store=None, shown_media=shown,
-    ))
-    asyncio.run(va.emit_face_alert(
-        source_id="cam/door", event_type="face_unknown", frame_path="/x/wide.jpg",
-        crop_url="/_upload/face_crops/a.jpg",
-        extra_crop_urls=["/_upload/face_crops/b.jpg"], cluster_id="c", count=2,
-        timestamp=_TS, store=None, shown_media=shown,
-    ))
-    assert disp.events[1].media_gallery == ["/_upload/face_crops/b.jpg"]
-
-
-def test_without_shown_media_nothing_is_filtered(monkeypatch):
-    """Nicht-Burst-Aufrufer (eine Meldung pro Vorkommnis) bleiben unberührt."""
-    disp = _dispatcher_with_urls(monkeypatch)
-    for _ in range(2):
-        asyncio.run(va.emit_face_alert(
-            source_id="cam/door", event_type="face_unknown",
-            frame_path="/x/wide.jpg", cluster_id="c", count=1,
-            timestamp=_TS, store=None,
-        ))
-    assert disp.events[0].media_gallery == disp.events[1].media_gallery
-    assert disp.events[1].media_gallery == ["/_upload/wide.jpg"]
-
-
-class _CountingCropStore:
-    """Zählt, wie oft derselbe Referenz-Frame zugeschnitten wird."""
-
-    def __init__(self) -> None:
-        self.calls = 0
-
-    def save_person_crop(self, *, frame_bytes, bbox, source_id, index):
-        self.calls += 1
-        return f"/_upload/face_crops/p{index}_{self.calls}.jpg"
-
-
-def test_person_crops_are_cut_once_per_reference_tick(monkeypatch):
-    store = _CountingCropStore()
-    import aifred.lib.face_crop_store as fcs
-    monkeypatch.setattr(fcs, "get_default_store", lambda: store)
-
-    report = va.BurstReport("cam/door", "cluster-1", None)
-    report.observe_person_boxes(b"jpeg-bytes", [(0, 0, 10, 20)])
-
-    first = report._person_crop_urls()
-    second = report._person_crop_urls()
-    assert first == second, "zweite Bilanz muss dieselben Dateien wiederverwenden"
-    assert store.calls == 1, "derselbe Frame darf nur einmal geschnitten werden"
-
-    # Ein Tick mit MEHR Personen löst den Referenz-Frame ab → neu schneiden.
-    report.observe_person_boxes(b"other-bytes", [(0, 0, 10, 20), (30, 0, 40, 20)])
-    third = report._person_crop_urls()
-    assert third != first
-    assert store.calls == 3
-
-
-# ── Burst-Report: Erstmeldung, Hinweis bei Neuigkeiten, Zusammenfassung mit Film ──
+# ── Burst-Meldungen: Erstmeldung und Hinweis als Text, Zusammenfassung mit Film ──
 
 
 class _StubStore:
@@ -225,7 +174,7 @@ def _burst_report(monkeypatch, films=None, description="") -> tuple[va.BurstRepo
 
     monkeypatch.setattr(va, "finish_burst_media", fake_finish)
     report = va.BurstReport("cam/door", "cluster-1", _StubStore())
-    report.observe_person(1, 0.9, "/x/wide.jpg", "/x/zoom.jpg")
+    report.observe_person(1)
     return report, disp
 
 
@@ -234,7 +183,6 @@ def test_burst_first_report_is_due_only_once(monkeypatch):
     assert report.due(0.0) is True
     asyncio.run(report.send())
     assert len(disp.events) == 1
-    assert disp.events[0].describe is True
     # Danach nicht mehr im Takt — die Bilder zeigen den Verlauf (Film am Ende).
     assert report.due(0.0) is False
 
@@ -254,14 +202,14 @@ def test_burst_news_is_a_short_text_without_images_or_vlm(monkeypatch):
 def test_burst_unsure_face_upgrade_is_no_news(monkeypatch):
     report, _disp = _burst_report(monkeypatch)
     asyncio.run(report.send())
-    report.observe_face("face_unsure", "", 0.4, 0.9, "/x/w.jpg", "/x/z.jpg", "")
+    report.observe_face("face_unsure", "", 0.4)
     assert not report.has_news()
 
 
 def test_burst_unknown_face_upgrade_is_news(monkeypatch):
     report, _disp = _burst_report(monkeypatch)
     asyncio.run(report.send())
-    report.observe_face("face_unknown", "", 0.2, 0.9, "/x/w.jpg", "/x/z.jpg", "")
+    report.observe_face("face_unknown", "", 0.2)
     assert report.has_news()
 
 
@@ -292,11 +240,11 @@ def test_burst_header_names_the_occurrence_not_the_send_time(monkeypatch):
 
 def test_the_final_report_brings_its_description_and_no_still_image(monkeypatch):
     report, disp = _burst_report(monkeypatch, films=["/f/wide.mp4"], description="Zwei Personen am Tor.")
-    report.observe_face("face_unknown", "", 0.2, 0.9, "/x/w.jpg", "/x/z.jpg", "/crop.jpg")
+    report.observe_face("face_unknown", "", 0.2)
     asyncio.run(report.send())
     asyncio.run(report.finish())
     first, final = disp.events
-    assert first.description == "" and first.describe is True and first.media == "/x/z.jpg"
+    assert first.description == "" and first.describe is False and first.media is None
     assert final.description == "Zwei Personen am Tor."
     assert final.describe is False  # nothing to fetch: the description is there (or there is none)
     assert final.media is None and final.media_context is None and final.media_gallery == []
@@ -349,3 +297,25 @@ def test_news_waits_until_the_state_has_settled(monkeypatch):
     assert report.news_due(5.0) is True            # beruhigt: melden
     asyncio.run(report.send())
     assert report.news_due(5.0) is False           # gemeldet, nichts mehr offen
+
+
+def test_the_first_burst_report_is_plain_text_with_the_recognition_result(monkeypatch):
+    """Erstmeldung: Namen und Personenzahl im Titel, aber kein Bild, keine Galerie, kein Album, kein VLM."""
+    report, disp = _burst_report(monkeypatch)
+    report.observe_face("face_known", "Anna", 0.9)
+    report.observe_headcount(3)
+    asyncio.run(report.send())
+    (first,) = disp.events
+    assert first.describe is False and first.description == ""
+    assert first.media is None and first.media_context is None
+    assert first.media_gallery == [] and first.media_album == []
+    assert "Anna" in first.title and "2 weitere" in first.title
+
+
+def test_the_first_burst_report_of_a_person_without_face_names_the_count(monkeypatch):
+    report, disp = _burst_report(monkeypatch)
+    report.observe_headcount(2)
+    asyncio.run(report.send())
+    (first,) = disp.events
+    assert first.category == "person" and "2 Personen" in first.title
+    assert first.describe is False and first.media is None and first.media_gallery == []

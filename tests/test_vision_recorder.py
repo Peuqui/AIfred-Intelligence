@@ -90,12 +90,11 @@ class TestRecordPersons:
             PersonDetection(bbox=(5, 6, 70, 80), score=0.9),
         ]
 
-    def test_minimal_event_and_max_score(self, store, recorder):
-        score = recorder.record_persons(
+    def test_minimal_event_with_max_score(self, store, recorder):
+        recorder.record_persons(
             self._persons(), source_id=SOURCE, timestamp=TS, frame_path="/f.jpg",
             trigger="motion", cluster_id="c1",
         )
-        assert score == 0.9
         (event,) = _events(store, "person")
         assert event["confidence"] == 0.9
         assert event["frame_path"] == "/f.jpg"

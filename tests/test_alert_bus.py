@@ -185,8 +185,7 @@ class TestLoadRules:
 
 
 class TestSinkMedia:
-    """Burst-Bilanzen: ein Bild, das das Vorkommnis schon gezeigt hat, geht an die
-    Kanäle nicht noch einmal (Telegram sendete es sonst bei jeder Zwischenbilanz erneut)."""
+    """Welche Medien an die Kanäle (Telegram) gehen: Bild samt Kontext, bei Burst-Meldungen nur die Filme."""
 
     def _deliver_once(self, monkeypatch, ev: AlertEvent, compose: str = "") -> dict[str, Any]:
         import aifred.lib.message_processor as mp
@@ -214,29 +213,35 @@ class TestSinkMedia:
         assert sent["media"] == "/x/zoom.jpg"
         assert sent["metadata"]["media_context"] == "/x/wide.jpg"
 
-    def test_repeated_media_goes_out_as_text_only(self, monkeypatch):
-        ev = _ev(media="/x/zoom.jpg", media_context="/x/wide.jpg", media_is_new=False)
-        sent = self._deliver_once(monkeypatch, ev)
-        assert sent["media"] is None
-        assert "media_context" not in sent["metadata"]
-        assert ev.media == "/x/zoom.jpg"  # das VLM bekommt sein Bild weiterhin
-
-    def test_burst_chapter_frames_travel_as_album(self, monkeypatch):
-        """Die Keyframes, die die Beschreibung bespricht, gehen als Album mit (der
-        Verlauf der letzten Sekunden), nicht das eine beste Bild."""
-        import aifred.lib.alert_bus as ab
-
-        async def fake_describe(ev):
-            return "Beschreibung", ["/x/1.jpg", "/x/2.jpg", "/x/3.jpg"]
-
-        monkeypatch.setattr(ab, "_describe_media_via_vlm", fake_describe)
+    def test_burst_films_travel_as_album(self, monkeypatch):
+        """Die Filme der Burst-Zusammenfassung gehen als Album mit."""
         sent = self._deliver_once(
-            monkeypatch, _ev(media="/x/zoom.jpg", metadata={"segment_event_ids": [1, 2]}),
-            compose="vlm",
+            monkeypatch, _ev(media_album=["/f/wide.mp4", "/f/zoom.mp4"]), compose="template",
         )
-        assert sent["metadata"]["media_album"] == ["/x/1.jpg", "/x/2.jpg", "/x/3.jpg"]
+        assert sent["metadata"]["media_album"] == ["/f/wide.mp4", "/f/zoom.mp4"]
 
-    def test_no_album_without_vlm_keyframes(self, monkeypatch):
+    def test_the_first_burst_report_reaches_telegram_without_album_or_image(self, monkeypatch):
+        import aifred.lib.alert_bus as ab
+        import aifred.lib.vision_alerts as va
+
+        captured: list[AlertEvent] = []
+
+        class _Capture:
+            async def emit(self, ev):
+                captured.append(ev)
+                return 1
+
+        monkeypatch.setattr(va, "_vigilantia_armed", lambda: True)
+        monkeypatch.setattr(ab, "get_default_dispatcher", lambda: _Capture())
+        report = va.BurstReport("cam/door", "c1", None)
+        report.observe_face("face_known", "Anna", 0.9)
+        asyncio.run(report.send())
+        (first,) = captured
+        sent = self._deliver_once(monkeypatch, first, compose="vlm")
+        assert sent["media"] is None
+        assert "media_album" not in sent["metadata"] and "media_context" not in sent["metadata"]
+
+    def test_no_album_without_films(self, monkeypatch):
         sent = self._deliver_once(monkeypatch, _ev(media="/x/zoom.jpg"))
         assert "media_album" not in sent["metadata"]
 
@@ -253,7 +258,7 @@ class TestReadyDescription:
 
         async def describe(ev):
             asked.append("vlm")
-            return "geholt", []
+            return "geholt"
 
         async def announce(channel, recipient, text, **kw):
             return True

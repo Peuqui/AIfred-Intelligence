@@ -182,14 +182,13 @@ async def _emit(
     title: str,
     body: str,
     dedup_key: str,
-    frame_path: str,
+    frame_path: str = "",
     zoom_frame_path: str = "",
     crop_url: str = "",
     extra_crop_urls: list[str] | None = None,
     timestamp: datetime,
     metadata: dict[str, Any] | None = None,
     store: Any = None,
-    shown_media: set[str] | None = None,
     describe: bool = True,
     media_album: list[str] | None = None,
     description: str = "",
@@ -202,15 +201,6 @@ async def _emit(
     available — it shows the subject, while the wide-angle latest frame often
     misses it. ``media_gallery`` carries the wide + zoom views plus one crop
     per person seen, as URLs for the browser session.
-
-    ``shown_media``: das Gedächtnis eines Vorkommnisses über seine Meldungen
-    hinweg (die Bilanz reicht ihr eigenes Set durch). Bilder, die dieses
-    Vorkommnis schon gezeigt hat, kommen kein zweites Mal in die Galerie —
-    Frames und Crops des besten Ticks bleiben über den ganzen Burst dieselben,
-    ungefiltert stand in jeder Folgemeldung noch einmal dasselbe Bild. Das Set
-    wird um das tatsächlich Gezeigte ergänzt. ``media``/``media_context``
-    bleiben unangetastet: das VLM braucht sein Bild zum Beschreiben, und für
-    Einzelbild-Kanäle trägt das Bild die Meldung.
     """
     try:
         from pathlib import Path as _Path
@@ -226,12 +216,9 @@ async def _emit(
             else None
         )
         gallery: list[str] = []
-        frame_urls: list[str] = []
         for p in (frame_path, zoom_frame_path):
             if p:
                 u = get_image_url(_Path(p))
-                if u:
-                    frame_urls.append(u)
                 if u and u not in gallery:
                     gallery.append(u)
         # Ausschnitte: der des besten Gesichts zuerst, dann die der übrigen
@@ -243,20 +230,6 @@ async def _emit(
         for u in [crop_url, *(extra_crop_urls or [])]:
             if u and u not in gallery:
                 gallery.append(u)
-        # Nur NEUES zeigen (siehe ``shown_media`` im Docstring). Bleibt nichts
-        # übrig, geht die Bubble ohne Bild raus — ihr Text ist das neue
-        # Kapitel, die Bilder dazu stehen schon darüber im selben Chat.
-        # Dasselbe gilt für das Einzelbild/Album der Kanäle (Telegram): zeigt die
-        # Meldung weder Weitwinkel noch Zoom neu, geht sie dort nur als Text raus.
-        media_is_new = (
-            shown_media is None
-            or not frame_urls
-            or any(u not in shown_media for u in frame_urls)
-        )
-        if shown_media is not None:
-            gallery = [u for u in gallery if u not in shown_media]
-            shown_media.update(gallery)
-
         session_key, session_title = _session_routing(source_id, store)
         ev = AlertEvent(
             producer="vision",
@@ -268,7 +241,6 @@ async def _emit(
             dedup_key=dedup_key,
             media=primary or None,
             media_context=context,
-            media_is_new=media_is_new,
             media_album=list(media_album or []),
             describe=describe,
             description=description,
@@ -287,7 +259,7 @@ async def emit_face_alert(
     *,
     source_id: str,
     event_type: str,
-    frame_path: str,
+    frame_path: str = "",
     zoom_frame_path: str = "",
     crop_url: str = "",
     cluster_id: str,
@@ -298,9 +270,6 @@ async def emit_face_alert(
     store: Any = None,
     dedup_key: str | None = None,
     person_count: int = 0,
-    extra_crop_urls: list[str] | None = None,
-    segment_event_ids: list[int] | None = None,
-    shown_media: set[str] | None = None,
     describe: bool = True,
     media_album: list[str] | None = None,
     timestamp_end: datetime | None = None,
@@ -312,12 +281,8 @@ async def emit_face_alert(
     ``similarities`` = deren Match-Werte (Konfidenz-Klammer im Titel).
 
     ``person_count``: von der Objekterkennung gezählte Personen (Titel-Zusatz
-    „+ N weitere" und Fakt fürs VLM). ``extra_crop_urls``: Kopfausschnitte
-    ALLER im Vorkommnis gesehenen Personen für die Galerie.
-    ``segment_event_ids``: die seit
-    der letzten Bilanz dazugekommenen Events — nur DIESE beschreibt das VLM
-    (Kapitel), und nur an diesen hängt die Beschreibung.
-    ``describe=False``: kurzer Hinweis ohne VLM. ``media_album``: fertiges
+    „+ N weitere" und Fakt fürs VLM). Ohne ``frame_path`` ist die Meldung reiner
+    Text (Burst-Meldungen). ``describe=False``: kein VLM. ``media_album``: fertiges
     Medienpaket (Burst-Filme) für Album-Kanäle. ``timestamp`` ist der Beginn
     des Vorkommnisses, ``timestamp_end`` sein Ende (Zeitspanne in der Kopfzeile);
     ``description``: fertige Beschreibung (Zusammenfassung am Burst-Ende), der Alarmbus beschreibt dann nicht neu."""
@@ -351,8 +316,6 @@ async def emit_face_alert(
         meta["cluster_id"] = cluster_id
     if person_count > 0:
         meta["person_count"] = person_count
-    if segment_event_ids:
-        meta["segment_event_ids"] = list(segment_event_ids)
     await _emit(
         source_id=source_id,
         category=event_type,
@@ -366,11 +329,9 @@ async def emit_face_alert(
         frame_path=frame_path,
         zoom_frame_path=zoom_frame_path,
         crop_url=crop_url,
-        extra_crop_urls=extra_crop_urls,
         timestamp=ts,
         metadata=meta or None,
         store=store,
-        shown_media=shown_media,
         describe=describe,
         media_album=media_album,
         description=description,
@@ -380,16 +341,14 @@ async def emit_face_alert(
 async def emit_person_alert(
     *,
     source_id: str,
-    frame_path: str,
+    frame_path: str = "",
     zoom_frame_path: str = "",
     cluster_id: str,
     count: int = 1,
     timestamp: datetime | None = None,
     store: Any = None,
     dedup_key: str | None = None,
-    segment_event_ids: list[int] | None = None,
     extra_crop_urls: list[str] | None = None,
-    shown_media: set[str] | None = None,
     yolo_unconfirmed: bool = False,
     describe: bool = True,
     media_album: list[str] | None = None,
@@ -416,8 +375,6 @@ async def emit_person_alert(
         meta["cluster_id"] = cluster_id
     if count > 0:
         meta["person_count"] = count
-    if segment_event_ids:
-        meta["segment_event_ids"] = list(segment_event_ids)
     body = _source_line(alias, ts, timestamp_end)
     if yolo_unconfirmed:
         meta["yolo_unconfirmed"] = True
@@ -436,7 +393,6 @@ async def emit_person_alert(
         timestamp=ts,
         metadata=meta or None,
         store=store,
-        shown_media=shown_media,
         describe=describe,
         media_album=media_album,
         description=description,
@@ -503,19 +459,20 @@ async def emit_object_alert(
     )
 
 
-# ── Burst-Bilanz ─────────────────────────────────────────────────────
-# Statt Sofort-Alert beim Kamera-Trigger sammelt der Face-Hunt-Burst
-# seine Ticks in einem BurstReport und meldet gebündelt: EINE Bilanz
-# beim Burst-Ende oder spätestens nach der Deadline (bestes Bild des
-# Vorbeigangs, alle erkannten Namen), danach Follow-up-Meldungen nur
-# bei echten Neuigkeiten (neuer Name, Band-Upgrade, mehr Personen).
+# ── Burst-Meldungen ──────────────────────────────────────────────────
+# Statt Sofort-Alert beim Kamera-Trigger sammelt der Face-Hunt-Burst seine
+# Ticks in einem BurstReport. Während des Bursts gibt es nur Text: EINE
+# Erstmeldung nach der Deadline mit dem Ergebnis der Gesichts- bzw.
+# Personenerkennung, danach Hinweise nur bei echten Neuigkeiten (neuer Name,
+# Band-Upgrade, mehr Personen). Bilder und die Beschreibung kommen erst mit
+# der Zusammenfassung am Burst-Ende (Filme, eine Beschreibung).
 
 _BAND_RANK = {"person": 0, "face_unknown": 1, "face_unsure": 2, "face_known": 3}
 
 
 class BurstReport:
     """Sammelt die Beobachtungen eines Vorbeigangs (Trigger + Burst-Ticks)
-    und verschickt daraus Telegram-Bilanzen. Lebt für die Dauer EINES
+    und verschickt daraus die Burst-Meldungen. Lebt für die Dauer EINES
     Bursts (vision_watcher hält ihn pro Quelle)."""
 
     def __init__(self, source_id: str, cluster_id: str, store: Any) -> None:
@@ -523,40 +480,16 @@ class BurstReport:
         self.cluster_id = cluster_id
         self._store = store
         self.started = datetime.now()
-        # Bester Gesichts-Tick: (band_rank, score) entscheidet; Namen mit
-        # bester Similarity werden über den ganzen Burst gesammelt.
+        # Bestes Band über alle Gesichts-Beobachtungen; Namen mit bester
+        # Similarity werden über den ganzen Burst gesammelt.
         self.known_named: dict[str, float] = {}
-        self._best_face: tuple[int, float] = (-1, -1.0)
-        self._best_face_paths: tuple[str, str, str] = ("", "", "")  # frame, zoom, crop
+        self._best_face_rank = -1
         self._best_face_band = ""
         self._face_count_max = 0
         self._face_sims: list[float] = []
-        # Bester Kopfausschnitt PRO PERSON: identity_key → (score, crop_url).
-        # So zeigt die Galerie jede gesehene Person, nicht nur die am besten
-        # erkannte — auch die, deren Gesicht nie einem Namen zugeordnet wurde.
-        self._crops_by_identity: dict[str, tuple[float, str]] = {}
-        # Bester Personen-Tick (kein Gesicht): höchster YOLO-Score.
-        self._best_person: float = -1.0
-        self._best_person_paths: tuple[str, str] = ("", "")
         self._person_count_max = 0
+        self._person_seen = False  # eine Personen-Beobachtung ohne Gesicht liegt vor
         self._person_confirmed = False  # YOLO saw a person in at least one observation
-        # Referenz-Tick für die Personen-Ausschnitte: die Bild-Bytes des
-        # Ticks, der die MEISTEN Personen gleichzeitig zeigt, plus deren
-        # Boxen. Nur dieser eine Frame wird beim Versand zugeschnitten —
-        # über Ticks hinweg gibt es ohne Embedding keine Identität, jedes
-        # Sammeln würde dieselbe Person mehrfach in die Galerie legen.
-        self._person_boxes: list[tuple[int, int, int, int]] = []
-        self._person_boxes_frame: bytes = b""
-        # Die EINMAL geschnittenen Ausschnitte dieses Referenz-Ticks. Ohne
-        # diesen Halt schnitt jede Bilanz denselben Frame erneut zu: byte-
-        # gleiche Dateien unter neuem Namen, die das Galerie-Dedupe (URL-
-        # basiert) nicht als Wiederholung erkennen konnte. Wird verworfen,
-        # sobald ein Tick mit MEHR Personen den Referenz-Frame ablöst.
-        self._person_crops: list[str] = []
-        # Was dieses Vorkommnis über alle seine Meldungen hinweg schon
-        # gezeigt hat. Eine Folgebilanz meldet nur NEUE Bilder — siehe
-        # ``shown_media`` in ``_emit``.
-        self._shown_media: set[str] = set()
         # Versand-Zustand für due()/has_news().
         self._sent_messages = 0
         self._sent_band_rank = -1
@@ -564,30 +497,21 @@ class BurstReport:
         self._sent_person_count = 0
         # Seit wann liegen unberichtete Neuigkeiten vor? (siehe ``news_due``)
         self._news_since: datetime | None = None
-        # Läuft gerade ein Versand? Eine Bilanz umfasst die VLM-Beschreibung
-        # der ganzen Serie und dauert damit länger als das Bilanz-Intervall
-        # (gemessen 17,4 s bei 8 Keyframes auf dem 4B-Describer, Deadline
-        # 15 s). Ohne diese Sperre liefen Bilanzen übereinander.
+        # Läuft gerade ein Versand? Auch eine reine Text-Meldung kann dauern: Netzwerk-Kanäle
+        # (Telegram, E-Mail) und der compose-Modus "llm" (das Modell formuliert den Text) brauchen
+        # Sekunden, ein Tick des Bursts dauert weniger. Ohne diese Sperre liefen Meldungen
+        # übereinander und kämen in falscher Reihenfolge an.
         self._sending = False
-        # Wurde während eines Versands die nächste Bilanz fällig? Dann wird
-        # sie NACHGEHOLT, nicht verworfen. Ein einzelnes Nachhol-Flag statt
-        # einer Warteschlange: jede Bilanz beschreibt ohnehin den kompletten
-        # Cluster bis zu ihrem Versandbeginn — aufgestaute Meldungen wären
-        # inhaltlich dieselbe, nur älter.
+        # Wurde während eines Versands die nächste Meldung fällig? Dann wird sie NACHGEHOLT, nicht
+        # verworfen. Ein einzelnes Nachhol-Flag statt einer Warteschlange: jede Meldung trägt ohnehin
+        # den neuesten Stand bis zu ihrem Versandbeginn — aufgestaute wären inhaltlich dieselbe,
+        # nur älter.
         self._catch_up = False
-        # Bis zu dieser Event-Id ist das Vorkommnis beschrieben. Jede
-        # Bilanz beschreibt nur die seither dazugekommenen Bilder — sonst
-        # verteilt sich das feste Bild-Budget des VLM über eine immer
-        # längere Zeitspanne und die Beschreibung wird mit jeder Minute
-        # gröber (bei 5 min nur noch alle 30 s ein Bild).
-        self._described_up_to = 0
 
     # ── Beobachtungen ────────────────────────────────────────────────
 
     def observe_face(
-        self, band: str, name: str, similarity: float, det_score: float,
-        frame_path: str, zoom_frame_path: str, crop_url: str,
-        faces_in_tick: int = 1, identity_key: str = "",
+        self, band: str, name: str, similarity: float, faces_in_tick: int = 1,
     ) -> None:
         rank = _BAND_RANK.get(band, 1)
         if band == "face_known" and name:
@@ -595,59 +519,28 @@ class BurstReport:
             self.known_named[name] = max(prev, float(similarity))
         self._face_sims.append(float(similarity))
         self._face_count_max = max(self._face_count_max, int(faces_in_tick))
-        # Bester Ausschnitt je Person — Schlüssel ist die Identität des
-        # Crop-Stores (Name bzw. unknown_N), gewichtet nach Detektionsgüte.
-        key = identity_key or name or crop_url
-        if crop_url and key:
-            prev_crop = self._crops_by_identity.get(key)
-            if prev_crop is None or float(det_score) > prev_crop[0]:
-                self._crops_by_identity[key] = (float(det_score), crop_url)
-        score = float(similarity) if rank > 1 else float(det_score)
-        if (rank, score) > self._best_face:
-            self._best_face = (rank, score)
-            self._best_face_paths = (frame_path, zoom_frame_path, crop_url)
+        if rank > self._best_face_rank:
+            self._best_face_rank = rank
             self._best_face_band = band
 
     def observe_headcount(self, count: int) -> None:
         """Personenzahl eines Ticks (Objekterkennung) — läuft in JEDEM Tick,
-        auch wenn Gesichter gefunden wurden. Sonst bliebe die Bilanz genau
+        auch wenn Gesichter gefunden wurden. Sonst bliebe die Meldung genau
         dort blind, wo sie am meisten weiß: Begleiter ohne erkanntes
         Gesicht tauchten weder im Titel noch im VLM-Prompt auf."""
         self._person_count_max = max(self._person_count_max, int(count))
 
-    def observe_person_boxes(
-        self, frame_bytes: bytes, boxes: list[tuple[int, int, int, int]],
-    ) -> None:
-        """Personenboxen eines Ticks anbieten — der Tick mit den meisten
-        gleichzeitig sichtbaren Personen gewinnt und wird beim Versand zu
-        den Galerie-Ausschnitten. Läuft in JEDEM Tick, auch mit Gesichtern:
-        gerade die Begleiter ohne erkanntes Gesicht sollen ein Bild
-        bekommen."""
-        if not frame_bytes or not boxes:
-            return
-        if len(boxes) <= len(self._person_boxes):
-            return
-        self._person_boxes = list(boxes)
-        self._person_boxes_frame = frame_bytes
-        # Neuer Referenz-Tick → die Ausschnitte des alten sind überholt.
-        self._person_crops = []
-
-    def observe_person(
-        self, count: int, score: float, frame_path: str, zoom_frame_path: str,
-        *, yolo_unconfirmed: bool = False,
-    ) -> None:
+    def observe_person(self, count: int, *, yolo_unconfirmed: bool = False) -> None:
+        self._person_seen = True
         self._person_confirmed = self._person_confirmed or not yolo_unconfirmed
         self.observe_headcount(count)
-        if float(score) > self._best_person:
-            self._best_person = float(score)
-            self._best_person_paths = (frame_path, zoom_frame_path)
 
     # ── Versand-Entscheidung ─────────────────────────────────────────
 
     def _current_band_rank(self) -> int:
-        if self._best_face[0] >= 0:
-            return self._best_face[0]
-        if self._best_person >= 0:
+        if self._best_face_rank >= 0:
+            return self._best_face_rank
+        if self._person_seen:
             return 0
         return -1
 
@@ -655,10 +548,10 @@ class BurstReport:
         return self._current_band_rank() >= 0
 
     def due(self, deadline_sec: float) -> bool:
-        """Erstmeldung fällig? Einmal, ``deadline_sec`` nach Burst-Beginn. Danach
-        meldet der Burst nur noch Neuigkeiten (``has_news``) und zum Schluss die
-        Zusammenfassung mit dem Film (``finish``): die Bilder selbst zeigen,
-        was die Personen tun."""
+        """Erstmeldung fällig? Einmal, ``deadline_sec`` nach Burst-Beginn: ein reiner Text mit dem
+        Ergebnis der Erkennung. Danach meldet der Burst nur noch Neuigkeiten (``has_news``) und zum
+        Schluss die Zusammenfassung mit dem Film (``finish``): die Bilder selbst zeigen, was die
+        Personen tun."""
         if self._sent_messages or not self.has_observations():
             return False
         return (datetime.now() - self.started).total_seconds() >= deadline_sec
@@ -689,10 +582,8 @@ class BurstReport:
     # ── Versand ──────────────────────────────────────────────────────
 
     async def send(self) -> None:
-        """Erstmeldung bzw. — bei Neuigkeiten — ein kurzer Hinweis.
-
-        Die Erstmeldung beschreibt per VLM die bis dahin gesammelten Bilder und
-        zeigt deren Keyframes; der Hinweis ist reiner Text ohne VLM und Bild.
+        """Erstmeldung bzw. — bei Neuigkeiten — ein kurzer Hinweis. Beide sind reiner Text
+        (Ergebnis der Erkennung): kein Bild, keine Galerie, keine Beschreibung.
         Läuft bereits ein Versand, wird die Meldung vorgemerkt und direkt im
         Anschluss nachgeholt — nie verworfen."""
         if not self.has_observations():
@@ -703,15 +594,8 @@ class BurstReport:
         self._sending = True
         try:
             while True:
-                if self._sent_messages == 0:
-                    # Kapitel-Grenze JETZT ziehen: was während der Beschreibung
-                    # hereinkommt, gehört ins nächste Kapitel.
-                    segment_ids = self._next_segment_ids()
-                    if segment_ids:
-                        self._described_up_to = max(segment_ids)
-                    await self._send_once(segment_ids=segment_ids)
-                elif self.has_news():
-                    await self._send_once(news=True)
+                if self._sent_messages == 0 or self.has_news():
+                    await self._send_once()
                 if not self._catch_up:
                     break
                 self._catch_up = False
@@ -720,7 +604,7 @@ class BurstReport:
             self._catch_up = False
 
     def is_sending(self) -> bool:
-        """Läuft gerade ein Versand (inkl. VLM-Beschreibung)?"""
+        """Läuft gerade ein Versand?"""
         return self._sending
 
     def _span(self) -> tuple[datetime, datetime] | None:
@@ -746,72 +630,53 @@ class BurstReport:
             await self._send_once(films=media.films, description=media.description, summary=True)
 
     async def _send_once(
-        self, *, segment_ids: list[int] | None = None, news: bool = False,
-        films: list[str] | None = None, description: str = "", summary: bool = False,
+        self, *, films: list[str] | None = None, description: str = "", summary: bool = False,
     ) -> None:
         self._sent_messages += 1
         key = f"{self.cluster_id or self.source_id}:burst-report-{self._sent_messages}"
         band = self._best_face_band
-        # Stand FESTHALTEN, bevor der Versand (mit VLM-Beschreibung, ~17 s)
-        # beginnt: der Burst tickt derweil weiter. Als „gemeldet" darf nur
-        # gelten, was auch wirklich in dieser Meldung steht — sonst
-        # verschluckt die Bilanz einen Namen, der mitten im Versand
-        # dazukam, und meldet ihn nie nach.
+        # Stand FESTHALTEN, bevor der Versand beginnt: der Burst tickt derweil weiter. Als „gemeldet"
+        # darf nur gelten, was auch wirklich in dieser Meldung steht — sonst verschluckt die Meldung
+        # einen Namen, der mitten im Versand dazukam, und meldet ihn nie nach.
         sent_band_rank = self._current_band_rank()
         sent_names = set(self.known_named)
         sent_person_count = self._person_count_max
-        # Ein Hinweis bei Neuigkeiten ist reiner Text: kein Bild, keine Galerie, kein VLM. Die Zusammenfassung
-        # zeigt den Film statt der Einzelbilder (die sind gelöscht) und bringt ihre Beschreibung fertig mit.
-        show_media = not news and not summary
         span = self._span()
         started = span[0] if span else None
         # Die Zusammenfassung nennt die Zeitspanne, Erstmeldung und Hinweise den Beginn.
         ended = span[1] if span and summary else None
+        # Alle Burst-Meldungen sind Text ohne Bild und ohne eigene Beschreibung: die Zusammenfassung bringt ihre
+        # Beschreibung fertig mit (``description``), der Alarmbus beschreibt nie selbst.
         if band:
             names = list(self.known_named)
             sims = (
                 list(self.known_named.values()) if names else self._face_sims
             )
-            frame_path, zoom_path, crop_url = self._best_face_paths if show_media else ("", "", "")
             await emit_face_alert(
                 source_id=self.source_id,
                 event_type="face_known" if names else band,
-                frame_path=frame_path,
-                zoom_frame_path=zoom_path,
-                crop_url=crop_url,
-                extra_crop_urls=(
-                    self._identity_crop_urls() + self._person_crop_urls() if show_media else []
-                ),
                 cluster_id=self.cluster_id,
                 names=names,
                 count=max(self._face_count_max, len(names), 1),
                 similarities=sims,
                 person_count=self._person_count_max,
-                segment_event_ids=segment_ids,
                 store=self._store,
                 dedup_key=key,
-                shown_media=self._shown_media,
-                describe=show_media,
+                describe=False,
                 description=description,
                 media_album=films,
                 timestamp=started,
                 timestamp_end=ended,
             )
         else:
-            frame_path, zoom_path = self._best_person_paths if show_media else ("", "")
             await emit_person_alert(
                 source_id=self.source_id,
-                frame_path=frame_path,
-                zoom_frame_path=zoom_path,
-                extra_crop_urls=self._person_crop_urls() if show_media else [],
                 cluster_id=self.cluster_id,
                 count=max(self._person_count_max, 1),
-                segment_event_ids=segment_ids,
                 store=self._store,
                 dedup_key=key,
-                shown_media=self._shown_media,
                 yolo_unconfirmed=not self._person_confirmed,
-                describe=show_media,
+                describe=False,
                 description=description,
                 media_album=films,
                 timestamp=started,
@@ -821,53 +686,3 @@ class BurstReport:
         self._sent_names = sent_names
         self._sent_person_count = sent_person_count
         self._news_since = None
-
-    def _next_segment_ids(self) -> list[int]:
-        """Die seit der letzten Bilanz dazugekommenen Events dieses
-        Vorkommnisses — das nächste zu beschreibende Kapitel. Leer, wenn
-        nichts Neues da ist — dann gibt es auch nichts zu melden."""
-        if not self.cluster_id or self._store is None:
-            return []
-        try:
-            ids = self._store.list_cluster_event_ids(self.cluster_id)
-        except sqlite3.Error as e:  # busy database: nothing new this round
-            logger.warning("burst: reading cluster events failed: %s", e)
-            return []
-        return sorted(i for i in ids if int(i) > self._described_up_to)
-
-    def _identity_crop_urls(self) -> list[str]:
-        """Kopfausschnitte aller im Burst gesehenen Personen, beste zuerst.
-        Ungedeckelt — je Identität EIN Ausschnitt, und wer im Vorkommnis
-        war, gehört in die Meldung."""
-        ranked = sorted(
-            self._crops_by_identity.values(), key=lambda it: it[0], reverse=True,
-        )
-        return [url for _score, url in ranked]
-
-    def _person_crop_urls(self) -> list[str]:
-        """Kopf-/Schulterausschnitte ALLER im Referenz-Tick sichtbaren
-        Personen. Ergänzt die Gesichts-Crops um die, die nie erkannt wurden
-        — ohne sie zeigt eine Meldung über vier Personen zwei Gesichter und
-        sonst nichts. Erst hier zugeschnitten, damit der Burst keine
-        Dateien für Ticks anlegt, die nie gemeldet werden — und nur EINMAL
-        je Referenz-Tick, sonst legt jede Folgebilanz dieselben Pixel unter
-        neuem Namen noch einmal ab."""
-        if self._person_crops:
-            return self._person_crops
-        if not self._person_boxes or not self._person_boxes_frame:
-            return []
-        from .face_crop_store import get_default_store
-        store = get_default_store()
-        urls = []
-        for index, box in enumerate(self._person_boxes):
-            url = store.save_person_crop(
-                frame_bytes=self._person_boxes_frame,
-                bbox=box,
-                source_id=self.source_id,
-                index=index + 1,
-            )
-            if url:
-                urls.append(url)
-        self._person_crops = urls
-        return urls
-

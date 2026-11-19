@@ -192,9 +192,7 @@ class EdgeAiHandler:
                 cluster_id=cluster_id,
             )
             if report is not None:
-                report.observe_person(
-                    person_count, 0.0, frame_path, zoom_frame_path, yolo_unconfirmed=person_unconfirmed,
-                )
+                report.observe_person(person_count, yolo_unconfirmed=person_unconfirmed)
             elif not face_found:
                 # Alert entfällt, wenn schon ein Gesicht erkannt wurde (sonst Doppel-Meldung).
                 await vision_alerts.emit_person_alert(

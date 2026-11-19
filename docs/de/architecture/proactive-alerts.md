@@ -136,15 +136,15 @@ sie:
      ruft **`process_inbound`** (AIfred formuliert; legt dabei selbst die
      Session an — wie der Scheduler). Sieht nur Titel und Body, nicht das Bild.
    - `"vlm"` — `_describe_media_via_vlm` lässt das aktive VLM das Vorkommnis
-     beschreiben (bei laufendem Burst die neuen Bilder als Kapitel, sonst die
-     Bildserie des Clusters, sonst den Einzelmoment Zoom + Weitwinkel); die
-     Beschreibung kommt in den Body.
+     beschreiben (die Bildserie des Clusters, sonst den Einzelmoment Zoom +
+     Weitwinkel); die Beschreibung kommt in den Body. Ein Burst beschreibt nicht
+     hier: seine Zusammenfassung bringt die Beschreibung fertig mit
+     (`AlertEvent.description`).
    - `"vlm+llm"` — VLM-Beschreibung, dann formuliert AIfred damit als Kontext
      den finalen Text.
 
    Scheitert LLM oder VLM, bleibt der Template-Text. Eine VLM-Beschreibung
-   wird in die Vision-Events zurückgeschrieben (`apply_description_to_events` /
-   `apply_cluster_description`), der nächtliche bulk-describe überspringt sie.
+   wird in die Vision-Events zurückgeschrieben (`apply_cluster_description`), der nächtliche bulk-describe überspringt sie.
 2. **Browser-Session** (Kontroll-Trail): `record_autonomous_turn` schreibt den
    Turn über dieselben Primitive wie `process_inbound` (`routing_table` +
    `create_empty_session` + `update_chat_data` + `write_hub_notification`) →
@@ -195,12 +195,14 @@ Restrisiko: Watcher-Neustart setzt offene Cluster zurück → ein Vorkommnis
   nicht (mehr).
 - Vision: `dedup_key` = `cluster_id` (ein Alert pro Vorkommnis; zwei
   verschiedene Personen kurz nacheinander = zwei Cluster = zwei Alerts),
-  Fallback `source_id:category`. Die Burst-Bilanz (`BurstReport`, bei Quellen
-  mit Face-Hunt-Burst) hängt einen Laufindex an (`…:burst-report-<n>`): Dort
-  sind mehrere Meldungen pro Vorkommnis gewollt, aber wenige: eine Erstmeldung
-  (`burst_report_deadline_sec`) mit kurzer VLM-Beschreibung und deren Keyframes,
+  Fallback `source_id:category`. Die Burst-Meldungen (`BurstReport`, bei Quellen
+  mit Face-Hunt-Burst) hängen einen Laufindex an (`…:burst-report-<n>`): Dort
+  sind mehrere Meldungen pro Vorkommnis gewollt, aber wenige. Während des Bursts gibt es nur Text, keine
+  Bilder und keine Beschreibung (`AlertEvent.describe=False`, kein `media`, keine Galerie, kein Album):
+  eine Erstmeldung (`burst_report_deadline_sec`) mit dem Ergebnis der Gesichts- bzw. Personenerkennung
+  (Namen, unbekannt/unsicher, Personenzahl im Titel),
   danach nur kurze Text-Hinweise bei echten Neuigkeiten (neuer Name, Band-Upgrade,
-  mehr Personen; ohne VLM und Bild, `AlertEvent.describe=False`; ein Hinweis wartet
+  mehr Personen; ein Hinweis wartet
   `VISION_BURST_NEWS_SETTLE_SEC`, bis sich der Stand beruhigt hat, damit schnell
   aufeinanderfolgende Erkennungen EINE Nachricht ergeben) und zum
   Burst-Ende der Abschluss (`BurstReport.finish`, bei JEDEM normal beendeten Burst, auch ohne Meldung, nicht bei
@@ -218,9 +220,10 @@ Restrisiko: Watcher-Neustart setzt offene Cluster zurück → ein Vorkommnis
   Detektion — den Verlauf zeigen die Bilder, nicht ein Text pro Zwischenstand.
   Die Kopfzeile nennt den Moment des Vorkommnisses (Beginn, in der Zusammenfassung
   Beginn bis Ende), nicht den des Versands.
-  Ohne Burst (Einzel-Alert) gilt `media`/`media_context`; ein Bild, das das
-  Vorkommnis schon gezeigt hat (`AlertEvent.media_is_new=False`), geht nicht noch
-  einmal an die Kanäle.
+  Ohne Burst (Einzel-Alert) gilt `media`/`media_context`: Standbild, Galerie und
+  Beschreibung wie bisher. Die Versand-Sperre des `BurstReport` (kein zweiter
+  Versand gleichzeitig, eine fällige Meldung wird nachgeholt) bleibt, weil auch ein reiner Text über
+  Netzwerk-Kanäle und den compose-Modus `llm` Sekunden dauern kann.
 - Andere Producer würden eigene Keys liefern (Scheduler → Task-ID,
   System → Metrik-Name).
 - Pro Regel optionale `quiet_hours`. Zusätzlich filtert der Vision-Producer
@@ -290,7 +293,7 @@ Vision-Producer + Regel-Config + Verdrahtung (4/5), Regel-UI, FreeEcho.2-Sink,
 compose-Modi `template`/`llm`/`vlm`/`vlm+llm`. Der Vision-Producer meldet
 Gesichter (`face_known`, `face_unsure`, `face_unknown`), Personen (`person`)
 und Edge-AI-Objekte (`vehicle`, `animal`) scharfer Kameras; bei Quellen mit
-Face-Hunt-Burst gehen Gesichts- und Personen-Erkennungen als Burst-Bilanz
+Face-Hunt-Burst gehen Gesichts- und Personen-Erkennungen als Burst-Meldungen (Text, Zusammenfassung mit Film)
 raus, sonst als Sofort-Alert.
 
 Offen / später:

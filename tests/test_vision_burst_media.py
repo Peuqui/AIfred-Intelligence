@@ -70,9 +70,9 @@ def _describer(monkeypatch, *, fail: Exception | None = None) -> list[list[int]]
         asked.append(list(event_ids))
         if fail is not None:
             raise fail
-        return "Zwei Personen gehen zur Tür.", []
+        return "Zwei Personen gehen zur Tür."
 
-    monkeypatch.setattr(vbm, "analyze_cluster_with_frames", fake)
+    monkeypatch.setattr(vbm, "analyze_cluster_with_vlm", fake)
     return asked
 
 
@@ -183,7 +183,7 @@ def _report(store: VisionStore, monkeypatch, *, observed: bool) -> tuple[va.Burs
     monkeypatch.setattr(alert_bus, "get_default_dispatcher", lambda: dispatcher)
     report = va.BurstReport("cam/door", _CLUSTER, store)
     if observed:
-        report.observe_person(2, 0.9, "/x/w.jpg", "/x/z.jpg")
+        report.observe_person(2)
     return report, dispatcher
 
 

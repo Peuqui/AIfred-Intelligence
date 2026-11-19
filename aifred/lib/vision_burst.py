@@ -190,9 +190,8 @@ class BurstRunner:
                 # Erstmeldung fällig (Deadline erreicht) oder Neuigkeiten seit der
                 # letzten Meldung → melden, Burst läuft weiter.
                 #
-                # NICHT awaiten: die Erstmeldung beschreibt die bisherigen Bilder per
-                # VLM und dauert (gemessen 17,4 s bei 8 Keyframes / 15 s Deadline)
-                # mehrere Burst-Ticks. Awaiten
+                # NICHT awaiten: der Versand geht über Netzwerk-Kanäle (und bei compose
+                # "llm" über das Modell) und dauert mehrere Burst-Ticks. Awaiten
                 # hieße, den Burst genau währenddessen blind zu stellen — es
                 # gingen die Frames verloren, die das Ereignis dokumentieren.
                 # Überlappung verhindert der Report selbst (``is_sending``).
@@ -277,12 +276,6 @@ class BurstRunner:
             if persons:
                 person_frame = face_frame
         report.observe_headcount(len(persons))
-        # Boxen + Bild für die Galerie-Ausschnitte anbieten: die Bilanz behält
-        # den Tick mit den meisten Personen und schneidet erst beim Versand
-        # zu. So bekommt auch der Begleiter ohne erkanntes Gesicht ein Bild.
-        report.observe_person_boxes(
-            person_frame.image_bytes, [p.bbox for p in persons],
-        )
 
         # Zweiter Blick, bevor der Tick als „nur eine Person" abgelegt wird:
         # im Vollbild ist ein Gesicht auf Distanz schnell zu klein für den
@@ -328,7 +321,7 @@ class BurstRunner:
             pair = await self._output.finalize_pair(
                 wide_frame, face_frame, save=config.save_event_frames,
             )
-            max_score = self._recorder.record_persons(
+            self._recorder.record_persons(
                 persons,
                 source_id=source_id,
                 timestamp=wide_frame.timestamp,
@@ -337,9 +330,7 @@ class BurstRunner:
                 trigger=TRIGGER,
                 cluster_id=cluster_id,
             )
-            report.observe_person(
-                len(persons), max_score, pair.wide.path, pair.zoom_path,
-            )
+            report.observe_person(len(persons))
             return "person"
 
         # Alle Gesichter dieses Ticks matchen — nicht nur das beste. Sind zwei
@@ -378,17 +369,12 @@ class BurstRunner:
             trigger=TRIGGER,
             cluster_id=cluster_id,
         )
-        # Beobachtungen in die Bilanz — JEDES Gesicht des Ticks, damit die
-        # Meldung alle Namen und je Person den besten Kopfausschnitt kennt.
-        for candidate, candidate_match, candidate_crop in scored:
+        # Beobachtungen in die Meldung — JEDES Gesicht des Ticks, damit sie alle Namen kennt.
+        for _candidate, candidate_match, _candidate_crop in scored:
             report.observe_face(
                 face_event_type(candidate_match.confidence_band),
                 candidate_match.name or "",
                 float(candidate_match.similarity),
-                float(candidate.detection_score),
-                pair.wide.path, pair.zoom_path,
-                candidate_crop.url if candidate_crop else "",
                 faces_in_tick=len(detections),
-                identity_key=candidate_crop.identity_key if candidate_crop else "",
             )
         return "face"

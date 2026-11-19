@@ -54,8 +54,8 @@ def test_the_burst_report_names_the_finding_only_while_yolo_never_saw_a_person(
     emitted: list[dict[str, Any]],
 ) -> None:
     report = va.BurstReport("cam/x", "c1", None)
-    report.observe_person(1, 0.0, "/f.jpg", "", yolo_unconfirmed=True)
-    asyncio.run(report._send_once(segment_ids=[]))
-    report.observe_person(1, 0.6, "/g.jpg", "")  # a later tick: YOLO sees the person
-    asyncio.run(report._send_once(segment_ids=[]))
+    report.observe_person(1, yolo_unconfirmed=True)
+    asyncio.run(report._send_once())
+    report.observe_person(1)  # a later tick: YOLO sees the person
+    asyncio.run(report._send_once())
     assert [va.yolo_unconfirmed_note() in call["body"] for call in emitted] == [True, False]

@@ -49,7 +49,6 @@ def _content(written: list[list[dict]]) -> str:
 def test_gallery_images_are_embedded(recorded):
     mp.record_autonomous_turn(
         "vision", "cam/door", "Unbekannte Person erkannt", "Text",
-        media="/x/wide.jpg",
         media_gallery=["/_upload/wide.jpg", "/_upload/face_crops/a.jpg"],
     )
     content = _content(recorded)
@@ -60,19 +59,9 @@ def test_gallery_images_are_embedded(recorded):
 def test_empty_gallery_means_no_image_at_all(recorded):
     mp.record_autonomous_turn(
         "vision", "cam/door", "Unbekannte Person erkannt", "Neues Kapitel",
-        media="/x/wide.jpg", media_gallery=[],
+        media_gallery=[],
     )
     assert _content(recorded) == "Neues Kapitel"
-
-
-def test_without_gallery_the_single_image_carries_the_turn(recorded, monkeypatch):
-    """``None`` = der Aufrufer kennt keine Galerie — dann traegt ``media``."""
-    import aifred.lib.vision_utils as vu
-    monkeypatch.setattr(vu, "get_image_url", lambda p: f"/_upload/{p.name}")
-    mp.record_autonomous_turn(
-        "vision", "cam/door", "Titel", "Text", media="/x/wide.jpg",
-    )
-    assert "![Titel](/_upload/wide.jpg)" in _content(recorded)
 
 
 @pytest.fixture()
