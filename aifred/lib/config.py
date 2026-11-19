@@ -955,7 +955,7 @@ VISION_ONVIF_PULL_TIMEOUT_SEC = 5
 # * PREROLL_SEC — Länge des Vorlauf-Ringpuffers (RTSP-Substream-Frames).
 VISION_BURST_INTERVAL_SEC = 0.5
 VISION_BURST_LINGER_SEC = 20.0
-VISION_PREROLL_SEC = 8.0
+VISION_PREROLL_SEC = 4.0
 VISION_BURST_REPORT_DEADLINE_SEC = 15.0
 # Untergrenzen: Burst-Takt (schneller belastet die Kamera-API) und Bilanz-Intervall.
 # Zwei Bilder gelten als dieselbe Szene, wenn ihr pHash-Abstand höchstens so groß
@@ -974,14 +974,16 @@ VISION_BURST_NEWS_SETTLE_SEC = 5.0
 # gespeicherten Burst-Bildern in Zeitfolge — der Verlauf des Vorkommnisses von der ersten
 # bis zur letzten Detektion. Wenige Bilder, deshalb langsam (FPS) und ohne Längenlimit.
 # * FILM_FPS — Bilder pro Sekunde im Film (2 = jedes Bild eine halbe Sekunde).
-# * FILM_WIDTH/HEIGHT — feste Leinwand; Bilder anderer Proportion bekommen Ränder.
-# * FILM_CRF — x264-Qualität (kleiner = besser/größer; 28 reicht für Überwachungsbilder).
+# * Auflösung — keine Konstante: jede Linse behält ihre Auflösung 1:1, die Leinwand eines Films ist das
+#   größte seiner Bilder; kleinere (der Vorlauf aus dem Substream) werden mit Rändern hochskaliert.
+# * FILM_CRF — x264-Qualität (kleiner = besser/größer; 23 ist der x264-Standard). Gemessen an einem
+#   4K-Nachtbild-Burst: 31 Bilder ≈ 15 MB, rund ein Drittel der JPEG-Einzelbilder.
+# * FILM_KEYFRAME_SEC — festes Schlüsselbild-Intervall: damit sich ein Film ohne Neukodieren an
+#   Schlüsselbildern teilen lässt, z. B. für die 50-MB-Grenze von Telegram. Gemessen kostet 10 s gegenüber
+#   dem x264-Standard keine messbare Größe.
 VISION_FILM_FPS = 2
-VISION_FILM_WIDTH = 960
-VISION_FILM_HEIGHT = 540
-VISION_FILM_CRF = 28
-# * FILM_MIN_FRAMES — weniger Bilder je Linse ergeben keinen Film (5 Bilder = 2,5 s).
-VISION_FILM_MIN_FRAMES = 5
+VISION_FILM_CRF = 23
+VISION_FILM_KEYFRAME_SEC = 10
 
 # Aufnahme auf Zuruf (Werkzeug ``vision_capture`` mit ``duration_s``): ein Agent nimmt eine Bilderfolge auf, die in Echtzeit
 # (Bildabstand = Abstand der Aufnahme) zu einem Film wird, ohne Beschleunigung (Peuqui 12.11.2026).

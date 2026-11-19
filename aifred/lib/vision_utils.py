@@ -926,7 +926,7 @@ def film_source_dir(root: Path, source_id: str) -> Path:
 
 
 def cluster_film_files(source_id: str, cluster_id: str) -> list[Path]:
-    """The burst films of one happening (one per lens, ``<cluster>_<lens>.mp4``), whatever day folder they are in."""
+    """The burst films of one happening (one per lens and burst, ``<cluster>_<HHMMSS>_<lens>.mp4``), whatever day folder they are in."""
     return sorted(film_source_dir(FILMS_DIR, source_id).glob(f"*/{cluster_id}_*.mp4"))
 
 

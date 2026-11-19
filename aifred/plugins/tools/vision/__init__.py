@@ -48,6 +48,7 @@ from ....lib.vision_cleanup import (
     cleanup_form_values,
     save_cleanup_form_values,
 )
+from ....lib.vision_film import film_lens
 from ....lib.vision_filters.face_detect import get_default_detector
 from ....lib.vision_gpu_select import resolve_gpu_id
 from ....lib.vision_settings import VISION_SETTINGS_PATH, load_vision_settings
@@ -130,11 +131,13 @@ def _ok(**payload: Any) -> str:
     return json.dumps({"success": True, **payload})
 
 
-def _film_urls(source_id: str, cluster_id: str) -> dict[str, str]:
-    """URLs of a happening's burst films by lens ("wide", "zoom"); {} when it has none."""
-    if not cluster_id:
-        return {}
-    return {film.stem.rsplit("_", 1)[1]: get_image_url(film) for film in cluster_film_files(source_id, cluster_id)}
+def _film_urls(source_id: str, cluster_id: str) -> dict[str, list[str]]:
+    """URLs of a happening's burst films by lens ("wide", "zoom"), one per burst in time order; {} when it has none."""
+    urls: dict[str, list[str]] = {}
+    if cluster_id:
+        for film in cluster_film_files(source_id, cluster_id):
+            urls.setdefault(film_lens(str(film)), []).append(get_image_url(film))
+    return urls
 
 
 @dataclass
@@ -904,7 +907,7 @@ class VisionPlugin:
                     "zoom_image_url": get_image_url(Path(zfp)) if zfp else "",
                     # How many frames this one happening spans.
                     "frames_in_cluster": member_count.get(cid, 1) if cid else 1,
-                    # The burst films of the happening by lens (wide, zoom); {} when none was made. Show them
+                    # The burst films of the happening by lens (wide, zoom), a list per lens (one film per burst); {} when none was made. Show them
                     # with the film's URL, or hand one to vision_analyze to look at it.
                     "film_urls": _film_urls(sid, cid),
                 }

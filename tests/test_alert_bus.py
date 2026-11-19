@@ -275,7 +275,7 @@ class TestFilmPlayers:
         from aifred.lib.alert_bus import _film_players
 
         html = _film_players([
-            "/x/c_wide.mp4", "/x/c_zoom.mp4", "/x/crop.jpg",
+            "/x/c-1_170000_wide.mp4", "/x/c-1_170000_zoom.mp4", "/x/crop.jpg",
         ])
         assert html.count("<video controls") == 2
         assert "Weitwinkel" in html and "Zoom" in html

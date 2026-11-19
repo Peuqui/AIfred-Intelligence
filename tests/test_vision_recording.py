@@ -79,17 +79,22 @@ def test_burst_films_go_with_the_last_event_of_their_happening(tmp_path: Path, m
     day = tmp_path / "films" / "cam_door" / "2026-11-12"
     day.mkdir(parents=True)
     for lens in ("wide", "zoom"):
-        (day / f"c-1_{lens}.mp4").write_bytes(b"film")
-    (day / "c-2_wide.mp4").write_bytes(b"film")
+        (day / f"c-1_170000_{lens}.mp4").write_bytes(b"film")
+    (day / "c-1_171500_wide.mp4").write_bytes(b"film")  # a second burst of the same happening
+    (day / "c-10_170000_wide.mp4").write_bytes(b"film")  # another happening whose id starts the same
+    (day / "c-2_170000_wide.mp4").write_bytes(b"film")
     store = VisionStore(tmp_path / "vision.db")
     first = store.add_event("cam/door", "person", cluster_id="c-1")
     second = store.add_event("cam/door", "person", cluster_id="c-1")
     store.add_event("cam/door", "person", cluster_id="c-2")
-    assert [f.name for f in vu.cluster_film_files("cam/door", "c-1")] == ["c-1_wide.mp4", "c-1_zoom.mp4"]
+    assert [f.name for f in vu.cluster_film_files("cam/door", "c-1")] == [
+        "c-1_170000_wide.mp4", "c-1_170000_zoom.mp4", "c-1_171500_wide.mp4",
+    ]
     store.delete_event(first)
-    assert (day / "c-1_wide.mp4").exists()               # the happening still has an event: its film stays
+    assert (day / "c-1_170000_wide.mp4").exists()       # the happening still has an event: its film stays
     store.delete_event(second)
-    assert not (day / "c-1_wide.mp4").exists() and not (day / "c-1_zoom.mp4").exists()
-    assert (day / "c-2_wide.mp4").exists()               # another happening: untouched
+    assert not any(f.name.startswith("c-1_") for f in day.iterdir())  # every burst film of it
+    assert (day / "c-10_170000_wide.mp4").exists()       # the other id is no prefix match
+    assert (day / "c-2_170000_wide.mp4").exists()               # another happening: untouched
     assert store.delete_events_filtered(source_id="cam/door") == 1
-    assert not (day / "c-2_wide.mp4").exists()           # the bulk delete takes the films of what it deletes
+    assert not (day / "c-2_170000_wide.mp4").exists()           # the bulk delete takes the films of what it deletes

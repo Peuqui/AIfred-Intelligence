@@ -205,8 +205,8 @@ Restrisiko: Watcher-Neustart setzt offene Cluster zurück → ein Vorkommnis
   aufeinanderfolgende Erkennungen EINE Nachricht ergeben) und zum
   Burst-Ende die Zusammenfassung: kurze VLM-Beschreibung des ganzen Vorkommnisses
   (`vision_event_summary`, ohne Bildnummern) plus je Linse (Weitwinkel, Zoom) mit
-  mindestens `VISION_FILM_MIN_FRAMES` Bildern ein Film aus allen Burst-Bildern (auch denen, auf denen nichts erkannt wurde — sie bleiben als `edge_ai_burst_frame`-Film-Bilder erhalten) samt Vorlauf
-  (`vision_film`, MP4 unter `data/vigilantia/films/`, `AlertEvent.media_album`;
+  mindestens einem Bild ein Film aus allen Burst-Bildern (auch denen, auf denen nichts erkannt wurde — sie bleiben als `edge_ai_burst_frame`-Film-Bilder erhalten) samt Vorlauf
+  (`vision_film`, MP4 unter `data/vigilantia/films/`, `<Vorkommnis>_<HHMMSS des ersten Bildes>_<Linse>.mp4`, jede Linse in ihrer vollen Auflösung (Leinwand = größtes Bild des Films, der Vorlauf wird mit Rändern hochskaliert), `VISION_FILM_KEYFRAME_SEC` Schlüsselbild-Abstand, `AlertEvent.media_album`;
   Telegram als Album aus bis zu 10 Videos/Fotos, Browser-Session als Links). Der
   Burst ist so der kleine Film des Vorkommnisses von der ersten bis zur letzten
   Detektion — den Verlauf zeigen die Bilder, nicht ein Text pro Zwischenstand.

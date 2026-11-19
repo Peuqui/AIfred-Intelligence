@@ -206,9 +206,9 @@ spanning the restart is split (rare, acceptable).
   in quick succession give ONE message)
   and, when the burst ends, the summary: a short VLM description of the whole
   occurrence (`vision_event_summary`, no image numbers) plus one film per lens (wide,
-  zoom) with at least `VISION_FILM_MIN_FRAMES` images, made from all burst images (including those where nothing was detected — kept as
+  zoom) with at least one image, made from all burst images (including those where nothing was detected — kept as
   `edge_ai_burst_frame` film images) including the
-  pre-roll (`vision_film`, MP4 under `data/vigilantia/films/`,
+  pre-roll (`vision_film`, MP4 under `data/vigilantia/films/` as `<occurrence>_<HHMMSS of the first image>_<lens>.mp4`, each lens at its full resolution (canvas = the largest image of the film, the pre-roll is scaled up with borders), a key frame every `VISION_FILM_KEYFRAME_SEC`,
   `AlertEvent.media_album`; Telegram as an album of up to 10 videos/photos, the
   browser session as links). The burst is thus the small film of the occurrence
   from the first to the last detection — the images show the progress, not a text

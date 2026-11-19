@@ -62,7 +62,7 @@ Liste und der Assistent sieht das Plugin gar nicht.
 - **`vision_capture`** — `source_id` (Pflicht), `duration_s` (Standard `0`: ein Foto; sonst ein Film dieser Länge),
   `interval_s` (nur beim Film, Standard `0.5`). `film_url` und `image_url` gehen an `vision_analyze`; für einen Film
   bekommt das Modell gleichmäßig verteilte Einzelbilder (`VISION_DESCRIBE_MAX_FRAMES`, 10), ein Film geht allein in den
-  Aufruf. Die Burst-Filme eines Vorkommnisses nennt `vision_query_events` als `film_urls` (`wide`, `zoom`); sie verschwinden
+  Aufruf. Die Burst-Filme eines Vorkommnisses nennt `vision_query_events` als `film_urls` (je Linse `wide`, `zoom` eine Liste, ein Film je Burst); sie verschwinden
   mit dem letzten gelöschten Ereignis ihres Vorkommnisses.
 - **`vision_analyze`** — `image_urls` (Pflicht: URL(s) von `vision_capture` oder Uploads, oder ein Film allein), `prompt` (optional; fällt auf den
   konfigurierten Default-Prompt zurück), `source_id` (optional; wendet das Kamera-Briefing an).

@@ -60,7 +60,7 @@ the assistant does not see the plugin at all.
 - **`vision_capture`** — `source_id` (required), `duration_s` (default `0`: one photo; otherwise a film this long),
   `interval_s` (film only, default `0.5`). `film_url` and `image_url` go to `vision_analyze`; for a film the model gets
   pictures spread evenly over its length (`VISION_DESCRIBE_MAX_FRAMES`, 10); a film goes in alone. A happening's burst
-  films are named by `vision_query_events` as `film_urls` (`wide`, `zoom`); they go with the last deleted event of their
+  films are named by `vision_query_events` as `film_urls` (per lens `wide`, `zoom` a list, one film per burst); they go with the last deleted event of their
   happening.
 - **`vision_analyze`** — `image_urls` (required: URL(s) from `vision_capture` or uploads, or one film alone), `prompt` (optional; falls back to
   the configured default prompt), `source_id` (optional; applies the camera briefing).
