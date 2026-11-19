@@ -25,12 +25,13 @@ from .config import (
     VISION_FILM_FPS,
     VISION_FILM_KEYFRAME_SEC,
 )
+from .i18n import t
 from .vision_utils import FILMS_DIR, film_source_dir
 
 logger = logging.getLogger(__name__)
 
-# Linsen in Anzeigereihenfolge; Dateiname und Beschriftung (Anzeige für den User).
-LENS_LABELS = {"wide": "Weitwinkel", "zoom": "Zoom"}
+# Linsen in Anzeigereihenfolge (Teil des Dateinamens); ihre Beschriftung steht in i18n (vision_film_lens_<Linse>).
+LENSES = ("wide", "zoom")
 
 
 class FilmEncodeError(Exception):
@@ -49,15 +50,17 @@ def film_lens(path: str) -> str:
 
 
 def film_label(path: str) -> str:
-    """Beschriftung eines Film-Dateipfads („Weitwinkel"/„Zoom"), aus dem Dateinamen."""
-    return LENS_LABELS.get(film_lens(path), Path(path).stem)
+    """Beschriftung eines Film-Dateipfads in der Sprache der Oberfläche („Weitwinkel"/„Zoom"), aus dem
+    Dateinamen; ein Film ohne Linse im Namen heißt wie seine Datei."""
+    lens = film_lens(path)
+    return t(f"vision_film_lens_{lens}") if lens in LENSES else Path(path).stem
 
 
 def _lens_frames(events: list[dict[str, Any]]) -> tuple[str, str, dict[str, list[tuple[datetime, str]]]]:
     """Bilder je Linse in Zeitfolge als ``(Zeitpunkt, Pfad)`` (ohne Dubletten, nur existierende Dateien).
     Returnt ``(source_id, Datum des ersten Bildes, {Linse: [Bilder]})``."""
     events = sorted(events, key=lambda event: (str(event["timestamp"]), int(event["id"])))
-    frames: dict[str, list[tuple[datetime, str]]] = {lens: [] for lens in LENS_LABELS}
+    frames: dict[str, list[tuple[datetime, str]]] = {lens: [] for lens in LENSES}
     for event in events:
         taken = datetime.fromisoformat(str(event["timestamp"]))
         classification = dict(event.get("classification") or {})

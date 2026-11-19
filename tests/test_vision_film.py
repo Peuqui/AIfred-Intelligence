@@ -137,3 +137,13 @@ def test_the_file_name_carries_the_time_of_the_first_image_of_the_film(store, tm
     films = asyncio.run(vf.make_cluster_films("c-1", store.list_cluster_frame_events("c-1")))
     assert [f.name for f in films] == ["c-1_170000_wide.mp4", "c-1_170002_zoom.mp4"]
     assert [vf.film_lens(str(f)) for f in films] == ["wide", "zoom"]
+
+
+def test_the_lens_label_follows_the_language_of_the_interface(monkeypatch):
+    from aifred.lib import i18n
+
+    monkeypatch.setattr(i18n, "get_language", lambda: "en")
+    assert vf.film_label("/f/c-1_170000_wide.mp4") == "Wide angle"
+    monkeypatch.setattr(i18n, "get_language", lambda: "de")
+    assert vf.film_label("/f/c-1_170000_wide.mp4") == "Weitwinkel"
+    assert vf.film_label("/f/aufnahme_120000_30s.mp4") == "aufnahme_120000_30s"

@@ -1366,6 +1366,8 @@
   "error_vram_blocked_describer_later": "{blocked} — a describer is only added after that.",
   "image_gone": "Image no longer available",
   "vision_overlay_zoom": " · Zoom",
+  "vision_film_lens_wide": "Wide angle",
+  "vision_film_lens_zoom": "Zoom",
   "vision_overlay_preroll": " · Pre-roll",
   "vision_settings_remote_unload": "Unload",
   "vision_settings_remote_unload_tooltip": "Unloads the models loaded on that machine (its llama-swap loads again when one is needed).",

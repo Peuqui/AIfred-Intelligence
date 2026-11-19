@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import aifred.plugins.channels.telegram_channel as tg
+from aifred.lib.video_split import split_video
+from video_fixtures import make_video
 
 
 class _FakeBot:
@@ -138,13 +141,42 @@ class TestFilmAlbum:
             {"caption": "Zusammenfassung", "streaming": True, "filename": "film0.mp4"},
         ]
 
-    def test_a_film_over_the_bot_limit_is_not_sent(self, tmp_path):
+    def test_a_film_over_the_bot_limit_goes_out_in_parts(self, tmp_path):
         bot = _FakeBot()
-        films = _films(tmp_path, 2)
-        with patch.object(tg, "_VIDEO_MAX_BYTES", 5):
+        big = make_video(tmp_path / "Hauseingang_081500_wide.mp4", seconds=30, keyframe_every=20)
+        small = make_video(tmp_path / "Hauseingang_081500_zoom.mp4", seconds=3, keyframe_every=10)
+        limit = big.stat().st_size // 3
+        assert small.stat().st_size < limit
+        sent_parts: list[Path] = []
+
+        def recording_split(*args):
+            parts = split_video(*args)
+            sent_parts.extend(parts)
+            return parts
+
+        with patch.object(tg, "_VIDEO_MAX_BYTES", limit), patch.object(tg, "split_video", side_effect=recording_split):
+            ids = _deliver(tmp_path, bot, "Zusammenfassung", media_album=[str(big), str(small)])
+        assert len(bot.groups) == 1
+        assert [item.media.filename for item in bot.groups[0]] == [
+            "Hauseingang_081500_wide_part000.mp4", "Hauseingang_081500_zoom.mp4",
+        ]
+        assert bot.groups[0][0].caption == "Zusammenfassung"
+        follow_ups = bot.videos
+        assert len(follow_ups) >= 2
+        total = len(follow_ups) + 1
+        assert [v["caption"] for v in follow_ups] == [f"Weitwinkel – Teil {n}/{total}" for n in range(2, total + 1)]
+        assert ids == [101, 102] + [103 + n for n in range(len(follow_ups))]  # alle IDs, in Sendereihenfolge
+        assert sent_parts and not any(part.exists() for part in sent_parts if part != big)  # Temp-Teile weg
+        assert big.exists()
+
+    def test_a_film_that_cannot_be_split_is_not_sent_and_logged(self, tmp_path):
+        bot = _FakeBot()
+        films = _films(tmp_path, 2)  # keine echten Videos: ffprobe scheitert
+        with patch.object(tg, "_VIDEO_MAX_BYTES", 5), patch.object(tg.TelegramChannel, "channel_log") as log:
             _deliver(tmp_path, bot, "Zusammenfassung", media_album=films)
         assert bot.groups == [] and bot.videos == []
         assert bot.texts == ["Zusammenfassung"]
+        assert any("splitting failed" in call.args[0] for call in log.call_args_list)
 
 
 class TestSingleFilm:
@@ -156,3 +188,16 @@ class TestSingleFilm:
         _deliver(tmp_path, bot, "Aufnahme", media=str(film))
         assert bot.videos == [{"caption": "Aufnahme", "streaming": True, "filename": film.name}]
         assert bot.photos == [] and bot.groups == []
+
+    def test_a_single_film_over_the_bot_limit_is_sent_in_parts(self, tmp_path):
+        bot = _FakeBot()
+        film = make_video(tmp_path / "Garten_090000_zoom.mp4", seconds=30, keyframe_every=20)
+        with patch.object(tg, "_VIDEO_MAX_BYTES", film.stat().st_size // 3):
+            ids = _deliver(tmp_path, bot, "Aufnahme", media=str(film))
+        assert bot.groups == []
+        assert bot.videos[0]["caption"] == "Aufnahme"
+        assert bot.videos[0]["filename"] == "Garten_090000_zoom_part000.mp4"
+        total = len(bot.videos)
+        assert total >= 3
+        assert [v["caption"] for v in bot.videos[1:]] == [f"Zoom – Teil {n}/{total}" for n in range(2, total + 1)]
+        assert ids == [101 + n for n in range(total)]

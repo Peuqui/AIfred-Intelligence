@@ -11,14 +11,18 @@ import asyncio
 import json
 import os
 import pathlib
+import tempfile
 import threading
 from datetime import datetime, timezone, UTC
 from typing import TYPE_CHECKING
 
-from ....lib.plugin_base import BaseChannel, CredentialField, load_tool_description, load_tool_parameters
+from ....lib.plugin_base import (
+    BaseChannel, CredentialField, load_tool_description, load_tool_parameters, plugin_dir_of, plugin_i18n_text,
+)
 from ....lib.credential_broker import broker
 from ....lib.logging_utils import log_message
 from ....lib.text_chunking import split_message
+from ....lib.video_split import SplitError, split_video
 
 if TYPE_CHECKING:
     from telegram import Update
@@ -39,7 +43,7 @@ _MAX_MESSAGE_LENGTH = 4096
 # because the PTB handler loop and the hub's send_reply run concurrently.
 _MSGLOG_CAP = 500  # per chat — older ids are past the 48h limit anyway
 _ALBUM_MAX_ITEMS = 10  # Telegram: send_media_group nimmt 2 bis 10 Fotos/Videos
-_VIDEO_MAX_BYTES = 50 * 1024 * 1024  # Bot-API-Limit für hochgeladene Dateien
+_VIDEO_MAX_BYTES = 50 * 1024 * 1024  # Bot-API-Limit für hochgeladene Dateien; größere Videos gehen in Teilen raus
 _msglog_lock = threading.Lock()
 _MSGLOG_FILE: pathlib.Path | None = None
 
@@ -289,6 +293,41 @@ class TelegramChannel(BaseChannel):
         media_context: str | None = None,
         media_album: list[str] | None = None,
     ) -> list[int]:
+        """Sends via :meth:`_send`; videos over the bot limit are cut into parts in a temp folder
+        that is gone after the send."""
+        with tempfile.TemporaryDirectory(prefix="telegram_video_parts_") as work_dir:
+            return await self._send(bot, chat_id, text, media, media_context, media_album, pathlib.Path(work_dir))
+
+    async def _split_for_telegram(self, path: str, work_dir: pathlib.Path) -> list[str] | None:
+        """The parts of a video to send (the file itself if it fits the bot limit; other files pass
+        unchanged). ``None`` when splitting fails: the video is not sent, the reason is logged."""
+        from ....lib.vision_utils import is_video_file
+
+        if not is_video_file(pathlib.Path(path)) or os.path.getsize(path) <= _VIDEO_MAX_BYTES:
+            return [path]
+        part_dir = work_dir / str(len(list(work_dir.iterdir())))
+        part_dir.mkdir()
+        try:
+            parts = await asyncio.to_thread(split_video, pathlib.Path(path), _VIDEO_MAX_BYTES, part_dir)
+        except SplitError as exc:
+            self.channel_log(f"Telegram Plugin: video {pathlib.Path(path).name} not sent, splitting failed: {exc}", "warning")
+            return None
+        return [str(part) for part in parts]
+
+    def _part_caption(self, film_path: str, number: int, total: int) -> str:
+        """Label of a follow-up part: film name (lens for burst films, else file name) and part number."""
+        from ....lib.prompt_loader import get_language
+        from ....lib.vision_film import film_label
+
+        template = plugin_i18n_text(plugin_dir_of(self), "video_part_caption", get_language())
+        return template.format(film=film_label(film_path), number=number, total=total)
+
+    async def _send(
+        self, bot, chat_id: int, text: str, media: str | None,
+        media_context: str | None,
+        media_album: list[str] | None,
+        work_dir: pathlib.Path,
+    ) -> list[int]:
         """SSOT for the actual Telegram send: attachment+caption when ``media``
         is set (photo for images, document otherwise), else chunked text. Used
         by both the reply path and the telegram_send tool so attachment
@@ -302,6 +341,9 @@ class TelegramChannel(BaseChannel):
         ``media_album``: die Keyframes eines Burst-Kapitels in Zeitfolge (der
         Mini-Film des Vorkommnisses, bis zu 10 Bilder wie das Telegram-Limit) —
         EIN Album, Caption am ersten Bild; geht vor ``media``/``media_context``.
+
+        Videos over the bot limit: the first part goes where the video would (album slot, caption), the
+        further parts follow as own messages, film by film, labelled "<film> – part n/m".
 
         Returns the ids of the sent messages."""
         from ....lib.vision_utils import is_image_file, is_video_file
@@ -327,19 +369,29 @@ class TelegramChannel(BaseChannel):
             path for path in (local_media_path(item) for item in (media_album or []))
             if path and (is_image_file(pathlib.Path(path)) or is_video_file(pathlib.Path(path)))
         ][:_ALBUM_MAX_ITEMS]
-        oversized = [path for path in album_local if os.path.getsize(path) > _VIDEO_MAX_BYTES]
-        if oversized:
-            self.channel_log(
-                f"Telegram Plugin: {len(oversized)} album file(s) over the 50 MB bot limit "
-                f"— not sent ({', '.join(pathlib.Path(p).name for p in oversized)})",
-                "warning",
-            )
-            album_local = [path for path in album_local if path not in oversized]
-        if media_album and len(album_local) < len(media_album[:_ALBUM_MAX_ITEMS]) - len(oversized):
+        if media_album and len(album_local) < len(media_album[:_ALBUM_MAX_ITEMS]):
             self.channel_log(
                 "Telegram Plugin: album file(s) missing — sending the rest",
                 "warning",
             )
+        follow_ups: list[tuple[str, list[str]]] = []  # (Film, alle Teile) je geteiltem Video
+        first_parts: list[str] = []
+        for path in album_local:
+            parts = await self._split_for_telegram(path, work_dir)
+            if parts is None:
+                continue
+            first_parts.append(parts[0])
+            if len(parts) > 1:
+                follow_ups.append((path, parts))
+        album_local = first_parts
+        if not album_local and local and is_video_file(pathlib.Path(local)):
+            parts = await self._split_for_telegram(local, work_dir)
+            if parts is None:
+                local = None
+            else:
+                local = parts[0]
+                if len(parts) > 1:
+                    follow_ups.append((media or "", parts))
         if len(album_local) == 1 and is_image_file(pathlib.Path(album_local[0])):
             local, ctx_local = album_local[0], None
         sent_ids: list[int] = []
@@ -424,6 +476,14 @@ class TelegramChannel(BaseChannel):
             else:
                 for chunk in split_message(text, _MAX_MESSAGE_LENGTH):
                     m = await bot.send_message(chat_id=chat_id, text=chunk)
+                    sent_ids.append(m.message_id)
+            for film_path, parts in follow_ups:
+                for number, part in enumerate(parts[1:], start=2):
+                    data, name = await _read_local(part)
+                    m = await bot.send_video(
+                        chat_id=chat_id, video=data, filename=name, supports_streaming=True,
+                        caption=self._part_caption(film_path, number, len(parts)),
+                    )
                     sent_ids.append(m.message_id)
         # TD6: track sent ids so /clear can delete our own sends too.
         await asyncio.to_thread(_msglog_add, chat_id, *sent_ids)
