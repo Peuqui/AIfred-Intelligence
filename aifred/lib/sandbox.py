@@ -1,8 +1,8 @@
 """Sandboxed Python code execution via subprocess.
 
 Runs user-provided Python code in an isolated subprocess with:
-- Resource limits (RAM via RLIMIT_AS, CPU via RLIMIT_CPU)
-- Timeout enforcement
+- Resource limits (RAM via RLIMIT_AS, file size, process count)
+- Wall-clock timeout (SANDBOX_TIMEOUT_SECONDS)
 - Matplotlib auto-capture
 - HTML output detection (for interactive visualizations)
 
@@ -698,7 +698,6 @@ def _set_resource_limits(nproc_limit: int) -> None:
 
     max_bytes = SANDBOX_MAX_RAM_MB * 1024 * 1024
     resource.setrlimit(resource.RLIMIT_AS, (max_bytes, max_bytes))
-    resource.setrlimit(resource.RLIMIT_CPU, (SANDBOX_TIMEOUT_SECONDS, SANDBOX_TIMEOUT_SECONDS))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     # RLIMIT_AS is per-process — a fork bomb multiplies past it. Cap the process
     # count so N children can't each claim the full RAM limit.

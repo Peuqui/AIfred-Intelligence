@@ -1580,7 +1580,9 @@ AGENT_MEMORY_QUERY_MAX_CHARS = 8000
 # ============================================================
 # SANDBOX (CODE EXECUTION) CONFIGURATION
 # ============================================================
-SANDBOX_TIMEOUT_SECONDS = 30         # Max execution time per run
+SANDBOX_TIMEOUT_SECONDS = env_int("SANDBOX_TIMEOUT_SECONDS", 120)  # Wall-clock limit per run; ending bwrap ends
+                                     # everything in it. No CPU-time limit: it adds up all math threads
+                                     # and killed multi-threaded numpy early, without a message.
 SANDBOX_MAX_RAM_MB = env_int("SANDBOX_MAX_RAM_MB", 2048)  # RLIMIT_AS for subprocess (numpy/pandas need ~1GB)
 SANDBOX_MAX_FILE_SIZE_MB = env_int("SANDBOX_MAX_FILE_SIZE_MB", 512)  # RLIMIT_FSIZE: single-file write cap inside the
                                      # sandbox — stops code filling the host disk/tmpfs.

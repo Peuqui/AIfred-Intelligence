@@ -37,9 +37,13 @@ Der Code läuft in einem Subprocess, der mit **bubblewrap (`bwrap`)** und
 - **Kein Dateisystemzugriff** außer `/usr`, `/etc` (read-only), ein privates
   `/tmp`, der venv-Interpreter + site-packages (read-only) und das
   Arbeitsverzeichnis des jeweiligen Laufs
-- **Ressourcen-Limits:** RAM via `RLIMIT_AS` (Default 2048 MB), CPU-Zeit und ein
-  Wall-Clock-**Timeout von 30 Sekunden** (`RLIMIT_CPU` + `asyncio.wait_for`);
-  Core-Dumps deaktiviert; zusätzlich Obergrenze für eine einzelne geschriebene Datei
+- **Ressourcen-Limits:** RAM via `RLIMIT_AS` (Default 2048 MB) und eine Laufzeit
+  von **120 Sekunden** nach der Uhr (`asyncio.wait_for`, `SANDBOX_TIMEOUT_SECONDS`, über
+  `.env` einstellbar). Danach endet bubblewrap und mit ihm alles in der Sandbox, auch
+  Kindprozesse; das Modell bekommt `TIMEOUT` gemeldet. Eine Grenze für die CPU-Zeit gibt
+  es bewusst nicht: Sie zählt alle Rechen-Threads zusammen und beendete numpy mit vier
+  Threads schon nach einem Viertel der Zeit, ohne Meldung. Core-Dumps deaktiviert;
+  zusätzlich Obergrenze für eine einzelne geschriebene Datei
   (`RLIMIT_FSIZE`, `SANDBOX_MAX_FILE_SIZE_MB`) und für die Zahl der Kindprozesse
   (`RLIMIT_NPROC`, `SANDBOX_MAX_PROCESSES`)
 - **Begrenzte Rechen-Threads:** `OPENBLAS_NUM_THREADS` und `OMP_NUM_THREADS` werden auf
@@ -98,7 +102,7 @@ Aktuelle Kandidaten: `numpy`, `pandas`, `scipy`, `sklearn`, `matplotlib`, `seabo
 
 Defaults in `aifred/lib/config.py`:
 
-- `SANDBOX_TIMEOUT_SECONDS` = 30
+- `SANDBOX_TIMEOUT_SECONDS` = 120
 - `SANDBOX_MAX_RAM_MB` = 2048
 - `SANDBOX_MAX_FILE_SIZE_MB` = 512
 - `SANDBOX_MAX_PROCESSES` = 64
