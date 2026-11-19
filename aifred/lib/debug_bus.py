@@ -86,7 +86,8 @@ def show_in_session(msg: str) -> None:
 
 def report_phase(phase: str, *, current: int = 0, total: int = 0, failed: int = 0) -> None:
     """Tell the pages of the current session what the turn is doing: ``intent`` (the Automatik call),
-    ``images`` (their description), ``compress`` (the history), ``scraping`` (``current`` of ``total``
+    ``images`` (their description), ``compress`` (the history), ``model_wait`` (another turn's models run),
+    ``gpu_hold`` (somebody holds the cards, GPU-Orc /hold), ``scraping`` (``current`` of ``total``
     pages read, ``failed`` unreachable). An empty phase ends it; the caller ends what it began. The
     browser shows each phase by its name (``frontend/src/lib/turnProgress.ts``, tests/test_turn_phases.py).
 

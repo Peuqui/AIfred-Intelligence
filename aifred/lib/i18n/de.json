@@ -30,6 +30,7 @@
   "web_scraping": "Web-Scraping",
   "compressing_context": "Komprimiere Kontext ...",
   "waiting_for_model": "Warte, bis ein anderes Modell fertig ist ...",
+  "waiting_for_gpu_hold": "Die Karten sind freigehalten — warte, bis sie wieder frei sind ...",
   "generating_answer": "Generiere Antwort ...",
   "describing_images": "Bildbeschreibung ...",
   "image_uploading": "Bild wird hochgeladen ...",

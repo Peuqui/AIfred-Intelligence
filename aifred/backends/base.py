@@ -530,6 +530,7 @@ class OpenAICompatibleBackend(LLMBackend):
         from ..lib.timer import Timer
 
         root = self._llamaswap_root()
+        await self._wait_while_held(model)
         try:
             running = [m.name for m in await asyncio.to_thread(running_models, root)]
         except LlamaSwapError as e:
@@ -552,6 +553,46 @@ class OpenAICompatibleBackend(LLMBackend):
         load_s = timer.elapsed()
         log_message(f"✅ '{model}' loaded in {load_s:.1f}s")
         return load_s
+
+    async def _wait_while_held(self, model: str) -> None:
+        """While somebody holds the cards of the machine this llama-swap runs on (GPU-Orc ``/hold``), no request
+        goes to a model there: not a load, and not a request to a model already running (it would swap out or
+        distort the holder's work). The turn waits where everyone sees it (phase ``gpu_hold``) and can be stopped;
+        it goes on once the hold ends. Without GPU-Orc (empty GPU_ORC_URL) nothing is asked. A GPU-Orc that does
+        not answer is logged loudly and the request goes on, as the clearing before a load does."""
+        from ..lib.config import GPU_ORC_HOLD_POLL_S
+        from ..lib.debug_bus import report_phase
+        from ..lib.gpu_orc_client import GpuOrcError, get_gpu_orc_client
+        from ..lib.logging_utils import log_message
+        from ..lib.remote_describers import gpu_orc_for_llamaswap
+
+        try:
+            client = gpu_orc_for_llamaswap(self._llamaswap_root()) or get_gpu_orc_client()
+        except GpuOrcError as error:
+            log_message(f"⚠️ GPU-Orc unknown for '{model}', the request goes on without asking for a hold: {error}", "warning")
+            return
+        if client is None:
+            return
+        waiting = False
+        try:
+            while True:
+                try:
+                    held = (await asyncio.to_thread(client.traffic_light)).held
+                except GpuOrcError as error:
+                    log_message(f"⚠️ GPU-Orc did not say whether the cards are held, '{model}' goes on: {error}", "warning")
+                    return
+                if held is None:
+                    if waiting:
+                        log_message(f"▶️ The hold of the cards has ended, '{model}' goes on")
+                    return
+                if not waiting:
+                    log_message(f"⏸️ The cards are held since {held['since']} ({held['reason']}): '{model}' waits until they are free", "warning")
+                    report_phase("gpu_hold")
+                    waiting = True
+                await asyncio.sleep(GPU_ORC_HOLD_POLL_S)
+        finally:
+            if waiting:
+                report_phase("")
 
     async def _free_gpus_for_load(self, model: str) -> None:
         """Have GPU-Orc clear the cards before llama-swap loads ``model``.

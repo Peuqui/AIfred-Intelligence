@@ -23,6 +23,7 @@ const PHASES: Record<string, { icon: string; text: () => string }> = {
   images: { icon: "📷", text: () => t("describing_images") },
   compress: { icon: "🗜️", text: () => t("compressing_context") },
   model_wait: { icon: "⏳", text: () => t("waiting_for_model") },
+  gpu_hold: { icon: "⏸️", text: () => t("waiting_for_gpu_hold") },
   scraping: { icon: "🔍", text: () => t("web_scraping") },
 };
 

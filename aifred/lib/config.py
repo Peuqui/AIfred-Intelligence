@@ -1338,6 +1338,9 @@ TTS_MEDIA_TYPE_EXTENSIONS = {"audio/wav": "wav", "audio/ogg": "ogg", "audio/mpeg
 # not answer, the load goes on and the log says so loudly. An EMPTY GPU_ORC_URL (set explicitly in .env)
 # switches GPU-Orc off for this machine: nothing is asked, nothing is logged.
 GPU_ORC_URL = os.environ.get("GPU_ORC_URL", "http://127.0.0.1:5070")
+# While somebody holds the cards (GPU-Orc /hold), no request goes to a model on them; the turn asks again every
+# this many seconds whether the hold has ended (backends/base.py _wait_while_held).
+GPU_ORC_HOLD_POLL_S = env_int("GPU_ORC_HOLD_POLL_S", 10)
 # Name of the llama-swap consumer in GPU-Orc's config: the model server AIfred's models load on.
 GPU_ORC_MODEL_SERVER = os.environ.get("GPU_ORC_MODEL_SERVER", "llama-swap")
 # The model server of another machine (remote describers): its /v1/models; an unload waits six times as long.

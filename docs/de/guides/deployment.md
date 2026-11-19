@@ -717,6 +717,11 @@ Speicher je Karte); er beendet nie selbst einen Prozess.
   TTS-Suite (`gpu_orc_url` in ihrer Konfiguration) und die STT-Suite (`STT_GPU_ORC_URL`, im Container
   mit `STT_GPU_ORC_DIR` und `STT_GPU_ORC_TOKEN_FILE`). Lädt etwas oder antwortet GPU-Orc nicht, geht
   TTS zum nächsten Listeneintrag und STT zur CPU, und ein Describer kommt erst danach dazu.
+- **Hold:** Hält jemand die Karten frei (`POST /hold`, etwa vllm-research für eine Messkette oder der Knopf
+  in der Statusleiste), schickt AIfred keine Anfrage an ein Modell auf diesen Karten, auch nicht an eines,
+  das schon läuft (`backends/base.py` `_wait_while_held`, vor jeder Anfrage über llama-swap). Der Zug wartet
+  sichtbar (Phase „Die Karten sind freigehalten“), lässt sich stoppen und geht weiter, sobald der Hold endet;
+  nachgefragt wird alle `GPU_ORC_HOLD_POLL_S` Sekunden (Standard 10). Cloud-APIs sind nicht betroffen.
 - **AIfreds Seite:** `GPU_ORC_URL` in `.env` (Standard `http://127.0.0.1:5070`) und
   `GPU_ORC_MODEL_SERVER` (der Name des Modellservers unter den Verbrauchern in GPU-Orcs Konfiguration,
   Standard `llama-swap`). Sein HTTP-Timeout nimmt AIfred aus GPU-Orcs `/health`. Das Protokoll steht in

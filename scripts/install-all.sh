@@ -1395,6 +1395,14 @@ if [ "$GPU_ORC_INSTALLED" = "1" ]; then
     fi
 else
     STEP_WARNINGS+=("GPU-Orc not installed — AIfred loads models without clearing the cards (see $GPU_ORC_REPO_URL)")
+    # Without GPU-Orc its default address would be asked before every request (the hold) and warn every time:
+    # switch it off explicitly. A GPU_ORC_URL the .env has already is kept.
+    if grep -q "^GPU_ORC_URL=" "$PROJECT_DIR/.env" 2>/dev/null; then
+        echo -e "${GREEN}✅ GPU_ORC_URL already set in .env — kept${NC}"
+    else
+        printf '\n# GPU-Orc is not installed here: empty = off (nothing is asked, models load directly)\nGPU_ORC_URL=\n' >> "$PROJECT_DIR/.env"
+        echo -e "${GREEN}✅ GPU_ORC_URL= (GPU-Orc off) written to .env${NC}"
+    fi
 fi
 step_summary "2g — GPU-Orc"
 echo ""
