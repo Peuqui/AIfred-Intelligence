@@ -3,7 +3,8 @@
 Backs the generic ``render_html`` tool: loads an HTML file previously
 produced by ``execute_code`` (SANDBOX_HTML_URL) in headless Chrome via
 Playwright, optionally performs interactions (clicks, fills, mouse drags),
-captures console messages (incl. uncaught JS errors) and screenshots.
+reads values out of the running page (evaluate), captures console messages
+(incl. uncaught JS errors) and screenshots.
 This closes the build→verify loop for HTML/JS output that the Python
 sandbox itself cannot execute (no browser inside bubblewrap).
 
@@ -14,6 +15,7 @@ browser downloads involved.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import shutil
 import uuid
@@ -30,6 +32,7 @@ from .vendor_files import vendor_file
 class RenderResult:
     console_messages: list[str] = field(default_factory=list)
     action_errors: list[str] = field(default_factory=list)
+    evaluations: list[str] = field(default_factory=list)   # "action N: <JSON value>", in the order run
     screenshot_urls: list[str] = field(default_factory=list)
     error: str = ""
     timed_out: bool = False
@@ -110,6 +113,10 @@ async def _apply_action(page: Any, action: dict, index: int, result: RenderResul
             await page.wait_for_timeout(min(int(action["wait_ms"]), 30_000))
         elif "screenshot" in action:
             await take_screenshot()
+        elif "evaluate" in action:
+            # The page is the model's own (or the user's document it is checking): reading its state adds no reach.
+            value = await page.evaluate(str(action["evaluate"]))
+            result.evaluations.append(f"action {index + 1}: {json.dumps(value, ensure_ascii=False)}")
         else:
             result.action_errors.append(f"action {index + 1}: unknown action {action!r}")
     except Exception as exc:  # noqa: BLE001 — report per-action failure to the model
@@ -126,7 +133,7 @@ async def render_html_in_browser(
 
     Loads the page, waits ``wait_ms`` (animations run in real time), applies
     the optional ``actions`` sequence (click/fill/press/mouse_drag/wait_ms/
-    screenshot), and always takes a final screenshot. Console messages and
+    screenshot/evaluate), and always takes a final screenshot. Console messages and
     uncaught page errors are collected throughout.
     """
     from .config import (

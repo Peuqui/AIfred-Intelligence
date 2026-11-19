@@ -171,6 +171,10 @@ def get_sandbox_tools(session_id: str | None = None) -> list[Tool]:
             joined = "\n".join(result.action_errors)
             parts.append(f"ACTION ERRORS ({len(result.action_errors)}):\n{joined}")
 
+        if result.evaluations:
+            joined = "\n".join(result.evaluations)
+            parts.append(f"EVALUATE RESULTS ({len(result.evaluations)}):\n{joined}")
+
         if result.console_messages:
             joined = "\n".join(result.console_messages)
             parts.append(f"BROWSER CONSOLE ({len(result.console_messages)} message(s)):\n{joined}")

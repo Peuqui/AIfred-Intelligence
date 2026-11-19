@@ -13,7 +13,7 @@ calculations, data analysis, simulations and (interactive) visualizations.
 |------|------------|------|
 | `execute_code` | Run Python code; `data/documents/` mounted **read-only** | WRITE_DATA |
 | `execute_code_write` | Run Python code with **write access** to `data/documents/` | WRITE_DATA |
-| `render_html` | Render and check an HTML page produced by a sandbox run (`SANDBOX_HTML_URL`) in the headless browser (console messages, screenshot, optional click/input actions) | WRITE_DATA |
+| `render_html` | Render and check an HTML page produced by a sandbox run (`SANDBOX_HTML_URL`) in the headless browser (console messages, screenshot, optional click/input actions and `evaluate`: reads values out of the running page with a JavaScript expression, such as positions and distances, to check a simulation by numbers instead of judging pictures) | WRITE_DATA |
 
 Both tools share the same parameters and run the identical sandbox — they only
 differ in whether the documents directory is writable. The function-calling

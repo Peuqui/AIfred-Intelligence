@@ -14,7 +14,7 @@ Visualisierungen.
 |------|-------------|------|
 | `execute_code` | Python-Code ausführen; `data/documents/` **read-only** gemountet | WRITE_DATA |
 | `execute_code_write` | Python-Code ausführen mit **Schreibzugriff** auf `data/documents/` | WRITE_DATA |
-| `render_html` | Eine vom Sandbox-Lauf erzeugte HTML-Seite (`SANDBOX_HTML_URL`) im Headless-Browser rendern und prüfen (Konsolenmeldungen, Screenshot, optional Klick-/Eingabe-Aktionen) | WRITE_DATA |
+| `render_html` | Eine vom Sandbox-Lauf erzeugte HTML-Seite (`SANDBOX_HTML_URL`) im Headless-Browser rendern und prüfen (Konsolenmeldungen, Screenshot, optional Klick-/Eingabe-Aktionen und `evaluate`: liest Werte per JavaScript-Ausdruck aus der laufenden Seite, etwa Positionen und Abstände, um eine Simulation nachzurechnen statt nach Bildern zu urteilen) | WRITE_DATA |
 
 Beide Tools teilen sich dieselben Parameter und laufen in derselben Sandbox — sie
 unterscheiden sich nur darin, ob das Dokumente-Verzeichnis beschreibbar ist. Die

@@ -226,3 +226,48 @@ def test_a_page_loads_the_free_figure_and_a_font(tmp_path, monkeypatch):
     assert result.error == "" and not result.timed_out
     assert result.console_messages == ["log: clips: 14, true", "log: text: true"]
 
+
+
+# ── evaluate: values out of the running page ─────────────────────
+
+_SIMULATION_PAGE = """<!DOCTYPE html><html><body>
+<script>
+const rod = {length: 2.5};
+let frame = 0;
+setInterval(() => { frame += 1; }, 10);
+function crankPin(angle) { return {x: Math.cos(angle), y: Math.sin(angle)}; }
+</script>
+<script type="module">const hidden = 7;</script>
+</body></html>"""
+
+
+@pytest.mark.skipif(_chrome_missing, reason="google-chrome not installed")
+def test_evaluate_reads_values_from_the_running_page(session_html, tmp_path):
+    from aifred.lib import config
+    fname = _write_html(config.SANDBOX_OUTPUT_DIR, _SIMULATION_PAGE)
+    result = asyncio.run(render_html_in_browser(
+        f"/_upload/sandbox_output/{SESSION}/{fname}", SESSION, wait_ms=200,
+        actions=[
+            {"evaluate": "rod.length"},                       # top-level const of a classic script
+            {"evaluate": "[0, Math.PI / 2].map(crankPin).map(p => Math.round(p.x * 1000) / 1000)"},
+            # A Promise is awaited: one expression samples the animation over time.
+            {"evaluate": "new Promise(done => { const seen = [frame]; setTimeout(() => done(frame > seen[0]), 100); })"},
+            {"evaluate": "hidden"},                           # inside a module script: not reachable
+            {"evaluate": "({ünits: 'mm'})"},
+        ],
+    ))
+    assert result.error == "" and not result.timed_out
+    assert result.evaluations == ["action 1: 2.5", "action 2: [1, 0]", "action 3: true", 'action 5: {"ünits": "mm"}']
+    assert len(result.action_errors) == 1 and "hidden is not defined" in result.action_errors[0]
+
+
+@pytest.mark.skipif(_chrome_missing, reason="google-chrome not installed")
+def test_the_model_gets_the_values_under_their_own_heading(session_html):
+    from aifred.plugins.tools.sandbox import get_sandbox_tools
+
+    render = next(tool for tool in get_sandbox_tools(session_id=SESSION) if tool.name == "render_html")
+    answer = asyncio.run(render.executor(
+        html_url=f"/_upload/sandbox_output/{SESSION}/{session_html}", wait_ms=200,
+        actions=[{"evaluate": "document.getElementById('state').textContent"}],
+    ))
+    assert 'EVALUATE RESULTS (1):\naction 1: "initial"' in answer
