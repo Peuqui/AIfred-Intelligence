@@ -18,6 +18,7 @@ from .prompt_loader import (
     get_vision_continuous_prompt,
     get_vision_identity_context_prompt,
     get_vision_ir_context_prompt,
+    get_vision_stamp_context_prompt,
 )
 from .vigilantia import vision_mode
 from .vision_analyzer import (
@@ -72,7 +73,8 @@ class ContinuousVlm:
         # VLM sie zuverlässig (am Anfang wurde sie ignoriert).
         prompt = "\n\n".join(
             part for part in (
-                briefing, ir_block, get_vision_continuous_prompt(), identity_block,
+                # Das Bild ist gestempelt (finalize unten): ohne Hinweis liest das VLM den Stempel als Schild.
+                briefing, ir_block, get_vision_stamp_context_prompt(), get_vision_continuous_prompt(), identity_block,
             ) if part
         )
 

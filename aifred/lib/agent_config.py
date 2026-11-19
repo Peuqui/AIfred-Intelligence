@@ -159,6 +159,7 @@ def _default_agents() -> dict[str, dict]:
                 "event_summary": "vision/vision_event_summary.txt",
                 "continuous": "vision/vision_continuous.txt",
                 "ir_context": "vision/vision_ir_context.txt",
+                "stamp_context": "vision/vision_stamp_context.txt",
                 "identity_context": "vision/vision_identity_context.txt",
                 "headcount_context": "vision/vision_headcount_context.txt",
                 "default_question": "vision/default_question.txt",

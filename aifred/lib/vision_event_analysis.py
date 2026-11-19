@@ -48,10 +48,12 @@ def build_vlm_prompt(
 
     1. IR-Warnung, wenn das erste Bild Graustufen ist (sonst wird dunkle
        Kleidung als „hell" beschrieben),
-    2. Kamera-Briefing der Quelle (worauf blickt die Kamera),
-    3. der Basis-Prompt (Einzelbild oder Sequenz),
-    4. Personenzahl aus der Objekterkennung,
-    5. sicher erkannte Identitäten — ganz ans ENDE: das 4B-VLM ignoriert
+    2. der Hinweis auf den eingebrannten Zeitstempel (sonst liest das VLM ihn
+       als Schild vor),
+    3. Kamera-Briefing der Quelle (worauf blickt die Kamera),
+    4. der Basis-Prompt (Einzelbild oder Sequenz),
+    5. Personenzahl aus der Objekterkennung,
+    6. sicher erkannte Identitäten — ganz ans ENDE: das 4B-VLM ignoriert
        die Namens-Anweisung am Anfang, folgt ihr am Ende zuverlässig
        (live verifiziert 23.08.2026).
     """
@@ -59,6 +61,7 @@ def build_vlm_prompt(
         get_vision_headcount_context_prompt,
         get_vision_identity_context_prompt,
         get_vision_ir_context_prompt,
+        get_vision_stamp_context_prompt,
     )
     from .vision_utils import get_source_briefing, is_grayscale_image
 
@@ -67,6 +70,7 @@ def build_vlm_prompt(
         briefing = get_source_briefing(source_id)
         if briefing:
             prompt = f"{briefing}\n\n{prompt}"
+    prompt = f"{get_vision_stamp_context_prompt()}\n\n{prompt}"
     if first_frame_bytes and is_grayscale_image(first_frame_bytes):
         prompt = f"{get_vision_ir_context_prompt()}\n\n{prompt}"
     if headcount > 1:

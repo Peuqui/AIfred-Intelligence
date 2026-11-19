@@ -621,6 +621,17 @@ def _merge_prompt_layers(
     return "\n\n".join(parts)
 
 
+def get_vision_stamp_context_prompt(lang: str | None = None) -> str:
+    """Kontext-Baustein für jede Vigilantia-Beschreibung: die Bilder tragen den eingebrannten Zeitstempel (Ort,
+    Linse, Zeit) unten links; ohne den Hinweis liest das VLM ihn als Schild in der Szene vor.
+    In ``prompts/{lang}/vision/vision_stamp_context.txt``."""
+    if lang is None:
+        lang = prompt_language()
+    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_stamp_context.txt"
+    with open(prompt_file, 'r', encoding='utf-8') as f:
+        return f.read().strip()
+
+
 def get_vision_ir_context_prompt(lang: str | None = None) -> str:
     """Kontext-Baustein für Infrarot-/Graustufen-Aufnahmen: verhindert, dass
     das VLM IR-Helligkeiten als reale Farben beschreibt ("helles T-Shirt").
