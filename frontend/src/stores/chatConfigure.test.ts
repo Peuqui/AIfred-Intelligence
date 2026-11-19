@@ -19,6 +19,7 @@ const start: SessionConfig = {
   multi_agent_mode: "symposion",
   symposion_agents: [],
   incognito: false,
+  interjections: true,
   debate_seats: { critic: "sokrates", judge: "salomo" },
 };
 
@@ -67,4 +68,15 @@ test("a seat changed alone leaves the other seat", async () => {
   chat.config = start;
   void chat.configure({ debate_seats: { judge: "hal" } });
   expect(chat.config.debate_seats).toEqual({ critic: "sokrates", judge: "hal" });
+});
+
+test("the switch for messages while the agent works shows its new state at once and sends only itself", async () => {
+  const chat = useChat();
+  chat.sessionId = "s1";
+  chat.config = start;
+  void chat.configure({ interjections: false });
+  expect(chat.config.interjections).toBe(false);
+  expect(chat.config.incognito).toBe(false);
+  await vi.waitFor(() => expect(requests).toHaveLength(1));
+  expect(request(0).body).toEqual({ interjections: false });
 });

@@ -65,7 +65,7 @@ expose AIfred to the internet (see [Deployment → Access the web UI](deployment
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/chat/inject` | POST | Send a message into a session (`sender`, `session_id`, `message`, `token`): the server runs the turn itself, with or without an open tab; with a turn running it waits behind it (`queued: true`). It acts as your own input (right-hand bubble); the header names the sender: `[📥 Inject] <sender>`. Unknown session: 404 |
+| `/api/chat/inject` | POST | Send a message into a session (`sender`, `session_id`, `message`, `token`): the server runs the turn itself, with or without an open tab; with a turn running it waits behind it (`queued: true`); while the agent works with tools it takes the message in between two tool rounds, if the session's switch allows it. It acts as your own input (right-hand bubble); the header names the sender: `[📥 Inject] <sender>`. Unknown session: 404 |
 | `/api/chat/status` | GET | `?session_id=` — `is_generating` (a turn is running), `message_count` |
 | `/api/sessions` | GET / POST | Your own sessions (`session_id`, `title`, `last_message_at`, `message_count`, `channel`) / create one |
 | `/api/sessions/{id}/clear` | POST | Empty one of your sessions as the chat's button does: the turn and the reading end, histories and title go, so do the chat's images, audio and screenshots (plots and pages stay); open tabs follow. 204, another user's or an unknown id 404 |

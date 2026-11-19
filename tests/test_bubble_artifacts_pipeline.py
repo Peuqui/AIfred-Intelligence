@@ -30,7 +30,7 @@ class _Turn:
 
     backend_type = "vllm"
 
-    async def chat_stream(self, model, messages, options, toolkit=None, compression=None):
+    async def chat_stream(self, model, messages, options, toolkit=None, compression=None, interjections=None):
         yield {"type": "content", "text": "<think>plan</think>Ich schaue nach."}
         yield {"type": "tool_call", "name": "vision_capture", "arguments": "{}"}
         yield {"type": "tool_result", "name": "vision_capture", "result": json.dumps({
@@ -118,7 +118,7 @@ class _DraftThenAnswer:
 
     backend_type = "vllm"
 
-    async def chat_stream(self, model, messages, options, toolkit=None, compression=None):
+    async def chat_stream(self, model, messages, options, toolkit=None, compression=None, interjections=None):
         yield {"type": "content", "text": "Guten Morgen! Psalm 37."}
         yield {"type": "tool_call", "name": "update_memory", "arguments": "{}"}
         yield {"type": "tool_result", "name": "update_memory", "result": "ok"}
@@ -151,7 +151,7 @@ class _BurstEventShown:
 
     backend_type = "vllm"
 
-    async def chat_stream(self, model, messages, options, toolkit=None, compression=None):
+    async def chat_stream(self, model, messages, options, toolkit=None, compression=None, interjections=None):
         yield {"type": "tool_call", "name": "vision_query_events", "arguments": "{}"}
         yield {"type": "tool_result", "name": "vision_query_events", "result": json.dumps({
             "success": True, "count": 2, "events": [

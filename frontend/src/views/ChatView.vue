@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Download, FolderOpen, Pin, Share2, SlidersHorizontal, Trash2, TriangleAlert } from "lucide-vue-next";
+import { Download, FolderOpen, MessageSquareOff, MessageSquarePlus, Pin, Share2, SlidersHorizontal, Trash2, TriangleAlert } from "lucide-vue-next";
 import { computed, defineAsyncComponent, nextTick, onMounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { AgentSummary, ChatEntry, CropBox, DebateMode } from "../api/types";
@@ -289,6 +289,15 @@ onMounted(() => void start());
           @click="chat.configure({ incognito: !chat.config.incognito })"
         >
           <MemorySwitchIcon :incognito="chat.config.incognito" :size="16" />
+        </button>
+        <button
+          class="interjection-switch"
+          :class="{ on: chat.config.interjections }"
+          :title="chat.config.interjections ? t('interjections_on') : t('interjections_off')"
+          @click="chat.configure({ interjections: !chat.config.interjections })"
+        >
+          <MessageSquarePlus v-if="chat.config.interjections" :size="16" />
+          <MessageSquareOff v-else :size="16" />
         </button>
         <button class="agent-choices" :title="t('agent_choices_title')" @click="choicesOpen = true"><SlidersHorizontal :size="16" /></button>
         <HelpButton topic="chat" />

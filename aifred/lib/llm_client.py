@@ -5,7 +5,7 @@ Provides async chat completions (streaming and non-streaming)
 with proper integration into the existing Backend system.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import TYPE_CHECKING, Any, cast
 
 from ..backends import BackendFactory
@@ -192,6 +192,7 @@ class LLMClient:
         options: dict[str, Any] | LLMOptions | None = None,
         toolkit: Any = None,
         compression: "LoopCompression | None" = None,
+        interjections: Callable[[], Awaitable[list[str]]] | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """
         Async streaming chat completion
@@ -202,6 +203,7 @@ class LLMClient:
             options: Generation options (dict or LLMOptions)
             toolkit: Optional ToolKit for function calling
             compression: Who summarizes when the tool loop's context reaches the trigger
+            interjections: Asked after every tool round for the texts the user sent meanwhile
 
         Yields:
             Dict with either:
@@ -214,7 +216,7 @@ class LLMClient:
 
         # NOTE: Backend is cached in self._backend to prevent GC during async operations
         async for chunk in backend.chat_stream(
-            model, converted_messages, llm_options, toolkit=toolkit, compression=compression,
+            model, converted_messages, llm_options, toolkit=toolkit, compression=compression, interjections=interjections,
         ):
             yield chunk
 

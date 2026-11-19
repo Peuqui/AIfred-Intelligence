@@ -229,7 +229,11 @@ mit Login-Cookie.
 - `session_id` ist der Dateiname unter `data/sessions/<session_id>.json`; eine unbekannte
   Sitzung gibt `404`. Läuft in der Sitzung schon ein Zug, wartet die Nachricht in der
   Warteschlange `pending_messages` und startet, wenn er endet (derselbe Weg wie eine
-  Chat-Nachricht oder ein Diktat, `turn_service.submit_turn`)
+  Chat-Nachricht oder ein Diktat, `turn_service.submit_turn`). Arbeitet der Agent gerade mit
+  Werkzeugen, nimmt er sie schon zwischen zwei Werkzeugrunden auf, wenn der Schalter der Sitzung
+  es erlaubt (`interjections`, Standard an), sie an ihn geht (Automatik), kein Bild und keinen
+  Moduswechsel hat (`turn_service.interjection_source`); nicht in Diskussionsmodi und nicht in
+  Zügen eines Kanals oder Auftrags
 - Ob der Zug fertig ist: `GET /api/chat/status?session_id=…` (`is_generating`, Login-Cookie)
 - **`token` ist Pflicht** — Wert aus `INJECT_API_TOKEN` (`.env`). Ohne gültiges
   Token antwortet der Endpoint mit `403` (falsch) bzw. `503` (nicht konfiguriert).

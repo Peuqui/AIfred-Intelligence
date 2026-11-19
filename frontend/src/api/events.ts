@@ -17,6 +17,7 @@ export const SESSION_EVENT_KINDS = [
   "turn_rejected",
   "turn_finished",
   "message_queued",
+  "message_interjected",
   "agent_started",
   "token",
   "tool_status",

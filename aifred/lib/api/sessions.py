@@ -125,6 +125,9 @@ class SessionConfig(BaseModel):
     multi_agent_mode: str
     symposion_agents: list[str]
     incognito: bool = Field(description="The agents work without their long-term memory in this session")
+    interjections: bool = Field(
+        description="A message sent while the agent works with tools reaches it between two tool rounds; off: it waits for the next turn",
+    )
     debate_seats: dict[str, str] = Field(
         description="Critic and judge of the debate modes (seat → agent): the session's choice over settings.json's",
     )
@@ -321,6 +324,9 @@ class SessionConfigUpdate(BaseModel):
     multi_agent_mode: str | None = None
     symposion_agents: list[str] | None = None
     incognito: bool | None = Field(None, description="The agents work without their long-term memory in this session")
+    interjections: bool | None = Field(
+        None, description="A message sent while the agent works with tools reaches it between two tool rounds; off: it waits for the next turn",
+    )
     debate_seats: dict[str, str] | None = Field(None, description="Seats to change (critic, judge) → agent")
 
 

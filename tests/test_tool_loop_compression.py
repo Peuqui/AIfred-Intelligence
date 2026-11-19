@@ -286,3 +286,71 @@ def test_still_over_the_trigger_after_compressing_the_tool_phase_ends(monkeypatc
     assert second["tools"] is None
     assert second["messages"][1]["content"].startswith("[BISHERIGES GESPRÄCH, ZUSAMMENGEFASST]:\n[Summary]")
     assert second["messages"][-1]["content"] == load_prompt("utility/context_guard")
+
+
+# ── Messages the user sent meanwhile (interjections) ─────────────────────
+
+
+def _loop_with_interjections(monkeypatch: pytest.MonkeyPatch, server: FakeServer, messages: list[LLMMessage],
+                             interjections: Any) -> list[dict[str, Any]]:
+    backend = CloudAPIBackend(base_url="http://127.0.0.1:9/v1", api_key="x")
+    monkeypatch.setattr(backend, "client", server)
+
+    async def run() -> list[dict[str, Any]]:
+        return [event async for event in backend.chat_stream(
+            "agent-model", messages, LLMOptions(num_ctx=NUM_CTX), toolkit=FakeToolkit(),
+            compression=_compression(SummaryClient()), interjections=interjections,
+        )]
+    return _run(run())
+
+
+def test_an_interjection_joins_the_next_request_after_the_tool_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    server = FakeServer([_tool_call_round(1, 1000), _answer_round()])
+    asked = 0
+
+    async def interjections() -> list[str]:
+        nonlocal asked
+        asked += 1
+        return ["Auch Bonn.", "Und Köln."]
+
+    events = _loop_with_interjections(monkeypatch, server, [LLMMessage("system", "System"), LLMMessage("user", "Frage")],
+                                      interjections)
+    first, second = server.requests
+    assert [message["role"] for message in second["messages"][len(first["messages"]):]] == ["assistant", "tool", "user", "user"]
+    assert [message["content"] for message in second["messages"][-2:]] == ["Auch Bonn.", "Und Köln."]
+    assert second["tools"] is not None
+    assert asked == 1     # asked after the tool round, not after the final answer
+    assert any("taken in between" in event.get("message", "") for event in events)
+
+
+def test_with_the_context_guard_tripped_nothing_is_asked_or_appended(monkeypatch: pytest.MonkeyPatch) -> None:
+    server = FakeServer([_tool_call_round(1, _over_trigger()), _answer_round()])
+
+    async def interjections() -> list[str]:
+        raise AssertionError("asked although the tool phase ended")
+
+    _loop_with_interjections(monkeypatch, server, [LLMMessage("system", "System"), LLMMessage("user", "Frage")],
+                             interjections)
+    second = server.requests[1]
+    assert second["tools"] is None
+    assert [message["content"] for message in second["messages"] if message["role"] == "user"] == [
+        "Frage", load_prompt("utility/context_guard"),
+    ]
+
+
+def test_without_a_source_the_loop_is_as_it_was(monkeypatch: pytest.MonkeyPatch) -> None:
+    server = FakeServer([_tool_call_round(1, 1000), _answer_round()])
+    _loop_with_interjections(monkeypatch, server, [LLMMessage("system", "System"), LLMMessage("user", "Frage")], None)
+    assert [message["role"] for message in server.requests[1]["messages"]] == ["system", "user", "assistant", "tool"]
+
+
+def test_a_source_without_messages_adds_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    server = FakeServer([_tool_call_round(1, 1000), _answer_round()])
+
+    async def interjections() -> list[str]:
+        return []
+
+    events = _loop_with_interjections(monkeypatch, server, [LLMMessage("system", "System"), LLMMessage("user", "Frage")],
+                                      interjections)
+    assert [message["role"] for message in server.requests[1]["messages"]] == ["system", "user", "assistant", "tool"]
+    assert not any("taken in between" in event.get("message", "") for event in events)

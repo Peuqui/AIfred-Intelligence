@@ -53,3 +53,17 @@ test("a session without a running turn shows no stream", async () => {
   await chat.open("s1");
   expect(chat.streaming).toBeNull();
 });
+
+test("a message the working agent took in between two tool rounds leaves the queue and joins the history, the answer goes on", async () => {
+  detail.live_events = [{ kind: "agent_started", data: { agent: "codine", display_name: "Codine", emoji: "🛠️" } }];
+  const chat = useChat();
+  await chat.open("s1");
+  const handle = followed[0]!.handle;
+  handle("message_queued", { text: "Nimm auch Bonn", images: [] });
+  handle("message_queued", { text: "Danach Köln", images: [] });
+  handle("token", { text: "Ich suche" });
+  handle("message_interjected", { entry: { role: "user", content: "Nimm auch Bonn", timestamp: "t1" } });
+  expect(chat.queued).toEqual(["Danach Köln"]);
+  expect(chat.history.map((entry) => entry.content)).toEqual(["Nimm auch Bonn"]);
+  expect(chat.streaming?.text).toBe("Ich suche");
+});

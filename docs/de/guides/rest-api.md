@@ -65,7 +65,7 @@ AIfred ins Internet stellst (siehe [Einrichtungsanleitung → Auf die Web-UI zug
 
 | Endpoint | Methode | Beschreibung |
 |---|---|---|
-| `/api/chat/inject` | POST | Nachricht in eine Session geben (`sender`, `session_id`, `message`, `token`): Der Server führt den Zug selbst, auch ohne offenen Tab; läuft schon einer, wartet sie dahinter (`queued: true`). Sie wirkt wie deine eigene Eingabe (rechte Bubble), die Kopfzeile nennt den Absender: `[📥 Inject] <sender>`. Unbekannte Session: 404 |
+| `/api/chat/inject` | POST | Nachricht in eine Session geben (`sender`, `session_id`, `message`, `token`): Der Server führt den Zug selbst, auch ohne offenen Tab; läuft schon einer, wartet sie dahinter (`queued: true`); arbeitet der Agent gerade mit Werkzeugen, nimmt er sie zwischen zwei Werkzeugrunden auf, wenn der Schalter der Sitzung es erlaubt. Sie wirkt wie deine eigene Eingabe (rechte Bubble), die Kopfzeile nennt den Absender: `[📥 Inject] <sender>`. Unbekannte Session: 404 |
 | `/api/chat/status` | GET | `?session_id=` — `is_generating` (läuft gerade ein Zug), `message_count` |
 | `/api/sessions` | GET / POST | Die eigenen Sessions (`session_id`, `title`, `last_message_at`, `message_count`, `channel`) / neue anlegen |
 | `/api/sessions/{id}/clear` | POST | Chat einer eigenen Session leeren wie der Knopf im Chat: Zug und Lesung enden, Verläufe und Titel gehen, ebenso Bilder, Audio und Screenshots des Chats (Plots und Seiten bleiben); offene Tabs folgen. 204, fremde oder unbekannte IDs 404 |

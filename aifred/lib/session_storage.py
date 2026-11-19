@@ -565,6 +565,9 @@ DEFAULT_SESSION_CONFIG: dict[str, Any] = {
     "symposion_agents": [],
     # The agents work without their long-term memory in this session: no recall, no memory tools.
     "incognito": False,
+    # A message sent while the agent works with tools is handed to it between two tool rounds (turn_service);
+    # off: it waits for the next turn.
+    "interjections": True,
     # Critic and judge this session chose (seat → agent, lib/debate_seats.py); settings.json's
     # "debate_seats" fills every seat it leaves out.
     "debate_seats": {},
@@ -905,6 +908,17 @@ def queue_pending_message(session_id: str, message: str, images: Sequence[str] =
             return _write_session_file(get_session_path(session_id), session)
     except (OSError, ValueError):
         return False
+
+
+def peek_pending_message(session_id: str) -> PendingMessage | None:
+    """The oldest pending message of the session, left in the queue; None if there is none."""
+    _ensure_session_dir()
+    try:
+        with session_rmw_lock:
+            queued = (load_session(session_id) or {}).get("data", {}).get("pending_messages", [])
+        return PendingMessage(queued[0]["text"], tuple(queued[0]["images"])) if queued else None
+    except (OSError, ValueError):
+        return None
 
 
 def pop_pending_message(session_id: str) -> PendingMessage | None:

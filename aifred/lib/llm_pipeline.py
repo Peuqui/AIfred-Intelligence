@@ -16,7 +16,7 @@ and add their own concerns (streaming to UI, TTS, debug routing).
 
 import json
 import re
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -195,6 +195,7 @@ async def run_llm_stream(
     toolkit: Any = None,
     on_debug: Callable[[str], None] | None = None,
     compression: LoopCompression | None = None,
+    interjections: Callable[[], Awaitable[list[str]]] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Unified LLM chunk-processing pipeline.
 
@@ -219,6 +220,7 @@ async def run_llm_stream(
         on_debug: Optional debug callback (e.g. state.add_debug)
         compression: Who summarizes when the tool loop's context reaches the trigger
             (context_manager.compress_tool_loop); None ends the tool phase there
+        interjections: Asked after every tool round for the texts the user sent meanwhile (turn_service)
     """
     # Raw debug logging
     log_raw_messages(f"{agent_label} (stream)", messages, estimate_tokens, toolkit=toolkit)
@@ -286,7 +288,9 @@ async def run_llm_stream(
     # gezeigten Bilder und Filme gehängt.
     event_descriptions: dict[str, tuple[str, str]] = {}
 
-    async for chunk in llm_client.chat_stream(model, messages, options, toolkit=toolkit, compression=compression):
+    async for chunk in llm_client.chat_stream(
+        model, messages, options, toolkit=toolkit, compression=compression, interjections=interjections,
+    ):
         chunk_type = chunk["type"]
 
         if chunk_type == "model_load":

@@ -27,8 +27,8 @@
 
 /* The chat's memory switch (components/MemorySwitchIcon.vue), in the chat and in its help alike (Peuqui 14.11.2026):
    memory on is the switch that is on, orange with a rim; incognito stays plain, the hat in yellow. */
-:where(.memory-switch) { display: inline-flex; align-items: center; padding: 2px 8px; }
-:where(.memory-switch.on) { border-color: var(--aifred-accent-amber); }
+:where(.memory-switch, .interjection-switch) { display: inline-flex; align-items: center; padding: 2px 8px; }
+:where(.memory-switch.on, .interjection-switch.on) { border-color: var(--aifred-accent-amber); }
 
 svg.lucide { color: var(--icon-own, var(--icon-tint, var(--aifred-icon-neutral))); }
 

@@ -8,7 +8,13 @@ from pathlib import Path
 import pytest
 
 from aifred.lib import session_storage
-from aifred.lib.session_storage import PendingMessage, load_session, pop_pending_message, queue_pending_message
+from aifred.lib.session_storage import (
+    PendingMessage,
+    load_session,
+    peek_pending_message,
+    pop_pending_message,
+    queue_pending_message,
+)
 
 SESSION = "c" * 32
 
@@ -59,3 +65,21 @@ def test_a_session_that_is_gone_gets_no_file_of_its_own(session_dir: Path) -> No
     assert not queue_pending_message(other, "Diktat")
     assert not (session_dir / f"{other}.json").exists()
     assert pop_pending_message(other) is None
+
+
+def test_peeking_shows_the_oldest_message_and_leaves_it_queued(session_dir: Path) -> None:
+    assert peek_pending_message(SESSION) is None
+    url = f"/_upload/images/{SESSION}/foto_1.jpg"
+    assert queue_pending_message(SESSION, "erstes Diktat", [url])
+    assert queue_pending_message(SESSION, "zweites Diktat")
+    assert peek_pending_message(SESSION) == PendingMessage("erstes Diktat", (url,))
+    assert peek_pending_message(SESSION) == PendingMessage("erstes Diktat", (url,))
+    assert pop_pending_message(SESSION) == PendingMessage("erstes Diktat", (url,))
+    assert peek_pending_message(SESSION) == PendingMessage("zweites Diktat")
+
+
+def test_peeking_an_unreadable_session_file_gives_nothing_and_leaves_it(session_dir: Path) -> None:
+    path = session_dir / f"{SESSION}.json"
+    path.write_text("{ kaputt", encoding="utf-8")
+    assert peek_pending_message(SESSION) is None
+    assert path.read_text(encoding="utf-8") == "{ kaputt"

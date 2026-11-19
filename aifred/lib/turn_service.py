@@ -8,7 +8,8 @@ tools write meanwhile (``debug_bus``) are never overwritten.
 Events of a turn, in order: ``turn_started`` (the user's entry), ``session_config`` (after a
 mode switch or a sticky address), ``agent_started``, ``token`` (text pieces, bundled),
 ``tool_status``, ``message_added`` (the finished reply), ``turn_finished``; ``turn_rejected``
-instead when the turn cannot start, ``message_queued`` for a message that waits behind it.
+instead when the turn cannot start, ``message_queued`` for a message that waits behind it,
+``message_interjected`` (its entry) when the agent takes a waiting message in between two tool rounds.
 ``debug`` lines arrive throughout, ``turn_phase`` while the turn works without text (Automatik call,
 image description, compression, the pages of a web search; ``debug_bus.report_phase``),
 ``session_title`` after the first exchange. In a multi-agent
@@ -33,7 +34,7 @@ import asyncio
 import re
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
@@ -58,6 +59,7 @@ if TYPE_CHECKING:
     from .agent_config import AgentConfig
     from .llm_pipeline import PipelineResult
     from .reply_speech import ReplySpeech
+    from .session_storage import PendingMessage
     from .turn_debate import TurnPlan
     from .turn_images import TurnImage
 
@@ -242,6 +244,10 @@ class TurnContext:
     # description of them joined the user turn (_look_at_images).
     seen_images: tuple[TurnImage, ...] = ()
     calls: list[AgentCall] = field(default_factory=list)   # the turn's model calls so far (stream_call)
+    # The agent takes in the messages the user sends meanwhile between two tool rounds (interjection_source): the session
+    # allows it, one agent answers alone (no debate, no symposion) and the turn is the chat's own: a channel's or a job's
+    # reply goes to someone else, a message written in the chat does not belong in it.
+    interjections: bool = False
 
     @property
     def external_sender(self) -> bool:
@@ -338,6 +344,7 @@ async def _run(request: TurnRequest, turn_id: str, routing: _Routing) -> None:
             ctx = TurnContext(
                 session_id, view, llm_client, user_text, llm_user_text, intent, request.source, mode, memory_enabled, stamp,
                 origin, routing.replies, seen,
+                interjections=config["interjections"] and plan.responder is not None and not plan.debate and origin is None,
             )
             await _compress(ctx, plan.agents, plan.responder is None)
             if plan.responder is None:
@@ -396,11 +403,16 @@ class _Intent:
     load_time: float
 
 
-async def _detect_intent(session_id: str, view: RuntimeSettings, llm_client: Any, user_text: str) -> _Intent:
-    """Addressee, language and a requested mode switch in one Automatik call.
+def _skipped_intent(view: RuntimeSettings, user_text: str) -> _Intent | None:
+    """A URL-only message and one of images only skip the Automatik call: the UI language applies."""
+    if user_text and not re.fullmatch(r"https?://\S+", user_text):
+        return None
+    debug(f"🎯 Intent skipped ({'URL' if user_text else 'image'}-only), Lang: {view.ui_language.upper()} (UI)")
+    return _Intent(None, view.ui_language, {}, False, 0.0)
 
-    A URL-only message and one of images only skip the call: the UI language applies.
-    """
+
+async def _call_intent(view: RuntimeSettings, llm_client: Any, user_text: str) -> _Intent:
+    """The Automatik call itself, without a place at the model gate: the caller holds one that covers the Automatik's model."""
     from .config import AUTOMATIK_LLM_NUM_CTX
     from .intent_detector import (
         detect_query_intent_and_addressee,
@@ -408,24 +420,31 @@ async def _detect_intent(session_id: str, view: RuntimeSettings, llm_client: Any
         format_mode_switch_summary,
     )
 
-    if not user_text or re.fullmatch(r"https?://\S+", user_text):
-        debug(f"🎯 Intent skipped ({'URL' if user_text else 'image'}-only), Lang: {view.ui_language.upper()} (UI)")
-        return _Intent(None, view.ui_language, {}, False, 0.0)
-
     automatik = effective_automatik_id(view)
     # Same model as AIfred: the same context as its preload, or the backend reloads it twice.
     same_model = automatik == effective_model_id(view, "aifred")
     num_ctx = (view.agent_tuning["aifred"].max_context or None) if same_model else AUTOMATIK_LLM_NUM_CTX
-    async with _model_slot(session_id, frozenset({automatik})):
-        report_phase("intent")
-        await _announce_cold_start(view, automatik)
-        addressed_to, language, mode_switch, pure, _raw, load_time = await detect_query_intent_and_addressee(
-            user_text, automatik, llm_client, automatik_num_ctx=num_ctx,
-        )
-        report_phase("")
+    addressed_to, language, mode_switch, pure, _raw, load_time = await detect_query_intent_and_addressee(
+        user_text, automatik, llm_client, automatik_num_ctx=num_ctx,
+    )
     switch = format_mode_switch_summary(mode_switch, lang="en") if mode_switch else "–"   # a debug line: English
     debug(f"🎯 {format_intent_result(addressed_to, language)}, Switch: {switch}, PureCmd: {'yes' if pure else 'no'}")
     return _Intent(addressed_to, language, mode_switch, pure, load_time)
+
+
+async def _detect_intent(session_id: str, view: RuntimeSettings, llm_client: Any, user_text: str) -> _Intent:
+    """Addressee, language and a requested mode switch in one Automatik call, at its own place at the model gate
+    (the start of a turn; ``interjection_source`` asks inside the turn's place)."""
+    skipped = _skipped_intent(view, user_text)
+    if skipped is not None:
+        return skipped
+    automatik = effective_automatik_id(view)
+    async with _model_slot(session_id, frozenset({automatik})):
+        report_phase("intent")
+        await _announce_cold_start(view, automatik)
+        intent = await _call_intent(view, llm_client, user_text)
+        report_phase("")
+    return intent
 
 
 async def _announce_cold_start(view: RuntimeSettings, model: str) -> None:
@@ -800,6 +819,50 @@ async def _direct_call(ctx: TurnContext, agent: str) -> AgentCall:
     )
 
 
+def interjection_source(ctx: TurnContext, call: AgentCall) -> Callable[[], Awaitable[list[str]]] | None:
+    """What the tool loop of ``call`` asks between two tool rounds for the messages the user sent meanwhile; None when
+    the turn takes none in (``TurnContext.interjections``) or the call has no tool loop.
+
+    The waiting messages are looked at in order: one that has no images, is meant for this agent (or for nobody in
+    particular: the Automatik call decides, as at the start of a turn), switches no mode and is no pure command
+    is taken in. The first that is not stops the pickup and stays queued with everything behind it, as the
+    next turn.
+    """
+    if not ctx.interjections or not call.toolkit:
+        return None
+    held_back: PendingMessage | None = None   # the one that failed the check: not asked again every round
+
+    async def take() -> list[str]:
+        nonlocal held_back
+        from .formatting import build_user_chat_entry
+        from .message_builder import stamp_user_turn, user_turn_stamp
+        from .prompt_loader import load_prompt
+        from .session_storage import peek_pending_message, pop_pending_message
+        from .turn_images import bubble_images, bubble_text, history_text
+
+        taken: list[str] = []
+        while (pending := peek_pending_message(ctx.session_id)) is not None and pending != held_back:
+            text = pending.text.strip()
+            if pending.images:
+                held_back = pending
+                break
+            intent = _skipped_intent(ctx.view, text) or await _call_intent(ctx.view, ctx.llm_client, text)
+            if intent.addressed_to not in (None, call.agent) or intent.mode_switch or intent.is_pure_command:
+                held_back = pending
+                break
+            if pop_pending_message(ctx.session_id) is None:
+                break
+            entry = build_user_chat_entry(bubble_text(text, [], ctx.view.ui_language), bubble_images([]))
+            llm_text = stamp_user_turn(history_text(text, []), user_turn_stamp())
+            _append(ctx.session_id, chat=[entry], llm=[{"role": "user", "content": llm_text}])
+            session_events.publish(ctx.session_id, "message_interjected", {"entry": entry})
+            debug(f"💬 Message taken in by {call.log_label} between two tool rounds")
+            taken.append(load_prompt("utility/interjection", lang=ctx.intent.language, text=llm_text))
+        return taken
+
+    return take
+
+
 async def stream_call(ctx: TurnContext, call: AgentCall) -> PipelineResult | None:
     """Stream the call to the clients; None when the pipeline ends without a result.
 
@@ -832,6 +895,7 @@ async def stream_call(ctx: TurnContext, call: AgentCall) -> PipelineResult | Non
             ctx.llm_client, call.model, call.messages, call.options, call.log_label,
             source=ctx.source, toolkit=call.toolkit, on_debug=debug,
             compression=LoopCompression(ctx.llm_client, call.model, ctx.intent.language),
+            interjections=interjection_source(ctx, call),
         ):
             result = _handle_stream_event(ctx.session_id, event, stream, ctx.view.ui_language, tool_agent) or result
         streamed = True

@@ -121,6 +121,16 @@ def test_a_session_turns_incognito_and_back(client: TestClient) -> None:
     assert client.patch(f"/sessions/{MINE}/config", json={"incognito": "vielleicht"}).status_code == 422
 
 
+def test_a_session_takes_interjections_by_default_and_turns_them_off_and_on(client: TestClient) -> None:
+    assert session_storage.DEFAULT_SESSION_CONFIG["interjections"] is True
+    assert client.get(f"/sessions/{MINE}").json()["config"]["interjections"] is True
+    response = client.patch(f"/sessions/{MINE}/config", json={"interjections": False})
+    assert response.status_code == 200 and response.json()["interjections"] is False
+    assert session_storage.get_session_config(MINE)["interjections"] is False
+    assert client.patch(f"/sessions/{MINE}/config", json={"interjections": True}).json()["interjections"] is True
+    assert client.patch(f"/sessions/{MINE}/config", json={"interjections": "vielleicht"}).status_code == 422
+
+
 def test_a_message_goes_to_the_turn_service(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[Any] = []
 

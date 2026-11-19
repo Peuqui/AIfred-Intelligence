@@ -8,7 +8,7 @@ import asyncio
 import re
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 
 from aifred.lib.config import DEFAULT_OLLAMA_URL, STREAM_RETRY_DELAY_S, STREAM_RETRY_WINDOW_S
@@ -815,11 +815,14 @@ class OpenAICompatibleBackend(LLMBackend):
         options: LLMOptions | None = None,
         toolkit: Any | None = None,
         compression: "LoopCompression | None" = None,
+        interjections: Callable[[], Awaitable[list[str]]] | None = None,
     ) -> AsyncIterator[dict]:
         """Stream the answer; with a ``toolkit`` the tool loop runs here.
 
         ``compression``: who summarizes when the loop's messages reach HISTORY_COMPRESSION_TRIGGER
         (context_manager.compress_tool_loop); without it the loop ends the tool phase there.
+        ``interjections``: asked after every tool round for the texts the user sent meanwhile; each becomes a
+        user message the next request carries (not after the context guard stopped the tool rounds).
         """
         if options is None:
             options = LLMOptions()
@@ -1139,6 +1142,10 @@ class OpenAICompatibleBackend(LLMBackend):
                         )
                         log_message(guard_msg)
                         yield {"type": "debug", "message": guard_msg}
+                    elif interjections is not None:
+                        for content in await interjections():
+                            kwargs["messages"].append({"role": "user", "content": content})
+                            yield {"type": "debug", "message": "💬 User message taken in between the tool rounds"}
 
                     # Next round: LLM sees tool results and generates final response
 

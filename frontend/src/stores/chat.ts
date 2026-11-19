@@ -42,7 +42,7 @@ export const useChat = defineStore("chat", () => {
   const history = ref<ChatEntry[]>([]);
   const debugLines = ref<string[]>([]);
   const config = ref<SessionConfig>({
-    active_agent: "aifred", multi_agent_mode: "standard", symposion_agents: [], incognito: false, debate_seats: {},
+    active_agent: "aifred", multi_agent_mode: "standard", symposion_agents: [], incognito: false, interjections: true, debate_seats: {},
   });
   const running = ref(false);
   const streaming = ref<Streaming | null>(null);
@@ -146,6 +146,12 @@ export const useChat = defineStore("chat", () => {
         break;
       case "message_queued":
         queued.value = [...queued.value, String(data.text)];
+        break;
+      case "message_interjected":
+        // The oldest waiting message reached the working agent between two tool rounds: it shows in the history at once,
+        // the answer being written goes on below it.
+        queued.value = queued.value.slice(1);
+        history.value = [...history.value, data.entry as ChatEntry];
         break;
       case "agent_started":
         streaming.value = {

@@ -1,0 +1,3 @@
+[New message from the user while you were working]
+{text}
+[Take it into account as you continue. Your task so far still stands unless the message changes or replaces it.]

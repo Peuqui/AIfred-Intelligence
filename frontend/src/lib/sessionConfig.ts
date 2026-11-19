@@ -8,6 +8,7 @@ export function withConfigChanges(config: SessionConfig, changes: SessionConfigU
     multi_agent_mode: changes.multi_agent_mode ?? config.multi_agent_mode,
     symposion_agents: changes.symposion_agents ?? config.symposion_agents,
     incognito: changes.incognito ?? config.incognito,
+    interjections: changes.interjections ?? config.interjections,
     debate_seats: { ...config.debate_seats, ...changes.debate_seats },
   };
 }

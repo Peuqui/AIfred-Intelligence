@@ -1,0 +1,3 @@
+[Neue Nachricht des Benutzers, während du gearbeitet hast]
+{text}
+[Berücksichtige sie beim Weitermachen. Die bisherige Aufgabe gilt weiter, soweit die Nachricht sie nicht ändert oder ersetzt.]
