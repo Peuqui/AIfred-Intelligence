@@ -164,6 +164,16 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_face_embeddings_face_id
             ON face_embeddings(face_id);
+
+        -- Das Embedding, das beim Erkennen eines Gesichts entstand, je Gesichts-Ereignis: das
+        -- Nachlernen und Neu-Erkennen im Personarium rechnet damit, nicht aus dem Bild (die
+        -- Einzelbilder eines Bursts bleiben nicht erhalten). Eigene Tabelle, damit es nie in
+        -- classification/metadata landet, die an Oberfläche und Modell gehen. CASCADE: jeder
+        -- Löschweg der Ereignisse nimmt es mit.
+        CREATE TABLE IF NOT EXISTS event_embeddings (
+            event_id  INTEGER PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+            embedding BLOB NOT NULL
+        );
     """)
     # Additive Migration: crop_url pro Embedding (für den Embedding-Manager —
     # zeigt das Gesichts-Crop je Embedding). Alte Embeddings haben '' (kein
@@ -699,7 +709,9 @@ class VisionStore:
         face_id: int | None = None,
         metadata: dict[str, Any] | None = None,
         cluster_id: str = "",
+        embedding: np.ndarray | None = None,
     ) -> int:
+        """``embedding``: das Gesichts-Embedding des Ereignisses, in derselben Transaktion abgelegt."""
         ts = (timestamp or datetime.now()).isoformat(timespec="microseconds")
         cls_json = json.dumps(classification or {})
         meta_json = json.dumps(metadata or {})
@@ -715,8 +727,21 @@ class VisionStore:
                  face_id, meta_json, cluster_id),
             )
             event_id = int(cur.lastrowid or 0)
+            if embedding is not None:
+                conn.execute(
+                    "INSERT INTO event_embeddings (event_id, embedding) VALUES (?, ?)",
+                    (event_id, _embedding_to_blob(embedding)),
+                )
         _signal_stored()
         return event_id
+
+    def get_event_embedding(self, event_id: int) -> np.ndarray | None:
+        """Das beim Erkennen gespeicherte Gesichts-Embedding des Ereignisses, ``None`` wenn keins vorliegt."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT embedding FROM event_embeddings WHERE event_id = ?", (int(event_id),),
+            ).fetchone()
+        return None if row is None else _blob_to_embedding(row["embedding"])
 
     def query_events(
         self,
@@ -1169,7 +1194,7 @@ class VisionStore:
         """Einzelnes Event löschen — inkl. der zugehörigen Bilddateien
         (frame_path + zoom_frame_path). Embeddings, die dieses Event als
         ``source_event_id`` referenzieren, bekommen NULL (ON DELETE SET
-        NULL aus dem Schema)."""
+        NULL aus dem Schema); sein eigenes Embedding geht per CASCADE mit."""
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT frame_path, classification, source_id, cluster_id FROM events WHERE id = ?",
@@ -1325,14 +1350,4 @@ class VisionStore:
                 return ""
             return str(cls.get("zoom_frame_path") or "")
         return str(row["frame_path"]) if row["frame_path"] else ""
-
-    def prune_events(self, older_than: datetime) -> int:
-        """Lösche Events älter als ``older_than``. Gibt Anzahl gelöschter
-        Zeilen zurück. Für Retention-Cronjob (Schicht 6) gedacht."""
-        with self._conn() as conn:
-            cur = conn.execute(
-                "DELETE FROM events WHERE timestamp < ?",
-                (older_than.isoformat(timespec="microseconds"),),
-            )
-            return int(cur.rowcount)
 

@@ -1,69 +1,34 @@
 """Nachträgliches Gesichts-Lernen aus gespeicherten Vision-Events.
 
 Der Live-Pfad (Popup ``+ taggen``) hat das InsightFace-Embedding direkt aus
-dem SSE-Event — für die Chronik gibt es das nicht: dort liegt nur das
-Vollbild-Frame auf Disk plus die Bounding-Box im Event. Dieser Helper
-rechnet das Embedding nach (Detektion auf dem Vollbild, Zuordnung über die
-gespeicherte Box), hängt es der Person an und setzt die Event-Zuordnung.
+dem SSE-Event — für die Chronik liegt es im Store: das Embedding, das beim
+Erkennen entstand, wird zu jedem Gesichts-Ereignis gespeichert
+(``VisionStore.get_event_embedding``). Dieser Helper hängt es der Person an
+und setzt die Event-Zuordnung; ein Bild wird dafür nicht mehr gebraucht.
 
 Genutzt vom Personarium („Unzugeordnete Gesichter" → Zuordnen + Lernen).
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
+import numpy as np
+
 from .config import VISION_EMBEDDING_DUPLICATE_SIM
 from .user_error import Invalid, Missing
-from .vision_filters.face_detect import box_iou
 
 logger = logging.getLogger(__name__)
 
 
-async def _best_detection_for_event(event: dict[str, Any], detector: Any) -> Any:
-    """Die zur gespeicherten Event-Bbox gehörende InsightFace-Detektion auf
-    dem Bild, in dem diese Box gilt (``classification.detect_frame_path``).
-    Wirft ``ValueError``, wenn Bbox/Frame fehlen oder keine Detektion zur Box
-    passt (IoU < 0.3)."""
-    from datetime import datetime
-    from pathlib import Path
-
-    from .frame_sources import Frame
-
-    cls = dict(event.get("classification") or {})
-    bbox_raw = cls.get("bbox")
-    if not isinstance(bbox_raw, list) or len(bbox_raw) != 4:
-        raise Invalid("face_box_missing", event=event.get("id"))
-    event_bbox = tuple(int(v) for v in bbox_raw)
-
-    # Das Bild, auf dem die Erkennung tatsächlich lief — das Event sagt es
-    # selbst. Bei einer Dual-Lens-Kamera ist das der Tele-Snap, sobald das
-    # Gesicht dort gefunden wurde, sonst das Weitwinkel (Gesichter, die erst
-    # im Ausschnitt einer Personenbox auftauchen, stammen von dort). Geraten
-    # wird hier nichts: die Box gilt nur in genau einem Bild, und im falschen
-    # findet die Detektion sie nicht wieder.
-    frame_path = str(cls.get("detect_frame_path") or "")
-    if not frame_path:
-        raise Invalid("face_frame_unknown", event=event.get("id"))
-    if not Path(frame_path).exists():
-        raise Invalid("face_frame_gone", event=event.get("id"))
-
-    frame = Frame(
-        source_id=str(event.get("source_id") or ""),
-        timestamp=datetime.now(),
-        image_bytes=Path(frame_path).read_bytes(),
-    )
-    detections = await asyncio.to_thread(detector.detect, frame)
-    if not detections:
-        raise Invalid("face_not_in_frame", event=event.get("id"))
-    # Die Detektion, die zur damals gespeicherten Box gehört — bei einem
-    # Gesicht trivial, bei mehreren entscheidet die Box-Überlappung.
-    best = max(detections, key=lambda d: box_iou(tuple(d.bbox), event_bbox))  # type: ignore[arg-type]
-    if box_iou(tuple(best.bbox), event_bbox) < 0.3:  # type: ignore[arg-type]
-        raise Invalid("face_box_mismatch", event=event.get("id"))
-    return best
+def _stored_embedding(store: Any, event_id: int) -> np.ndarray:
+    """Das beim Erkennen gespeicherte Embedding des Ereignisses; ohne eins
+    (Ereignis aus der Zeit davor) gibt es nichts zu lernen."""
+    embedding: np.ndarray | None = store.get_event_embedding(event_id)
+    if embedding is None:
+        raise Invalid("face_embedding_missing", event=event_id)
+    return embedding
 
 
 def _shared_recognizer() -> Any:
@@ -73,27 +38,27 @@ def _shared_recognizer() -> Any:
     return get_default_watcher().detection.face_recognizer
 
 
-async def _match_and_assign(
+def _match_and_assign(
     store: Any,
     events: list[dict[str, Any]],
-    detector: Any,
     recognizer: Any,
     *,
     require_face_id: int | None = None,
 ) -> dict[str, int]:
-    """Gemeinsamer Kern von Cluster-Sweep und manuellem Re-Match: Events
-    nachdetektieren, gegen die Embedding-DB matchen, SICHERE Treffer
-    zuordnen (nur Event → Person, KEIN neues Embedding — Lernen bleibt
+    """Gemeinsamer Kern von Cluster-Sweep und manuellem Re-Match: die
+    gespeicherten Embeddings der Events gegen die Embedding-DB matchen,
+    SICHERE Treffer zuordnen (nur Event → Person, KEIN neues Embedding — Lernen bleibt
     eine bewusste Nutzer-Entscheidung). ``require_face_id`` beschränkt
     auf Treffer genau dieser Person (Sweep). Returnt ``{name: count}``
     der zugeordneten Events."""
     resolved: dict[str, int] = {}
     for ev in events:
         try:
-            det = await _best_detection_for_event(ev, detector)
-        except ValueError:
-            continue  # Frame weg / kein passendes Gesicht — überspringen
-        match = recognizer.match(det.embedding)
+            embedding = _stored_embedding(store, int(ev["id"]))
+        except Invalid:
+            logger.warning("event %s has no stored embedding, not re-matched", ev["id"])
+            continue
+        match = recognizer.match(embedding)
         if match.confidence_band != "known":
             continue
         if require_face_id is not None and int(match.face_id) != require_face_id:
@@ -107,8 +72,8 @@ async def _match_and_assign(
     return resolved
 
 
-async def _resolve_cluster_siblings(
-    store: Any, cluster_id: str, *, exclude_id: int, face_id: int, detector: Any,
+def _resolve_cluster_siblings(
+    store: Any, cluster_id: str, *, exclude_id: int, face_id: int,
 ) -> int:
     """Nach einem manuellen Enroll die übrigen unzugeordneten Gesichts-
     Events DESSELBEN Vorkommnisses gegen die (frisch erweiterte)
@@ -119,14 +84,14 @@ async def _resolve_cluster_siblings(
     siblings = store.list_untagged_face_events(cluster_id, exclude_id=exclude_id)
     if not siblings:
         return 0
-    resolved = await _match_and_assign(
-        store, siblings, detector, _shared_recognizer(),
+    resolved = _match_and_assign(
+        store, siblings, _shared_recognizer(),
         require_face_id=face_id,
     )
     return sum(resolved.values())
 
 
-async def rematch_untagged_faces() -> dict[str, Any]:
+def rematch_untagged_faces() -> dict[str, Any]:
     """Manueller Re-Match (Personarium-Button): die Ereignisse hinter allen offenen Karten
     (``personarium.open_faces``: unbekannte und unsicher erkannte, nicht verworfen, nicht bestätigt) erneut
     gegen die aktuelle Embedding-DB erkennen und sichere Treffer zuordnen — ohne neue Embeddings. Die
@@ -136,7 +101,6 @@ async def rematch_untagged_faces() -> dict[str, Any]:
     Returnt ``{"checked": int, "resolved": int, "by_name": {name: n}}``.
     """
     from .personarium import open_faces
-    from .vision_filters.face_detect import get_default_detector
     from .vision_store import VisionStore
 
     store = VisionStore()
@@ -144,8 +108,8 @@ async def rematch_untagged_faces() -> dict[str, Any]:
     events = [event for event in found if event is not None]  # one deleted meanwhile (another page) is gone
     if not events:
         return {"checked": 0, "resolved": 0, "by_name": {}}
-    by_name = await _match_and_assign(
-        store, events, get_default_detector(), _shared_recognizer(),
+    by_name = _match_and_assign(
+        store, events, _shared_recognizer(),
     )
     resolved = sum(by_name.values())
     logger.info(
@@ -167,7 +131,7 @@ def confirm_group_events(event_ids: list[int], face_id: int) -> None:
         store.confirm_event_identity(int(event_id))
 
 
-async def enroll_face_from_event(
+def enroll_face_from_event(
     event_id: int,
     *,
     face_id: int | None = None,
@@ -179,9 +143,7 @@ async def enroll_face_from_event(
     Entweder ``face_id`` (bestehende Person) oder ``name`` (bestehende oder
     neue Person — Name-Dedup wie beim Popup-Enroll) angeben.
 
-    Ablauf: Frame von Disk → InsightFace-Detektion (geteilter
-    Default-Detector, läuft im Thread) → Detektion mit der besten
-    Box-Übereinstimmung zur Event-Bbox → ``add_embedding`` +
+    Ablauf: gespeichertes Embedding des Ereignisses → ``add_embedding`` +
     ``set_event_face_id`` + Recognizer-Invalidierung.
 
     Ist der Person schon ein Embedding mit Ähnlichkeit ≥
@@ -189,10 +151,9 @@ async def enroll_face_from_event(
     zugeordnet, nicht neu gelernt (``embedding_skipped``).
 
     Returnt ``{face_id, name, is_new, quality, siblings_resolved,
-    embedding_skipped, similarity}``. Wirft ``ValueError``,
-    wenn Event/Frame/Gesicht nicht (mehr) auffindbar sind.
+    embedding_skipped, similarity}``. Wirft ``Missing`` bei unbekanntem Event und
+    ``Invalid``, wenn zum Event kein Embedding gespeichert ist.
     """
-    from .vision_filters.face_detect import get_default_detector
     from .vision_filters.face_recognize import bump_enrollment_epoch
     from .vision_store import VisionStore
 
@@ -205,8 +166,7 @@ async def enroll_face_from_event(
         raise Missing("no_event", event=event_id)
     cls = dict(event.get("classification") or {})
 
-    detector = get_default_detector()
-    best = await _best_detection_for_event(event, detector)
+    embedding = _stored_embedding(store, int(event_id))
 
     is_new = False
     if face_id is None:
@@ -225,12 +185,12 @@ async def enroll_face_from_event(
 
     # Ein fast gleiches Embedding bringt nichts Neues und gewichtet nur diese
     # Pose stärker — die Aufnahme wird trotzdem zugeordnet und abgehakt.
-    similarity = store.max_embedding_similarity(int(face_id), best.embedding)
+    similarity = store.max_embedding_similarity(int(face_id), embedding)
     embedding_skipped = similarity >= VISION_EMBEDDING_DUPLICATE_SIM
     if not embedding_skipped:
         store.add_embedding(
-            int(face_id), best.embedding,
-            quality_score=float(best.detection_score),
+            int(face_id), embedding,
+            quality_score=float(cls["detection_score"]),
             crop_url=str(cls.get("crop_url") or ""),
         )
     store.set_event_face_id(int(event_id), int(face_id))
@@ -248,10 +208,9 @@ async def enroll_face_from_event(
     siblings_resolved = 0
     cluster_id = str(event.get("cluster_id") or "")
     if cluster_id:
-        siblings_resolved = await _resolve_cluster_siblings(
+        siblings_resolved = _resolve_cluster_siblings(
             store, cluster_id,
             exclude_id=int(event_id), face_id=int(face_id),
-            detector=detector,
         )
 
     logger.info(
@@ -263,7 +222,7 @@ async def enroll_face_from_event(
         "face_id": int(face_id),
         "name": resolved_name,
         "is_new": is_new,
-        "quality": float(best.detection_score),
+        "quality": float(cls["detection_score"]),
         "siblings_resolved": siblings_resolved,
         "embedding_skipped": embedding_skipped,
         "similarity": similarity,

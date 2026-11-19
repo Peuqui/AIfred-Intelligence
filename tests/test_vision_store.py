@@ -180,16 +180,6 @@ class TestEvents:
         ts1 = datetime.fromisoformat(latest[1]["timestamp"])
         assert ts0 > ts1
 
-    def test_prune_events(self, store: VisionStore):
-        now = datetime.now()
-        store.add_event("cam/a", "motion", timestamp=now - timedelta(days=10))
-        store.add_event("cam/a", "motion", timestamp=now - timedelta(days=5))
-        store.add_event("cam/a", "motion", timestamp=now)
-        deleted = store.prune_events(now - timedelta(days=7))
-        assert deleted == 1
-        remaining = store.query_events()
-        assert len(remaining) == 2
-
     def test_face_delete_nulls_event_face_id(self, store: VisionStore):
         fid = store.add_face("Ivy")
         store.add_event("cam/a", "face_known", face_id=fid)

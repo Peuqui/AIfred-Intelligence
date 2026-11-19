@@ -98,10 +98,6 @@ class FacePipeline:
                 crop=crop,
                 frame_path=frame_path,
                 zoom_frame_path=zoom_frame_path,
-                # Bild, in dem die ``bbox`` gilt: das Frame, das der Aufrufer
-                # in die Erkennung gegeben hat — bei Dual-Lens der Tele-Snap,
-                # sonst das Vollbild.
-                detect_frame_path=zoom_frame_path or frame_path,
                 trigger=trigger,
                 cluster_id=cluster_id,
                 parent_event_id=motion_event_id,

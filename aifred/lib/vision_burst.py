@@ -303,9 +303,7 @@ class BurstRunner:
                 person_frame, [p.bbox for p in persons],
             )
             if detections:
-                # Ab hier gilt: Crop, gespeicherte Bbox und das Bild, auf dem
-                # das Personarium später nachrechnet, kommen aus GENAU diesem
-                # Bild — sonst findet das Nachlernen die Box nicht wieder.
+                # Ab hier kommt der Crop aus GENAU diesem Bild.
                 face_source = person_frame
 
         if not detections:
@@ -369,14 +367,6 @@ class BurstRunner:
         pair = await self._output.finalize_pair(
             wide_frame, face_frame, save=config.save_event_frames,
         )
-        # Das Bild, in dem die ``bbox`` gilt — der Tele-Snap nur, wenn dort
-        # auch detektiert wurde. Das Nachlernen im Personarium rechnet auf
-        # GENAU diesem Bild nach; raten darf es nicht, seit ein Fund auch aus
-        # dem Weitwinkel stammen kann (Ausschnitts-Durchgang oben).
-        detect_frame_path = (
-            pair.zoom_path if (face_source is face_frame and pair.zoom_path)
-            else pair.wide.path
-        )
         self._recorder.record_face(
             source_id=source_id,
             frame_timestamp=face_frame.timestamp,
@@ -385,7 +375,6 @@ class BurstRunner:
             crop=crop,
             frame_path=pair.wide.path,
             zoom_frame_path=pair.zoom_path,
-            detect_frame_path=detect_frame_path,
             trigger=TRIGGER,
             cluster_id=cluster_id,
         )

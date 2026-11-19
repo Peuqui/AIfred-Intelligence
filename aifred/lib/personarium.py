@@ -156,14 +156,14 @@ async def assign(card_id: int, *, face_id: int | None = None, name: str | None =
     """Assign the card's face to the person ``face_id`` or the person called ``name`` (made if new) and learn it
     (``face_enroll.enroll_face_from_event`` on its newest event; the other events of the card share its picture and
     are only assigned). KeyError for a card that is no longer open, ValueError for no such person, an empty name or
-    a face the model no longer finds in the picture."""
+    an event without a stored face embedding."""
     from .face_enroll import confirm_group_events, enroll_face_from_event
 
     members = (await asyncio.to_thread(_members, [card_id]))[card_id]
     if face_id is not None:
-        result = await enroll_face_from_event(card_id, face_id=face_id)
+        result = await asyncio.to_thread(enroll_face_from_event, card_id, face_id=face_id)
     else:
-        result = await enroll_face_from_event(card_id, name=name or "")
+        result = await asyncio.to_thread(enroll_face_from_event, card_id, name=name or "")
     await asyncio.to_thread(confirm_group_events, [event for event in members if event != card_id], int(result["face_id"]))
     return Assigned(face_id=int(result["face_id"]), name=str(result["name"]), is_new=bool(result["is_new"]),
                     quality=float(result["quality"]), learned=not result["embedding_skipped"],
@@ -232,8 +232,8 @@ async def _recognise_again() -> None:
     from .face_enroll import rematch_untagged_faces
 
     try:
-        result = await rematch_untagged_faces()
-    except Exception as failure:  # the page shows why (face model, picture files, store)
+        result = await asyncio.to_thread(rematch_untagged_faces)
+    except Exception as failure:  # the page shows why (face model, store)
         logger.warning("Personarium: recognising the open faces again failed: %s", failure, exc_info=True)
         _rematch = Rematch(error=str(failure) or type(failure).__name__, ran=True)
         return

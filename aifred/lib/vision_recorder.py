@@ -136,16 +136,14 @@ class EventRecorder:
         crop: CropResult | None,
         frame_path: str,
         zoom_frame_path: str,
-        detect_frame_path: str,
         trigger: str,
         cluster_id: str,
         parent_event_id: int | None = None,
     ) -> int:
         """Gesichts-Ereignis schreiben, Status-Zähler erhöhen und das Live-
         Event für den Teleprompter/Personarium publizieren. Returnt die
-        Event-ID. ``detect_frame_path`` ist das Bild, in dem die ``bbox``
-        gilt — das Nachlernen im Personarium rechnet auf genau diesem Bild
-        nach."""
+        Event-ID. Das Embedding der Detektion wird mitgespeichert: das
+        Nachlernen im Personarium braucht kein Bild mehr."""
         event_type = face_event_type(match.confidence_band)
         crop_url = crop.url if crop else ""
         session_id = crop.session_id if crop else ""
@@ -161,10 +159,8 @@ class EventRecorder:
                 "matched_name": match.name,
                 "confidence_band": match.confidence_band,
                 "detection_score": det.detection_score,
-                "bbox": list(det.bbox),
                 "crop_url": crop_url,
                 "zoom_frame_path": zoom_frame_path,
-                "detect_frame_path": detect_frame_path,
             },
             metadata={
                 "parent_event_id": parent_event_id,
@@ -172,6 +168,7 @@ class EventRecorder:
                 "session_id": session_id,
             },
             cluster_id=cluster_id,
+            embedding=det.embedding,
         )
         self._statuses[source_id].face_events += 1
         publish_vlm_event(source_id, {

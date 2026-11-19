@@ -124,7 +124,7 @@ def test_assigning_a_card_learns_its_newest_event_and_assigns_the_others(store: 
     sighting = personarium.open_faces()[1]
     learned: list[tuple[int, dict[str, Any]]] = []
 
-    async def enroll(event_id: int, **who: Any) -> dict[str, Any]:
+    def enroll(event_id: int, **who: Any) -> dict[str, Any]:
         learned.append((event_id, who))
         return {"face_id": store.get_or_create_face(who["name"]), "name": who["name"], "is_new": True, "quality": 0.81,
                 "embedding_skipped": False, "similarity": 0.0, "siblings_resolved": 2}
@@ -142,8 +142,7 @@ def test_assigning_a_card_learns_its_newest_event_and_assigns_the_others(store: 
 
 
 def test_recognising_again_is_one_run_at_a_time_and_tells_its_outcome(store: VisionStore, monkeypatch: pytest.MonkeyPatch) -> None:
-    async def rematch() -> dict[str, Any]:
-        await asyncio.sleep(0)
+    def rematch() -> dict[str, Any]:
         return {"checked": 3, "resolved": 2, "by_name": {"Anna": 2}}
 
     monkeypatch.setattr(face_enroll, "rematch_untagged_faces", rematch)
@@ -199,21 +198,19 @@ def test_recognising_again_checks_exactly_the_events_behind_the_open_cards(store
     # a crop the page does not show, stopped at 2000; its "x of y" did not match the cards.
     from types import SimpleNamespace
 
-    from aifred.lib.vision_filters import face_detect
-
-    checked: list[int] = []
-
-    async def detect(event: dict[str, Any], _detector: object) -> SimpleNamespace:
-        checked.append(int(event["id"]))
-        return SimpleNamespace(embedding=np.zeros(512, dtype=np.float32))
+    checked: list[bytes] = []
 
     class Unsure:
-        def match(self, _embedding: object) -> SimpleNamespace:
+        def match(self, embedding: np.ndarray) -> SimpleNamespace:
+            checked.append(embedding.tobytes())
             return SimpleNamespace(confidence_band="unsure", face_id=0, name="")
 
-    monkeypatch.setattr(face_enroll, "_best_detection_for_event", detect)
     monkeypatch.setattr(face_enroll, "_shared_recognizer", Unsure)
-    monkeypatch.setattr(face_detect, "get_default_detector", object)
-    result = asyncio.run(face_enroll.rematch_untagged_faces())
-    assert sorted(checked) == sorted(event for card in personarium.open_faces() for event in card.member_ids)
+    for card in personarium.open_faces():       # the fixture's events carry no embedding; every event gets its own
+        for event_id in card.member_ids:
+            with store._conn() as conn:
+                conn.execute("INSERT INTO event_embeddings (event_id, embedding) VALUES (?, ?)", (event_id, np.full(512, event_id, dtype=np.float32).tobytes()))
+    result = face_enroll.rematch_untagged_faces()
+    expected = [np.full(512, event, dtype=np.float32).tobytes() for card in personarium.open_faces() for event in card.member_ids]
+    assert sorted(checked) == sorted(expected)
     assert result == {"checked": 4, "resolved": 0, "by_name": {}}      # the sighting of three and the unsure face
