@@ -560,17 +560,17 @@ def _put_reply_audio(
 # Clean defaults for new sessions — explicitly hardcoded, not inherited
 # from global settings. Every new session starts from this state.
 DEFAULT_SESSION_CONFIG: dict[str, Any] = {
+    # The agent of the standard mode (the other modes keep theirs in "lineups").
     "active_agent": "aifred",
     "multi_agent_mode": "standard",
-    "symposion_agents": [],
     # The agents work without their long-term memory in this session: no recall, no memory tools.
     "incognito": False,
     # A message sent while the agent works with tools is handed to it between two tool rounds (turn_service);
     # off: it waits for the next turn.
     "interjections": True,
-    # Critic and judge this session chose (seat → agent, lib/debate_seats.py); settings.json's
-    # "debate_seats" fills every seat it leaves out.
-    "debate_seats": {},
+    # The line-up of every discussion mode this session chose or entered (mode → place → agent, lib/mode_lineups.py);
+    # a mode missing here takes the global last choice when the session enters it.
+    "lineups": {},
 }
 
 
@@ -585,8 +585,7 @@ def get_session_config(session_id: str) -> dict[str, Any]:
         session_id: Session identifier
 
     Returns:
-        Config dict with keys: active_agent, multi_agent_mode,
-        symposion_agents
+        Config dict with the keys of DEFAULT_SESSION_CONFIG
     """
     session = load_session(session_id)
     if not session:

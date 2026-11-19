@@ -36,6 +36,15 @@ def _no_debug_log_file():
 
 
 @pytest.fixture(autouse=True)
+def _own_settings_file(monkeypatch, tmp_path):
+    """Jeder Test hat seine eigene settings.json: was ein Test global festhält (zuletzt gewählte Besetzung je
+    Modus, lib/mode_lineups.py), erbt kein anderer."""
+    from aifred.lib import settings
+
+    monkeypatch.setattr(settings, "SETTINGS_FILE", tmp_path / "settings.json")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_whisper_service(monkeypatch):
     """Tests dürfen den echten whisper-stt-Dienst weder abfragen noch den
     Container starten. Tests für den Client selbst überschreiben das gezielt."""

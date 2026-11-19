@@ -175,7 +175,7 @@ des Symposions (`shared/symposion.txt`, die Situation im System-Prompt).
 
 Was die Aufgabe eines Platzes zu seiner Runde sagt, wählt der Code (`debate_seats.round_rules`: der Baustein
 `_first` für die erste Runde, `_later` für jede weitere), damit das Modell nie selbst „WENN Runde = 1“ abwägt.
-Die Rollen der Plätze beschreibt je Modus eine eigene Datei (`turn_debate._DEBATE_MODES`): `shared/multi_agent_roles` (Auto-Konsens, Tribunal), `shared/multi_agent_roles_critique` (Kritische Prüfung: zwei Rollen, kein Richter), `shared/multi_agent_roles_review` (Recensio).
+Die Rollen der Plätze beschreibt je Modus eine eigene Datei (`turn_debate._MODE_ROLES`): `shared/multi_agent_roles` (Auto-Konsens, Tribunal), `shared/multi_agent_roles_critique` (Kritische Prüfung: zwei Rollen, kein Richter), `shared/multi_agent_roles_review` (Recensio).
 Kritiker sind angewiesen, pro Runde höchstens ein oder zwei Punkte anzubringen (die Recensio nicht: sie
 meldet alles, was sie belegen kann).
 

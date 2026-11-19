@@ -173,7 +173,7 @@ in the system prompt).
 
 What a seat's task says about its round, the code picks (`debate_seats.round_rules`: the `_first` block for
 the first round, the `_later` block for every further one), so the model never weighs "IF round = 1" itself.
-Each mode has its own file for the seats' roles (`turn_debate._DEBATE_MODES`): `shared/multi_agent_roles` (auto-consensus, tribunal), `shared/multi_agent_roles_critique` (critical review: two roles, no judge), `shared/multi_agent_roles_review` (recensio).
+Each mode has its own file for the seats' roles (`turn_debate._MODE_ROLES`): `shared/multi_agent_roles` (auto-consensus, tribunal), `shared/multi_agent_roles_critique` (critical review: two roles, no judge), `shared/multi_agent_roles_review` (recensio).
 Critics are told to raise at most one or two points per round (not the recensio: it reports everything it
 can prove).
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The session's discussion mode and who sits where (lib/debate_seats.py): the critic, in auto-consensus
-// and tribunal also the judge; the author is whoever answers first. The symposion's participants are the agent pills.
-// A choice of this session only; a new one starts with the settings' default seats.
+// and tribunal also the judge; the author is whoever answers first (the agent pills). The symposion's participants are the
+// agent pills too. Each mode has its own line-up; a place nobody was chosen for shows as not chosen.
 import { computed } from "vue";
 import type { AgentSummary, DebateMode, SessionConfig, SessionConfigUpdate } from "../api/types";
 import { t } from "../i18n";
@@ -25,7 +25,8 @@ function picked(event: Event): string {
     </label>
     <label v-for="seat in seats" :key="seat" class="seat">
       {{ t(`debate_seat_${seat}`) }}
-      <select :value="config.debate_seats[seat]" @change="emit('configure', { debate_seats: { [seat]: picked($event) } })">
+      <select :value="config.debate_seats[seat] ?? ''" @change="emit('configure', { debate_seats: { [seat]: picked($event) } })">
+        <option value="" disabled>{{ t("debate_seat_unchosen") }}</option>
         <option v-for="agent in agents" :key="agent.id" :value="agent.id">{{ agent.emoji }} {{ agent.display_name }}</option>
       </select>
     </label>

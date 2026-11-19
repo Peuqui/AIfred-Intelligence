@@ -19,7 +19,7 @@ import pytest
 from aifred.lib.function_calling import Tool
 from aifred.lib.perf_metrics import InferenceWork
 from aifred.backends import base, tool_loop
-from aifred.backends.base import BackendError, BackendInferenceError, LLMBackend, LLMMessage, LLMOptions
+from aifred.backends.base import BackendError, BackendInferenceError, LLMBackend, LLMMessage, LLMOptions, MessageContent
 from aifred.backends.round_pieces import (
     RoundEnd,
     RoundPiece,
@@ -278,7 +278,7 @@ def test_the_context_guard_stops_the_tools_and_interjections_wait_for_it() -> No
     ])
     asked: list[str] = []
 
-    async def interjections() -> list[str]:
+    async def interjections() -> list[MessageContent]:
         asked.append("asked")
         return ["Noch etwas"]
 
@@ -299,7 +299,7 @@ def test_the_messages_sent_meanwhile_join_the_next_request() -> None:
         [TextDelta("Antwort."), end()],
     ])
 
-    async def interjections() -> list[str]:
+    async def interjections() -> list[MessageContent]:
         return ["Noch etwas", "Und das"]
 
     async def run() -> list[dict[str, Any]]:

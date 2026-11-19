@@ -54,6 +54,10 @@ async def wait_before_retry(model: str, error: Exception, remaining_s: float) ->
     await asyncio.sleep(STREAM_RETRY_DELAY_S)
 
 
+# A message's content: text, or text and images as parts (OpenAI-style).
+MessageContent = str | list[dict[str, Any]]
+
+
 @dataclass
 class LLMMessage:
     """
@@ -72,11 +76,15 @@ class LLMMessage:
         ])
     """
     role: str  # "system", "user", "assistant"
-    content: str | list[dict[str, Any]]  # String for text-only, list for multimodal
+    content: MessageContent  # String for text-only, list for multimodal
 
     def as_dict(self) -> dict[str, Any]:
         """The message as the OpenAI-shaped dict the backends and the tool loop work with."""
         return {"role": self.role, "content": self.content}
+
+
+# What the tool loop asks between two tool rounds for the messages the user sent meanwhile (turn_service.interjection_source).
+Interjections = Callable[[], Awaitable[list[MessageContent]]]
 
 
 @dataclass
@@ -208,7 +216,7 @@ class LLMBackend(ABC):
         options: LLMOptions | None = None,
         toolkit: "ToolKit | None" = None,
         compression: "LoopCompression | None" = None,
-        interjections: Callable[[], Awaitable[list[str]]] | None = None,
+        interjections: Interjections | None = None,
     ) -> AsyncIterator[dict]:
         """Stream the answer; with a ``toolkit`` the tools run in rounds. One implementation for every
         backend (``tool_loop.run_tool_loop``), the backend only provides ``stream_round``.

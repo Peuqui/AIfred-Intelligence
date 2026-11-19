@@ -12,7 +12,7 @@ backend with another wire format translates when it sends.
 
 import asyncio
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from aifred.lib.config import (
@@ -26,6 +26,7 @@ from aifred.lib.timer import Timer
 
 from .base import (
     BackendInferenceError,
+    Interjections,
     LLMBackend,
     LLMOptions,
     done_metrics,
@@ -122,7 +123,7 @@ class _Turn:
         options: LLMOptions,
         toolkit: "ToolKit | None",
         compression: "LoopCompression | None",
-        interjections: Callable[[], Awaitable[list[str]]] | None,
+        interjections: Interjections | None,
     ) -> None:
         self.backend = backend
         self.model = model
@@ -393,7 +394,7 @@ async def run_tool_loop(
     options: LLMOptions,
     toolkit: "ToolKit | None",
     compression: "LoopCompression | None",
-    interjections: Callable[[], Awaitable[list[str]]] | None,
+    interjections: Interjections | None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Stream the answer; with a ``toolkit`` the tools run in rounds.
 

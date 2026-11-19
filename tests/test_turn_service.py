@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from fake_lineups import choose_mode
 from fake_tuning import default_agents_tuning
 
 from fake_reading import FakeReading
@@ -398,7 +399,7 @@ def test_a_debate_hands_the_description_to_the_describer_list_even_when_the_main
     """In a debate no agent gets the image, the describer is only a describer: the list goes before the main model."""
     _seeing(monkeypatch, None)
     monkeypatch.setattr(vision_routing, "image_describer", lambda _main: vision_routing.Describer("Box/Big-VL", False))
-    session_storage.update_session_config(SESSION, multi_agent_mode="critical_review")
+    choose_mode(SESSION, "critical_review")
     _image_turn("Was ist das?", picture)
     assert [model for model, _question in world["described"]] == ["Box/Big-VL"]
 
@@ -434,7 +435,7 @@ def test_a_debate_works_from_one_description_even_when_the_answering_model_sees(
     picture: str, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _seeing(monkeypatch, None)
-    session_storage.update_session_config(SESSION, multi_agent_mode="critical_review")
+    choose_mode(SESSION, "critical_review")
     _image_turn("Was ist das?", picture)
     assert len(world["described"]) == 1
     assert all(isinstance(request[-1]["content"], str) for request in world["requests"])
@@ -642,20 +643,13 @@ def test_a_speaking_channel_gets_each_reply_with_its_speaker_and_bubble() -> Non
 
 
 # ── Messages taken in between two tool rounds (interjection_source) ──────
+# Peuqui 19.11.2026: every waiting message goes to the agent at work, whoever it names and in every mode, while the
+# session's switch is on; only a channel's or a job's turn takes none, and a message with images waits.
 
 
-async def _pickup(world: dict[str, Any], waiting: list[tuple[str, tuple[str, ...]]],
-                  intents: dict[str, turn_service._Intent] | None = None) -> list[str]:
+async def _pickup(world: dict[str, Any], waiting: list[tuple[str, tuple[str, ...]]]) -> list[str]:
     """Run a turn up to its first stream, queue ``waiting`` behind it, ask the source the tool loop got once, let the
-    turn end. ``intents`` answers the Automatik call per message text (default: for nobody, no switch)."""
-    asked: list[str] = []
-
-    async def call_intent(_view: Any, _client: Any, text: str) -> turn_service._Intent:
-        asked.append(text)
-        return (intents or {}).get(text, turn_service._Intent(None, "de", {}, False, 0.0))
-
-    world["asked"] = asked
-    world["monkeypatch"].setattr(turn_service, "_call_intent", call_intent)
+    turn end; what stayed queued then runs as the next turns."""
     world["block"] = asyncio.Event()
     world["streamed"] = asyncio.Event()
     task = asyncio.create_task(turn_service.run_turn(turn_service.TurnRequest(SESSION, "Erste Frage")))
@@ -664,7 +658,8 @@ async def _pickup(world: dict[str, Any], waiting: list[tuple[str, tuple[str, ...
         assert turn_service.submit_turn(turn_service.TurnRequest(SESSION, text, images=images)) is True
     source = world["stream_kwargs"][0]["interjections"]
     taken: list[str] = await source() if source is not None else []
-    left = len(_waiting())
+    world["left"] = _waiting()   # what the pickup left queued, right after it
+    left = len(world["left"])
     world["block"].set()
     world["block"] = None
     await task
@@ -679,7 +674,11 @@ def _waiting() -> list[str]:
     return [message["text"] for message in _data().get("pending_messages", [])]
 
 
-def test_a_message_for_the_running_agent_is_taken_in_and_recorded(world: dict[str, Any]) -> None:
+def _users() -> list[str]:
+    return [entry["content"] for entry in _data()["chat_history"] if entry["role"] == "user"]
+
+
+def test_a_waiting_message_is_taken_in_and_recorded(world: dict[str, Any]) -> None:
     published: list[session_events.SessionEvent] = []
 
     async def scenario() -> list[str]:
@@ -694,8 +693,7 @@ def test_a_message_for_the_running_agent_is_taken_in_and_recorded(world: dict[st
     assert taken[0].startswith("[Neue Nachricht des Benutzers, während du gearbeitet hast]\n")
     assert "Nimm auch Bonn" in taken[0] and taken[0].endswith("nicht ändert oder ersetzt.]")
     assert _waiting() == []                                    # popped: no next turn for it
-    users = [entry["content"] for entry in _data()["chat_history"] if entry["role"] == "user"]
-    assert users == ["Erste Frage", "Nimm auch Bonn"]          # saved right away, before the reply
+    assert _users() == ["Erste Frage", "Nimm auch Bonn"]       # saved right away, before the reply
     assert [entry["role"] for entry in _data()["llm_history"]] == ["user", "user", "assistant"]
     assert _data()["llm_history"][1]["content"].endswith("Nimm auch Bonn")      # stamped, without the frame
     interjected = [event for event in published if event.kind == "message_interjected"]
@@ -709,63 +707,67 @@ def test_the_frame_follows_the_language_of_the_turn(world: dict[str, Any]) -> No
     assert "Add Bonn" in taken and taken.endswith("changes or replaces it.]")
 
 
-def test_a_message_with_images_waits_and_stops_the_pickup(world: dict[str, Any]) -> None:
-    url = f"/_upload/images/{SESSION}/foto_1.jpg"
-    taken = asyncio.run(_pickup(world, [("Was ist das?", (url,)), ("Danach Bonn", ())]))
-    assert taken == []
-    assert world["asked"] == []                              # not even asked: images decide
-    assert [e["content"] for e in _data()["chat_history"] if e["role"] == "user"][:1] == ["Erste Frage"]
+def test_the_pickup_asks_no_automatik_and_takes_what_names_another_agent_or_switches_the_mode(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def no_automatik(*_args: Any) -> turn_service._Intent:
+        raise AssertionError("the pickup must not call the Automatik")
 
+    texts = ["Sokrates, was meinst du?", "Schalte auf Tribunal", "Danach Aachen"]
+    world["intent"] = turn_service._Intent(None, "de", {}, False, 0.0)
 
-def test_a_message_for_another_agent_waits_and_the_one_behind_it_with_it(world: dict[str, Any]) -> None:
-    intents = {"Sokrates, was meinst du?": turn_service._Intent("sokrates", "de", {}, False, 0.0)}
-    taken = asyncio.run(_pickup(world, [("Sokrates, was meinst du?", ()), ("Und Bonn?", ())], intents))
-    assert taken == []
-    assert world["asked"] == ["Sokrates, was meinst du?"]    # the second one was never looked at
-    # Both started as turns after the first one ended, in order.
-    assert [e["content"] for e in _data()["chat_history"] if e["role"] == "user"] == [
-        "Erste Frage", "Sokrates, was meinst du?", "Und Bonn?",
-    ]
-
-
-@pytest.mark.parametrize("intent", [
-    turn_service._Intent(None, "de", {"multi_agent_mode": "tribunal"}, False, 0.0),
-    turn_service._Intent(None, "de", {}, True, 0.0),
-])
-def test_a_mode_switch_or_a_pure_command_waits(world: dict[str, Any], intent: turn_service._Intent) -> None:
-    taken = asyncio.run(_pickup(world, [("Schalt um", ())], {"Schalt um": intent}))
-    assert taken == []
-
-
-def test_a_message_for_the_running_agent_by_name_is_taken_in(world: dict[str, Any]) -> None:
-    intents = {"AIfred, auch Bonn": turn_service._Intent("aifred", "de", {}, False, 0.0)}
-    taken = asyncio.run(_pickup(world, [("AIfred, auch Bonn", ())], intents))
-    assert len(taken) == 1
-
-
-def test_the_source_asks_a_held_back_message_only_once(world: dict[str, Any]) -> None:
-    async def scenario() -> None:
-        intents = {"Sokrates?": turn_service._Intent("sokrates", "de", {}, False, 0.0)}
-        asked: list[str] = []
-
-        async def call_intent(_view: Any, _client: Any, text: str) -> turn_service._Intent:
-            asked.append(text)
-            return intents[text]
-
-        world["monkeypatch"].setattr(turn_service, "_call_intent", call_intent)
+    async def scenario() -> list[str]:
         world["block"] = asyncio.Event()
         world["streamed"] = asyncio.Event()
         task = asyncio.create_task(turn_service.run_turn(turn_service.TurnRequest(SESSION, "Erste Frage")))
         await world["streamed"].wait()
-        turn_service.submit_turn(turn_service.TurnRequest(SESSION, "Sokrates?"))
-        source = world["stream_kwargs"][0]["interjections"]
-        assert await source() == [] and await source() == []
-        assert asked == ["Sokrates?"]
+        monkeypatch.setattr(turn_service, "_detect_intent", no_automatik)   # from here on: no Automatik call
+        for text in texts:
+            turn_service.submit_turn(turn_service.TurnRequest(SESSION, text))
+        taken: list[str] = await world["stream_kwargs"][0]["interjections"]()
         world["block"].set()
         world["block"] = None
         await task
+        return taken
 
-    asyncio.run(scenario())
+    taken = asyncio.run(scenario())
+    assert [next(text for text in texts if text in frame) for frame in taken] == texts   # all of them, in order
+    assert _waiting() == [] and _users() == ["Erste Frage", *texts]
+
+
+def test_an_image_goes_in_as_the_working_model_sees_it_when_it_can(
+    picture: str, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seeing(monkeypatch, None)   # the model at work sees images itself
+    (content,) = asyncio.run(_pickup(world, [("Und das hier?", (picture,))]))
+    assert isinstance(content, list)
+    assert [part["type"] for part in content if part["type"] == "image_url"] == ["image_url"]
+    assert content[-1]["type"] == "text" and "Und das hier?" in content[-1]["text"]
+    assert content[-1]["text"].startswith("[Neue Nachricht des Benutzers, während du gearbeitet hast]")
+    assert world["described"] == []                          # nobody had to describe it
+    entry = [e for e in _data()["chat_history"] if e["role"] == "user"][1]
+    assert entry["metadata"]["images"][0]["url"] == picture     # the bubble shows the image
+    assert picture in _data()["llm_history"][1]["content"]      # the history keeps its anchor, not the image
+    assert _waiting() == []
+
+
+def test_an_image_the_working_model_cannot_see_is_described_into_the_message(
+    picture: str, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seeing(monkeypatch, "Aragon/Big-VL")   # a describer of the list writes the description
+    (content,) = asyncio.run(_pickup(world, [("Und das hier?", (picture,))]))
+    assert isinstance(content, str) and "Ein brauner Hund auf einer Wiese." in content
+    assert world["described"] == [("Aragon/Big-VL", "Und das hier?")]   # asked with the message's text
+    assert "Ein brauner Hund auf einer Wiese." in _data()["llm_history"][1]["content"]   # the next agents read it too
+    assert _waiting() == []
+
+
+def test_several_messages_are_all_taken_in_one_round_in_order(world: dict[str, Any]) -> None:
+    taken = asyncio.run(_pickup(world, [("Nimm auch Bonn", ()), ("Und Köln", ()), ("Danach Aachen", ())]))
+    assert [next(text for text in ("Bonn", "Köln", "Aachen") if text in frame) for frame in taken] == ["Bonn", "Köln", "Aachen"]
+    assert _waiting() == []
+    assert _users() == ["Erste Frage", "Nimm auch Bonn", "Und Köln", "Danach Aachen"]
+    assert [entry["role"] for entry in _data()["llm_history"]] == ["user", "user", "user", "user", "assistant"]
 
 
 def test_the_session_switch_off_hands_the_loop_no_source(world: dict[str, Any]) -> None:
@@ -774,10 +776,10 @@ def test_the_session_switch_off_hands_the_loop_no_source(world: dict[str, Any]) 
     assert world["stream_kwargs"][0]["interjections"] is None
 
 
-def test_a_debate_hands_the_loop_no_source(world: dict[str, Any]) -> None:
-    session_storage.update_session_config(SESSION, multi_agent_mode="critical_review")
+def test_every_call_of_a_debate_gets_a_source(world: dict[str, Any]) -> None:
+    choose_mode(SESSION, "critical_review")
     asyncio.run(_turn("Hallo AIfred"))
-    assert world["stream_kwargs"] and all(kwargs["interjections"] is None for kwargs in world["stream_kwargs"])
+    assert len(world["stream_kwargs"]) > 1 and all(callable(kwargs["interjections"]) for kwargs in world["stream_kwargs"])
 
 
 def test_a_call_without_tools_hands_the_loop_no_source(world: dict[str, Any]) -> None:
@@ -792,27 +794,8 @@ def test_the_standard_turn_hands_the_loop_a_source(world: dict[str, Any]) -> Non
 
 
 def test_a_turn_from_outside_the_chat_hands_the_loop_no_source(world: dict[str, Any]) -> None:
-    # A channel's or a job's reply goes to someone else: a message written in the chat must not end up in it.
+    # A channel's or a job's reply goes to someone else, with that sender's rights: a message written in the chat must
+    # not end up in it.
     origin = turn_service.TurnOrigin({"role": "user", "content": "Mail"}, "Mail", 2, "owner", {})
     asyncio.run(turn_service.run_turn(turn_service.TurnRequest(SESSION, "Mail", source="hub", origin=origin)))
     assert world["stream_kwargs"] and world["stream_kwargs"][0]["interjections"] is None
-
-
-def test_several_messages_for_the_running_agent_are_all_taken_in_one_round_in_order(world: dict[str, Any]) -> None:
-    taken = asyncio.run(_pickup(world, [("Nimm auch Bonn", ()), ("Und Köln", ()), ("Danach Aachen", ())]))
-    assert [next(text for text in ("Bonn", "Köln", "Aachen") if text in frame) for frame in taken] == ["Bonn", "Köln", "Aachen"]
-    assert world["asked"] == ["Nimm auch Bonn", "Und Köln", "Danach Aachen"]   # one Automatik call each
-    assert _waiting() == []
-    users = [entry["content"] for entry in _data()["chat_history"] if entry["role"] == "user"]
-    assert users == ["Erste Frage", "Nimm auch Bonn", "Und Köln", "Danach Aachen"]
-    assert [entry["role"] for entry in _data()["llm_history"]] == ["user", "user", "user", "user", "assistant"]
-
-
-def test_a_message_that_waits_stops_the_pickup_but_keeps_what_was_taken_before_it(world: dict[str, Any]) -> None:
-    intents = {"Sokrates, was meinst du?": turn_service._Intent("sokrates", "de", {}, False, 0.0)}
-    taken = asyncio.run(_pickup(world, [("Nimm auch Bonn", ()), ("Sokrates, was meinst du?", ()), ("Und Köln", ())], intents))
-    assert len(taken) == 1 and "Bonn" in taken[0]
-    # The other two became turns of their own after the first one ended, in order.
-    assert [e["content"] for e in _data()["chat_history"] if e["role"] == "user"] == [
-        "Erste Frage", "Nimm auch Bonn", "Sokrates, was meinst du?", "Und Köln",
-    ]

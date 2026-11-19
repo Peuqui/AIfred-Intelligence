@@ -409,12 +409,8 @@ def create_agent(
 
 def deletion_refusal(agent_id: str) -> UserError | None:
     """Why the agent cannot be deleted, None when it can. The base agent never is, nor a system agent
-    (it backs an internal workflow), nor one that sits on a seat of the settings' default (a new chat would start
-    every debate with an agent that is gone). Since 08.11.2026 Sokrates and Salomo can be deleted like any other."""
-    from .debate_seats import default_seats
-    from .i18n import t
-    from .prompt_loader import get_language
-
+    (it backs an internal workflow). Sokrates and Salomo can be deleted like any other (since 08.11.2026); a
+    line-up that still names a deleted agent refuses its turn out loud (debate_seats.check_seat_agent)."""
     config = get_agent_config(agent_id)
     if config is None:
         return Missing("unknown_agent", agent=agent_id)
@@ -422,9 +418,6 @@ def deletion_refusal(agent_id: str) -> UserError | None:
         return Invalid("base_agent_stays", agent=config.display_name)
     if config.role == ROLE_SYSTEM:
         return Invalid("system_agent_stays", agent=config.display_name)
-    for seat, holder in default_seats().items():
-        if holder == agent_id:
-            return Invalid("agent_on_default_seat", agent=config.display_name, seat=t(f"debate_seat_{seat}", lang=get_language()))
     return None
 
 

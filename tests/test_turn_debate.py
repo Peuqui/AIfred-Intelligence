@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from fake_lineups import choose_mode
 from fake_tuning import default_agents_tuning
 
 from aifred.lib import agent_config, session_events, session_storage, turn_service
@@ -101,8 +102,8 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     session_events._channels.pop(SESSION, None)
 
 
-def _mode(mode: str, **config: Any) -> None:
-    session_storage.update_session_config(SESSION, multi_agent_mode=mode, **config)
+def _mode(mode: str, **changes: Any) -> None:
+    choose_mode(SESSION, mode, **changes)
 
 
 def _edit_agents(world: dict[str, Any], change: Any) -> None:
@@ -264,7 +265,11 @@ def test_tribunal_alternates_attack_and_defense_and_the_judge_speaks_last(world:
 
 
 def test_a_seat_whose_agent_is_gone_rejects_the_turn(world: dict[str, Any]) -> None:
-    _mode("tribunal", debate_seats={"critic": "gibt-es-nicht"})
+    # The agent was deleted after it was chosen: the file still names it.
+    session_storage.update_session_config(
+        SESSION, multi_agent_mode="tribunal",
+        lineups={"tribunal": {"main": "aifred", "critic": "gibt-es-nicht", "judge": "salomo"}},
+    )
     _turn()
     rejected = _events("turn_rejected")
     assert (rejected[0]["reason"], rejected[0]["message"]) == ("seat", t("error_critic_unfit", agent="gibt-es-nicht"))
@@ -286,8 +291,8 @@ def test_an_answering_agent_switched_off_rejects_the_turn_out_loud(world: dict[s
 
 
 def test_an_agent_switched_off_takes_no_seat(world: dict[str, Any]) -> None:
+    _mode("critical_review")                                # Sokrates is the critic of this line-up
     _switch_off(world, "sokrates")
-    _mode("critical_review")                                # Sokrates is the default critic
     _turn()
     rejected = _events("turn_rejected")
     assert (rejected[0]["reason"], rejected[0]["message"]) == ("seat", t("error_critic_unfit", agent="Sokrates"))
@@ -576,10 +581,118 @@ def test_each_mode_describes_only_the_seats_that_speak() -> None:
     from aifred.lib import turn_debate
     from aifred.lib.prompt_loader import CRITIQUE_ROLES, DEBATE_ROLES, REVIEW_ROLES, load_prompt
 
-    seats = {"critic": "sokrates", "judge": "salomo"}
+    lineup = {"main": "aifred", "critic": "sokrates", "judge": "salomo"}
     expected = {"critical_review": CRITIQUE_ROLES, "recensio": REVIEW_ROLES, "auto_consensus": DEBATE_ROLES,
                 "tribunal": DEBATE_ROLES}
     for mode, roles in expected.items():
-        assert turn_debate.plan_turn(mode, "aifred", None, [], seats).roles == roles, mode
+        assert turn_debate.plan_turn(mode, "aifred", None, lineup).roles == roles, mode
     critique = load_prompt(CRITIQUE_ROLES, lang="de", main_agent="AIfred", critic_agent="Sokrates", user_name="USER")
     assert "Salomo" not in critique and "{judge_agent}" not in critique
+
+
+# ── line-ups per mode (lib/mode_lineups.py) ──────────────────────────────
+
+
+def _refusal() -> tuple[str, str]:
+    rejected = _events("turn_rejected")
+    return rejected[0]["reason"], rejected[0]["message"]
+
+
+def test_a_debate_mode_without_its_places_refuses_the_turn_and_names_them(world: dict[str, Any]) -> None:
+    from aifred.lib.mode_lineups import apply_config_changes
+
+    apply_config_changes(SESSION, {"multi_agent_mode": "tribunal"})        # nobody chosen: no defaults
+    _turn()
+    names = f"{t('debate_seat_main')}, {t('debate_seat_critic')}, {t('debate_seat_judge')}"
+    assert _refusal() == ("lineup", t("error_lineup_incomplete", mode=t("multi_agent_tribunal"), places=names))
+    assert [entry["role"] for entry in _data()["chat_history"]] == ["user"] and _events("agent_started") == []
+    apply_config_changes(SESSION, {"active_agent": "aifred", "debate_seats": {"critic": "sokrates"}})
+    _turn()                                                                # only the judge is left
+    assert _events("turn_rejected")[-1]["message"] == t("error_lineup_incomplete", mode=t("multi_agent_tribunal"), places=t("debate_seat_judge"))
+    assert _events("agent_started") == []
+
+
+def test_the_symposion_without_participants_refuses_the_turn(world: dict[str, Any]) -> None:
+    from aifred.lib.mode_lineups import apply_config_changes
+
+    apply_config_changes(SESSION, {"multi_agent_mode": "symposion"})
+    _turn()
+    assert _refusal() == ("lineup", t("error_lineup_incomplete", mode=t("multi_agent_symposion"), places=t("symposion_agents")))
+    assert _events("agent_started") == []
+
+
+def test_an_address_by_name_makes_the_agent_the_author_of_that_mode_only(world: dict[str, Any]) -> None:
+    _mode("recensio", debate_seats={"critic": "salomo"})
+    world["intent"] = turn_service._Intent("sokrates", "de", {}, False, 0.0)
+    _turn("Sokrates, schreib mir das")
+    config = session_storage.get_session_config(SESSION)
+    assert config["lineups"]["recensio"] == {"main": "sokrates", "critic": "salomo"}     # sticky in the mode
+    assert config["active_agent"] == "aifred"                                          # standard keeps its agent
+    assert _bubbles()[0][0] == "sokrates"
+    from aifred.lib.settings import persisted_settings
+
+    assert persisted_settings()["last_lineups"]["recensio"]["main"] == "sokrates"       # and the last choice globally
+    answered = len(_bubbles())
+    world["intent"] = None
+    _turn("Und weiter?")
+    assert _bubbles()[answered][0] == "sokrates"                                        # the next turn needs no address
+
+
+def test_the_standard_agent_answers_again_after_a_debate_mode(world: dict[str, Any]) -> None:
+    from aifred.lib.mode_lineups import apply_config_changes
+
+    session_storage.update_session_config(SESSION, active_agent="salomo")
+    _mode("critical_review", active_agent="sokrates", debate_seats={"critic": "aifred"})
+    apply_config_changes(SESSION, {"multi_agent_mode": "standard"})
+    _turn()
+    assert _bubbles() == [("salomo", "direct", None)]
+
+
+def test_aifred_by_name_in_a_debate_mode_answers_alone_without_any_seat(world: dict[str, Any]) -> None:
+    from aifred.lib.mode_lineups import apply_config_changes
+
+    apply_config_changes(SESSION, {"multi_agent_mode": "tribunal"})        # nothing chosen at all
+    world["intent"] = turn_service._Intent("aifred", "de", {}, False, 0.0)
+    _turn("AIfred, nur du")
+    assert _bubbles() == [("aifred", "direct", None)]
+    # His answer alone, for this turn: he does not become the author of the mode's line-up.
+    assert "main" not in session_storage.get_session_config(SESSION)["lineups"].get("tribunal", {})
+
+
+def test_aifred_by_name_leaves_the_line_up_of_the_mode_as_it_is(world: dict[str, Any]) -> None:
+    from aifred.lib.mode_lineups import apply_config_changes
+    from aifred.lib.settings import persisted_settings
+
+    apply_config_changes(SESSION, {"multi_agent_mode": "recensio", "active_agent": "sokrates", "debate_seats": {"critic": "salomo"}})
+    world["intent"] = turn_service._Intent("aifred", "de", {}, False, 0.0)
+    _turn("AIfred, was meinst du?")
+    assert _bubbles() == [("aifred", "direct", None)]
+    assert session_storage.get_session_config(SESSION)["lineups"]["recensio"] == {"main": "sokrates", "critic": "salomo"}
+    assert persisted_settings()["last_lineups"]["recensio"] == {"main": "sokrates", "critic": "salomo"}   # globally too
+
+
+def test_a_mode_switch_of_the_intent_detection_takes_the_last_line_up_of_that_mode(world: dict[str, Any]) -> None:
+    from aifred.lib.mode_lineups import apply_config_changes
+
+    apply_config_changes(SESSION, {"multi_agent_mode": "tribunal", "active_agent": "salomo",
+                                   "debate_seats": {"critic": "sokrates", "judge": "aifred"}})   # the last choice of tribunal
+    apply_config_changes(SESSION, {"multi_agent_mode": "standard"})
+    session_storage.update_session_config(SESSION, lineups={})                                  # this session has none of its own
+    world["intent"] = turn_service._Intent(None, "de", {"multi_agent_mode": "tribunal"}, True, 0.0)
+    _turn("Wechsle ins Tribunal")
+    config = session_storage.get_session_config(SESSION)
+    assert config["multi_agent_mode"] == "tribunal"
+    assert config["lineups"]["tribunal"] == {"main": "salomo", "critic": "sokrates", "judge": "aifred"}
+    assert _events("agent_started") == []                                                     # a pure command: confirmed only
+    confirmation = _data()["chat_history"][-1]["content"]
+    assert t("multi_agent_tribunal") in confirmation and "Salomo" in confirmation
+
+
+def test_an_address_in_the_symposion_sticks_to_nothing(world: dict[str, Any]) -> None:
+    _mode("symposion", symposion_agents=["aifred", "sokrates"])
+    world["intent"] = turn_service._Intent("salomo", "de", {}, False, 0.0)
+    world["view"].max_debate_rounds = 1
+    _turn("Salomo, was meinst du?")
+    config = session_storage.get_session_config(SESSION)
+    assert config["active_agent"] == "aifred" and config["lineups"] == {"symposion": {"agents": ["aifred", "sokrates"]}}
+    assert _bubbles() == [("aifred", "symposion", 1), ("sokrates", "symposion", 1)]
