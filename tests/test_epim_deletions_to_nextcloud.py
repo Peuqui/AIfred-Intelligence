@@ -13,18 +13,29 @@ Kontrakt:
 - Die Bremse: Über max_deletions wird nichts gelöscht, die Zeitmarke bleibt stehen, und der
   Benutzer bekommt je Sicherung genau eine Nachricht. Scheitert sie, kommt der nächste Lauf
   dran. Der Lauf ohne --apply benachrichtigt nie.
+- Nur neue Löschungen: Der erste Lauf löscht nichts, was schon im Papierkorb von EPIM lag, und
+  setzt die Zeitmarke auf die neueste Löschung. Jeder weitere Lauf liest ab der Marke des
+  vorigen und nimmt nur, was danach gelöscht wurde.
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
+from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
+from epim_testdb import ALL_WRITE, copy_fixture, requires_fixture
 from script_module import load_script
+
+from aifred.plugins.tools.epim.db import EpimDatabase
+
+if TYPE_CHECKING:
+    from aifred.plugins.tools.nextcloud.store import NextcloudStore
 
 tool = load_script("epim_deletions_to_nextcloud.py", "epim_deletions_to_nextcloud")
 
@@ -271,3 +282,116 @@ def test_the_setting_is_a_field_of_the_plugin_with_the_default_on() -> None:
         parse_settings({DELETION_SYNC_KEY: "maybe"})
     field = next(field for field in plugin.credential_fields if field.env_key == DELETION_SYNC_KEY)
     assert field.default == "on" and [value for value, _label in field.options or []] == ["on", "off"]
+
+
+# ── Only new deletions (Issue #87) ──────────────────────────────
+
+if TYPE_CHECKING:
+    _StoreBase = NextcloudStore
+else:
+    _StoreBase = object
+
+
+class FakeStore(_StoreBase):
+    """Nextcloud with one event and one contact per name; it records what is deleted."""
+
+    def __init__(self, names: list[str]) -> None:
+        self.names = set(names)
+        self.deleted: list[str] = []
+
+    def events(self, date_from: date, date_to: date, query: str | None) -> list[dict[str, Any]]:
+        assert query is not None
+        return [_row(query, START, object_id=f"cal/{query}.ics")] if query in self.names else []
+
+    def contacts(self, query: str | None) -> list[dict[str, Any]]:
+        assert query is not None
+        return [_contact(query, f"book/{query}.vcf")] if query in self.names else []
+
+    def tasks(self, query: str | None, done: bool | None) -> list[dict[str, Any]]:
+        return []
+
+    def delete_event(self, object_id: str) -> None:
+        self.deleted.append(object_id)
+
+    def delete_contact(self, object_id: str) -> None:
+        self.deleted.append(object_id)
+
+    def delete_task(self, object_id: str) -> None:
+        self.deleted.append(object_id)
+
+
+def _wire_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, store: FakeStore,
+              restored: Callable[[], Path]) -> None:
+    """Everything around the run replaced: the switches, the settings, the machine with the backups (each run
+    finds a newer one), the copy and restore of the backup, and Nextcloud."""
+    from aifred.plugins.tools.nextcloud import store as store_module
+
+    backups = iter(f"/backups/{number}.epim" for number in range(1, 10))
+    monkeypatch.setattr(tool, "reason_not_to_run", lambda: None)
+    monkeypatch.setattr(tool, "load_settings", _settings)
+    monkeypatch.setattr(tool, "latest_backup", lambda _settings: next(backups))
+    monkeypatch.setattr(tool, "fetch_restored", lambda _settings, _remote: (tmp_path / "backup.fbk", restored()))
+    monkeypatch.setattr(tool, "STATE_FILE", tmp_path / "state.json")
+    monkeypatch.setattr(store_module, "get_store", lambda: store)
+
+
+def _marker() -> datetime:
+    state = json.loads(tool.STATE_FILE.read_text(encoding="utf-8"))
+    return datetime.fromisoformat(state["deleted_after"])
+
+
+def test_the_marker_of_one_run_is_what_the_next_run_reads(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    store = FakeStore(["Zahnarzt"])
+    _wire_run(monkeypatch, tmp_path, store, lambda: tmp_path / "restored.epim")
+    first, second = datetime(2026, 11, 1, 9, 0), datetime(2026, 11, 2, 9, 0)
+    asked: list[datetime | None] = []
+
+    def read_epim(_path: Path, deleted_after: datetime | None) -> Any:
+        asked.append(deleted_after)
+        events = [_entry()] if deleted_after is not None else []
+        return tool.EpimBin(events, set(), [], set(), [], set(), first if deleted_after is None else second)
+
+    monkeypatch.setattr(tool, "read_epim", read_epim)
+    assert tool.run(apply=True) == 0
+    assert asked == [None] and store.deleted == [] and _marker() == first
+    assert tool.run(apply=True) == 0
+    assert asked == [None, first] and store.deleted == ["cal/Zahnarzt.ics"] and _marker() == second
+
+
+@requires_fixture
+def test_the_first_run_deletes_nothing_and_the_next_only_what_came_later(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The whole run against a real EPIM file: what lay in the recycle bin before the first run stays in
+    Nextcloud, even where Nextcloud still has it; only what EPIM deletes after that goes."""
+    master = copy_fixture(tmp_path, "master.epim")
+    store = FakeStore(["Alt", "Neu", "Alt Kontakt", "Neu Kontakt"])
+
+    def restored() -> Path:
+        copy = tmp_path / "restored.epim"
+        shutil.copyfile(master, copy)
+        return copy
+
+    def delete_in_epim(title: str) -> None:
+        database = EpimDatabase(master, ALL_WRITE)
+        try:
+            database.delete_task(database.create_task(
+                title=title, start=START, end=START + timedelta(hours=1), all_day=False, location=None,
+                text=None, category=None, calendar=None, tags=None))
+            database.delete_contact(database.create_contact(name=f"{title} Kontakt", fields={}, tags=None))
+        finally:
+            database.close()
+
+    _wire_run(monkeypatch, tmp_path, store, restored)
+    before = datetime.now()
+    delete_in_epim("Alt")
+    after = datetime.now()
+    assert tool.run(apply=True) == 0
+    assert store.deleted == []
+    first_marker = _marker()
+    assert before <= first_marker <= after
+
+    delete_in_epim("Neu")
+    assert tool.run(apply=True) == 0
+    assert sorted(store.deleted) == ["book/Neu Kontakt.vcf", "cal/Neu.ics"]
+    assert _marker() > first_marker
