@@ -1,5 +1,5 @@
 """A GPU-Orc stand-in for tests: a small real HTTP server in a thread that answers /health, /status, /loading,
-/free, /hold and /work as set up and records every /free, /hold and /work. The protocol itself (which
+/free, /hold, /hold/grant and /work as set up and records every /free, /hold and /work. The protocol itself (which
 timeout, which body) is tested against the real GPU-Orc in its own repo; here the client of AIfred is the
 caller, so the stand-in only has to speak HTTP."""
 
@@ -27,8 +27,12 @@ class FakeGpuOrc:
         self.already_running = False
         self.cards: list[dict[str, Any]] = []  # the "gpus" of GET /status
         self.loading: list[str] = []  # what GET /loading names
-        self.held: dict[str, str] | None = None  # the active hold GET /loading names (POST /hold sets it)
-        self.hold_requested: dict[str, str] | None = None  # the requested hold GET /loading names
+        # A hold is {"since", "reason"} plus optional "owner", "model", "model_server", "granted_by".
+        self.held: dict[str, str | None] | None = None  # the active hold GET /loading names (POST /hold sets it)
+        self.hold_requested: dict[str, str | None] | None = None  # the requested hold GET /loading names
+        self.hold_bodies: list[dict[str, Any]] = []  # the whole body of each POST /hold
+        self.grants: list[dict[str, Any]] = []  # the body of each POST /hold/grant
+        self.forced_releases: list[str] = []  # the owner of each DELETE /hold with force
         self.holds: list[str] = []  # the reason of each POST /hold
         self.hold_owners: list[str] = []  # the owner of each POST /hold
         self.released_owners: list[str] = []  # the owner of each DELETE /hold
@@ -83,11 +87,29 @@ class FakeGpuOrc:
         if path == "/hold" and method == "POST":
             self.holds.append(body["reason"])
             self.hold_owners.append(body["owner"])
-            self.held = {"since": "2026-11-05T09:00:00+01:00", "reason": body["reason"], "owner": body["owner"]}
+            self.hold_bodies.append(body)
+            self.held = {
+                "since": "2026-11-05T09:00:00+01:00", "reason": body["reason"], "owner": body["owner"],
+                "model": body["model"], "model_server": body.get("model_server"),
+            }
             # GPU-Orc answers every new hold as requested; without work it turns active right after (held)
             return 200, {"hold": self._wire_hold(self.held, "requested")}
+        if path == "/hold/grant" and method == "POST":
+            self.grants.append(body)
+            hold = self.held or self.hold_requested
+            if hold is None:
+                return 404, {"error": "no hold"}
+            if hold.get("owner", "somebody") != body["owner"]:
+                return 409, {"error": "the hold belongs to another owner"}
+            hold["granted_by"] = body["by"]
+            return 200, {"hold": self._wire_hold(hold, "active" if hold is self.held else "requested")}
         if path == "/hold" and method == "DELETE":
+            hold = self.held or self.hold_requested
+            if hold is not None and hold.get("owner", "somebody") != body["owner"] and not body["force"]:
+                return 409, {"error": "the hold belongs to another owner"}
             self.released_owners.append(body["owner"])
+            if body["force"]:
+                self.forced_releases.append(body["owner"])
             self.held = self.hold_requested = None
             return 200, {"hold": None}
         if path == "/work" and method == "POST":
@@ -106,13 +128,15 @@ class FakeGpuOrc:
             return 200, self._freed()
         return 404, {"error": f"no such path: {path}"}
 
-    def _wire_hold(self, hold: dict[str, str] | None, state: str) -> dict[str, Any] | None:
-        """A hold as GPU-Orc writes it: ``{owner, reason, since, state, free}``; ``free`` only once active."""
+    def _wire_hold(self, hold: dict[str, str | None] | None, state: str) -> dict[str, Any] | None:
+        """A hold as GPU-Orc writes it: ``{owner, reason, model, model_server, since, state, free, granted_by}``;
+        ``free`` only once active."""
         if hold is None:
             return None
         return {
-            "owner": hold.get("owner", "somebody"), "reason": hold["reason"], "since": hold["since"],
-            "state": state, "free": self._freed() if state == "active" else None,
+            "owner": hold.get("owner", "somebody"), "reason": hold["reason"], "model": hold.get("model"),
+            "model_server": hold.get("model_server"), "since": hold["since"], "state": state,
+            "free": self._freed() if state == "active" else None, "granted_by": hold.get("granted_by"),
         }
 
     def _freed(self) -> dict[str, Any]:

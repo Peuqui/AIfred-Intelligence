@@ -67,14 +67,21 @@ class GpuOrcClient:
         """The big models loading right now and the hold of the cards (GPU-Orc's traffic light)."""
         return self._orc.loading()
 
-    def hold(self, owner: str, reason: str) -> Hold:
-        """Ask to hold the cards for ``owner`` (``POST /hold``). The answer comes at once with the hold as
-        requested; GPU-Orc clears the cards in the background and turns it active (``traffic_light().held``)."""
-        return self._orc.hold(owner, reason)
+    def hold(self, owner: str, reason: str, model: str | None) -> Hold:
+        """Ask to hold the cards for ``owner`` (``POST /hold``); ``model`` is the model of AIfred's model server that
+        stays loaded for it, ``None`` when it needs none. The answer comes at once with the hold as requested. GPU-Orc
+        turns it active (``traffic_light().held``) and clears the cards by itself when no main model is loaded; else it
+        waits until a person grants it (:meth:`grant_hold`) or the model is unloaded after its TTL."""
+        return self._orc.hold(owner, reason, model, None if model is None else GPU_ORC_MODEL_SERVER)
 
-    def release_hold(self, owner: str) -> None:
-        """``owner`` lets go of its hold, requested or active (``DELETE /hold``)."""
-        self._orc.release_hold(owner)
+    def grant_hold(self, owner: str, by: str) -> Hold:
+        """``by`` (a person) grants the requested hold of ``owner`` (``POST /hold/grant``): once no work of others
+        runs, GPU-Orc clears the cards although a main model is loaded (``Hold.granted_by`` is set meanwhile)."""
+        return self._orc.grant_hold(owner, by)
+
+    def release_hold(self, owner: str, force: bool = False) -> None:
+        """``owner`` lets go of its hold, requested or active (``DELETE /hold``); ``force`` lets go of anybody's."""
+        self._orc.release_hold(owner, force)
 
     def work_begin(self, owner: str, reason: str, ttl_s: float) -> None:
         """Report work on this machine (``POST /work``), or renew the lease of ``owner``: GPU-Orc ends it by itself

@@ -212,7 +212,7 @@ def test_holding_a_card_answers_the_state_gpu_orc_gave(client: TestClient, monke
 
     def set_hold(host: str, hold: bool, reason: str) -> Hold | None:
         calls.append((host, hold))
-        return Hold("aifred-statusleiste", reason, "2026-11-20T03:30:00+01:00", "requested", None) if hold else None
+        return Hold("aifred-statusleiste", reason, None, None, "2026-11-20T03:30:00+01:00", "requested", None, None) if hold else None
 
     monkeypatch.setattr(remote_describers, "set_hold", set_hold)
     assert client.post("/service-status/hold", json={"host": "Aragon", "hold": True}).json() == {"status": "requested"}

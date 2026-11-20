@@ -69,10 +69,13 @@ class FreeResult:
 class Hold:
     owner: str
     reason: str
+    model: str | None  # the model of the model server the owner needs, it stays loaded
+    model_server: str | None  # the model server of ``model``; None exactly when ``model`` is None
     since: str
-    # "requested": work still runs, nothing is cleared yet; "active": the clearing has ended
+    # "requested": a main model is still loaded, nothing is cleared yet; "active": cleared
     state: str
     free: FreeResult | None  # how clearing the cards ended; None while requested
+    granted_by: str | None  # who granted the requested hold by hand (grant_hold); None if nobody
 
     def problems(self) -> list[str]:
         """What is wrong with an active hold's clearing (see FreeResult.problems)."""
@@ -83,7 +86,7 @@ class Hold:
 class TrafficLight:
     loading: tuple[str, ...]  # big models loading right now
     held: Hold | None  # the hold, only while it is active
-    hold_requested: Hold | None  # a hold waiting for the work on the cards to end
+    hold_requested: Hold | None  # a hold waiting for the cards to become free
 
     @property
     def red(self) -> bool:
@@ -131,29 +134,57 @@ class GpuOrc:
         except (KeyError, TypeError) as error:
             raise GpuOrcError(f"GPU-Orc /loading has an unknown form: {error!r}") from error
 
-    def hold(self, owner: str, reason: str) -> Hold:
-        """Ask to keep the cards for ``owner``. A new hold is only requested (``state``): GPU-Orc
-        clears the cards in the background once no work of others runs on them, and the hold turns
-        active with that result in ``free`` (wait for it with ``hold_and_wait``). Asking again
-        answers the own hold as it is. Another owner's hold is refused (GpuOrcError, HTTP 409)."""
-        answer = self._call("POST", "/hold", QUICK_TIMEOUT_S, {"owner": owner, "reason": reason})
+    def hold(
+        self, owner: str, reason: str, model: str | None, model_server: str | None = None
+    ) -> Hold:
+        """Ask to keep the cards for ``owner``, who needs ``model`` (a model of the model server
+        that stays loaded; None when it needs none, e.g. a game). A new hold is only requested
+        (``state``): GPU-Orc clears the cards in the background once no main model is loaded or
+        loading, and the hold turns active with that result in ``free`` (wait for it with
+        ``hold_and_wait``). Asking again answers the own hold as it is, even when ``reason`` or
+        ``model`` differ. Another owner's hold is refused (GpuOrcError, HTTP 409).
+        ``model_server`` is needed only with several model servers."""
+        body: dict[str, Any] = {"owner": owner, "reason": reason, "model": model}
+        if model_server is not None:
+            body["model_server"] = model_server
+        answer = self._call("POST", "/hold", QUICK_TIMEOUT_S, body)
         try:
             return _hold(answer["hold"]) or _no_hold("/hold")
         except (KeyError, TypeError) as error:
             raise GpuOrcError(f"GPU-Orc /hold has an unknown form: {error!r}") from error
 
-    def hold_and_wait(self, owner: str, reason: str, poll_s: float, timeout_s: float) -> Hold:
+    def grant_hold(self, owner: str, by: str) -> Hold:
+        """``by`` (a person) grants the requested hold of ``owner``: once no work of others runs,
+        GPU-Orc clears the cards for it although a main model is loaded. An active hold is answered
+        as it is; no hold (HTTP 404) or the hold of another owner (HTTP 409) raises GpuOrcError."""
+        answer = self._call("POST", "/hold/grant", QUICK_TIMEOUT_S, {"owner": owner, "by": by})
+        try:
+            return _hold(answer["hold"]) or _no_hold("/hold/grant")
+        except (KeyError, TypeError) as error:
+            raise GpuOrcError(f"GPU-Orc /hold/grant has an unknown form: {error!r}") from error
+
+    def hold_and_wait(
+        self,
+        owner: str,
+        reason: str,
+        model: str | None,
+        poll_s: float,
+        timeout_s: float | None,
+        model_server: str | None = None,
+    ) -> Hold:
         """Ask to keep the cards and wait until ``owner``'s hold is active and clearing the cards
         succeeded. A clearing that did not (``Hold.problems()``) raises GpuOrcError and leaves the
-        active hold to the caller. On timeout the own requested hold is withdrawn (it would clear
-        the cards later, unexpectedly) and GpuOrcError is raised."""
-        deadline = time.monotonic() + timeout_s
-        hold = self.hold(owner, reason)
+        active hold to the caller. ``timeout_s`` None waits without limit; on timeout the own
+        requested hold is withdrawn (it would clear the cards later, unexpectedly) and GpuOrcError
+        is raised."""
+        deadline = None if timeout_s is None else time.monotonic() + timeout_s
+        hold = self.hold(owner, reason, model, model_server)
         while hold.state != "active":
-            if time.monotonic() >= deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 self.release_hold(owner)
                 raise GpuOrcError(
-                    f"the hold of {owner!r} was not active after {timeout_s} s: work still runs"
+                    f"the hold of {owner!r} was not active after {timeout_s} s: "
+                    "the cards are not free"
                 )
             time.sleep(poll_s)
             light = self.loading()
@@ -239,9 +270,12 @@ def _hold(hold: Any) -> Hold | None:
     return Hold(
         str(hold["owner"]),
         str(hold["reason"]),
+        hold["model"],
+        hold["model_server"],
         str(hold["since"]),
         str(hold["state"]),
         None if hold["free"] is None else _free_result(hold["free"], "hold"),
+        hold["granted_by"],
     )
 
 

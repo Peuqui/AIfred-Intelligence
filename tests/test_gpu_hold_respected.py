@@ -96,3 +96,33 @@ def test_a_gpu_orc_that_does_not_answer_lets_the_request_go_on_and_says_so(
     asyncio.run(_backend()._wait_while_held(MODEL))
     assert seen["phases"] == []
     assert any("did not say whether the cards are held" in line for line in seen["log"])
+
+
+def test_a_requested_hold_a_person_granted_makes_the_request_wait(
+    orc: FakeGpuOrc, seen: dict[str, list[Any]], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Granted: GPU-Orc clears the cards as soon as no work of others runs, a model loaded now would be cleared again.
+    orc.hold_requested = {**HOLD, "owner": "vllm-research", "granted_by": "Peuqui"}
+
+    async def sleep(seconds: float) -> None:
+        seen["sleeps"].append(seconds)
+        orc.hold_requested = None
+
+    monkeypatch.setattr(base.asyncio, "sleep", sleep)
+    asyncio.run(_backend()._wait_while_held(MODEL))
+    assert len(seen["sleeps"]) == 1 and seen["phases"] == ["gpu_hold", ""]
+    assert any("vllm-research" in line and "granted by Peuqui" in line for line in seen["log"])
+
+
+def test_a_requested_hold_nobody_granted_holds_nothing_back(
+    orc: FakeGpuOrc, seen: dict[str, list[Any]], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A main model is still loaded and stays: the turns go on.
+    orc.hold_requested = {**HOLD, "owner": "vllm-research"}
+
+    async def sleep(seconds: float) -> None:
+        raise AssertionError("the request waited under a hold nobody granted")
+
+    monkeypatch.setattr(base.asyncio, "sleep", sleep)
+    asyncio.run(_backend()._wait_while_held(MODEL))
+    assert seen["phases"] == []

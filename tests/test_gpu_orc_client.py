@@ -14,6 +14,7 @@ from aifred.lib.gpu_orc_client import (
     CardStatus,
     FreeAction,
     FreeResult,
+    GpuOrcError,
     TrafficLight,
     describe,
 )
@@ -69,7 +70,7 @@ def test_the_status_is_read_per_card(fake) -> None:
 def test_held_cards_make_the_light_red_and_the_hold_names_its_owner(fake) -> None:
     orc = current_client()
     assert orc.traffic_light().red is False
-    hold = orc.hold("aifred-test", "gaming")
+    hold = orc.hold("aifred-test", "gaming", None)
     assert fake.holds == ["gaming"] and fake.hold_owners == ["aifred-test"]
     assert hold.owner == "aifred-test" and hold.reason == "gaming"
     light = orc.traffic_light()
@@ -77,6 +78,25 @@ def test_held_cards_make_the_light_red_and_the_hold_names_its_owner(fake) -> Non
     orc.release_hold("aifred-test")
     assert fake.released_owners == ["aifred-test"]
     assert orc.traffic_light() == TrafficLight((), None, None)
+
+
+def test_granting_a_hold_sends_the_owner_and_the_person(fake) -> None:
+    orc = current_client()
+    orc.hold("aifred-test", "gaming", "Big-Model")
+    assert fake.hold_bodies[0]["model"] == "Big-Model" and fake.hold_bodies[0]["model_server"] == GPU_ORC_MODEL_SERVER
+    hold = orc.grant_hold("aifred-test", "Peuqui")
+    assert fake.grants == [{"owner": "aifred-test", "by": "Peuqui"}] and hold.granted_by == "Peuqui"
+    with pytest.raises(GpuOrcError, match="HTTP 409"):
+        orc.grant_hold("somebody-else", "Peuqui")
+
+
+def test_forcing_a_release_lets_go_of_the_hold_of_another_owner(fake) -> None:
+    orc = current_client()
+    orc.hold("aifred-test", "gaming", None)
+    with pytest.raises(GpuOrcError, match="HTTP 409"):
+        orc.release_hold("somebody-else")
+    orc.release_hold("somebody-else", force=True)
+    assert fake.forced_releases == ["somebody-else"] and orc.traffic_light() == TrafficLight((), None, None)
 
 
 def test_describe_says_what_was_released_what_stayed_and_whether_the_cards_are_free() -> None:

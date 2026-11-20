@@ -50,16 +50,29 @@ def resolve_client(*, llamaswap_root: str | None = None, model_id: str | None = 
     return remote or get_gpu_orc_client()
 
 
+def blocking_hold(light: TrafficLight) -> Hold | None:
+    """The hold that keeps AIfred's work off the cards, else ``None``: the active hold, or a requested one a person has
+    granted (GPU-Orc clears the cards as soon as no work of others runs, a model loaded now would be cleared again).
+    A requested hold nobody granted holds nothing back: a main model is still loaded and stays. The one place that says
+    so, for this machine and for the remote ones."""
+    if light.held is not None:
+        return light.held
+    if light.hold_requested is not None and light.hold_requested.granted_by is not None:
+        return light.hold_requested
+    return None
+
+
 def held(client: GpuOrcClient) -> Hold | None:
-    """The active hold or ``None`` (one ``GET /loading``). Blocking; :class:`GpuOrcError` when
-    GPU-Orc does not answer."""
-    return client.traffic_light().held
+    """The hold that keeps the work off the cards (:func:`blocking_hold`, one ``GET /loading``) or ``None``. Blocking;
+    :class:`GpuOrcError` when GPU-Orc does not answer."""
+    return blocking_hold(client.traffic_light())
 
 
 def refusal_for(light: TrafficLight) -> UserError | None:
-    """``vram_cards_held`` when the traffic light shows a hold, else ``None``: the one wording of that refusal, for
-    callers that read the light themselves (they also look at what is loading)."""
-    return UserError("vram_cards_held", reason=light.held.reason) if light.held else None
+    """``vram_cards_held`` when the traffic light shows a blocking hold, else ``None``: the one wording of that refusal,
+    for callers that read the light themselves (they also look at what is loading)."""
+    hold = blocking_hold(light)
+    return UserError("vram_cards_held", owner=hold.owner, reason=hold.reason) if hold else None
 
 
 def hold_refusal(client: GpuOrcClient | None) -> UserError | None:
@@ -88,7 +101,11 @@ def _still_held(client: GpuOrcClient, what: str, waiting: bool) -> bool:
             log_message(f"▶️ The hold of the cards has ended, {what} goes on")
         return False
     if not waiting:
-        log_message(f"⏸️ The cards are held since {hold.since} ({hold.reason}): {what} waits until they are free", "warning")
+        state = f"granted by {hold.granted_by}" if hold.state == "requested" else "active"
+        log_message(
+            f"⏸️ The cards are held by {hold.owner} since {hold.since} ({hold.reason}, {state}): "
+            f"{what} waits until they are free", "warning",
+        )
         report_phase("gpu_hold")
     return True
 

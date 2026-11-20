@@ -31,6 +31,7 @@ from .config import (
     VISION_REMOTE_HOSTS,
     VLM_HEADROOM_MIB,
 )
+from .gpu_hold import blocking_hold
 from .gpu_orc_client import CardStatus, GpuOrcClient, GpuOrcError, Hold
 from .user_error import UpstreamFailed, UserError
 from .vision_vram_check import VRAMCheckResult
@@ -174,13 +175,13 @@ def check_fits(model: RemoteModel) -> VRAMCheckResult:
     if model.loaded:
         # Loaded does not mean usable: under a hold a request would distort the holder's work.
         try:
-            hold = gpu_orc(host).traffic_light().held
+            hold = blocking_hold(gpu_orc(host).traffic_light())
         except GpuOrcError as error:
             return VRAMCheckResult(fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
                                    reason=UserError("vram_remote_card_usage_unknown", host=host.name, error=error))
         if hold is not None:
             return VRAMCheckResult(fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
-                                   reason=UserError("vram_remote_held", host=host.name, reason=hold.reason))
+                                   reason=UserError("vram_remote_held", host=host.name, owner=hold.owner, reason=hold.reason))
         return VRAMCheckResult(fits=True, needed_mb=0, free_mb=0, gpu_index=-1,
                                reason=UserError("vram_profile_loaded", profile=model.qualified))
     if model.context is None:
@@ -202,9 +203,9 @@ def check_fits(model: RemoteModel) -> VRAMCheckResult:
     except GpuOrcError as error:
         return VRAMCheckResult(fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
                                reason=UserError("vram_remote_card_usage_unknown", host=host.name, error=error))
-    if light.held is not None:
+    if (hold := blocking_hold(light)) is not None:
         return VRAMCheckResult(fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
-                               reason=UserError("vram_remote_held", host=host.name, reason=light.held.reason))
+                               reason=UserError("vram_remote_held", host=host.name, owner=hold.owner, reason=hold.reason))
     if light.loading:
         return VRAMCheckResult(fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
                                reason=UserError("vram_remote_loading", host=host.name, models=", ".join(light.loading)))
@@ -361,6 +362,6 @@ def set_hold(host_name: str, hold: bool, reason: str) -> Hold | None:
         raise RemoteHostError(f"no machine '{host_name}' in VISION_REMOTE_HOSTS")
     client = gpu_orc(host)
     if hold:
-        return client.hold(GPU_ORC_STATUSBAR_HOLD_OWNER, reason)
+        return client.hold(GPU_ORC_STATUSBAR_HOLD_OWNER, reason, None)  # a card kept free needs no model
     client.release_hold(GPU_ORC_STATUSBAR_HOLD_OWNER)
     return None

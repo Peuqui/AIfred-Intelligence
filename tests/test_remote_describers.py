@@ -192,6 +192,14 @@ def test_nothing_new_while_somebody_holds_the_cards_there(box):
     assert remote_describers.check_remote(f"Box/{BIG}")[0] is False
 
 
+def test_a_requested_hold_is_ignored_there_until_a_person_granted_it(box):
+    box["models"] = [(BIG, True)]
+    box["gpu_orc"].hold_requested = {"since": "2026-11-05T09:00:00+01:00", "reason": "gaming", "owner": "game"}
+    assert remote_describers.check_remote(f"Box/{BIG}")[0] is True
+    box["gpu_orc"].hold_requested["granted_by"] = "Peuqui"
+    assert remote_describers.check_remote(f"Box/{BIG}")[0] is False
+
+
 def test_without_its_gpu_orc_the_room_is_unknown(box):
     box.update(models=[(BIG, False)], token_ok=False)
     vlm_vram_cache.put(f"Box/{BIG}", 24576, 7235)
@@ -452,6 +460,7 @@ def test_a_machine_that_is_off_shows_as_unreachable(box):
 def test_holding_and_releasing_goes_to_the_machines_gpu_orc(box):
     hold = remote_describers.set_hold("Box", True, "held from AIfred's status bar")
     assert hold is not None and hold.owner == GPU_ORC_STATUSBAR_HOLD_OWNER
+    assert box["gpu_orc"].hold_bodies[0]["model"] is None and box["gpu_orc"].hold_bodies[0].get("model_server") is None
     assert box["gpu_orc"].holds == ["held from AIfred's status bar"] and box["gpu_orc"].held is not None
     assert box["gpu_orc"].hold_owners == [GPU_ORC_STATUSBAR_HOLD_OWNER]
     remote_describers.set_hold("Box", False, "")

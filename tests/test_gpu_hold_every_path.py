@@ -481,5 +481,5 @@ def test_hold_refusal_names_the_reason_and_is_none_without_a_hold_or_without_gpu
     assert gpu_hold.hold_refusal(client) is None
     orc.held = dict(HOLD)
     refusal = gpu_hold.hold_refusal(client)
-    assert isinstance(refusal, UserError) and refusal.key == "vram_cards_held" and refusal.values == {"reason": HOLD["reason"]}
+    assert isinstance(refusal, UserError) and refusal.key == "vram_cards_held" and refusal.values == {"owner": "somebody", "reason": HOLD["reason"]}
     assert gpu_hold.hold_refusal(None) is None
