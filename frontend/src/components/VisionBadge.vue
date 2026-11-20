@@ -80,6 +80,7 @@ onBeforeUnmount(stop);
       <template v-if="latest">
         <img v-if="latest.crop_url" :src="latest.crop_url" alt="" />
         <img v-else-if="latest.has_frame" :src="apiUrl(`vision/frame?id=${latest.id}&w=64`)" alt="" />
+        <img v-else-if="latest.has_thumb" :src="apiUrl(`vision/frame?id=${latest.id}&thumb=1`)" alt="" />
         <span class="when">{{ latest.time_display }}</span>
         <span class="kind">{{ t(`casus_badge_${latest.event_type}`) }}</span>
         <span class="what">{{ latest.face_name || latest.matched_name || latest.description || latest.source_name }}</span>
@@ -105,6 +106,7 @@ onBeforeUnmount(stop);
       >
         <img v-if="event.crop_url" :src="event.crop_url" alt="" loading="lazy" />
         <img v-else-if="event.has_frame" :src="apiUrl(`vision/frame?id=${event.id}&w=64`)" alt="" loading="lazy" />
+        <img v-else-if="event.has_thumb" :src="apiUrl(`vision/frame?id=${event.id}&thumb=1`)" alt="" loading="lazy" />
         <span v-else class="none">∿</span>
         <span class="text">
           <span class="kind">{{ t(`casus_badge_${event.event_type}`) }}</span>

@@ -5,6 +5,7 @@ cut the rest silently), the type filter with persons, vehicles and animals (it h
 occurrence oldest first, a person assigned only to a face event, and the signal of a stored event across threads."""
 
 import asyncio
+import shutil
 import threading
 import time
 from collections.abc import Iterator
@@ -444,3 +445,54 @@ def test_deleting_every_person_with_vision_off_goes_through_the_single_delete(cl
     assert store.list_faces_with_summary() == []
     assert all(store.list_embeddings(person["id"]) == [] for person in people)
     assert client.post("/vision/face/delete").json() == {"deleted": 0}
+
+
+def _burst_event_with_pictures(store: VisionStore) -> tuple[int, Path, Path]:
+    """One event with a wide and a tele picture on disk (below DATA_DIR), its pictures dropped (burst over)."""
+    from _vision_fakes import noise_jpeg
+    from aifred.lib.config import DATA_DIR
+
+    folder = DATA_DIR / "casus-thumb-test"
+    folder.mkdir(parents=True, exist_ok=True)
+    wide, tele = folder / "wide.jpg", folder / "tele.jpg"
+    wide.write_bytes(noise_jpeg(1))
+    tele.write_bytes(noise_jpeg(2))
+    event = store.add_event("cam/garden", "person", timestamp=START, frame_path=str(wide),
+                            classification={"zoom_frame_path": str(tele)}, cluster_id="thumbs")
+    store.drop_event_frames([event])
+    return event, folder / "wide_thumb.jpg", folder / "tele_thumb.jpg"
+
+
+def test_deleting_an_event_deletes_its_previews(store: VisionStore) -> None:
+    event, wide_thumb, tele_thumb = _burst_event_with_pictures(store)
+    try:
+        assert wide_thumb.is_file() and tele_thumb.is_file()
+        assert store.delete_event(event)
+        assert not wide_thumb.exists() and not tele_thumb.exists()
+    finally:
+        shutil.rmtree(wide_thumb.parent, ignore_errors=True)
+
+
+def test_deleting_events_by_filter_deletes_their_previews(store: VisionStore) -> None:
+    _, wide_thumb, tele_thumb = _burst_event_with_pictures(store)
+    try:
+        assert wide_thumb.is_file() and tele_thumb.is_file()
+        assert store.delete_events_filtered(source_id="cam/garden", event_types=["person"]) >= 1
+        assert not wide_thumb.exists() and not tele_thumb.exists()
+    finally:
+        shutil.rmtree(wide_thumb.parent, ignore_errors=True)
+
+
+def test_the_frame_endpoint_serves_the_preview_with_thumb_and_404s_without(client: TestClient, store: VisionStore) -> None:
+    event, wide_thumb, tele_thumb = _burst_event_with_pictures(store)
+    try:
+        row = next(r for r in client.get("/vision/casus/events", params={"limit": 50}).json()["events"] if r["id"] == event)
+        assert (row["has_frame"], row["has_thumb"], row["has_zoom"], row["has_zoom_thumb"]) == (False, True, False, True)
+        wide = client.get("/vision/frame", params={"id": event, "thumb": 1})
+        assert wide.status_code == 200 and wide.content == wide_thumb.read_bytes()
+        assert client.get("/vision/frame", params={"id": event, "zoom": 1, "thumb": 1}).content == tele_thumb.read_bytes()
+        assert client.get("/vision/frame", params={"id": event}).status_code == 404   # no silent fallback to a picture
+        other = next(r["id"] for r in client.get("/vision/casus/events").json()["events"] if r["id"] != event)
+        assert client.get("/vision/frame", params={"id": other, "thumb": 1}).status_code == 404
+    finally:
+        shutil.rmtree(wide_thumb.parent, ignore_errors=True)

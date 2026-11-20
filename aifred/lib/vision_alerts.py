@@ -619,12 +619,15 @@ class BurstReport:
         """Abschluss des Bursts, immer am Ende eines normal beendeten Bursts: erst die Medien (Filme, EINE
         Beschreibung, Einzelbilder weg; ``finish_burst_media``), danach — nur mit Beobachtung — die
         Zusammenfassung mit Filmen und Beschreibung, ohne Standbild: die Einzelbilder sind dann gelöscht. Ist die
-        Ereignisdatenbank belegt, bleiben die Bilder liegen und die Zusammenfassung geht ohne Film raus."""
+        Ereignisdatenbank belegt oder ein Bild nicht zu verkleinern, bleiben die Bilder liegen und die
+        Zusammenfassung geht ohne Film raus."""
         media = BurstMedia()
         if self.cluster_id and self._store is not None:
             try:
                 media = await finish_burst_media(self._store, self.cluster_id, self._person_count_max)
-            except sqlite3.Error as e:  # busy database: the pictures stay, the summary goes out without film
+            # Busy database, a picture that cannot be read or a preview that cannot be written: the pictures stay
+            # (drop_event_frames changes nothing then), the summary goes out without film.
+            except (sqlite3.Error, OSError, ValueError) as e:
                 logger.warning("burst media for %s failed: %s", self.cluster_id, e, exc_info=True)
         if self.has_observations():
             await self._send_once(films=media.films, description=media.description, summary=True)

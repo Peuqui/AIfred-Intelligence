@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 # Imports for session-based image storage
-from .config import DATA_DIR, LLAMASWAP_BACKENDS
+from .config import DATA_DIR, LLAMASWAP_BACKENDS, VISION_THUMB_JPEG_QUALITY
 from .logging_utils import log_message
 from .session_storage import SESSION_ID_RE
 from .user_error import Invalid
@@ -98,6 +98,26 @@ def is_grayscale_image(jpeg_bytes: bytes) -> bool:
         return float(sat.mean()) < 12.0
     except cv2.error:
         return False
+
+
+def scale_jpeg(data: bytes, width: int) -> bytes:
+    """Das Bild auf höchstens ``width`` Pixel Breite verkleinern (Seitenverhältnis bleibt, JPEG mit
+    ``VISION_THUMB_JPEG_QUALITY``); ein schmaleres Bild kommt unverändert zurück. Die eine Stelle für den
+    Endpunkt ``/vision/frame?w=`` und die Vorschaubilder der Burst-Ereignisse. ``ValueError``, wenn die Bytes
+    kein lesbares Bild sind."""
+    import cv2
+    import numpy as np
+    image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError("not a decodable image")
+    if image.shape[1] <= width:
+        return data
+    height = max(1, int(image.shape[0] * width / image.shape[1]))
+    small = cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA)
+    ok, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, VISION_THUMB_JPEG_QUALITY])
+    if not ok:
+        raise ValueError("JPEG encoding failed")
+    return buf.tobytes()
 
 
 def get_source_briefing(source_id: str) -> str:

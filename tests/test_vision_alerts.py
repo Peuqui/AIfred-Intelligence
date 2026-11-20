@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+
+import pytest
 from datetime import datetime
 
 import aifred.lib.vision_alerts as va
@@ -251,13 +253,18 @@ def test_the_final_report_brings_its_description_and_no_still_image(monkeypatch)
     assert final.media_album == ["/f/wide.mp4"]
 
 
-def test_a_busy_database_keeps_the_pictures_but_the_summary_still_goes_out(monkeypatch):
+@pytest.mark.parametrize("failure", [
+    sqlite3.OperationalError("database is locked"),
+    ValueError("not a decodable image"),        # a picture the preview cannot be made of
+    OSError(28, "No space left on device"),     # the preview cannot be written
+])
+def test_a_failing_media_finish_keeps_the_pictures_but_the_summary_still_goes_out(monkeypatch, failure):
     report, disp = _burst_report(monkeypatch)
 
-    async def busy(store, cluster_id, headcount):
-        raise sqlite3.OperationalError("database is locked")
+    async def failing(store, cluster_id, headcount):
+        raise failure
 
-    monkeypatch.setattr(va, "finish_burst_media", busy)
+    monkeypatch.setattr(va, "finish_burst_media", failing)
     asyncio.run(report.finish())
     (final,) = disp.events
     assert final.media_album == [] and final.description == ""

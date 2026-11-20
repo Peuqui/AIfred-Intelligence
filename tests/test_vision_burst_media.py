@@ -9,10 +9,12 @@ from collections.abc import Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import cv2
+import numpy as np
 import pytest
 from _vision_fakes import noise_jpeg
 
-from aifred.lib import alert_bus
+from aifred.lib import alert_bus, vision_store
 import aifred.lib.vision_alerts as va
 import aifred.lib.vision_burst_media as vbm
 import aifred.lib.vision_film as vf
@@ -39,6 +41,11 @@ def pictures() -> Iterator[Path]:
     folder.mkdir(parents=True, exist_ok=True)
     yield folder
     shutil.rmtree(folder, ignore_errors=True)
+
+
+def _picture_files(folder: Path) -> list[Path]:
+    """The single pictures in the folder (not the previews an event keeps)."""
+    return [path for path in folder.glob("*.jpg") if not path.stem.endswith("_thumb")]
 
 
 def _tick(store: VisionStore, folder: Path, index: int, *, cluster: str = _CLUSTER, twin: bool = False) -> list[int]:
@@ -91,10 +98,45 @@ def test_a_normal_end_makes_films_and_drops_every_picture_of_the_set(store, pict
     media = _finish(store)
     assert [Path(f).name for f in media.films] == ["c-burst_120000_wide.mp4", "c-burst_120000_zoom.mp4"]
     assert all(Path(f).stat().st_size > 0 for f in media.films)
-    assert list(pictures.glob("*.jpg")) == []
+    assert _picture_files(pictures) == []
     for event in _all_events(store, ids):  # also the twin the dedup does not list
         assert event["frame_path"] == ""
         assert "zoom_frame_path" not in event["classification"]
+
+
+def _thumb_width(path: str) -> int:
+    image = cv2.imdecode(np.frombuffer(Path(path).read_bytes(), np.uint8), cv2.IMREAD_COLOR)
+    assert image is not None
+    return int(image.shape[1])
+
+
+def test_a2_every_event_keeps_a_preview_of_the_configured_width_after_the_pictures_go(store, pictures, monkeypatch):
+    monkeypatch.setattr(vision_store, "VISION_THUMB_WIDTH", 100)
+    _describer(monkeypatch)
+    ids = _burst(store, pictures)
+    _finish(store)
+    assert list(pictures.glob("*-wide?.jpg")) == [] and list(pictures.glob("*-zoom?.jpg")) == []
+    events = _all_events(store, ids)
+    assert len(events) == len(ids)
+    for event in events:
+        for key in ("thumb_path", "zoom_thumb_path"):
+            assert Path(event["classification"][key]).parent == pictures  # next to the picture: retention takes it
+            assert _thumb_width(event["classification"][key]) == 100
+    assert len(list(pictures.glob("*_thumb.jpg"))) == 8  # 4 ticks x (wide, tele); the twin shares its tick's thumbs
+    twins = _all_events(store, ids[1:3])  # tick 1 is the doubled one
+    assert len(twins) == 2 and len({e["classification"]["thumb_path"] for e in twins}) == 1
+
+
+def test_a3_a_failing_film_makes_no_preview_and_keeps_the_pictures(store, pictures, monkeypatch):
+    _describer(monkeypatch)
+
+    async def broken(cluster_id, events):
+        raise vf.FilmEncodeError("ffmpeg kaputt")
+
+    monkeypatch.setattr(vbm, "make_cluster_films", broken)
+    _burst(store, pictures)
+    _finish(store)
+    assert list(pictures.glob("*_thumb.jpg")) == []
 
 
 def test_b_the_description_lies_at_every_event_of_the_set(store, pictures, monkeypatch):
@@ -119,7 +161,7 @@ def test_d_a_failing_film_keeps_pictures_and_paths(store, pictures, monkeypatch)
     before = {e["id"]: (e["frame_path"], e["classification"]["zoom_frame_path"]) for e in _all_events(store, ids)}
     media = _finish(store)
     assert media.films == [] and media.description != ""
-    assert len(list(pictures.glob("*.jpg"))) == 8
+    assert len(_picture_files(pictures)) == 8
     assert {e["id"]: (e["frame_path"], e["classification"]["zoom_frame_path"]) for e in _all_events(store, ids)} == before
 
 
@@ -130,7 +172,7 @@ def test_e_a_failing_describer_still_makes_films_and_drops(store, pictures, monk
     ids = _burst(store, pictures)
     media = _finish(store)
     assert media.description == "" and len(media.films) == 2
-    assert list(pictures.glob("*.jpg")) == []
+    assert _picture_files(pictures) == []
     assert all(e["frame_path"] == "" and "description" not in e["classification"] for e in _all_events(store, ids))
     (record,) = [r for r in caplog.records if "description" in r.getMessage()]
     # expected case: an info line without traceback; a real error: a warning with traceback
@@ -193,7 +235,7 @@ def test_c_without_observation_the_media_are_finished_but_nothing_is_sent(store,
     report, dispatcher = _report(store, monkeypatch, observed=False)
     asyncio.run(report.finish())
     assert dispatcher.events == []
-    assert list(pictures.glob("*.jpg")) == [] and all(e["frame_path"] == "" for e in _all_events(store, ids))
+    assert _picture_files(pictures) == [] and all(e["frame_path"] == "" for e in _all_events(store, ids))
 
 
 def test_the_summary_carries_films_and_description_but_no_still_image(store, pictures, monkeypatch):
@@ -214,3 +256,17 @@ def test_e_without_a_describer_the_summary_goes_out_without_description(store, p
     asyncio.run(report.finish())
     (summary,) = dispatcher.events
     assert summary.description == "" and summary.describe is False and len(summary.media_album) == 2
+
+
+def test_a4_an_unreadable_picture_keeps_every_picture_and_path(store, pictures, monkeypatch):
+    """No half-dropped burst: the database change rolls back, the pictures stay where they were."""
+    ids = _burst(store, pictures)
+    broken = Path(_all_events(store, ids)[0]["frame_path"])
+    broken.write_bytes(b"not a picture")
+    with pytest.raises(ValueError):
+        store.drop_event_frames(ids)
+    events = _all_events(store, ids)
+    assert all(event["frame_path"] for event in events)
+    assert all("zoom_frame_path" in event["classification"] for event in events)
+    assert all("thumb_path" not in event["classification"] for event in events)
+    assert _picture_files(pictures) != []

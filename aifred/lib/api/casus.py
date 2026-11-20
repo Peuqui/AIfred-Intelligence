@@ -32,6 +32,8 @@ class CasusEvent(BaseModel):
     crop_url: str = Field(description="The face crop (face events), '' without")
     has_frame: bool = Field(description="The wide picture is kept (not after a burst: it lives in the film): /vision/frame?id=")
     has_zoom: bool = Field(description="A tele picture of the same moment: /vision/frame?id=&zoom=1")
+    has_thumb: bool = Field(description="A small preview of the wide picture is kept (after a burst): /vision/frame?id=&thumb=1")
+    has_zoom_thumb: bool = Field(description="A small preview of the tele picture is kept: /vision/frame?id=&zoom=1&thumb=1")
     has_film: bool = Field(description="The occurrence has burst films or a series of pictures to play (its film)")
     face_id: int | None
     face_name: str = Field(description="The person assigned")

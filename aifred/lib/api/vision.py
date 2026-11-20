@@ -17,6 +17,7 @@ from ..user_error import BadRequest, Invalid, Missing, UpstreamFailed
 # plugin tools so popup-UI resolution and tool-call resolution match.
 from ..vision_settings import load_vision_settings, update_vision_settings
 from ..vision_utils import resolve_source_resolution as _resolve_resolution
+from ..vision_utils import scale_jpeg
 from .app import api_app, vision_api
 from .casus import Deleted
 from .schemas import ChoiceOption, SystemActionResponse
@@ -524,37 +525,29 @@ async def vision_face_rematch() -> RematchState:
 
 
 @vision_api.get("/vision/frame", tags=["Vision"])
-async def vision_frame(id: int, w: int = 0, zoom: int = 0) -> Response:
+async def vision_frame(id: int, w: int = 0, zoom: int = 0, thumb: int = 0) -> Response:
     """Gespeichertes Event-Bild als JPEG ausliefern.
 
     ``id`` ist die Event-ID, ``w`` ein optionaler Ziel-Breiten-Parameter:
     >0 skaliert serverseitig herunter (Casus-Thumbnail nutzt w=80, das
     Bild-Modal lädt ohne ``w`` in Vollauflösung). ``zoom=1`` liefert statt
     des Weitwinkels den Tele-Snap des Events (404, wenn keiner existiert).
+    ``thumb=1`` liefert statt des Bildes seine gespeicherte Vorschau (die ein Burst-Ereignis behält, wenn seine
+    Einzelbilder gelöscht sind; 404, wenn keine da ist), mit ``zoom=1`` die des Tele-Snaps; kein Ausweichen
+    zwischen Bild und Vorschau.
     Kein extra Auth-Gate — es gilt die Login-Cookie-Pflicht der API
     (lib/api/app.py), von außen zusätzlich die Anmeldung am Reverse-Proxy
     (gleiches Niveau wie die face-crop-Auslieferung unter /_upload)."""
     from ..vision_store import VisionStore
-    path_str = VisionStore().get_event_frame_path(id, zoom=bool(zoom))
+    path_str = VisionStore().get_event_frame_path(id, zoom=bool(zoom), thumb=bool(thumb))
     if not path_str:
         raise Missing("event_without_picture", event=id)
     frame_file = Path(path_str)
     if not frame_file.is_file():
         raise Missing("event_picture_gone", event=id)
     data = frame_file.read_bytes()
-    if w and w > 0:
-        import cv2
-        import numpy as np
-        arr = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-        if arr is not None and arr.shape[1] > w:
-            scale = w / float(arr.shape[1])
-            arr = cv2.resize(
-                arr, (w, max(1, int(arr.shape[0] * scale))),
-                interpolation=cv2.INTER_AREA,
-            )
-            ok, buf = cv2.imencode(".jpg", arr, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            if ok:
-                data = buf.tobytes()
+    if w > 0:
+        data = scale_jpeg(data, w)
     return Response(
         content=data,
         media_type="image/jpeg",

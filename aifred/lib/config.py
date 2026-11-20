@@ -884,6 +884,11 @@ VISION_EVENT_INTERVAL_CHOICES = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10
 VISION_ALERT_TYPES = ("person", "vehicle", "animal", "face")
 # How many events (or occurrences) one page of the Casus lists.
 VISION_CASUS_PAGE_SIZE = 50
+# Vorschaubilder der Casus-Liste: Breite (px; die Liste zeigt 40 px, also doppelt für hochauflösende Bildschirme)
+# und JPEG-Qualität. Burst-Ereignisse behalten nur diese Vorschau, wenn ihre Einzelbilder gelöscht werden;
+# dieselbe Qualität nutzt der Endpunkt /vision/frame beim Verkleinern.
+VISION_THUMB_WIDTH = 160
+VISION_THUMB_JPEG_QUALITY = 80
 # The vision's badge in the chat: events of the last minutes it counts, and how many of the newest it lists.
 VISION_BADGE_WINDOW_MIN = 10
 VISION_BADGE_EVENTS = 10

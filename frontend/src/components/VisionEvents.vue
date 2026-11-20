@@ -72,6 +72,8 @@ const pageLabel = computed(() => {
 
 const frame = (id: number, zoom: boolean, width = 0): string =>
   apiUrl(`vision/frame?id=${id}${zoom ? "&zoom=1" : ""}${width ? `&w=${width}` : ""}`);
+// What a burst event keeps of its pictures: a small preview (the pictures themselves live in its film).
+const thumb = (id: number, zoom: boolean): string => apiUrl(`vision/frame?id=${id}${zoom ? "&zoom=1" : ""}&thumb=1`);
 // An event after a burst has no pictures any more (they live in its film): then there is nothing to show.
 const pictures = (id: number, hasFrame: boolean, hasZoom: boolean): string[] => [
   ...(hasFrame ? [frame(id, false)] : []),
@@ -276,8 +278,10 @@ const value = (event: Event): string => (event.target as HTMLSelectElement).valu
       <span class="thumbs">
         <img v-if="event.crop_url" :src="event.crop_url" alt="" loading="lazy" @click="open(event, index)" />
         <img v-else-if="event.has_frame" :src="frame(event.id, false, 80)" alt="" loading="lazy" @click="open(event, index)" />
+        <img v-else-if="event.has_thumb" :src="thumb(event.id, false)" alt="" loading="lazy" @click="open(event, index)" />
         <span v-else class="none">∿</span>
         <img v-if="event.has_zoom" :src="frame(event.id, true, 80)" alt="" loading="lazy" @click="open(event, index)" />
+        <img v-else-if="event.has_zoom_thumb" :src="thumb(event.id, true)" alt="" loading="lazy" @click="open(event, index)" />
       </span>
       <span class="badge" :class="event.event_type">{{ t(`casus_badge_${event.event_type}`) }}</span>
       <span v-if="grouped && event.cluster_member_count > 1" class="members">+{{ formatNumber(event.cluster_member_count - 1) }}</span>

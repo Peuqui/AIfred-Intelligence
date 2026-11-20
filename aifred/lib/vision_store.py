@@ -24,9 +24,9 @@ from typing import Any
 
 import numpy as np
 
-from .config import DATA_DIR
+from .config import DATA_DIR, VISION_THUMB_WIDTH
 from .user_error import Conflict
-from .vision_utils import cluster_film_files
+from .vision_utils import cluster_film_files, scale_jpeg
 
 # Default-Speicherort. Tests übergeben einen tmp-Path im Konstruktor.
 DEFAULT_DB_PATH = DATA_DIR / "vision" / "vision.db"
@@ -81,6 +81,8 @@ def _event_filter(
 _OCCURRENCE = "CASE WHEN e.cluster_id = '' THEN 'event:' || e.id ELSE e.cluster_id END"
 # Newest first; the id decides between events of the same moment, so a page and the next one never overlap.
 _NEWEST_FIRST = "e.timestamp DESC, e.id DESC"
+# Die Dateien eines Ereignisses außer ``frame_path``: Schlüssel in der classification, mit dem Ereignis zu löschen.
+_EVENT_FILE_KEYS = ("zoom_frame_path", "thumb_path", "zoom_thumb_path")
 
 
 # ── New events, for the pages that follow them (the Casus) ─────────────────────
@@ -895,6 +897,8 @@ class VisionStore:
                 "matched_name": str(cls.get("matched_name") or ""),
                 "frame_path": str(r["frame_path"] or ""),
                 "has_zoom": bool(cls.get("zoom_frame_path")),
+                "has_thumb": bool(cls.get("thumb_path")),
+                "has_zoom_thumb": bool(cls.get("zoom_thumb_path")),
                 "face_id": int(r["face_id"]) if r["face_id"] is not None else None,
                 "face_name": str(r["face_name"]) if r["face_name"] else "",
                 "area_ratio": float(cls.get("area_ratio") or 0.0),
@@ -985,7 +989,10 @@ class VisionStore:
     def drop_event_frames(self, event_ids: list[int]) -> int:
         """Löscht die Einzelbilder dieser Ereignisse von der Platte und leert ihre Pfade (``frame_path`` leer,
         ``zoom_frame_path`` aus der classification entfernt); die Ereignisse selbst bleiben. Für den Burst-
-        Abschluss: das Bild lebt danach nur noch im Film. Returnt die Anzahl gelöschter Dateien."""
+        Abschluss: das Bild lebt danach nur noch im Film. Vorher entsteht von jedem Bild ein kleines Vorschaubild
+        (``thumb_path`` / ``zoom_thumb_path`` in der classification), das die Casus-Liste weiter zeigt; ein Bild,
+        das mehrere Ereignisse teilen, wird einmal verkleinert. Wirft ``ValueError`` bei einem unlesbaren Bild
+        (dann bleiben Bilder und Pfade, wie sie waren). Returnt die Anzahl gelöschter Dateien."""
         if not event_ids:
             return 0
         placeholders = ",".join("?" * len(event_ids))
@@ -994,14 +1001,37 @@ class VisionStore:
                 f"SELECT id, frame_path, classification FROM events WHERE id IN ({placeholders})",
                 [int(event_id) for event_id in event_ids],
             ).fetchall()
+            thumbs: dict[str, str] = {}
+            updates = []
             for row in rows:
                 classification = json.loads(row["classification"] or "{}")
-                classification.pop("zoom_frame_path", None)
-                conn.execute(
-                    "UPDATE events SET frame_path = '', classification = ? WHERE id = ?",
-                    (json.dumps(classification), int(row["id"])),
-                )
+                thumb = self._write_thumb(row["frame_path"], thumbs)
+                zoom_thumb = self._write_thumb(classification.pop("zoom_frame_path", ""), thumbs)
+                if thumb:
+                    classification["thumb_path"] = thumb
+                if zoom_thumb:
+                    classification["zoom_thumb_path"] = zoom_thumb
+                updates.append((json.dumps(classification), int(row["id"])))
+            conn.executemany("UPDATE events SET frame_path = '', classification = ? WHERE id = ?", updates)
         return self._unlink_frame_files(rows)
+
+    @staticmethod
+    def _write_thumb(picture_path: str, written: dict[str, str]) -> str:
+        """Das Vorschaubild neben das Bild legen (``<Name>_thumb.jpg`` im selben Ordner, den die Aufbewahrung
+        mit dem Tagesordner löscht) und seinen Pfad liefern; ``written`` merkt sich die schon erzeugten, damit
+        ein geteiltes Bild nur einmal verkleinert wird. Leer für einen leeren Pfad oder eine Datei, die nicht
+        mehr da ist (nichts zu verkleinern)."""
+        if not picture_path:
+            return ""
+        if picture_path in written:
+            return written[picture_path]
+        source = Path(picture_path)
+        if not source.is_file():
+            return ""
+        thumb = source.with_name(f"{source.stem}_thumb.jpg")
+        thumb.write_bytes(scale_jpeg(source.read_bytes(), VISION_THUMB_WIDTH))
+        written[picture_path] = str(thumb)
+        return str(thumb)
 
     def latest_event_id(self) -> int:
         """Höchste Event-ID (0 wenn leer) — billiger Änderungs-Marker für
@@ -1165,8 +1195,8 @@ class VisionStore:
     @staticmethod
     def _unlink_frame_files(rows: list[sqlite3.Row]) -> int:
         """Löscht die zu Events gehörenden Bilddateien von der Platte:
-        ``frame_path`` (Vollbild) plus ``zoom_frame_path`` aus der
-        ``classification``. Nur Dateien UNTERHALB von ``DATA_DIR`` werden
+        ``frame_path`` (Vollbild) plus ``zoom_frame_path``, ``thumb_path`` und
+        ``zoom_thumb_path`` aus der ``classification``. Nur Dateien UNTERHALB von ``DATA_DIR`` werden
         angefasst (Schutz gegen Pfad-Ausbruch); fehlende Dateien werden
         still übersprungen. Returnt die Anzahl gelöschter Dateien.
 
@@ -1183,9 +1213,10 @@ class VisionStore:
             cls = (r["classification"] if "classification" in keys else "") or ""
             if cls:
                 try:
-                    zfp = json.loads(cls).get("zoom_frame_path")
-                    if zfp:
-                        paths.add(str(zfp))
+                    parsed = json.loads(cls)
+                    for key in _EVENT_FILE_KEYS:
+                        if parsed.get(key):
+                            paths.add(str(parsed[key]))
                 except (json.JSONDecodeError, AttributeError, TypeError):
                     pass
         deleted = 0
@@ -1370,9 +1401,11 @@ class VisionStore:
             )
             return cur.rowcount > 0
 
-    def get_event_frame_path(self, event_id: int, *, zoom: bool = False) -> str:
+    def get_event_frame_path(self, event_id: int, *, zoom: bool = False, thumb: bool = False) -> str:
         """Frame-Pfad eines Events per ID — das Weitwinkel-Vollbild oder mit
-        ``zoom=True`` der Tele-Snap (``classification.zoom_frame_path``).
+        ``zoom=True`` der Tele-Snap (``classification.zoom_frame_path``); mit
+        ``thumb=True`` stattdessen deren Vorschaubild (``thumb_path`` /
+        ``zoom_thumb_path``).
 
         Leerer String, wenn das Event nicht existiert oder der jeweilige
         Pfad fehlt. Für den Frame-Serving-Endpoint (Casus-Thumbnail
@@ -1384,11 +1417,12 @@ class VisionStore:
             ).fetchone()
         if row is None:
             return ""
-        if zoom:
+        if zoom or thumb:
             try:
                 cls = json.loads(row["classification"] or "{}")
             except (TypeError, ValueError):
                 return ""
-            return str(cls.get("zoom_frame_path") or "")
+            key = ("zoom_thumb_path" if zoom else "thumb_path") if thumb else "zoom_frame_path"
+            return str(cls.get(key) or "")
         return str(row["frame_path"]) if row["frame_path"] else ""
 

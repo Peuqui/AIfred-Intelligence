@@ -23,7 +23,7 @@ const { default: VisionEvents } = await import("./VisionEvents.vue");
 const FILM = "/_upload/vigilantia/films/cam/2026-11-04/c1_140300_wide.mp4";
 const burstEvent = {
   id: 7, source_id: "cam", source_name: "Garten", event_type: "person", timestamp: "2026-11-04T14:03:00",
-  date_display: "04.11.", time_display: "14:03", crop_url: "", has_frame: false, has_zoom: false, has_film: true,
+  date_display: "04.11.", time_display: "14:03", crop_url: "", has_frame: false, has_zoom: false, has_thumb: false, has_zoom_thumb: false, has_film: true,
   face_id: null, face_name: "", matched_name: "", description: "Ein Mann.", cluster_id: "c1", cluster_member_count: 0,
 };
 const pictureEvent = { ...burstEvent, id: 8, has_frame: true, has_film: false, cluster_id: "" };
@@ -53,6 +53,21 @@ test("a row without a single picture renders no vision/frame image and no analys
   expect(burstRow?.find("button[title*='casus_analyze']").exists()).toBe(false);
   expect(pictureRow?.find("img").attributes("src")).toBe("/api/vision/frame?id=8&w=80");
   expect(pictureRow?.find("button[title*='casus_analyze']").exists()).toBe(true);
+});
+
+test("a burst event without pictures shows the preview it kept, wide and tele, as the thumb address", async () => {
+  const kept = { ...burstEvent, has_thumb: true, has_zoom_thumb: true };
+  api.mockImplementation(async (path: string) => {
+    if (path.startsWith("vision/casus/events?")) return { events: [kept], total: 1, offset: 0, page_size: 50 };
+    if (path === "vision/casus/choices") return { sources: [], types: [], faces: [], taggable_types: [] };
+    if (path === "vision/casus/runs") return { analysis: { running: 0, last: 0, error: "" }, describe_all: { running: false, cancelling: false } };
+    return {};
+  });
+  const wrapper = mount(VisionEvents);
+  await flushPromises();
+  const sources = wrapper.findAll(".event img").map((image) => image.attributes("src"));
+  expect(sources).toEqual(["/api/vision/frame?id=7&thumb=1", "/api/vision/frame?id=7&zoom=1&thumb=1"]);
+  expect(wrapper.find(".event .none").exists()).toBe(false);
 });
 
 test("the film button shows only where there is something to play", async () => {
