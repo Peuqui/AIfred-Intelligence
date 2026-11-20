@@ -21,7 +21,7 @@ class ReasoningInfo:
     """What a model's chat template lets a request choose about thinking —
     the SSOT behind the thinking menu and every request's thinking fields."""
 
-    levels: list[str]      # steerable effort levels (template order)
+    levels: list[str]      # steerable effort levels, low→high (resolve_reasoning_levels sorts them)
     default: str | None    # level the template picks when none is sent
     thinks: bool           # the template has a thinking phase at all
     switchable: bool       # the thinking phase can be turned off

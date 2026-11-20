@@ -253,6 +253,24 @@ class TestLlamacppDispatch:
         assert sent[0]["payload"]["chat_template_kwargs"] == {"enable_thinking": True, "reasoning_effort": "high"}
         assert sent[1]["payload"]["chat_template_kwargs"] == {"enable_thinking": False}
 
+    def test_vision_off_on_a_model_that_always_thinks_sends_its_lowest_level(self, monkeypatch):
+        # 20.11.2026: the vision row had no choice for GLM, its default is off; GLM cannot switch thinking off and
+        # its template's default is "max". Off must reach the model as its lowest level, not as no field (= max).
+        import httpx
+
+        import aifred.lib.vision_routing as vr
+        import aifred.lib.vision_utils as vu
+        from aifred.lib import gguf_utils
+        from aifred.lib.gguf_utils import ReasoningInfo
+        monkeypatch.setattr(vu, "has_native_vision", lambda m: True)
+        monkeypatch.setattr(vr, "release_side_channels_for_describer", lambda profile: None)
+        glm = ReasoningInfo(["low", "high", "max"], "max", thinks=True, switchable=False)
+        monkeypatch.setattr(gguf_utils, "resolve_reasoning_info", lambda model_id, force=False: glm)
+        sent: list[dict] = []
+        monkeypatch.setattr(httpx, "AsyncClient", streaming_client(sent, ["Eine Person."]))
+        run(analyze_sequence([_make_frame(0)], "Was steht da?", while_held="wait", model="GLM-X-vllm"))
+        assert sent[0]["payload"]["chat_template_kwargs"] == {"enable_thinking": True, "reasoning_effort": "low"}
+
     def test_a_sentence_loop_stops_the_stream_and_keeps_the_text_before_it(self, monkeypatch):
         import httpx
 

@@ -182,8 +182,10 @@ def _default_thinking_mode(agent: str) -> str:
 def effective_thinking_mode(mode: str, model_id: str) -> str:
     """The choice ``mode`` as the model can carry it out, judged by its chat
     template (gguf_utils.resolve_reasoning_info): a model that cannot think
-    stays off, "off" on a model that always thinks is its template default,
-    a level its template does not know (any more) is the template default.
+    stays off, "off" on a model that always thinks is its lowest level (as
+    near to off as it gets; its template default may be the most expensive
+    one, GLM-5.3: max), a level its template does not know (any more) is the
+    template default.
     The stored choice itself stays untouched. An unknown model (no llama-swap
     entry: Ollama, cloud, another machine) runs as chosen."""
     from .gguf_utils import resolve_reasoning_info
@@ -193,7 +195,9 @@ def effective_thinking_mode(mode: str, model_id: str) -> str:
     if not info.thinks:
         return THINKING_OFF
     if mode == THINKING_OFF:
-        return THINKING_OFF if info.switchable else THINKING_ON
+        if info.switchable:
+            return THINKING_OFF
+        return info.levels[0] if info.levels else THINKING_ON  # levels run low→high (gguf_utils)
     if mode == THINKING_ON or mode in info.levels:
         return mode
     return THINKING_ON

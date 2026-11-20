@@ -175,12 +175,12 @@ class TestMenuShowsOnlyWhatTheModelCan:
             return _menu_labels(state, "vision")
 
     def test_always_thinking_model_offers_no_off(self, agents_default_on_except_vision):
-        # Vision default "off" cannot be carried out by GLM: the menu shows its template default.
-        # Peuqui 05.11.2026: no "An" on a model that always thinks — its levels
-        # in template order, the default at its own place.
+        # Vision default "off" cannot be carried out fully by GLM: it runs at GLM's lowest level, not at the
+        # template default "max" (Peuqui 20.11.2026). Peuqui 05.11.2026: no "An" on a model that always
+        # thinks — its levels low→high, the default at its own place.
         options, current = self._menu(GLM_INFO)
         assert options == ["low", "high", "max (Standard)"]
-        assert current == "max (Standard)"
+        assert current == "low"
 
     def test_always_thinking_model_without_default_offers_on_and_levels(self, agents_default_on_except_vision):
         options, _ = self._menu(ReasoningInfo(["low", "high"], None, thinks=True, switchable=False))
@@ -212,7 +212,7 @@ class TestMenuShowsOnlyWhatTheModelCan:
         state = _view()
         with patch("aifred.lib.gguf_utils.resolve_reasoning_info", return_value=GLM_INFO):
             options = build_llm_options(state, "vision", GLM, 0.7, 8192)
-        assert (options.enable_thinking, options.reasoning_effort) == (True, None)
+        assert (options.enable_thinking, options.reasoning_effort) == (True, "low")
 
 
 def test_tuning_holds_no_second_thinking_field():

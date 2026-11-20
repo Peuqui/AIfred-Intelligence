@@ -51,9 +51,10 @@ class TestTemplateDecides:
         with _with_info(QWEN38):
             assert effective_thinking_mode("max", "Qwen3.8-vllm") == THINKING_ON
 
-    def test_off_on_a_model_that_always_thinks_is_the_template_default(self):
+    def test_off_on_a_model_that_always_thinks_is_its_lowest_level(self):
+        # Not the template default: for GLM-5.3 that is "max", the most expensive one.
         with _with_info(GLM):
-            assert effective_thinking_mode(THINKING_OFF, "GLM-vllm") == THINKING_ON
+            assert effective_thinking_mode(THINKING_OFF, "GLM-vllm") == "low"
             assert effective_thinking_mode("high", "GLM-vllm") == "high"
 
     @pytest.mark.parametrize("mode", [THINKING_ON, "high"])
@@ -69,7 +70,7 @@ def test_the_stored_choice_is_never_rewritten():
     state = _State()
     set_thinking_mode(state, "aifred", "GLM-vllm", THINKING_OFF)
     with _with_info(GLM):
-        assert thinking_mode(state, "aifred", "GLM-vllm") == THINKING_ON
+        assert thinking_mode(state, "aifred", "GLM-vllm") == "low"
     assert state.agent_tuning["aifred"].thinking_by_model == {thinking_model_key("GLM-vllm"): THINKING_OFF}
     with _with_info(None):
         assert thinking_mode(state, "aifred", "GLM-vllm") == THINKING_OFF
