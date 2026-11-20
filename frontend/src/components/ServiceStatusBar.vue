@@ -6,7 +6,7 @@
 import { Power, RefreshCw, TriangleAlert } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { language, t } from "../i18n";
-import { type Action, type Color, type Row, SERVICES, type Service, formatRemaining, hostRows, serviceRows, summaryColor } from "../lib/serviceStatus";
+import { type Action, type Color, type Row, SERVICES, type Service, formatRemaining, hostRows, localHoldRow, serviceRows, summaryColor } from "../lib/serviceStatus";
 import { useServiceStatus } from "../stores/serviceStatus";
 import HelpButton from "./help/HelpButton.vue";
 import hatIcon from "../../../assets/AIfred-Zylinder.png";
@@ -40,6 +40,18 @@ const labels = computed(() => ({
 }));
 const rows = computed(() => (status.snapshot ? serviceRows(status.snapshot, labels.value) : null));
 const machines = computed(() => hostRows(status.hosts, labels.value));
+const localLabels = computed(() => ({
+  lang: language.value,
+  free: t("service_status_local_free"),
+  requested: t("service_status_local_requested"),
+  granted: t("service_status_local_granted"),
+  active: t("service_status_local_active"),
+  off: t("service_status_local_off"),
+  unreachable: t("service_status_local_unreachable"),
+  notRequested: t("service_status_local_not_requested"),
+  notActive: t("service_status_local_not_active"),
+}));
+const localHold = computed(() => (status.localHold ? localHoldRow(status.localHold, localLabels.value) : null));
 const now = ref(performance.now());
 const elapsed = computed(() => (now.value - status.receivedAt) / 1000);
 
@@ -52,8 +64,15 @@ function timeText(row: Row): string {
   return `${t("service_status_unloads_in")} ${row.upperBound ? "≤ " : ""}${formatRemaining(row.remaining - elapsed.value, t("service_status_days_short"))}`;
 }
 
+// Ending a hold takes work away from somebody: ask first, with who holds the cards and why.
+function endHold(action: Action): void {
+  const question = t("service_status_local_end_confirm", { owner: status.localHold?.owner ?? "", reason: status.localHold?.reason ?? "" });
+  if (window.confirm(question)) void status.act(action);
+}
+
 const ACTION_TITLES: Record<Action["verb"], string> = {
   load: "service_status_load", unload: "service_status_unload", hold: "service_status_host_hold", release: "service_status_host_release",
+  grant: "service_status_local_grant", end: "service_status_local_end",
 };
 
 let timer = 0;
@@ -89,6 +108,10 @@ onBeforeUnmount(() => {
       <span v-for="service in SERVICES" :key="service" class="badge" :class="badgeColor(service)" :title="t(NAMES[service])">
         <img :src="ICONS[service]" alt="" /><span class="dot" />
       </span>
+      <!-- This machine's hold also in the closed bar: a request or a hold turns it yellow, seen without opening. -->
+      <span v-if="localHold" class="badge" :class="localHold.color" :title="localHold.text">
+        <img :src="ICONS.host" alt="" /><span class="dot" />
+      </span>
       <button class="refresh" :title="t('service_status_refresh')" @click.prevent="status.fetch(true)"><RefreshCw :size="14" /></button>
     </summary>
     <div v-if="rows" class="list">
@@ -105,6 +128,23 @@ onBeforeUnmount(() => {
           </span>
         </div>
       </template>
+      <div v-if="localHold" class="line local-hold">
+        <span class="badge" :class="localHold.color"><img :src="ICONS.host" alt="" /><span class="dot" /></span>
+        <span class="label">{{ localHold.label }}:</span>
+        <span class="value wrap">{{ localHold.text }}</span>
+        <span class="time" />
+        <span class="act" />
+        <span class="detail buttons">
+          <button class="hold-button" :disabled="status.acting || !!localHold.grant.blocked" @click="status.act(localHold.grant)">
+            {{ t("service_status_local_grant") }}
+          </button>
+          <span v-if="localHold.grant.blocked" class="hint">{{ localHold.grant.blocked }}</span>
+          <button class="hold-button" :disabled="status.acting || !!localHold.end.blocked" @click="endHold(localHold.end)">
+            {{ t("service_status_local_end") }}
+          </button>
+          <span v-if="localHold.end.blocked" class="hint">{{ localHold.end.blocked }}</span>
+        </span>
+      </div>
       <div v-for="host in machines" :key="host.label" class="line">
         <span class="badge" :class="host.color"><img :src="ICONS.host" alt="" /><span class="dot" /></span>
         <span class="label">{{ host.label }}:</span>
@@ -159,5 +199,8 @@ summary::-webkit-details-marker { display: none; }
 .time { color: var(--aifred-text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .power:disabled { opacity: 0.5; cursor: progress; }
 .power.blocked:disabled { cursor: not-allowed; } /* another owner's hold: nothing this button may do */
+.buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 0; white-space: normal; }
+.hint { color: var(--aifred-text-muted); align-self: center; }
+.hold-button:disabled { opacity: 0.5; cursor: not-allowed; }
 .notice { margin: 2px 0 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 </style>

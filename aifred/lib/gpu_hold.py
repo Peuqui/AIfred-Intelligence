@@ -12,7 +12,9 @@ is no other way to know). GPU-Orc off (``GPU_ORC_URL`` empty) asks nothing.
 from __future__ import annotations
 
 import asyncio
+import socket
 import time
+from dataclasses import dataclass
 from typing import Literal
 
 from .config import GPU_ORC_HOLD_POLL_S
@@ -139,3 +141,45 @@ def wait_until_free_blocking(client: GpuOrcClient | None, what: str) -> None:
     finally:
         if waiting:
             report_phase("")
+
+
+@dataclass(frozen=True)
+class LocalHoldStatus:
+    """The hold of THIS machine's cards as the status line shows it. ``state``: ``off`` (GPU-Orc is off),
+    ``unreachable`` (it does not answer, ``error`` says why), ``free``, ``requested`` (somebody asks, AIfred's main model
+    stays loaded until a person grants it), ``granted`` (a person granted it, GPU-Orc clears once no work runs),
+    ``active`` (the cards are held)."""
+
+    state: Literal["off", "unreachable", "free", "requested", "granted", "active"]
+    machine: str
+    owner: str | None
+    reason: str | None
+    since: str | None
+    model: str | None
+    granted_by: str | None
+    error: str
+
+
+def machine_name() -> str:
+    """The name of this machine, as the system has it."""
+    return socket.gethostname()
+
+
+def local_hold_status() -> LocalHoldStatus:
+    """One look at this machine's hold (``GET /loading``). Blocking: call in a thread."""
+    machine = machine_name()
+    client = get_gpu_orc_client()
+    if client is None:
+        return LocalHoldStatus("off", machine, None, None, None, None, None, "")
+    try:
+        light = client.traffic_light()
+    except GpuOrcError as error:
+        return LocalHoldStatus("unreachable", machine, None, None, None, None, None, str(error))
+    hold = light.held or light.hold_requested
+    if hold is None:
+        return LocalHoldStatus("free", machine, None, None, None, None, None, "")
+    if light.held is not None:
+        state: Literal["requested", "granted", "active"] = "active"
+    else:
+        state = "granted" if hold.granted_by is not None else "requested"
+    return LocalHoldStatus(state, machine, hold.owner, hold.reason, hold.since, hold.model, hold.granted_by, "")

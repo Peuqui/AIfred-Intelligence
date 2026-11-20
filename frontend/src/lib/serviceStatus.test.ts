@@ -1,7 +1,7 @@
 // The status line's rules (lib/serviceStatus.ts), as the Reflex page had them in assets/custom.js.
 import { describe, expect, it } from "vitest";
-import type { ServiceSnapshot } from "../api/types";
-import { formatRemaining, hostRows, serviceRows, summaryColor } from "./serviceStatus";
+import type { LocalHoldStatus, ServiceSnapshot } from "../api/types";
+import { formatRemaining, hostRows, localHoldRow, serviceRows, summaryColor } from "./serviceStatus";
 
 const LABELS = {
   lang: "de", noModel: "kein Modell", noneLoaded: "nichts", loading: "lädt", busy: "arbeitet",
@@ -77,5 +77,54 @@ describe("summaryColor and formatRemaining", () => {
     expect(formatRemaining(3 * 3600 + 15 * 60 + 20, "T")).toBe("3:15:20");
     expect(formatRemaining(2 * 86400 + 3 * 3600 + 15 * 60 + 20, "T")).toBe("2 T 03:15:20");
     expect(formatRemaining(-5, "T")).toBe("0:00");
+  });
+});
+
+describe("localHoldRow", () => {
+  const LOCAL = {
+    lang: "de", free: "keine Anfrage", requested: "{owner} möchte die Karten: {reason} (seit {time})",
+    granted: "überlassen an {owner}, wartet auf das Ende laufender Arbeit", active: "gehalten von {owner}: {reason} (seit {time})",
+    off: "GPU-Orc ist aus", unreachable: "GPU-Orc antwortet nicht: {error}", notRequested: "keine Anfrage", notActive: "kein Hold",
+  };
+  const SINCE = "2026-11-20T09:30:00+01:00";
+  const status = (state: LocalHoldStatus["state"], extra: Partial<LocalHoldStatus> = {}): LocalHoldStatus => ({
+    state, machine: "Mini", owner: "vllm-research", reason: "v13", since: SINCE, model: null, granted_by: null, error: "", ...extra,
+  });
+  const enabled = (row: ReturnType<typeof localHoldRow>) => [!row.grant.blocked, !row.end.blocked];
+
+  it("free: green, nothing to grant or end", () => {
+    const row = localHoldRow(status("free", { owner: null, reason: null, since: null }), LOCAL);
+    expect(row).toMatchObject({ label: "Mini", color: "green", text: "keine Anfrage" });
+    expect(enabled(row)).toEqual([false, false]);
+  });
+
+  it("requested: yellow, names owner, reason and the clock time, only the grant is enabled", () => {
+    const row = localHoldRow(status("requested"), LOCAL);
+    const time = new Date(SINCE).toLocaleTimeString("de", { hour: "2-digit", minute: "2-digit" });
+    expect(row).toMatchObject({ color: "yellow", text: `vllm-research möchte die Karten: v13 (seit ${time})` });
+    expect(row.text).toMatch(/seit \d{2}:\d{2}\)$/);
+    expect(enabled(row)).toEqual([true, false]);
+    expect(row.grant).toMatchObject({ verb: "grant", item: "vllm-research" });
+  });
+
+  it("granted: yellow, waits for running work, both buttons greyed out", () => {
+    const row = localHoldRow(status("granted", { granted_by: "ki" }), LOCAL);
+    expect(row).toMatchObject({ color: "yellow", text: "überlassen an vllm-research, wartet auf das Ende laufender Arbeit" });
+    expect(enabled(row)).toEqual([false, false]);
+  });
+
+  it("active: yellow, only ending is enabled", () => {
+    const row = localHoldRow(status("active"), LOCAL);
+    expect(row.text).toMatch(/^gehalten von vllm-research: v13 \(seit \d{2}:\d{2}\)$/);
+    expect(enabled(row)).toEqual([false, true]);
+    expect(row.end).toMatchObject({ verb: "end", item: "vllm-research" });
+  });
+
+  it("off is grey and unreachable red with the error, both buttons greyed out", () => {
+    const off = localHoldRow(status("off", { owner: null }), LOCAL);
+    expect(off).toMatchObject({ color: "grey", text: "GPU-Orc ist aus" });
+    const down = localHoldRow(status("unreachable", { owner: null, error: "refused" }), LOCAL);
+    expect(down).toMatchObject({ color: "red", text: "GPU-Orc antwortet nicht: refused" });
+    expect([...enabled(off), ...enabled(down)]).toEqual([false, false, false, false]);
   });
 });

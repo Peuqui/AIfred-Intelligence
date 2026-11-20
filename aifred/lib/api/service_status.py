@@ -11,14 +11,17 @@ describer does not fit) comes back as 409 with the message for the page.
 """
 
 import asyncio
+from collections.abc import Callable
 from typing import Literal
 
-from fastapi import Query
+from fastapi import Query, Request
 from pydantic import BaseModel
 
 from ...backends.base import BackendError
 from .. import session_events
 from ..browser_push import browser_push
+from ..gpu_hold import LocalHoldStatus, local_hold_status, machine_name
+from ..gpu_orc_client import GpuOrcClient, GpuOrcError, get_gpu_orc_client
 from ..logging_utils import log_message
 from ..remote_describers import HostStatus
 from ..service_control import (
@@ -33,6 +36,7 @@ from ..service_control import (
 from ..service_status import ServiceSnapshot, get_monitor
 from ..user_error import Conflict
 from .app import api_app
+from .sessions import current_user
 
 SERVICE_STATUS_KIND = "service_status"
 
@@ -75,6 +79,48 @@ async def service_status_hosts() -> list[HostStatus]:
     """The machines with describers: does their GPU-Orc answer, are their cards held, what is on them."""
     from ..remote_describers import host_status
     return await asyncio.to_thread(host_status)
+
+
+class LocalHoldRequest(BaseModel):
+    owner: str  # the owner of the hold as the page shows it: a hold of somebody else is never hit by mistake
+
+
+@api_app.get("/service-status/local-hold", response_model=LocalHoldStatus, tags=["System"])
+async def service_status_local_hold() -> LocalHoldStatus:
+    """The hold of this machine's own cards: who asks or holds them, and whether a person granted it."""
+    return await asyncio.to_thread(local_hold_status)
+
+
+async def _change_local_hold(request: LocalHoldRequest, change: str, call: Callable[[GpuOrcClient], object]) -> LocalHoldStatus:
+    """``call`` against this machine's GPU-Orc; GPU-Orc off or a refusal (another owner's hold: 409) is a Conflict."""
+    client = get_gpu_orc_client()
+    if client is None:
+        raise Conflict("gpu_orc_off")
+    try:
+        await asyncio.to_thread(call, client)
+    except GpuOrcError as error:
+        refused = Conflict("hold_failed", host=machine_name(), error=str(error))
+        log_message(f"⚠️ Status line: {change} of the hold of {request.owner} failed: {refused}", "warning")
+        raise refused from error
+    return await asyncio.to_thread(local_hold_status)
+
+
+@api_app.post("/service-status/grant", response_model=LocalHoldStatus, tags=["System"])
+async def service_status_grant(request: LocalHoldRequest, http: Request) -> LocalHoldStatus:
+    """The logged-in person lets the requested hold of ``owner`` clear the cards although a main model is loaded."""
+    user = current_user(http)
+    status = await _change_local_hold(request, "granting", lambda client: client.grant_hold(request.owner, user))
+    log_message(f"🔓 Status line: {user} granted the cards to {request.owner}")
+    return status
+
+
+@api_app.post("/service-status/end-hold", response_model=LocalHoldStatus, tags=["System"])
+async def service_status_end_hold(request: LocalHoldRequest, http: Request) -> LocalHoldStatus:
+    """The logged-in person ends the hold of ``owner`` by force (the owner does not have to let go)."""
+    user = current_user(http)
+    status = await _change_local_hold(request, "ending", lambda client: client.release_hold(request.owner, force=True))
+    log_message(f"⛔ Status line: {user} ended the hold of {request.owner} on the cards by force", "warning")
+    return status
 
 
 @api_app.post("/service-status/hold", tags=["System"])

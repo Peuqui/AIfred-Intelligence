@@ -3,14 +3,14 @@
 // grey nothing loaded, red not reachable), its text, the seconds left (null = stays loaded) and what its button
 // does (null = no button). STT and TTS load with their first request, the STT CPU model never unloads, a TTS engine
 // on another machine is not this machine's to release. Ported from assets/custom.js (serviceStatus*, 7cbf8178).
-import type { HostStatus, ServiceSnapshot } from "../api/types";
+import type { HostStatus, LocalHoldStatus, ServiceSnapshot } from "../api/types";
 
 export type Service = "llm" | "describer" | "stt" | "tts";
 export type Color = "green" | "yellow" | "grey" | "red";
 export const SERVICES: readonly Service[] = ["llm", "describer", "stt", "tts"];
 
 export interface Action {
-  verb: "load" | "unload" | "hold" | "release";
+  verb: "load" | "unload" | "hold" | "release" | "grant" | "end";
   service: Service | "host";
   item: string;
   blocked?: string; // why the button cannot act (greyed out with this as its title), e.g. another owner's hold
@@ -124,6 +124,59 @@ export function hostRows(hosts: HostStatus[], labels: Labels): (Row & { label: s
       },
     };
   });
+}
+
+export interface LocalHoldLabels {
+  lang: string;
+  free: string;
+  requested: string; // "{owner} wants the cards: {reason} (since {time})"
+  granted: string; // "granted to {owner}, waiting for running work to end"
+  active: string; // "held by {owner}: {reason} (since {time})"
+  off: string;
+  unreachable: string; // "GPU-Orc does not answer: {error}"
+  notRequested: string; // why "grant" is greyed out
+  notActive: string; // why "end" is greyed out
+}
+
+export interface LocalHoldRow {
+  label: string; // this machine's name
+  color: Color;
+  text: string; // always visible: the state in words, also the reason a button is greyed out
+  grant: Action; // enabled only while a hold is requested and nobody granted it
+  end: Action; // enabled only while the hold is active
+}
+
+// Hour and minute of an ISO time in the page's language.
+export function clockTime(iso: string, lang: string): string {
+  return new Date(iso).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" });
+}
+
+// The row for the hold of THIS machine's cards (AIfred's own, its local GPU-Orc). Both buttons are always there; the
+// one that may not act is greyed out (``blocked``) and the text of the row names why, visibly (a phone has no hover).
+export function localHoldRow(status: LocalHoldStatus, labels: LocalHoldLabels): LocalHoldRow {
+  const owner = status.owner ?? "";
+  const fill = (text: string) =>
+    text
+      .replace("{owner}", owner)
+      .replace("{reason}", status.reason ?? "")
+      .replace("{time}", status.since ? clockTime(status.since, labels.lang) : "")
+      .replace("{error}", status.error);
+  const states: Record<LocalHoldStatus["state"], [Color, string]> = {
+    off: ["grey", labels.off],
+    unreachable: ["red", fill(labels.unreachable)],
+    free: ["green", labels.free],
+    requested: ["yellow", fill(labels.requested)],
+    granted: ["yellow", fill(labels.granted)],
+    active: ["yellow", fill(labels.active)],
+  };
+  const [color, text] = states[status.state];
+  return {
+    label: status.machine,
+    color,
+    text,
+    grant: { verb: "grant", service: "host", item: owner, ...(status.state === "requested" ? {} : { blocked: labels.notRequested }) },
+    end: { verb: "end", service: "host", item: owner, ...(status.state === "active" ? {} : { blocked: labels.notActive }) },
+  };
 }
 
 // The color of a service in the closed bar: the worst of its rows.

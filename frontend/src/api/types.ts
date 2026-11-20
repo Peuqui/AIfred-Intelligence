@@ -16,6 +16,7 @@ export type ChatExported = Schemas["ChatExported"];
 export type SamplingRange = Schemas["SamplingRange"];
 export type ServiceSnapshot = Schemas["ServiceSnapshot"];
 export type HostStatus = Schemas["HostStatus"];
+export type LocalHoldStatus = Schemas["LocalHoldStatus"];
 export type SessionRemembered = Schemas["SessionRemembered"];
 export type DictationAccepted = Schemas["DictationAccepted"];
 export type DictatedTextResult = Schemas["DictatedTextResult"];
