@@ -881,8 +881,8 @@ Das **Casus**-Modal ist das zentrale Tool zur Ereignisüberprüfung:
 - **VLM-Analyse für einzelne Ereignisse**: Klicke auf ein beliebiges Ereignis → „Mit VLM analysieren“
   — führt das konfigurierte VLM auf dem gespeicherten Bild aus
 - **VLM-Massenanalyse**: Wähle N Ereignisse aus → Ein Hintergrundprozess führt die
-  VLM für jedes einzelne durch, mit Fortschrittsanzeige und Abbruchoption. Eine VRAM-Vorabprüfung bricht den Vorgang sauber ab,
-  wenn nicht genügend VRAM-Reserve für den konfigurierten VLM-Stapel vorhanden ist
+  VLM für jedes einzelne durch, mit Fortschrittsanzeige und Abbruchoption. Wer beschreibt, entscheidet die Beschreiber-Liste;
+  kann keiner beschreiben, hält der Vorgang an und sagt es
 - **Cluster-Modus umschalten**: Fasst nahezu identische Ereignisse (pHash-basiert)
   zu einer Karte pro Cluster zusammen – nützlich, wenn ein im Wind schwankender Ast
   sonst innerhalb von 10 Minuten 200 Bewegungsereignisse erzeugen würde

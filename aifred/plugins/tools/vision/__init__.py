@@ -806,7 +806,6 @@ class VisionPlugin:
                     source_id=source_id,
                     event_types=describe_types,
                     since=describe_since,
-                    check_vram=False,
                     # Denselben Store wie die Abfrage selbst nutzen. Ohne
                     # das legt run_bulk_describe intern eine eigene
                     # VisionStore()-Instanz an (store or VisionStore()) —

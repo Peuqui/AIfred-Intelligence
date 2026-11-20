@@ -503,7 +503,7 @@ Mitglieder).
 Drei Wege lösen denselben Lauf aus:
 
 1. **Casus-Button** — manueller Bulk-Lauf über die UI, mit Fortschrittsbalken,
-   Abbrechen und VRAM-Vorabcheck.
+   Abbrechen; kann kein Bildbeschreiber der Liste beschreiben, hält der Lauf an und sagt es.
 2. **Aufräumlauf** — die tägliche Garbage-Collection um `GARBAGE_COLLECTION_HOUR`
    (Standard `03:00`) beschreibt **erst** alle noch unerfassten Events, **dann**
    prunt sie. So hat jeder Frame eine Beschreibung, bevor er nach Ablauf der TTL

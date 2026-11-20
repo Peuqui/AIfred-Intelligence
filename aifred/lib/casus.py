@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass, replace
 from typing import Any
 
-from .user_error import Conflict, Invalid, Missing, UserError
+from .user_error import Conflict, Invalid, Missing
 from .vision_film import FilmClip, cluster_films
 from .vision_store import VisionStore
 
@@ -172,13 +172,13 @@ class Analysis:
 @dataclass(frozen=True)
 class DescribeAll:
     running: bool = False
-    phase: str = ""        # checking (does the model fit), grouping, describing; "" before the first run
+    phase: str = ""        # searching (the events without a description), grouping, describing; "" before the first run
     events: int = 0        # the events without a description it found
     clusters: int = 0      # the occurrences they fall into (described once each)
     processed: int = 0
     failed: int = 0
-    outcome: str = ""      # after a run: done, cancelled, nothing, busy (another caller's run), no_room, error
-    detail: str | UserError = ""  # no_room: what the model needs; error: the error
+    outcome: str = ""      # after a run: done, cancelled, nothing, busy (another caller's run), no_describer, error
+    detail: str = ""       # no_describer: why nobody could describe; error: the error
     cancelling: bool = False
 
     def message(self, lang: str) -> str:
@@ -194,8 +194,7 @@ class DescribeAll:
             key = f"casus_bulk_{self.outcome}"
         else:
             return ""
-        detail = self.detail.message(lang) if isinstance(self.detail, UserError) else self.detail
-        return t(key, lang=lang, detail=detail, events=format_number(self.events, 0),
+        return t(key, lang=lang, detail=self.detail, events=format_number(self.events, 0),
                  clusters=format_number(self.clusters, 0), processed=format_number(self.processed, 0),
                  failed=format_number(self.failed, 0))
 
@@ -250,12 +249,12 @@ async def _analyse(event_id: int) -> None:
 
 
 def start_describe_all() -> asyncio.Task[None]:
-    """Describe every event without a description, once per occurrence (``vision_bulk.run_bulk_describe``, after
-    checking that the image model fits on a card). :class:`RunInProgress` while one runs."""
+    """Describe every event without a description, once per occurrence (``vision_bulk.run_bulk_describe``; it stops
+    when no describer of the list can describe). :class:`RunInProgress` while one runs."""
     global _describe_all
     if _describe_all.running:
         raise RunInProgress("describe_all_running")
-    _describe_all = DescribeAll(running=True, phase="checking")
+    _describe_all = DescribeAll(running=True, phase="searching")
     return _keep(asyncio.create_task(_describe_every_event()))
 
 
@@ -279,7 +278,7 @@ async def _describe_every_event() -> None:
         return _describe_all.cancelling
 
     try:
-        result = await run_bulk_describe(progress_cb=progress, cancel_cb=cancel, check_vram=True)
+        result = await run_bulk_describe(progress_cb=progress, cancel_cb=cancel)
     except Exception as failure:  # the page shows why the run stopped
         logger.warning("Casus: describing every event failed: %s", failure, exc_info=True)
         _describe_all = replace(_describe_all, running=False, cancelling=False, outcome="error",
@@ -287,12 +286,12 @@ async def _describe_every_event() -> None:
         return
     if result.skipped:
         outcome = "busy"
-    elif result.aborted_vram:
-        outcome = "no_room"
+    elif result.no_describer:
+        outcome = "no_describer"
     elif result.total_events == 0:
         outcome = "nothing"
     else:
         outcome = "cancelled" if result.cancelled else "done"
-    _describe_all = replace(_describe_all, running=False, cancelling=False, outcome=outcome, detail=result.vram_reason or "",
+    _describe_all = replace(_describe_all, running=False, cancelling=False, outcome=outcome, detail=result.no_describer,
                             events=result.total_events, clusters=result.total_clusters, processed=result.processed,
                             failed=result.failed)

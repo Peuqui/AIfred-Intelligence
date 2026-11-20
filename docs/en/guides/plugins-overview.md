@@ -452,7 +452,7 @@ Continuous camera surveillance — Master Eye, background watchers, Casus event 
 - **Personarium**: identity database for enrollment (name + ID + group), multi-pose wizard, known/unsure/unknown classification via cosine similarity
 - **Casus event browser**: filters (type, source, face ID), pagination, single-event VLM analysis, bulk mode with progress + cancel
 - **pHash dedup + cluster mode**: perceptual hash on every event frame, near-duplicates are collapsed into clusters
-- **VRAM pre-check** before bulk VLM analysis — aborts cleanly instead of OOMing mid-run
+- **Describer list** for bulk VLM analysis too — every occurrence asks the list; when none can describe, the run stops
 - **Vigilantia feed live card** on the main page shows the last N events across all sources
 
 The LLM-side vision tools (snapshot, analyze, enroll_face, start_watch etc.) live under [Vision](#vision-camera--vlm) — Vigilantia is the persistent surveillance layer on top.

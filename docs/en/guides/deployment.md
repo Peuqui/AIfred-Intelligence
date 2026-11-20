@@ -873,8 +873,8 @@ The **Casus** modal is the central event review tool:
 - **Single-event VLM analysis**: click any event → "Analyze with VLM"
   — runs the configured VLM on the saved frame
 - **Bulk VLM analysis**: select N events → background worker runs the
-  VLM on each with progress + cancel. A VRAM pre-check aborts cleanly
-  if there's not enough headroom for the configured VLM batch
+  VLM on each with progress + cancel. The describer list decides who describes;
+  when none can, the run stops and says so
 - **Cluster mode toggle**: collapses near-duplicate events (pHash-based)
   into one card per cluster — useful when a tree branch moving in the
   wind would otherwise produce 200 motion events in 10 minutes

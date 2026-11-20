@@ -29,7 +29,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from .logging_utils import log_message
-from .user_error import UserError
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +58,7 @@ class BulkDescribeResult:
     processed: int = 0
     failed: int = 0
     cancelled: bool = False
-    aborted_vram: bool = False
-    vram_reason: UserError | None = None
+    no_describer: str = ""  # why nobody could describe; the run stopped at that occurrence
     skipped: bool = False  # another bulk run was already in flight
 
 
@@ -111,7 +109,6 @@ async def run_bulk_describe(
     since: object | None = None,
     until: object | None = None,
     limit: int | None = None,
-    check_vram: bool = True,
     progress_cb: ProgressCb | None = None,
     cancel_cb: CancelCb | None = None,
 ) -> BulkDescribeResult:
@@ -122,10 +119,9 @@ async def run_bulk_describe(
 
     ``since`` / ``until`` (datetimes) scope the work to a time window — the
     on-demand chat hook passes the queried span. ``limit=None`` (default)
-    describes everything in scope. ``check_vram`` runs a VRAM pre-check
-    (only the interactive Casus button uses it; nightly/on-demand pass
-    False and let Ollama manage its own VRAM). ``progress_cb`` /
-    ``cancel_cb`` are optional — headless callers pass neither.
+    describes everything in scope. Who describes is the describer list (``vision_routing.camera_describer``), asked
+    for every occurrence; when nobody can, the run stops there (``no_describer``) instead of failing every other one.
+    ``progress_cb`` / ``cancel_cb`` are optional — headless callers pass neither.
     """
     global _bulk_running
     if _bulk_running:
@@ -135,7 +131,7 @@ async def run_bulk_describe(
     try:
         return await _bulk_describe_impl(
             store=store, source_id=source_id, event_types=event_types,
-            since=since, until=until, limit=limit, check_vram=check_vram,
+            since=since, until=until, limit=limit,
             progress_cb=progress_cb, cancel_cb=cancel_cb,
         )
     finally:
@@ -150,27 +146,16 @@ async def _bulk_describe_impl(
     since: object | None = None,
     until: object | None = None,
     limit: int | None = None,
-    check_vram: bool = True,
     progress_cb: ProgressCb | None = None,
     cancel_cb: CancelCb | None = None,
 ) -> BulkDescribeResult:
     from .vision_cluster import cluster_events, write_clusters
     from .vision_event_analysis import analyze_cluster_with_vlm
+    from .vision_routing import NoVisionModelError
     from .vision_store import VisionStore
 
     store = store or VisionStore()
     event_types = event_types or list(DEFAULT_EVENT_TYPES)
-
-    if check_vram:
-        try:
-            from .vision_vram_check import check_vlm_fits
-            vram = await check_vlm_fits()
-            if not vram.fits:
-                return BulkDescribeResult(
-                    aborted_vram=True, vram_reason=vram.reason
-                )
-        except Exception as e:  # the pre-check only advises: the run goes on, logged
-            logger.warning("VRAM check failed (continuing anyway): %s", e, exc_info=True)
 
     events = store.list_events_without_description(  # type: ignore[attr-defined]
         source_id=source_id, event_types=event_types,
@@ -203,6 +188,7 @@ async def _bulk_describe_impl(
     processed = 0
     failed = 0
     cancelled = False
+    no_describer = ""
     for cluster_id, member_ids in cluster_members.items():
         if cancel_cb is not None and await cancel_cb():
             cancelled = True
@@ -228,6 +214,10 @@ async def _bulk_describe_impl(
                 store.apply_cluster_description(  # type: ignore[attr-defined]
                     cluster_id, text, "bulk-worker",
                 )
+        except NoVisionModelError as error:  # nobody can describe now: the next occurrence would fare the same
+            no_describer = str(error)
+            log_message(f"🖌️ bulk-describe stopped: no describer free ({no_describer})")
+            break
         except Exception as e:  # one cluster must not stop the others; counted and logged
             logger.warning("bulk: cluster %s failed: %s", cluster_id, e, exc_info=True)
             failed += 1
@@ -235,7 +225,7 @@ async def _bulk_describe_impl(
 
     log_message(
         f"🖌️ bulk-describe done: {processed - failed}/{total} described, "
-        f"{failed} failed" + (" (cancelled)" if cancelled else "")
+        f"{failed} failed" + (" (cancelled)" if cancelled else "") + (" (no describer free)" if no_describer else "")
     )
     return BulkDescribeResult(
         total_events=len(events),
@@ -243,4 +233,5 @@ async def _bulk_describe_impl(
         processed=processed,
         failed=failed,
         cancelled=cancelled,
+        no_describer=no_describer,
     )

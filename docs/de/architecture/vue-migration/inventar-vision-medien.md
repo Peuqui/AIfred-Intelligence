@@ -198,7 +198,7 @@ Modulglobal: `_audio_runtime_state` (AP:33), Schnappschuss der `media_*`-Felder 
 | `_refresh_events` | Seite holen; gruppiert: bis 5000 Ereignisse in Python nach `cluster_id` bündeln (CA:671–760) | `VisionStore.list_events_with_summary/count_events/list_event_ids` | – |
 | `_resolve_casus_filters` | Filter → Abfrageparameter (CA:346–363) | – | – |
 | `casus_analyze_event` | VLM-Beschreibung eines Ereignisses (CA:200–221) | `vision_event_analysis.analyze_event_with_vlm` | vision.db `classification.description` (lib) |
-| `casus_bulk_start` (background), `casus_bulk_cancel_run` | alle ohne Beschreibung, Fortschritt und Abbruch über Rückrufe (CA:225–304) | `vision_bulk.run_bulk_describe(progress_cb, cancel_cb, check_vram=True)` | vision.db (lib) |
+| `casus_bulk_start` (background), `casus_bulk_cancel_run` | alle ohne Beschreibung, Fortschritt und Abbruch über Rückrufe (CA:225–304) | `vision_bulk.run_bulk_describe(progress_cb, cancel_cb)` | vision.db (lib) |
 | `casus_request/cancel_delete_all`, `casus_confirm_delete_all_now` | Löschen nach Filter (CA:308–386) | `VisionStore.delete_events_filtered` | vision.db + Dateien |
 | `casus_delete_event` | ein Ereignis (CA:404–419) | `VisionStore.delete_event` | vision.db + Dateien |
 | `casus_start/cancel_tag`, `casus_set_tag_face`, `casus_save_tag` | Person zuordnen/lösen (CA:589–636) | `VisionStore.set_event_face_id` | vision.db `events.face_id` |

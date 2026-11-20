@@ -101,7 +101,7 @@ def gc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plugin_on: dict[str, boo
 
     async def describe(**_kwargs: Any) -> Any:
         calls["describe"] += 1
-        return type("Done", (), {"aborted_vram": False, "total_events": 0})()
+        return type("Done", (), {"no_describer": "", "total_events": 0})()
 
     def prune(_base: Path, _cutoff: Any) -> int:
         calls["prune"] += 1

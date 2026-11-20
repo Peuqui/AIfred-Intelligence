@@ -174,12 +174,10 @@ async def _describe_before_pruning() -> None:
     if not (is_plugin_enabled("vision") and gc_switch("gc_describe")):
         return
     from .vision_bulk import run_bulk_describe
-    # No VRAM pre-check — Ollama manages the side-channel VLM's VRAM
-    # itself; a pre-check could falsely abort and silently skip the
-    # whole backfill. A partial run is idempotent anyway.
-    described = await run_bulk_describe(check_vram=False)
-    if described.aborted_vram:
-        log_message(f"🌙 Vision GC describe skipped: {described.vram_reason}")
+    # A partial run is idempotent: what stays undescribed (no describer free) the next run takes.
+    described = await run_bulk_describe()
+    if described.no_describer:
+        log_message(f"🌙 Vision GC describe stopped after {described.processed} clusters: no describer free ({described.no_describer})")
     elif described.total_events:
         log_message(
             f"🌙 Vision GC describe: {described.total_clusters} clusters "

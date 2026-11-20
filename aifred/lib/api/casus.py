@@ -240,7 +240,7 @@ class DescribeAllState(BaseModel):
     clusters: int
     processed: int
     failed: int
-    outcome: str = Field(description="After a run: done, cancelled, nothing, busy, no_room, error ('' before the first)")
+    outcome: str = Field(description="After a run: done, cancelled, nothing, busy, no_describer, error ('' before the first)")
     message: str = Field(description="The state in words")
 
 
@@ -282,8 +282,8 @@ async def casus_analyze(event_id: int) -> CasusRuns:
 
 @vision_api.post("/vision/casus/describe-all", response_model=CasusRuns, status_code=202, tags=["Vision"])
 async def casus_describe_all() -> CasusRuns:
-    """Describe every event without a description, once per occurrence, after checking that the image model fits on
-    a card; answers at once, ``runs`` follows it. 409 while it runs."""
+    """Describe every event without a description, once per occurrence, by the describer list (it stops when none can
+    describe); answers at once, ``runs`` follows it. 409 while it runs."""
     from ..casus import start_describe_all
 
     start_describe_all()

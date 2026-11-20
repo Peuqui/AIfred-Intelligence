@@ -483,7 +483,7 @@ returns one row per cluster (`frames_in_cluster` = member count).
 Three paths trigger the same run:
 
 1. **Casus button** — manual bulk run from the UI, with progress bar, cancel and
-   a VRAM pre-check.
+   stops and says so when no image describer of the list can describe.
 2. **Cleanup run** — the daily garbage collection at `GARBAGE_COLLECTION_HOUR`
    (default `03:00`) **describes** all still-undescribed events **first**, then
    prunes. So every frame has a description before it is deleted at TTL expiry,
