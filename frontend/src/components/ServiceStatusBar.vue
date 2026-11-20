@@ -201,7 +201,7 @@ summary::-webkit-details-marker { display: none; }
 .label { color: var(--aifred-text-secondary); white-space: nowrap; }
 .value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .heading { grid-column: 1 / -1; margin: 6px 0 0; font-size: 0.8rem; font-weight: 600; color: var(--aifred-text-secondary); }
-.badge svg { color: var(--aifred-text-secondary); }
+.badge svg { color: var(--aifred-accent-purple); } /* the graphics cards, in a colour of their own like the other signs */
 .detail { grid-column: 3 / -1; margin-top: -2px; color: var(--aifred-text-muted); overflow-wrap: anywhere; white-space: pre-line; }
 .value.wrap { white-space: normal; overflow-wrap: anywhere; } /* a machine's line breaks instead of cutting off its numbers */
 .time { color: var(--aifred-text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
