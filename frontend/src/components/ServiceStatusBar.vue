@@ -35,6 +35,7 @@ const labels = computed(() => ({
   unreachable: t("service_status_unreachable"),
   hostHeld: t("service_status_host_held"),
   hostRequested: t("service_status_host_requested"),
+  hostHeldByOther: t("service_status_host_held_by_other"),
   hostUsed: t("service_status_host_used"),
 }));
 const rows = computed(() => (status.snapshot ? serviceRows(status.snapshot, labels.value) : null));
@@ -110,7 +111,14 @@ onBeforeUnmount(() => {
         <span class="value wrap" :title="host.title ?? host.text">{{ host.text }}</span>
         <span class="time" />
         <span class="act">
-          <button v-if="host.action" class="power" :disabled="status.acting" :title="t(ACTION_TITLES[host.action.verb])" @click="status.act(host.action)">
+          <button
+            v-if="host.action"
+            class="power"
+            :class="{ blocked: host.action.blocked }"
+            :disabled="status.acting || !!host.action.blocked"
+            :title="host.action.blocked ?? t(ACTION_TITLES[host.action.verb])"
+            @click="status.act(host.action)"
+          >
             <Power :size="14" />
           </button>
         </span>
@@ -150,5 +158,6 @@ summary::-webkit-details-marker { display: none; }
 .value.wrap { white-space: normal; overflow-wrap: anywhere; } /* a machine's line breaks instead of cutting off its numbers */
 .time { color: var(--aifred-text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .power:disabled { opacity: 0.5; cursor: progress; }
+.power.blocked:disabled { cursor: not-allowed; } /* another owner's hold: nothing this button may do */
 .notice { margin: 2px 0 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 </style>

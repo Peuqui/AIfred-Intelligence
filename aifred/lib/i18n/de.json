@@ -981,6 +981,7 @@
   "service_status_unload": "Entladen",
   "service_status_host_held": "freigehalten von {owner}",
   "service_status_host_requested": "angefordert",
+  "service_status_host_held_by_other": "Gehalten von {owner}, nur der Inhaber kann freigeben",
   "service_status_host_used": "{used} von {total} MiB belegt",
   "service_status_host_hold": "Karte freihalten",
   "service_status_host_release": "Karte freigeben",

@@ -428,13 +428,19 @@ def test_the_status_bar_shows_load_holders_and_hold(box):
         True, None, 8834, 24564, [remote_describers.HostHolder("llama-swap", SMALL)])
     box["gpu_orc"].held = {"since": "2026-11-05T09:00:00+01:00", "reason": "gaming", "owner": "vllm-research"}
     [row] = remote_describers.host_status()
-    assert (row.held, row.hold_state, row.hold_owner) == ("gaming", "active", "vllm-research")
+    assert (row.held, row.hold_state, row.hold_owner, row.hold_is_ours) == ("gaming", "active", "vllm-research", False)
 
 
 def test_the_status_bar_shows_a_requested_hold_too(box):
     box["gpu_orc"].hold_requested = {"since": "2026-11-05T09:00:00+01:00", "reason": "gaming", "owner": "game"}
     [row] = remote_describers.host_status()
-    assert (row.held, row.hold_state, row.hold_owner) == ("gaming", "requested", "game")
+    assert (row.held, row.hold_state, row.hold_owner, row.hold_is_ours) == ("gaming", "requested", "game", False)
+
+
+def test_the_status_bars_own_hold_is_its_to_release(box):
+    remote_describers.set_hold("Box", True, "held from AIfred's status bar")
+    [row] = remote_describers.host_status()
+    assert (row.hold_owner, row.hold_is_ours) == (GPU_ORC_STATUSBAR_HOLD_OWNER, True)
 
 
 def test_a_machine_that_is_off_shows_as_unreachable(box):

@@ -13,6 +13,7 @@ export interface Action {
   verb: "load" | "unload" | "hold" | "release";
   service: Service | "host";
   item: string;
+  blocked?: string; // why the button cannot act (greyed out with this as its title), e.g. another owner's hold
 }
 
 export interface Row {
@@ -34,6 +35,7 @@ export interface Labels {
   unreachable: string;
   hostHeld: string; // "held free by {owner}"
   hostRequested: string; // the hold is asked for, work still runs on the cards
+  hostHeldByOther: string; // "held by {owner}; only the owner can release it"
   hostUsed: string; // "{used} of {total} MiB in use"
 }
 
@@ -101,17 +103,25 @@ export function hostRows(hosts: HostStatus[], labels: Labels): (Row & { label: s
       return { label: host.name, color: "red", text: "", title: host.error, remaining: null, upperBound: false, action: null };
     }
     const text = labels.hostUsed.replace("{used}", mib(host.used_mib)).replace("{total}", mib(host.total_mib));
+    // Who holds the cards is a line of its own, always visible: a phone has no hover for the title.
+    const holdLine = host.held
+      ? `${labels.hostHeld.replace("{owner}", host.hold_owner ?? "")}${host.hold_state === "requested" ? ` (${labels.hostRequested})` : ""}: ${host.held}`
+      : null;
+    const lines = [...(holdLine ? [holdLine] : []), ...host.holders.map((holder) => `${holder.consumer}: ${holder.item}`)];
     return {
       label: host.name,
       color: host.held ? "yellow" : "green",
       text,
-      detail: host.holders.map((holder) => `${holder.consumer}: ${holder.item}`).join("\n") || undefined,
-      title: host.held
-        ? `${labels.hostHeld.replace("{owner}", host.hold_owner ?? "")}${host.hold_state === "requested" ? ` (${labels.hostRequested})` : ""}: ${host.held}`
-        : text,
+      detail: lines.join("\n") || undefined,
+      title: holdLine ?? text,
       remaining: null,
       upperBound: false,
-      action: { verb: host.held ? "release" : "hold", service: "host", item: host.name },
+      action: {
+        verb: host.held ? "release" : "hold",
+        service: "host",
+        item: host.name,
+        ...(host.held && !host.hold_is_ours ? { blocked: labels.hostHeldByOther.replace("{owner}", host.hold_owner ?? "") } : {}),
+      },
     };
   });
 }

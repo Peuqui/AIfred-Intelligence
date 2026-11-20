@@ -981,6 +981,7 @@
   "service_status_unload": "Unload",
   "service_status_host_held": "held free by {owner}",
   "service_status_host_requested": "requested",
+  "service_status_host_held_by_other": "Held by {owner}; only the owner can release it",
   "service_status_host_used": "{used} of {total} MiB in use",
   "service_status_host_hold": "Keep the card free",
   "service_status_host_release": "Release the card",
