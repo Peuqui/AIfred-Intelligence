@@ -108,7 +108,7 @@ Jedes Plugin ist ein Verzeichnis unter `aifred/plugins/tools/` oder `aifred/plug
 Details — Abläufe, Prompt-Dateien, Perspektiven, Labels: [Multi-Agent-System](docs/de/architecture/multi-agent.md).
 
 <p align="center">
-  <img src="docs/images/agent-editor.webp" alt="Agent-Editor: Identität, Stimme und Werkzeugauswahl mit Berechtigungsstufen" width="400">
+  <img src="docs/images/agent-editor.webp" alt="Agent-Editor: Werkzeugrechte je Agent, nach Plugin gruppiert, mit Berechtigungsstufen" width="400">
   <img src="docs/images/plugin-manager.webp" alt="Plugin Manager: Kanäle mit Sicherheitsstufe, Tool-Plugins zur Laufzeit schaltbar" width="400">
   <br><sub>Agent-Editor (Werkzeuge je Agent mit Tier-Abzeichen) und Plugin Manager (Kanäle mit Sicherheitsstufe, Plugins zur Laufzeit an/aus).</sub>
 </p>

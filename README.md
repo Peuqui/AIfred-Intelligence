@@ -108,7 +108,7 @@ Every plugin is a directory under `aifred/plugins/tools/` or `aifred/plugins/cha
 Details — flows, prompt files, perspectives, labels: [Multi-Agent System](docs/en/architecture/multi-agent.md).
 
 <p align="center">
-  <img src="docs/images/agent-editor.webp" alt="Agent Editor: identity, voice and tool selection with permission tiers" width="400">
+  <img src="docs/images/agent-editor.webp" alt="Agent editor: tool rights per agent, grouped by plugin, with permission tiers" width="400">
   <img src="docs/images/plugin-manager.webp" alt="Plugin Manager: channels with security tier, tool plugins switchable at runtime" width="400">
   <br><sub>Agent Editor (tools per agent with tier badges) and Plugin Manager (channels with security tier, plugins on/off at runtime).</sub>
 </p>
