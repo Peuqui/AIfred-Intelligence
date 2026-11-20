@@ -997,7 +997,7 @@
   "service_status_local_granted": "granted to {owner}, waiting for running work to end",
   "service_status_local_active": "held by {owner}",
   "service_status_local_off": "GPU-Orc is off",
-  "service_status_local_unreachable": "GPU-Orc does not answer: {error}",
+  "service_status_gpu_orc_unreachable": "GPU-Orc does not answer: {error}",
   "service_status_local_grant": "Grant the cards",
   "service_status_local_end": "End hold",
   "service_status_local_end_confirm": "{owner} holds the cards for '{reason}'. Really end it?",

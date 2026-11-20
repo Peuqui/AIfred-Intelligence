@@ -454,7 +454,7 @@ def test_the_status_bars_own_hold_is_its_to_release(box):
 def test_a_machine_that_is_off_shows_as_unreachable(box):
     box["reachable"] = False
     [row] = remote_describers.host_status()
-    assert row.reachable is False and "does not answer" in row.error
+    assert row.reachable is False and row.error == ""  # the page says "not reachable" in its own language
 
 
 def test_holding_and_releasing_goes_to_the_machines_gpu_orc(box):
@@ -514,3 +514,19 @@ def test_nothing_is_unloaded_while_a_burn_in_runs(box, monkeypatch):
 def test_only_the_models_of_another_machine_can_be_unloaded(box, source):
     with pytest.raises(Invalid):
         describer_list.unload(source)
+
+
+def test_a_gpu_orc_that_fails_is_named_in_the_pages_language(box, monkeypatch):
+    """The machine answers, its GPU-Orc does not: the line names that in the page's words, the technical detail after it."""
+    from aifred.lib.i18n import t
+
+    def failing(host: RemoteHost) -> GpuOrcClient:
+        class Failing(GpuOrcClient):
+            def traffic_light(self):
+                raise GpuOrcError("GPU-Orc /loading: HTTP 502")
+        return Failing("http://127.0.0.1:9", token="t")
+
+    monkeypatch.setattr(remote_describers, "gpu_orc", failing)
+    [row] = remote_describers.host_status()
+    assert row.reachable is False
+    assert row.error == t("service_status_gpu_orc_unreachable", error="GPU-Orc /loading: HTTP 502")

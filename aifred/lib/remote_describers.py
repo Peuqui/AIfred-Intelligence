@@ -33,6 +33,7 @@ from .config import (
 )
 from .gpu_hold import blocking_hold
 from .gpu_orc_client import CardStatus, GpuOrcClient, GpuOrcError, Hold
+from .i18n import t
 from .user_error import UpstreamFailed, UserError
 from .vision_vram_check import VRAMCheckResult
 
@@ -325,7 +326,7 @@ class HostStatus:
     used_mib: int
     total_mib: int
     holders: list[HostHolder]  # what is on its cards (the describer, TTS containers), as its consumers report it
-    error: str  # why it is not reachable
+    error: str  # why it is not reachable, for the page ("" when "not reachable" says it all)
 
 
 def host_status() -> list[HostStatus]:
@@ -333,14 +334,15 @@ def host_status() -> list[HostStatus]:
     rows = []
     for host in remote_hosts():
         if not reachable(host):
-            rows.append(HostStatus(host.name, False, None, None, None, False, 0, 0, [], f"{host.name} does not answer"))
+            # No second line: the status bar says "not reachable" itself, in the page's language.
+            rows.append(HostStatus(host.name, False, None, None, None, False, 0, 0, [], ""))
             continue
         try:
             client = gpu_orc(host)
             light = client.traffic_light()
             cards = client.card_status()
         except GpuOrcError as error:
-            rows.append(HostStatus(host.name, False, None, None, None, False, 0, 0, [], str(error)))
+            rows.append(HostStatus(host.name, False, None, None, None, False, 0, 0, [], t("service_status_gpu_orc_unreachable", error=error)))
             continue
         hold = light.held or light.hold_requested
         rows.append(HostStatus(

@@ -50,7 +50,7 @@ const localLabels = computed(() => ({
   model: t("service_status_local_model"),
   since: t("service_status_local_since"),
   off: t("service_status_local_off"),
-  unreachable: t("service_status_local_unreachable"),
+  unreachable: t("service_status_gpu_orc_unreachable"),
   notRequested: t("service_status_local_not_requested"),
   noHold: t("service_status_local_no_hold"),
 }));
