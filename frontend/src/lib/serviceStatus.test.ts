@@ -43,19 +43,19 @@ describe("serviceRows", () => {
 });
 
 describe("hostRows", () => {
-  it("a held machine is yellow and offers the release", () => {
+  it("a held machine is amber and offers the release", () => {
     const holders = [{ consumer: "llama-swap", item: "eyes" }, { consumer: "tts-suite", item: "voice" }];
     const [row] = hostRows([{ name: "Aragon", reachable: true, held: "vllm", hold_state: "active", hold_owner: "vllm-research", hold_is_ours: false, used_mib: 1024, total_mib: 24576, holders, error: "" }], LABELS);
-    expect(row).toMatchObject({ color: "yellow", label: "Aragon", action: { verb: "release", service: "host", item: "Aragon" } });
+    expect(row).toMatchObject({ color: "amber", label: "Aragon", action: { verb: "release", service: "host", item: "Aragon" } });
     expect(row?.text).toBe("1.024 von 24.576 MiB belegt");
     expect(row?.detail).toBe("freigehalten von vllm-research: vllm\nllama-swap: eyes\ntts-suite: voice"); // visible without hover
     expect(row?.title).toBe("freigehalten von vllm-research: vllm");
     expect(row?.action?.blocked).toBe("gehalten von vllm-research"); // another owner's: greyed out
   });
 
-  it("a requested hold is yellow too and says so in the title", () => {
+  it("a requested hold is amber too and says so in the title", () => {
     const [row] = hostRows([{ name: "Aragon", reachable: true, held: "vllm", hold_state: "requested", hold_owner: "aifred-statusleiste", hold_is_ours: true, used_mib: 1, total_mib: 2, holders: [], error: "" }], LABELS);
-    expect(row).toMatchObject({ color: "yellow", title: "freigehalten von aifred-statusleiste (angefordert): vllm", action: { verb: "release" } });
+    expect(row).toMatchObject({ color: "amber", title: "freigehalten von aifred-statusleiste (angefordert): vllm", action: { verb: "release" } });
     expect(row?.action?.blocked).toBeUndefined(); // the status bar's own: it may let go
     expect(row?.detail).toBe("freigehalten von aifred-statusleiste (angefordert): vllm");
   });
@@ -84,7 +84,7 @@ describe("localHoldRow", () => {
   const LOCAL = {
     lang: "de", free: "keine Anfrage", requested: "{owner} möchte die Karten: {reason} (seit {time})",
     granted: "überlassen an {owner}, wartet auf das Ende laufender Arbeit", active: "gehalten von {owner}: {reason} (seit {time})",
-    off: "GPU-Orc ist aus", unreachable: "GPU-Orc antwortet nicht: {error}", notRequested: "keine Anfrage", notActive: "kein Hold",
+    off: "GPU-Orc ist aus", unreachable: "GPU-Orc antwortet nicht: {error}", notRequested: "keine Anfrage", noHold: "kein Hold",
   };
   const SINCE = "2026-11-20T09:30:00+01:00";
   const status = (state: LocalHoldStatus["state"], extra: Partial<LocalHoldStatus> = {}): LocalHoldStatus => ({
@@ -98,23 +98,24 @@ describe("localHoldRow", () => {
     expect(enabled(row)).toEqual([false, false]);
   });
 
-  it("requested: yellow, names owner, reason and the clock time, only the grant is enabled", () => {
+  it("requested: amber and pulsing, names owner, reason and the clock time, grant and end are enabled", () => {
     const row = localHoldRow(status("requested"), LOCAL);
     const time = new Date(SINCE).toLocaleTimeString("de", { hour: "2-digit", minute: "2-digit" });
-    expect(row).toMatchObject({ color: "yellow", text: `vllm-research möchte die Karten: v13 (seit ${time})` });
+    expect(row).toMatchObject({ color: "amber", pending: true, text: `vllm-research möchte die Karten: v13 (seit ${time})` });
     expect(row.text).toMatch(/seit \d{2}:\d{2}\)$/);
-    expect(enabled(row)).toEqual([true, false]);
+    expect(enabled(row)).toEqual([true, true]); // ending: the way out of a request whose asker crashed
     expect(row.grant).toMatchObject({ verb: "grant", item: "vllm-research" });
   });
 
-  it("granted: yellow, waits for running work, both buttons greyed out", () => {
+  it("granted: amber and still, waits for running work, only ending is enabled", () => {
     const row = localHoldRow(status("granted", { granted_by: "ki" }), LOCAL);
-    expect(row).toMatchObject({ color: "yellow", text: "überlassen an vllm-research, wartet auf das Ende laufender Arbeit" });
-    expect(enabled(row)).toEqual([false, false]);
+    expect(row).toMatchObject({ color: "amber", pending: false, text: "überlassen an vllm-research, wartet auf das Ende laufender Arbeit" });
+    expect(enabled(row)).toEqual([false, true]);
   });
 
-  it("active: yellow, only ending is enabled", () => {
+  it("active: amber and still, only ending is enabled", () => {
     const row = localHoldRow(status("active"), LOCAL);
+    expect(row).toMatchObject({ color: "amber", pending: false });
     expect(row.text).toMatch(/^gehalten von vllm-research: v13 \(seit \d{2}:\d{2}\)$/);
     expect(enabled(row)).toEqual([false, true]);
     expect(row.end).toMatchObject({ verb: "end", item: "vllm-research" });

@@ -49,7 +49,7 @@ const localLabels = computed(() => ({
   off: t("service_status_local_off"),
   unreachable: t("service_status_local_unreachable"),
   notRequested: t("service_status_local_not_requested"),
-  notActive: t("service_status_local_not_active"),
+  noHold: t("service_status_local_no_hold"),
 }));
 const localHold = computed(() => (status.localHold ? localHoldRow(status.localHold, localLabels.value) : null));
 const now = ref(performance.now());
@@ -107,7 +107,7 @@ onBeforeUnmount(() => {
         <img :src="ICONS[service]" alt="" /><span class="dot" />
       </span>
       <!-- This machine's hold also in the closed bar: a request or a hold turns it yellow, seen without opening. -->
-      <span v-if="localHold" class="badge" :class="localHold.color" :title="localHold.text">
+      <span v-if="localHold" class="badge" :class="[localHold.color, { pending: localHold.pending }]" :title="localHold.text">
         <img :src="ICONS.host" alt="" /><span class="dot" />
       </span>
       <button class="refresh" :title="t('service_status_refresh')" @click.prevent="status.fetch(true)"><RefreshCw :size="14" /></button>
@@ -127,9 +127,9 @@ onBeforeUnmount(() => {
         </div>
       </template>
       <div v-if="localHold" class="line local-hold">
-        <span class="badge" :class="localHold.color"><img :src="ICONS.host" alt="" /><span class="dot" /></span>
+        <span class="badge" :class="[localHold.color, { pending: localHold.pending }]"><img :src="ICONS.host" alt="" /><span class="dot" /></span>
         <span class="label">{{ localHold.label }}:</span>
-        <span class="value wrap">{{ localHold.text }}</span>
+        <span class="value wrap" :class="{ held: localHold.color === 'amber' }">{{ localHold.text }}</span>
         <span class="time" />
         <span class="act" />
         <span class="detail buttons">
@@ -178,9 +178,14 @@ summary::-webkit-details-marker { display: none; }
 .dot { position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--aifred-page-bg); }
 .green .dot { background: var(--aifred-accent-success); animation: breathe 3s ease-in-out infinite; }
 .yellow .dot { background: var(--aifred-accent-warning); animation: breathe 1s ease-in-out infinite; }
+/* A hold: amber like Agent-Orc's. Still once granted or active; it pulses only while a request waits for a decision. */
+.amber .dot { background: var(--aifred-accent-amber); }
+.amber.pending .dot { animation: pulse 1.2s ease-in-out infinite; }
+.value.held { color: var(--aifred-accent-amber); }
 .grey .dot { background: var(--aifred-text-muted); }
 .red .dot { background: var(--aifred-danger); }
 @keyframes breathe { 50% { opacity: 0.4; } }
+@keyframes pulse { 50% { transform: scale(1.5); opacity: 0.5; } }
 @media (prefers-reduced-motion: reduce) { .dot { animation: none !important; } }
 .refresh, .power { display: inline-flex; align-items: center; padding: 3px 6px; }
 .refresh { margin-left: auto; }

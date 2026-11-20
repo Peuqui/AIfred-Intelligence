@@ -6,7 +6,8 @@
 import type { HostStatus, LocalHoldStatus, ServiceSnapshot } from "../api/types";
 
 export type Service = "llm" | "describer" | "stt" | "tts";
-export type Color = "green" | "yellow" | "grey" | "red";
+// amber: a hold (somebody keeps or asks for the cards), the same as Agent-Orc's; red only for a real error.
+export type Color = "green" | "yellow" | "amber" | "grey" | "red";
 export const SERVICES: readonly Service[] = ["llm", "describer", "stt", "tts"];
 
 export interface Action {
@@ -110,7 +111,7 @@ export function hostRows(hosts: HostStatus[], labels: Labels): (Row & { label: s
     const lines = [...(holdLine ? [holdLine] : []), ...host.holders.map((holder) => `${holder.consumer}: ${holder.item}`)];
     return {
       label: host.name,
-      color: host.held ? "yellow" : "green",
+      color: host.held ? "amber" : "green",
       text,
       detail: lines.join("\n") || undefined,
       title: holdLine ?? text,
@@ -135,12 +136,13 @@ export interface LocalHoldLabels {
   off: string;
   unreachable: string; // "GPU-Orc does not answer: {error}"
   notRequested: string; // why "grant" is greyed out
-  notActive: string; // why "end" is greyed out
+  noHold: string; // why "end" is greyed out
 }
 
 export interface LocalHoldRow {
   label: string; // this machine's name
   color: Color;
+  pending: boolean; // a request waits for a person's decision: its dot pulses (still once granted or active)
   text: string; // always visible: the state in words, also the reason a button is greyed out
   grant: Action; // enabled only while a hold is requested and nobody granted it
   end: Action; // enabled only while the hold is active
@@ -153,6 +155,8 @@ export function clockTime(iso: string, lang: string): string {
 
 // The row for the hold of THIS machine's cards (AIfred's own, its local GPU-Orc). Both buttons are always there; the
 // one that may not act is greyed out (``blocked``) and the text of the row names why, visibly (a phone has no hover).
+const HELD_STATES: ReadonlySet<LocalHoldStatus["state"]> = new Set(["requested", "granted", "active"]);
+
 export function localHoldRow(status: LocalHoldStatus, labels: LocalHoldLabels): LocalHoldRow {
   const owner = status.owner ?? "";
   const fill = (text: string) =>
@@ -165,17 +169,19 @@ export function localHoldRow(status: LocalHoldStatus, labels: LocalHoldLabels): 
     off: ["grey", labels.off],
     unreachable: ["red", fill(labels.unreachable)],
     free: ["green", labels.free],
-    requested: ["yellow", fill(labels.requested)],
-    granted: ["yellow", fill(labels.granted)],
-    active: ["yellow", fill(labels.active)],
+    requested: ["amber", fill(labels.requested)],
+    granted: ["amber", fill(labels.granted)],
+    active: ["amber", fill(labels.active)],
   };
   const [color, text] = states[status.state];
   return {
     label: status.machine,
     color,
+    pending: status.state === "requested",
     text,
     grant: { verb: "grant", service: "host", item: owner, ...(status.state === "requested" ? {} : { blocked: labels.notRequested }) },
-    end: { verb: "end", service: "host", item: owner, ...(status.state === "active" ? {} : { blocked: labels.notActive }) },
+    // Ending works on every hold, also a requested one: the way out of a request whose asker has crashed.
+    end: { verb: "end", service: "host", item: owner, ...(HELD_STATES.has(status.state) ? {} : { blocked: labels.noHold }) },
   };
 }
 

@@ -50,8 +50,8 @@ test("another machine's hold cannot be ended here: greyed out with the machine a
   expect(line({ local: false, machine: "Aragon" }).end?.action.blocked).toBe('waiting_for_gpu_hold_only_local {"machine":"Aragon"}');
 });
 
-test("a granted hold cannot be ended yet", () => {
-  expect(line({ state: "granted" }).end?.action.blocked).toBe("waiting_for_gpu_hold_not_active");
+test("a granted hold can be ended as well", () => {
+  expect(line({ state: "granted" }).end?.action.blocked).toBeUndefined();
 });
 
 test("other phases have no end button", () => {

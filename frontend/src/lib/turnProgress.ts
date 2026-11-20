@@ -53,11 +53,9 @@ function holdText(hold: GpuHoldDetail): string {
   });
 }
 
-// The button that ends the hold is for the own machine's GPU-Orc and an active hold; otherwise it says why not.
+// The button that ends the hold is for the own machine's GPU-Orc (active or granted alike); otherwise it says why not.
 function holdEnd(hold: GpuHoldDetail): { action: Action; reason: string } {
-  const blocked = !hold.local
-    ? t("waiting_for_gpu_hold_only_local", { machine: hold.machine })
-    : hold.state !== "active" ? t("waiting_for_gpu_hold_not_active") : undefined;
+  const blocked = hold.local ? undefined : t("waiting_for_gpu_hold_only_local", { machine: hold.machine });
   return { action: { verb: "end", service: "host", item: hold.owner, ...(blocked ? { blocked } : {}) }, reason: hold.reason };
 }
 
