@@ -1363,7 +1363,7 @@ GPU_ORC_WORK_TTL_S = 60
 # Describers on other machines (lib/remote_describers.py): each machine runs its own llama-swap and its
 # own GPU-Orc. A JSON list, one object per machine with ``name``, ``llamaswap_url``, ``gpu_orc_url`` and
 # ``gpu_orc_token_file`` (that GPU-Orc listens beyond loopback, so every request needs its token). Which
-# of its models describes is chosen in the Vigilantia settings; the models themselves are not listed
+# of its models describes is chosen in the describer list of the main settings; the models themselves are not listed
 # here, the machine's llama-swap reports them. Empty = describers only on this machine.
 VISION_REMOTE_HOSTS = os.environ.get("VISION_REMOTE_HOSTS", "[]")
 # Such a machine is off or asleep as a matter of course: one short look before every choice.

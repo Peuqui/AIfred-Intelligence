@@ -1,4 +1,4 @@
-"""The order in which describers are tried, edited in the Vigilantia settings like the TTS list.
+"""The order in which describers are tried, edited in the main settings like the TTS list (stored in the Vigilantia settings).
 
 An entry is a source with a switch:
 

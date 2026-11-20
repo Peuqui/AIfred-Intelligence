@@ -510,9 +510,10 @@ Two models back this plugin, both loaded on demand:
   `~/.insightface/models/buffalo_l/` on first use (~280 MB). Lazy init, one
   instance per process. Provider and GPU are configurable; on a GPU-poor host it
   falls back to `CPUExecutionProvider`.
-- **VLM (the Vision-LLM of the main settings)** — image description. The model
-  is chosen only there (Settings → Vision-LLM, `backend_models[<backend>]["vision"]`);
-  the Vigilantia settings show it, the plugin has no model choice of its own.
+- **VLM (the Vision-LLM of the agents)** — image description. The model is chosen only there
+  (main page → "Agents and models" → Vision-LLM, stored as `backend_models[<backend>]["vision"]`);
+  the Vigilantia settings show it, the plugin has no model choice of its own. The order of the
+  describers is in the settings ("Image describers (order)").
   Multi-image inputs are sent as a temporal sequence. The model is held in VRAM
   via `keep_alive` (default `30m`); in `live` mode `keep_alive` is forced to `-1`
   so the model stays permanently loaded for always-on surveillance.

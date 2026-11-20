@@ -531,9 +531,10 @@ Zwei Modelle stützen dieses Plugin, beide bei Bedarf geladen:
   automatisch nach `~/.insightface/models/buffalo_l/` heruntergeladen (~280 MB).
   Lazy Init, eine Instanz pro Prozess. Provider und GPU sind konfigurierbar; auf
   einem GPU-armen Host wird auf `CPUExecutionProvider` zurückgefallen.
-- **VLM (Vision-LLM der Haupteinstellungen)** — Bildbeschreibung. Das Modell
-  wird nur dort gewählt (Einstellungen → Vision-LLM, `backend_models[<Backend>]["vision"]`);
-  die Vigilantia-Einstellungen zeigen es an, das Plugin hat keine eigene Modellwahl.
+- **VLM (das Vision-LLM der Agenten)** — Bildbeschreibung. Das Modell wird nur dort gewählt
+  (Hauptseite → „Agenten und Modelle“ → Vision-LLM, gespeichert als `backend_models[<Backend>]["vision"]`);
+  die Vigilantia-Einstellungen zeigen es an, das Plugin hat keine eigene Modellwahl. Die Reihenfolge der
+  Beschreiber steht in den Einstellungen („Bildbeschreiber (Reihenfolge)“).
   Multi-Image-Inputs werden als zeitliche Sequenz
   gesendet. Das Modell bleibt per `keep_alive` (Standard `30m`) im VRAM; im
   `live`-Modus wird `keep_alive` auf `-1` gezwungen, sodass das Modell für

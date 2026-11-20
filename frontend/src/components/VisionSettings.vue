@@ -117,7 +117,7 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
         <span class="model">{{ settings.model || "–" }}</span>
         <button v-if="loaded !== null" :disabled="busy || !settings.model" :class="{ on: loaded }" :title="t(loaded ? 'vision_model_unload' : 'vision_model_load')" @click="power"><Power :size="14" /></button>
       </div>
-      <p class="hint">{{ t("vision_settings_model_help") }} <RouterLink to="/settings">{{ t("vision_settings_model_link") }}</RouterLink></p>
+      <p class="hint">{{ t("vision_settings_model_help") }} <RouterLink to="/">{{ t("vision_settings_model_link") }}</RouterLink></p>
     </article>
 
     <article>
