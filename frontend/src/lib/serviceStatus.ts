@@ -94,14 +94,14 @@ export function serviceRows(snapshot: ServiceSnapshot, labels: Labels): Record<S
 }
 
 // One entry per machine with describers, its words kept short (Peuqui 13.11.2026): the dot tells red its GPU-Orc does not
-// answer, yellow its cards are held free for somebody, green open; the text is the memory in use, and under it one line
+// answer (the text says so, the error under it), amber its cards are held free for somebody, green open; the text is the memory in use, and under it one line
 // per model on its cards with the service that holds it (the describer's llama-swap, the TTS-Suite …). The button holds
 // the cards free or releases them.
 export function hostRows(hosts: HostStatus[], labels: Labels): (Row & { label: string })[] {
   const mib = (n: number) => n.toLocaleString(labels.lang);
   return hosts.map((host) => {
     if (!host.reachable) {
-      return { label: host.name, color: "red", text: "", title: host.error, remaining: null, upperBound: false, action: null };
+      return { label: host.name, color: "red", text: labels.unreachable, detail: host.error || undefined, title: host.error, remaining: null, upperBound: false, action: null };
     }
     const text = labels.hostUsed.replace("{used}", mib(host.used_mib)).replace("{total}", mib(host.total_mib));
     // Who holds the cards is a line of its own, always visible: a phone has no hover for the title.
@@ -130,22 +130,27 @@ export function hostRows(hosts: HostStatus[], labels: Labels): (Row & { label: s
 export interface LocalHoldLabels {
   lang: string;
   free: string;
-  requested: string; // "{owner} wants the cards: {reason} (since {time})"
+  requested: string; // "{owner} wants the cards"
   granted: string; // "granted to {owner}, waiting for running work to end"
-  active: string; // "held by {owner}: {reason} (since {time})"
+  active: string; // "held by {owner}"
+  reason: string; // "„{reason}“"
+  model: string; // "model {model}"
+  since: string; // "since {time}"
   off: string;
   unreachable: string; // "GPU-Orc does not answer: {error}"
-  notRequested: string; // why "grant" is greyed out
-  noHold: string; // why "end" is greyed out
+  notRequested: string; // title of "grant" while greyed out
+  noHold: string; // title of "end" while greyed out
 }
 
 export interface LocalHoldRow {
   label: string; // this machine's name
   color: Color;
   pending: boolean; // a request waits for a person's decision: its dot pulses (still once granted or active)
-  text: string; // always visible: the state in words, also the reason a button is greyed out
+  card: boolean; // somebody asks for or holds the cards: the row is a card, else a plain line
+  title: string; // always visible: the state in words, also the reason the buttons are greyed out
+  detail: string | null; // under the title: the reason, the model that waits, since when
   grant: Action; // enabled only while a hold is requested and nobody granted it
-  end: Action; // enabled only while the hold is active
+  end: Action; // enabled only while the hold is requested, granted or active
 }
 
 // Hour and minute of an ISO time in the page's language.
@@ -154,31 +159,34 @@ export function clockTime(iso: string, lang: string): string {
 }
 
 // The row for the hold of THIS machine's cards (AIfred's own, its local GPU-Orc). Both buttons are always there; the
-// one that may not act is greyed out (``blocked``) and the text of the row names why, visibly (a phone has no hover).
+// one that may not act is greyed out (``blocked``) and the state in the title is the visible reason (a phone has no hover).
 const HELD_STATES: ReadonlySet<LocalHoldStatus["state"]> = new Set(["requested", "granted", "active"]);
 
 export function localHoldRow(status: LocalHoldStatus, labels: LocalHoldLabels): LocalHoldRow {
   const owner = status.owner ?? "";
-  const fill = (text: string) =>
-    text
-      .replace("{owner}", owner)
-      .replace("{reason}", status.reason ?? "")
-      .replace("{time}", status.since ? clockTime(status.since, labels.lang) : "")
-      .replace("{error}", status.error);
-  const states: Record<LocalHoldStatus["state"], [Color, string]> = {
-    off: ["grey", labels.off],
-    unreachable: ["red", fill(labels.unreachable)],
-    free: ["green", labels.free],
-    requested: ["amber", fill(labels.requested)],
-    granted: ["amber", fill(labels.granted)],
-    active: ["amber", fill(labels.active)],
+  const fill = (text: string) => text.replace("{owner}", owner).replace("{error}", status.error);
+  const detailParts = [
+    status.reason ? labels.reason.replace("{reason}", status.reason) : null,
+    status.model ? labels.model.replace("{model}", status.model) : null,
+    status.since ? labels.since.replace("{time}", clockTime(status.since, labels.lang)) : null,
+  ].filter((part) => part !== null);
+  const detail = detailParts.join(" · ");
+  const states: Record<LocalHoldStatus["state"], [Color, string, string | null]> = {
+    off: ["grey", labels.off, null],
+    unreachable: ["red", fill(labels.unreachable), null],
+    free: ["green", labels.free, null],
+    requested: ["amber", fill(labels.requested), detail],
+    granted: ["amber", fill(labels.granted), null],
+    active: ["amber", fill(labels.active), detail],
   };
-  const [color, text] = states[status.state];
+  const [color, title, shownDetail] = states[status.state];
   return {
     label: status.machine,
     color,
     pending: status.state === "requested",
-    text,
+    card: HELD_STATES.has(status.state),
+    title,
+    detail: shownDetail,
     grant: { verb: "grant", service: "host", item: owner, ...(status.state === "requested" ? {} : { blocked: labels.notRequested }) },
     // Ending works on every hold, also a requested one: the way out of a request whose asker has crashed.
     end: { verb: "end", service: "host", item: owner, ...(HELD_STATES.has(status.state) ? {} : { blocked: labels.noHold }) },

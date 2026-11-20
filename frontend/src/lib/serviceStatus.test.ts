@@ -60,9 +60,9 @@ describe("hostRows", () => {
     expect(row?.detail).toBe("freigehalten von aifred-statusleiste (angefordert): vllm");
   });
 
-  it("a machine that is off is only a red dot", () => {
+  it("a machine that does not answer says so as text, the error under it", () => {
     const [row] = hostRows([{ name: "Aragon", reachable: false, held: null, hold_state: null, hold_owner: null, hold_is_ours: false, used_mib: 0, total_mib: 0, holders: [], error: "off" }], LABELS);
-    expect(row).toMatchObject({ color: "red", text: "", title: "off", action: null });
+    expect(row).toMatchObject({ color: "red", text: "weg", detail: "off", title: "off", action: null });
   });
 });
 
@@ -82,50 +82,52 @@ describe("summaryColor and formatRemaining", () => {
 
 describe("localHoldRow", () => {
   const LOCAL = {
-    lang: "de", free: "keine Anfrage", requested: "{owner} möchte die Karten: {reason} (seit {time})",
-    granted: "überlassen an {owner}, wartet auf das Ende laufender Arbeit", active: "gehalten von {owner}: {reason} (seit {time})",
+    lang: "de", free: "frei", requested: "{owner} möchte die Karten", granted: "überlassen an {owner}, wartet auf das Ende laufender Arbeit",
+    active: "gehalten von {owner}", reason: "„{reason}“", model: "Modell {model}", since: "seit {time}",
     off: "GPU-Orc ist aus", unreachable: "GPU-Orc antwortet nicht: {error}", notRequested: "keine Anfrage", noHold: "kein Hold",
   };
   const SINCE = "2026-11-20T09:30:00+01:00";
+  const time = new Date(SINCE).toLocaleTimeString("de", { hour: "2-digit", minute: "2-digit" });
   const status = (state: LocalHoldStatus["state"], extra: Partial<LocalHoldStatus> = {}): LocalHoldStatus => ({
     state, machine: "Mini", owner: "vllm-research", reason: "v13", since: SINCE, model: null, granted_by: null, error: "", ...extra,
   });
   const enabled = (row: ReturnType<typeof localHoldRow>) => [!row.grant.blocked, !row.end.blocked];
 
-  it("free: green, nothing to grant or end", () => {
+  it("free: a plain green line with one word, no card and no detail, nothing to grant or end", () => {
     const row = localHoldRow(status("free", { owner: null, reason: null, since: null }), LOCAL);
-    expect(row).toMatchObject({ label: "Mini", color: "green", text: "keine Anfrage" });
+    expect(row).toMatchObject({ label: "Mini", color: "green", title: "frei", detail: null, card: false });
     expect(enabled(row)).toEqual([false, false]);
   });
 
-  it("requested: amber and pulsing, names owner, reason and the clock time, grant and end are enabled", () => {
-    const row = localHoldRow(status("requested"), LOCAL);
-    const time = new Date(SINCE).toLocaleTimeString("de", { hour: "2-digit", minute: "2-digit" });
-    expect(row).toMatchObject({ color: "amber", pending: true, text: `vllm-research möchte die Karten: v13 (seit ${time})` });
-    expect(row.text).toMatch(/seit \d{2}:\d{2}\)$/);
+  it("requested: an amber card, pulsing, the title names the owner, the detail reason, model and clock time", () => {
+    const row = localHoldRow(status("requested", { model: "Big-27B" }), LOCAL);
+    expect(row).toMatchObject({ color: "amber", pending: true, card: true, title: "vllm-research möchte die Karten", detail: `„v13“ · Modell Big-27B · seit ${time}` });
     expect(enabled(row)).toEqual([true, true]); // ending: the way out of a request whose asker crashed
     expect(row.grant).toMatchObject({ verb: "grant", item: "vllm-research" });
   });
 
-  it("granted: amber and still, waits for running work, only ending is enabled", () => {
+  it("requested without a model: the detail has no model part", () => {
+    expect(localHoldRow(status("requested"), LOCAL).detail).toBe(`„v13“ · seit ${time}`);
+  });
+
+  it("granted: a still card, waits for running work, only ending is enabled", () => {
     const row = localHoldRow(status("granted", { granted_by: "ki" }), LOCAL);
-    expect(row).toMatchObject({ color: "amber", pending: false, text: "überlassen an vllm-research, wartet auf das Ende laufender Arbeit" });
+    expect(row).toMatchObject({ color: "amber", pending: false, card: true, title: "überlassen an vllm-research, wartet auf das Ende laufender Arbeit", detail: null });
     expect(enabled(row)).toEqual([false, true]);
   });
 
-  it("active: amber and still, only ending is enabled", () => {
+  it("active: a still card with the reason and the time, only ending is enabled", () => {
     const row = localHoldRow(status("active"), LOCAL);
-    expect(row).toMatchObject({ color: "amber", pending: false });
-    expect(row.text).toMatch(/^gehalten von vllm-research: v13 \(seit \d{2}:\d{2}\)$/);
+    expect(row).toMatchObject({ color: "amber", pending: false, card: true, title: "gehalten von vllm-research", detail: `„v13“ · seit ${time}` });
     expect(enabled(row)).toEqual([false, true]);
     expect(row.end).toMatchObject({ verb: "end", item: "vllm-research" });
   });
 
-  it("off is grey and unreachable red with the error, both buttons greyed out", () => {
+  it("off is grey and unreachable red with the error, plain lines, both buttons greyed out", () => {
     const off = localHoldRow(status("off", { owner: null }), LOCAL);
-    expect(off).toMatchObject({ color: "grey", text: "GPU-Orc ist aus" });
+    expect(off).toMatchObject({ color: "grey", title: "GPU-Orc ist aus", card: false });
     const down = localHoldRow(status("unreachable", { owner: null, error: "refused" }), LOCAL);
-    expect(down).toMatchObject({ color: "red", text: "GPU-Orc antwortet nicht: refused" });
+    expect(down).toMatchObject({ color: "red", title: "GPU-Orc antwortet nicht: refused", card: false });
     expect([...enabled(off), ...enabled(down)]).toEqual([false, false, false, false]);
   });
 });

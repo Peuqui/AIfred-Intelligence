@@ -9,6 +9,7 @@ import ChatMenu from "../components/ChatMenu.vue";
 import DebateControls from "../components/DebateControls.vue";
 import VisionBadge from "../components/VisionBadge.vue";
 import ChatInput from "../components/ChatInput.vue";
+import GpuHoldBanner from "../components/GpuHoldBanner.vue";
 import DebugConsole from "../components/DebugConsole.vue";
 import ResizeGrip from "../components/ResizeGrip.vue";
 import ImageEditor from "../components/ImageEditor.vue";
@@ -228,6 +229,7 @@ onMounted(() => void start());
           </ChatMenu>
         </div>
       </div>
+      <GpuHoldBanner />
       <div ref="messages" class="messages" :style="chatHeight ? { height: `min(${chatHeight}px, calc(100 * var(--dvh)))` } : undefined" @scroll.passive="updateStuck">
         <div class="bubbles">
         <section v-for="turn in turns" :key="turn.key" :data-key="turn.key" class="turn">
