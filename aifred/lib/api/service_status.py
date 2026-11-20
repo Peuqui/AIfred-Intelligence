@@ -79,19 +79,21 @@ async def service_status_hosts() -> list[HostStatus]:
 
 @api_app.post("/service-status/hold", tags=["System"])
 async def service_status_hold(request: HoldRequest) -> dict[str, str]:
-    """Keep a machine's card free (its GPU-Orc clears it and nothing new goes on it) or release it."""
+    """Ask to keep a machine's card free (its GPU-Orc clears it once no work runs there, then nothing new goes
+    on it) or release it. ``status``: the hold's state as GPU-Orc answered (``requested`` at first) or
+    ``released``."""
     from ..config import VISION_REMOTE_HOLD_REASON
     from ..gpu_orc_client import GpuOrcError
     from ..remote_describers import RemoteHostError, set_hold
     try:
-        await asyncio.to_thread(set_hold, request.host, request.hold, VISION_REMOTE_HOLD_REASON)
+        hold = await asyncio.to_thread(set_hold, request.host, request.hold, VISION_REMOTE_HOLD_REASON)
     except (RemoteHostError, GpuOrcError) as error:
         refused = Conflict("hold_failed", host=request.host, error=str(error))
         log_message(f"⚠️ Status line: {refused}", "warning")
         raise refused from error
-    log_message(f"{'⛔' if request.hold else '✅'} Status line: the card of {request.host} is "
-                f"{'held free' if request.hold else 'released'}")
-    return {"status": "held" if request.hold else "released"}
+    status = hold.state if hold is not None else "released"
+    log_message(f"{'⛔' if hold is not None else '✅'} Status line: the hold of the card of {request.host} is {status}")
+    return {"status": status}
 
 
 @api_app.post("/service-status/unload", tags=["System"])

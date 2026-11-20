@@ -34,6 +34,7 @@ const labels = computed(() => ({
   busy: t("service_status_busy"),
   unreachable: t("service_status_unreachable"),
   hostHeld: t("service_status_host_held"),
+  hostRequested: t("service_status_host_requested"),
   hostUsed: t("service_status_host_used"),
 }));
 const rows = computed(() => (status.snapshot ? serviceRows(status.snapshot, labels.value) : null));

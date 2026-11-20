@@ -27,8 +27,11 @@ class FakeGpuOrc:
         self.already_running = False
         self.cards: list[dict[str, Any]] = []  # the "gpus" of GET /status
         self.loading: list[str] = []  # what GET /loading names
-        self.held: dict[str, str] | None = None  # the hold GET /loading names (POST /hold sets it)
+        self.held: dict[str, str] | None = None  # the active hold GET /loading names (POST /hold sets it)
+        self.hold_requested: dict[str, str] | None = None  # the requested hold GET /loading names
         self.holds: list[str] = []  # the reason of each POST /hold
+        self.hold_owners: list[str] = []  # the owner of each POST /hold
+        self.released_owners: list[str] = []  # the owner of each DELETE /hold
         self.work: dict[str, dict[str, Any]] = {}  # the leases POST /work holds, by owner
         self.work_calls: list[str] = []  # "begin <owner>" / "end <owner>" in the order they came
         self.requests: list[str] = []  # "<METHOD> <path>" of every request, in the order they came
@@ -72,14 +75,21 @@ class FakeGpuOrc:
             queue = {"running": False, "waiting": 0, "running_since_s": None}
             return 200, {"queue": queue, "gpus": self.cards, "errors": []}
         if path == "/loading":
-            return 200, {"loading": self.loading, "held": self.held}
+            return 200, {
+                "loading": self.loading,
+                "held": self._wire_hold(self.held, "active"),
+                "hold_requested": self._wire_hold(self.hold_requested, "requested"),
+            }
         if path == "/hold" and method == "POST":
             self.holds.append(body["reason"])
-            self.held = {"since": "2026-11-05T09:00:00+01:00", "reason": body["reason"]}
-            return 200, {"held": self.held, "free": self._freed()}
+            self.hold_owners.append(body["owner"])
+            self.held = {"since": "2026-11-05T09:00:00+01:00", "reason": body["reason"], "owner": body["owner"]}
+            # GPU-Orc answers every new hold as requested; without work it turns active right after (held)
+            return 200, {"hold": self._wire_hold(self.held, "requested")}
         if path == "/hold" and method == "DELETE":
-            self.held = None
-            return 200, {"held": None}
+            self.released_owners.append(body["owner"])
+            self.held = self.hold_requested = None
+            return 200, {"hold": None}
         if path == "/work" and method == "POST":
             self.work[body["owner"]] = body
             self.work_calls.append(f"begin {body['owner']}")
@@ -95,6 +105,15 @@ class FakeGpuOrc:
                 return self.refusal[0], {"error": self.refusal[1]}
             return 200, self._freed()
         return 404, {"error": f"no such path: {path}"}
+
+    def _wire_hold(self, hold: dict[str, str] | None, state: str) -> dict[str, Any] | None:
+        """A hold as GPU-Orc writes it: ``{owner, reason, since, state, free}``; ``free`` only once active."""
+        if hold is None:
+            return None
+        return {
+            "owner": hold.get("owner", "somebody"), "reason": hold["reason"], "since": hold["since"],
+            "state": state, "free": self._freed() if state == "active" else None,
+        }
 
     def _freed(self) -> dict[str, Any]:
         return {

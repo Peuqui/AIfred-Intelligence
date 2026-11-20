@@ -16,6 +16,7 @@ from fake_vlm_stream import streaming_client
 
 from aifred.lib import describer_list, remote_describers, vision_routing, vision_utils, vlm_vram_cache
 from aifred.lib.describer_list import LOCAL, MAIN
+from aifred.lib.config import GPU_ORC_STATUSBAR_HOLD_OWNER
 from aifred.lib.frame_sources import Frame
 from aifred.lib.gpu_orc_client import GpuOrcClient, GpuOrcError
 from aifred.lib.remote_describers import RemoteHost, RemoteModel
@@ -425,8 +426,15 @@ def test_the_status_bar_shows_load_holders_and_hold(box):
     [row] = remote_describers.host_status()
     assert (row.reachable, row.held, row.used_mib, row.total_mib, row.holders) == (
         True, None, 8834, 24564, [remote_describers.HostHolder("llama-swap", SMALL)])
-    box["gpu_orc"].held = {"since": "2026-11-05T09:00:00+01:00", "reason": "gaming"}
-    assert remote_describers.host_status()[0].held == "gaming"
+    box["gpu_orc"].held = {"since": "2026-11-05T09:00:00+01:00", "reason": "gaming", "owner": "vllm-research"}
+    [row] = remote_describers.host_status()
+    assert (row.held, row.hold_state, row.hold_owner) == ("gaming", "active", "vllm-research")
+
+
+def test_the_status_bar_shows_a_requested_hold_too(box):
+    box["gpu_orc"].hold_requested = {"since": "2026-11-05T09:00:00+01:00", "reason": "gaming", "owner": "game"}
+    [row] = remote_describers.host_status()
+    assert (row.held, row.hold_state, row.hold_owner) == ("gaming", "requested", "game")
 
 
 def test_a_machine_that_is_off_shows_as_unreachable(box):
@@ -436,10 +444,12 @@ def test_a_machine_that_is_off_shows_as_unreachable(box):
 
 
 def test_holding_and_releasing_goes_to_the_machines_gpu_orc(box):
-    remote_describers.set_hold("Box", True, "held from AIfred's status bar")
+    hold = remote_describers.set_hold("Box", True, "held from AIfred's status bar")
+    assert hold is not None and hold.owner == GPU_ORC_STATUSBAR_HOLD_OWNER
     assert box["gpu_orc"].holds == ["held from AIfred's status bar"] and box["gpu_orc"].held is not None
+    assert box["gpu_orc"].hold_owners == [GPU_ORC_STATUSBAR_HOLD_OWNER]
     remote_describers.set_hold("Box", False, "")
-    assert box["gpu_orc"].held is None
+    assert box["gpu_orc"].held is None and box["gpu_orc"].released_owners == [GPU_ORC_STATUSBAR_HOLD_OWNER]
     with pytest.raises(remote_describers.RemoteHostError, match="no machine"):
         remote_describers.set_hold("Nowhere", True, "x")
 

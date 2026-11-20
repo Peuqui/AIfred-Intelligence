@@ -17,7 +17,13 @@ from typing import Literal
 
 from .config import GPU_ORC_HOLD_POLL_S
 from .debug_bus import report_phase
-from .gpu_orc_client import GpuOrcClient, GpuOrcError, TrafficLight, get_gpu_orc_client
+from .gpu_orc_client import (
+    GpuOrcClient,
+    GpuOrcError,
+    Hold,
+    TrafficLight,
+    get_gpu_orc_client,
+)
 from .logging_utils import log_message
 from .user_error import UserError
 
@@ -44,8 +50,8 @@ def resolve_client(*, llamaswap_root: str | None = None, model_id: str | None = 
     return remote or get_gpu_orc_client()
 
 
-def held(client: GpuOrcClient) -> dict[str, str] | None:
-    """The hold (``since``, ``reason``) or ``None`` (one ``GET /loading``). Blocking; :class:`GpuOrcError` when
+def held(client: GpuOrcClient) -> Hold | None:
+    """The active hold or ``None`` (one ``GET /loading``). Blocking; :class:`GpuOrcError` when
     GPU-Orc does not answer."""
     return client.traffic_light().held
 
@@ -53,7 +59,7 @@ def held(client: GpuOrcClient) -> dict[str, str] | None:
 def refusal_for(light: TrafficLight) -> UserError | None:
     """``vram_cards_held`` when the traffic light shows a hold, else ``None``: the one wording of that refusal, for
     callers that read the light themselves (they also look at what is loading)."""
-    return UserError("vram_cards_held", reason=light.held["reason"]) if light.held else None
+    return UserError("vram_cards_held", reason=light.held.reason) if light.held else None
 
 
 def hold_refusal(client: GpuOrcClient | None) -> UserError | None:
@@ -82,7 +88,7 @@ def _still_held(client: GpuOrcClient, what: str, waiting: bool) -> bool:
             log_message(f"▶️ The hold of the cards has ended, {what} goes on")
         return False
     if not waiting:
-        log_message(f"⏸️ The cards are held since {hold['since']} ({hold['reason']}): {what} waits until they are free", "warning")
+        log_message(f"⏸️ The cards are held since {hold.since} ({hold.reason}): {what} waits until they are free", "warning")
         report_phase("gpu_hold")
     return True
 

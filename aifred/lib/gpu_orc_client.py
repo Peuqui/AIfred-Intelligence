@@ -22,12 +22,13 @@ from .gpu_orc_protocol import (
     FreeResult,
     GpuOrc,
     GpuOrcError,
+    Hold,
     TrafficLight,
 )
 from .logging_utils import LogCategory, log_message
 from .service_status import notify_changed
 
-__all__ = ["FreeAction", "FreeResult", "GpuOrcError", "TrafficLight"]
+__all__ = ["FreeAction", "FreeResult", "GpuOrcError", "Hold", "TrafficLight"]
 
 # Outcomes after which the item holds its card no longer (``kept`` = the request protected it).
 RELEASED_OUTCOMES = FINE_OUTCOMES - {"kept"}
@@ -66,14 +67,14 @@ class GpuOrcClient:
         """The big models loading right now and the hold of the cards (GPU-Orc's traffic light)."""
         return self._orc.loading()
 
-    def hold(self, reason: str) -> FreeResult:
-        """Hold the cards for somebody (``POST /hold``): GPU-Orc clears every card at once; the answer is
-        that clearing. It may take as long as a /free."""
-        return _after_release(self._orc.hold(reason))
+    def hold(self, owner: str, reason: str) -> Hold:
+        """Ask to hold the cards for ``owner`` (``POST /hold``). The answer comes at once with the hold as
+        requested; GPU-Orc clears the cards in the background and turns it active (``traffic_light().held``)."""
+        return self._orc.hold(owner, reason)
 
-    def release_hold(self) -> None:
-        """Let go of the cards (``DELETE /hold``)."""
-        self._orc.release_hold()
+    def release_hold(self, owner: str) -> None:
+        """``owner`` lets go of its hold, requested or active (``DELETE /hold``)."""
+        self._orc.release_hold(owner)
 
     def work_begin(self, owner: str, reason: str, ttl_s: float) -> None:
         """Report work on this machine (``POST /work``), or renew the lease of ``owner``: GPU-Orc ends it by itself

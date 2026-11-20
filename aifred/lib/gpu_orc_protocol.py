@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -19,7 +20,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
-QUICK_TIMEOUT_S = 5  # GPU-Orc answers /health, /work and DELETE /hold at once
+QUICK_TIMEOUT_S = 5  # GPU-Orc answers /health, /work and /hold at once
 # /loading asks the model servers too, but stays quick on purpose: a slow traffic light is red
 # (GpuOrcError), and the caller then puts nothing on a card instead of waiting before every start.
 LOADING_TIMEOUT_S = QUICK_TIMEOUT_S
@@ -65,9 +66,24 @@ class FreeResult:
 
 
 @dataclass(frozen=True)
+class Hold:
+    owner: str
+    reason: str
+    since: str
+    # "requested": work still runs, nothing is cleared yet; "active": the clearing has ended
+    state: str
+    free: FreeResult | None  # how clearing the cards ended; None while requested
+
+    def problems(self) -> list[str]:
+        """What is wrong with an active hold's clearing (see FreeResult.problems)."""
+        return [] if self.free is None else self.free.problems()
+
+
+@dataclass(frozen=True)
 class TrafficLight:
     loading: tuple[str, ...]  # big models loading right now
-    held: dict[str, str] | None  # {"since", "reason"} while somebody holds the cards
+    held: Hold | None  # the hold, only while it is active
+    hold_requested: Hold | None  # a hold waiting for the work on the cards to end
 
     @property
     def red(self) -> bool:
@@ -108,18 +124,55 @@ class GpuOrc:
         answer = self._call("GET", "/loading", LOADING_TIMEOUT_S)
         try:
             return TrafficLight(
-                tuple(str(model) for model in answer["loading"]), _held(answer["held"])
+                tuple(str(model) for model in answer["loading"]),
+                _hold(answer["held"]),
+                _hold(answer["hold_requested"]),
             )
         except (KeyError, TypeError) as error:
             raise GpuOrcError(f"GPU-Orc /loading has an unknown form: {error!r}") from error
 
-    def hold(self, reason: str) -> FreeResult:
-        """Keep the cards for somebody; GPU-Orc clears them all at once, the result is that."""
-        answer = self._call("POST", "/hold", self._caller_timeout(), {"reason": reason})
-        return _free_result(answer.get("free"), "/hold")
+    def hold(self, owner: str, reason: str) -> Hold:
+        """Ask to keep the cards for ``owner``. A new hold is only requested (``state``): GPU-Orc
+        clears the cards in the background once no work of others runs on them, and the hold turns
+        active with that result in ``free`` (wait for it with ``hold_and_wait``). Asking again
+        answers the own hold as it is. Another owner's hold is refused (GpuOrcError, HTTP 409)."""
+        answer = self._call("POST", "/hold", QUICK_TIMEOUT_S, {"owner": owner, "reason": reason})
+        try:
+            return _hold(answer["hold"]) or _no_hold("/hold")
+        except (KeyError, TypeError) as error:
+            raise GpuOrcError(f"GPU-Orc /hold has an unknown form: {error!r}") from error
 
-    def release_hold(self) -> None:
-        self._call("DELETE", "/hold", QUICK_TIMEOUT_S)
+    def hold_and_wait(self, owner: str, reason: str, poll_s: float, timeout_s: float) -> Hold:
+        """Ask to keep the cards and wait until ``owner``'s hold is active and clearing the cards
+        succeeded. A clearing that did not (``Hold.problems()``) raises GpuOrcError and leaves the
+        active hold to the caller. On timeout the own requested hold is withdrawn (it would clear
+        the cards later, unexpectedly) and GpuOrcError is raised."""
+        deadline = time.monotonic() + timeout_s
+        hold = self.hold(owner, reason)
+        while hold.state != "active":
+            if time.monotonic() >= deadline:
+                self.release_hold(owner)
+                raise GpuOrcError(
+                    f"the hold of {owner!r} was not active after {timeout_s} s: work still runs"
+                )
+            time.sleep(poll_s)
+            light = self.loading()
+            current = light.held or light.hold_requested
+            if current is None:
+                raise GpuOrcError(f"the hold of {owner!r} is gone (released)")
+            if current.owner != owner:
+                raise GpuOrcError(
+                    f"the hold of {owner!r} is gone, {current.owner!r} holds the cards"
+                )
+            hold = current
+        if hold.problems():
+            raise GpuOrcError(f"the hold of {owner!r} is active, but: {'; '.join(hold.problems())}")
+        return hold
+
+    def release_hold(self, owner: str, force: bool = False) -> None:
+        """``owner`` lets go of its hold (active or requested). ``force`` lets go of the hold of
+        anybody, for the person when a program died holding the cards; GPU-Orc logs it."""
+        self._call("DELETE", "/hold", QUICK_TIMEOUT_S, {"owner": owner, "force": force})
 
     def work_begin(self, owner: str, reason: str, ttl_s: float) -> None:
         """Report a job running here or renew its lease; it ends ``ttl_s`` s after the last one."""
@@ -138,7 +191,7 @@ class GpuOrc:
         return _free_result(self._call("POST", "/free", self._caller_timeout(), body), "/free")
 
     def _caller_timeout(self) -> float:
-        """How long a /free or /hold may take is GPU-Orc's say, on /health."""
+        """How long a /free may take is GPU-Orc's say, on /health."""
         timeout = self._call("GET", "/health", QUICK_TIMEOUT_S).get("caller_timeout_s")
         if isinstance(timeout, bool) or not isinstance(timeout, int | float):
             raise GpuOrcError("GPU-Orc /health names no caller_timeout_s")
@@ -180,8 +233,20 @@ def _error_text(error: urllib.error.HTTPError) -> str:
         return text
 
 
-def _held(held: Any) -> dict[str, str] | None:
-    return None if held is None else {"since": str(held["since"]), "reason": str(held["reason"])}
+def _hold(hold: Any) -> Hold | None:
+    if hold is None:
+        return None
+    return Hold(
+        str(hold["owner"]),
+        str(hold["reason"]),
+        str(hold["since"]),
+        str(hold["state"]),
+        None if hold["free"] is None else _free_result(hold["free"], "hold"),
+    )
+
+
+def _no_hold(path: str) -> Hold:
+    raise GpuOrcError(f"GPU-Orc {path} names no hold where one must be")
 
 
 def _free_result(answer: Any, path: str) -> FreeResult:

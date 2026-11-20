@@ -405,7 +405,7 @@ async def stress_prewarm_remote(model: RemoteModel, *, timeout_s: float = 600.0)
     client = gpu_orc(host)
     light = client.traffic_light()
     if light.held is not None:  # the burn-in unloads and loads there: not while somebody keeps the cards
-        raise RemoteHostError(f"{host.name}: the cards are held ({light.held['reason']})")
+        raise RemoteHostError(f"{host.name}: the cards are held ({light.held.reason})")
     if light.loading:
         raise RemoteHostError(f"{host.name}: {', '.join(light.loading)} is loading")
 

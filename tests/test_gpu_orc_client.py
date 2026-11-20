@@ -52,16 +52,6 @@ def test_a_release_has_the_status_line_read_stt_and_tts_again(fake, monkeypatch,
     assert asked == read_again
 
 
-def test_a_hold_that_releases_something_has_the_status_line_read_stt_and_tts_again(fake, monkeypatch) -> None:
-    from aifred.lib import gpu_orc_client
-
-    asked: list[str] = []
-    monkeypatch.setattr(gpu_orc_client, "notify_changed", asked.append)
-    fake.actions = [{"consumer": "tts-suite", "item": "xtts", "outcome": "released"}]
-    current_client().hold("gaming")
-    assert asked == ["stt", "tts"]
-
-
 def test_clearing_all_cards_keeps_the_model_servers_models(fake) -> None:
     current_client().free_all_but_models(reason="AIfred: calibration")
     assert fake.frees == [{"gpus": "all", "keep": [GPU_ORC_MODEL_SERVER], "reason": "AIfred: calibration"}]
@@ -76,16 +66,17 @@ def test_the_status_is_read_per_card(fake) -> None:
     ]
 
 
-def test_held_cards_make_the_light_red_and_a_hold_clears_them(fake) -> None:
+def test_held_cards_make_the_light_red_and_the_hold_names_its_owner(fake) -> None:
     orc = current_client()
     assert orc.traffic_light().red is False
-    fake.actions = [{"consumer": "llama-swap", "item": "describer", "outcome": "released"}]
-    result = orc.hold("gaming")
-    assert fake.holds == ["gaming"] and [a.outcome for a in result.actions] == ["released"]
+    hold = orc.hold("aifred-test", "gaming")
+    assert fake.holds == ["gaming"] and fake.hold_owners == ["aifred-test"]
+    assert hold.owner == "aifred-test" and hold.reason == "gaming"
     light = orc.traffic_light()
-    assert light.red is True and light.held is not None and light.held["reason"] == "gaming"
-    orc.release_hold()
-    assert orc.traffic_light() == TrafficLight((), None)
+    assert light.red is True and light.held is not None and light.held.reason == "gaming"
+    orc.release_hold("aifred-test")
+    assert fake.released_owners == ["aifred-test"]
+    assert orc.traffic_light() == TrafficLight((), None, None)
 
 
 def test_describe_says_what_was_released_what_stayed_and_whether_the_cards_are_free() -> None:

@@ -203,6 +203,23 @@ def test_unload_of_an_idle_model_goes_to_llama_swap(client: TestClient, monkeypa
     assert (answer.status_code, unloaded) == (200, [MAIN])
 
 
+def test_holding_a_card_answers_the_state_gpu_orc_gave(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GPU-Orc answers a new hold as requested (it clears in the background): the answer must not claim "held"."""
+    from aifred.lib import remote_describers
+    from aifred.lib.gpu_orc_client import Hold
+
+    calls: list[tuple[str, bool]] = []
+
+    def set_hold(host: str, hold: bool, reason: str) -> Hold | None:
+        calls.append((host, hold))
+        return Hold("aifred-statusleiste", reason, "2026-11-20T03:30:00+01:00", "requested", None) if hold else None
+
+    monkeypatch.setattr(remote_describers, "set_hold", set_hold)
+    assert client.post("/service-status/hold", json={"host": "Aragon", "hold": True}).json() == {"status": "requested"}
+    assert client.post("/service-status/hold", json={"host": "Aragon", "hold": False}).json() == {"status": "released"}
+    assert calls == [("Aragon", True), ("Aragon", False)]
+
+
 @pytest.mark.parametrize("item", ["../../unload", "Other-Model"])
 def test_unload_takes_only_a_model_the_status_line_lists(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, item: str,

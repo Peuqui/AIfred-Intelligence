@@ -1349,6 +1349,9 @@ REMOTE_LLAMASWAP_TIMEOUT_S = 15
 # so that nothing restarts the machine under it. The report is a lease: GPU-Orc ends it by itself after
 # ``GPU_ORC_WORK_TTL_S`` without renewal (AIfred crashed), AIfred renews it every ``GPU_ORC_WORK_POLL_S``.
 GPU_ORC_WORK_OWNER = "aifred"
+# Owner of the holds the "hold free" button of the status bar sets (lib/remote_describers.set_hold). It must differ from
+# ``GPU_ORC_WORK_OWNER``: GPU-Orc does not count the work of the owner itself as a blocker of its hold.
+GPU_ORC_STATUSBAR_HOLD_OWNER = "aifred-statusleiste"
 GPU_ORC_WORK_POLL_S = 15
 GPU_ORC_WORK_TTL_S = 60
 

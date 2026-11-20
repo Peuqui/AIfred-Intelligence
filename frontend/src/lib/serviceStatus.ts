@@ -32,7 +32,8 @@ export interface Labels {
   loading: string;
   busy: string;
   unreachable: string;
-  hostHeld: string;
+  hostHeld: string; // "held free by {owner}"
+  hostRequested: string; // the hold is asked for, work still runs on the cards
   hostUsed: string; // "{used} of {total} MiB in use"
 }
 
@@ -105,7 +106,9 @@ export function hostRows(hosts: HostStatus[], labels: Labels): (Row & { label: s
       color: host.held ? "yellow" : "green",
       text,
       detail: host.holders.map((holder) => `${holder.consumer}: ${holder.item}`).join("\n") || undefined,
-      title: host.held ? `${labels.hostHeld}: ${host.held}` : text,
+      title: host.held
+        ? `${labels.hostHeld.replace("{owner}", host.hold_owner ?? "")}${host.hold_state === "requested" ? ` (${labels.hostRequested})` : ""}: ${host.held}`
+        : text,
       remaining: null,
       upperBound: false,
       action: { verb: host.held ? "release" : "hold", service: "host", item: host.name },

@@ -5,7 +5,7 @@ import { formatRemaining, hostRows, serviceRows, summaryColor } from "./serviceS
 
 const LABELS = {
   lang: "de", noModel: "kein Modell", noneLoaded: "nichts", loading: "lädt", busy: "arbeitet",
-  unreachable: "weg", hostHeld: "freigehalten", hostUsed: "{used} von {total} MiB belegt",
+  unreachable: "weg", hostHeld: "freigehalten von {owner}", hostRequested: "angefordert", hostUsed: "{used} von {total} MiB belegt",
 };
 
 const SNAPSHOT: ServiceSnapshot = {
@@ -45,14 +45,20 @@ describe("serviceRows", () => {
 describe("hostRows", () => {
   it("a held machine is yellow and offers the release", () => {
     const holders = [{ consumer: "llama-swap", item: "eyes" }, { consumer: "tts-suite", item: "voice" }];
-    const [row] = hostRows([{ name: "Aragon", reachable: true, held: "vllm", used_mib: 1024, total_mib: 24576, holders, error: "" }], LABELS);
+    const [row] = hostRows([{ name: "Aragon", reachable: true, held: "vllm", hold_state: "active", hold_owner: "vllm-research", used_mib: 1024, total_mib: 24576, holders, error: "" }], LABELS);
     expect(row).toMatchObject({ color: "yellow", label: "Aragon", action: { verb: "release", service: "host", item: "Aragon" } });
     expect(row?.text).toBe("1.024 von 24.576 MiB belegt");
     expect(row?.detail).toBe("llama-swap: eyes\ntts-suite: voice");
+    expect(row?.title).toBe("freigehalten von vllm-research: vllm");
+  });
+
+  it("a requested hold is yellow too and says so in the title", () => {
+    const [row] = hostRows([{ name: "Aragon", reachable: true, held: "vllm", hold_state: "requested", hold_owner: "aifred-statusleiste", used_mib: 1, total_mib: 2, holders: [], error: "" }], LABELS);
+    expect(row).toMatchObject({ color: "yellow", title: "freigehalten von aifred-statusleiste (angefordert): vllm", action: { verb: "release" } });
   });
 
   it("a machine that is off is only a red dot", () => {
-    const [row] = hostRows([{ name: "Aragon", reachable: false, held: null, used_mib: 0, total_mib: 0, holders: [], error: "off" }], LABELS);
+    const [row] = hostRows([{ name: "Aragon", reachable: false, held: null, hold_state: null, hold_owner: null, used_mib: 0, total_mib: 0, holders: [], error: "off" }], LABELS);
     expect(row).toMatchObject({ color: "red", text: "", title: "off", action: null });
   });
 });

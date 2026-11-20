@@ -25,12 +25,13 @@ import httpx
 
 from .config import (
     GPU_ORC_MODEL_SERVER,
+    GPU_ORC_STATUSBAR_HOLD_OWNER,
     REMOTE_LLAMASWAP_TIMEOUT_S,
     VISION_REMOTE_HEALTH_TIMEOUT_S,
     VISION_REMOTE_HOSTS,
     VLM_HEADROOM_MIB,
 )
-from .gpu_orc_client import CardStatus, GpuOrcClient, GpuOrcError
+from .gpu_orc_client import CardStatus, GpuOrcClient, GpuOrcError, Hold
 from .user_error import UpstreamFailed, UserError
 from .vision_vram_check import VRAMCheckResult
 
@@ -179,7 +180,7 @@ def check_fits(model: RemoteModel) -> VRAMCheckResult:
                                    reason=UserError("vram_remote_card_usage_unknown", host=host.name, error=error))
         if hold is not None:
             return VRAMCheckResult(fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
-                                   reason=UserError("vram_remote_held", host=host.name, reason=hold["reason"]))
+                                   reason=UserError("vram_remote_held", host=host.name, reason=hold.reason))
         return VRAMCheckResult(fits=True, needed_mb=0, free_mb=0, gpu_index=-1,
                                reason=UserError("vram_profile_loaded", profile=model.qualified))
     if model.context is None:
@@ -203,7 +204,7 @@ def check_fits(model: RemoteModel) -> VRAMCheckResult:
                                reason=UserError("vram_remote_card_usage_unknown", host=host.name, error=error))
     if light.held is not None:
         return VRAMCheckResult(fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
-                               reason=UserError("vram_remote_held", host=host.name, reason=light.held["reason"]))
+                               reason=UserError("vram_remote_held", host=host.name, reason=light.held.reason))
     if light.loading:
         return VRAMCheckResult(fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
                                reason=UserError("vram_remote_loading", host=host.name, models=", ".join(light.loading)))
@@ -316,7 +317,9 @@ class HostStatus:
 
     name: str
     reachable: bool  # its GPU-Orc answers
-    held: str | None  # the reason somebody holds the cards, None = free
+    held: str | None  # the reason somebody holds the cards (requested or active), None = free
+    hold_state: str | None  # "requested" (work still runs, nothing cleared yet) | "active", None = free
+    hold_owner: str | None  # who holds them (only the owner lets go, so the status bar says who it is), None = free
     used_mib: int
     total_mib: int
     holders: list[HostHolder]  # what is on its cards (the describer, TTS containers), as its consumers report it
@@ -328,31 +331,34 @@ def host_status() -> list[HostStatus]:
     rows = []
     for host in remote_hosts():
         if not reachable(host):
-            rows.append(HostStatus(host.name, False, None, 0, 0, [], f"{host.name} does not answer"))
+            rows.append(HostStatus(host.name, False, None, None, None, 0, 0, [], f"{host.name} does not answer"))
             continue
         try:
             client = gpu_orc(host)
             light = client.traffic_light()
             cards = client.card_status()
         except GpuOrcError as error:
-            rows.append(HostStatus(host.name, False, None, 0, 0, [], str(error)))
+            rows.append(HostStatus(host.name, False, None, None, None, 0, 0, [], str(error)))
             continue
+        hold = light.held or light.hold_requested
         rows.append(HostStatus(
-            host.name, True, light.held["reason"] if light.held else None,
+            host.name, True, hold.reason if hold else None, hold.state if hold else None, hold.owner if hold else None,
             sum(c.used_mib for c in cards), sum(c.total_mib for c in cards),
             sorted({HostHolder(h.consumer, h.item) for c in cards for h in c.holders}, key=lambda h: (h.consumer, h.item)), "",
         ))
     return rows
 
 
-def set_hold(host_name: str, hold: bool, reason: str) -> None:
-    """Hold the cards of ``host_name`` for somebody (``POST /hold`` there, which clears them all) or let go.
-    :class:`RemoteHostError` for an unknown machine, :class:`GpuOrcError` when its GPU-Orc fails."""
+def set_hold(host_name: str, hold: bool, reason: str) -> Hold | None:
+    """Ask to hold the cards of ``host_name`` for somebody (``POST /hold`` there, which clears them in the background
+    once no work runs on them) or let go of the status bar's hold. Returns the hold as GPU-Orc answered it
+    (requested at first), None after letting go. :class:`RemoteHostError` for an unknown machine,
+    :class:`GpuOrcError` when its GPU-Orc fails (another owner's hold: HTTP 409)."""
     host = next((h for h in remote_hosts() if h.name == host_name), None)
     if host is None:
         raise RemoteHostError(f"no machine '{host_name}' in VISION_REMOTE_HOSTS")
     client = gpu_orc(host)
     if hold:
-        client.hold(reason)
-    else:
-        client.release_hold()
+        return client.hold(GPU_ORC_STATUSBAR_HOLD_OWNER, reason)
+    client.release_hold(GPU_ORC_STATUSBAR_HOLD_OWNER)
+    return None
