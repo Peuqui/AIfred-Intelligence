@@ -154,7 +154,7 @@ Modulglobal: `_audio_runtime_state` (AP:33), Schnappschuss der `media_*`-Felder 
 | `measure_remote_describer` (background) | Einbrennen auf fernem Rechner (VS:283–310) | `remote_describers.remote_model`, `vlm_stress_prewarm.stress_prewarm_remote` | VRAM-Cache (lib) |
 | `_discover_vision_models`, `rescan_vision_models` | Modell-Liste (VS:312–360, 1124–1127) | `calibration.llamaswap_io.parse_llamaswap_config`, `ollama_models.list_ollama_vlm_models` (HTTP), `vision_routing._normalize` (privat!) | – |
 | `set_vision_mode_value` | Modus; bei `live` sofort laden (VS:374–390) | `vision_prewarm.prewarm_vlm` | settings.json `vision_mode` |
-| `set_vision_model_value` | Modell wechseln, altes Ollama-Modell entladen (VS:392–412) | `vision_routing.visiond_profile_for`, `vision_prewarm.unload_vlm_model` | settings.json `vlm.model` |
+| `set_vision_model_value` | entfallen (19.11.2026): das Bildmodell ist das Vision-LLM der Haupteinstellungen (`vision_prewarm.get_active_vlm_model`), die Vigilantia-Einstellungen zeigen es nur | – | – |
 | `set_face_recognition_enabled/_continuous`, `set_face_retention_days` | Schalter (VS:414–451) | – | settings.json `face_recognition.*` |
 | `_reload_vigilantia_sources` | Kamerakarten bauen (VS:473–529); auch aus dem 500-ms-Takt, solange die Liste leer ist (VF:107–108) | `frame_sources.list_all` + `src.info()` (Kamera-Probe), `VisionStore.get_source` | – |
 | `set_vigilantia_source_auto_start` | Hintergrund je Kamera; wenn scharf sofort starten/stoppen (VS:572–599) | `VisionStore.update_source_fields`, `vision_autostart.start_background_watcher`, `vision_watcher.get_default_watcher().stop` | vision.db `sources.auto_start` |

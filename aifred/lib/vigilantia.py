@@ -1,9 +1,10 @@
 """The eye of the vision and its general settings, for every interface (the vision page of Vue): armed or not with its consequence (every background watcher started or stopped),
-how the image model stays (on demand or live), which model, the face and person detection, the image model loaded or not
+how the image model stays (on demand or live), the face and person detection, the image model loaded or not
 (how long events are kept is the vision plugin's settings form, ``vision_cleanup``). Everything lives in the plugin's ``settings.json`` (``vision_settings``).
 
-Changes take effect as before: a mode switched to live loads the model at once, a new model unloads the old one
-(an Ollama model; llama-swap swaps a describer itself), face and person detection act at a watcher's next start.
+The image model itself is not chosen here: it is the Vision-LLM of the main settings (``vision_prewarm.get_active_vlm_model``).
+Changes take effect as before: a mode switched to live loads the model at once, face and person detection act at a
+watcher's next start.
 """
 
 from __future__ import annotations
@@ -22,7 +23,6 @@ class Vigilantia:
     plugin_enabled: bool      # the eye can only be armed with the vision plugin on
     armed: bool
     mode: str                 # on-demand: the image model loads when asked; live: it stays loaded
-    model: str
     face_enabled: bool
     face_continuous: bool     # faces looked for all the time, not only on motion
     person_detect: bool       # persons looked for on motion
@@ -53,7 +53,6 @@ def vigilantia() -> Vigilantia:
         plugin_enabled=is_plugin_enabled("vision"),
         armed=bool(settings.get("vigilantia_armed", False)),
         mode=mode,
-        model=str((settings.get("vlm") or {}).get("model") or ""),
         face_enabled=bool(faces.get("enabled", True)),
         face_continuous=bool(faces.get("continuous", False)),
         person_detect=bool(watch.get("run_person_detect_on_motion", False)),
@@ -87,7 +86,7 @@ async def set_armed(armed: bool) -> int:
 
 
 async def change(
-    *, mode: str | None = None, model: str | None = None, face_enabled: bool | None = None,
+    *, mode: str | None = None, face_enabled: bool | None = None,
     face_continuous: bool | None = None, person_detect: bool | None = None,
 ) -> Vigilantia:
     """Change some of the general settings, with their consequences (see the module). Refuses a mode the eye does
@@ -99,8 +98,6 @@ async def change(
     update: dict[str, Any] = {}
     if mode is not None:
         update["vision_mode"] = mode
-    if model is not None:
-        update["vlm"] = {"model": model}
     if faces:
         update["face_recognition"] = faces
     if person_detect is not None:
@@ -110,30 +107,23 @@ async def change(
         from .vision_prewarm import prewarm_vlm
 
         await prewarm_vlm()
-    if model is not None and before.model and before.model != model:
-        from .vision_routing import visiond_profile_for
-
-        if visiond_profile_for(before.model) is None:   # an Ollama model; llama-swap swaps a describer itself
-            from .vision_prewarm import unload_vlm_model
-
-            await unload_vlm_model(before.model)
     return vigilantia()
 
 
 async def model_loaded() -> bool:
-    from .vision_prewarm import is_vlm_loaded
+    from .vision_prewarm import get_active_vlm_model, is_vlm_loaded
 
-    model = vigilantia().model
-    return bool(model) and await is_vlm_loaded(model)
+    model = get_active_vlm_model()
+    return model is not None and await is_vlm_loaded(model)
 
 
 async def load_model(load: bool) -> bool:
     """Load the image model (also in on-demand mode, with the plugin's keep_alive) or unload it; returns whether it
     is loaded afterwards, as the backend reports it, never as the call answered."""
     from .config import VISION_VLM_KEEP_ALIVE_DEFAULT
-    from .vision_prewarm import prewarm_vlm, unload_vlm_model
+    from .vision_prewarm import get_active_vlm_model, prewarm_vlm, unload_vlm_model
 
-    model = vigilantia().model
+    model = get_active_vlm_model()
     if not model:
         raise Conflict("no_image_model")
     if load:

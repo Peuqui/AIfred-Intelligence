@@ -102,12 +102,11 @@ def _no_real_remote_describers(monkeypatch):
     """Tests dürfen nie einen anderen Rechner fragen (VISION_REMOTE_HOSTS aus der .env der
     Produktion) und nie die Beschreiber-Liste dieses Rechners lesen: keine Rechner, die Standard-
     Liste. Tests, die etwas anderes brauchen, setzen ihr eigenes."""
-    from aifred.lib import describer_list, remote_describers, vision_routing
+    from aifred.lib import describer_list, remote_describers
 
     monkeypatch.setattr(remote_describers, "VISION_REMOTE_HOSTS", "[]")
-    # Nor the describer list and the VLM of this machine's Vigilantia settings: the default list, no VLM.
+    # Nor the describer list of this machine: the default list.
     monkeypatch.setattr(describer_list, "_settings", dict)
-    monkeypatch.setattr(vision_routing, "camera_vlm", lambda: "")
 
 
 @pytest.fixture(autouse=True)

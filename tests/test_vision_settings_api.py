@@ -1,6 +1,5 @@
 """The vision page's settings (lib/api/vigilantia.py, PATCH /vision/cameras): the eye armed and disarmed with every
-background watcher, arming refused without the plugin, mode and model with their consequences (live loads, a new
-model unloads the old Ollama one), the general settings checked; a camera's alerts, quiet hours, window and event
+background watcher, arming refused without the plugin, mode with its consequence (live loads; the model is the Vision-LLM of the main settings, not set here), the general settings checked; a camera's alerts, quiet hours, window and event
 interval checked and kept, its background switch and window applied at once; the alert rules, the RTSP cameras and
 the describer list with its burn-in. Cameras, vision.db, the plugin's settings.json, the watcher, the model backend
 and the other machine are stand-ins."""
@@ -52,7 +51,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Tes
     from aifred.lib.auth import USERNAME_COOKIE_NAME
 
     settings_file = tmp_path / "vision_settings.json"
-    settings_file.write_text(json.dumps({"vision_mode": "on-demand", "vigilantia_armed": False, "vlm": {"model": "qwen3-vl:4b-instruct-q8_0"},
+    settings_file.write_text(json.dumps({"vision_mode": "on-demand", "vigilantia_armed": False,
                                          "face_recognition": {"enabled": True, "retention_days": 7}}))
     monkeypatch.setattr(vision_settings, "VISION_SETTINGS_PATH", settings_file)
     monkeypatch.setattr(vision_store, "DEFAULT_DB_PATH", tmp_path / "vision.db")
@@ -60,7 +59,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Tes
     monkeypatch.setattr(frame_sources, "list_all", lambda: [camera])
     monkeypatch.setattr(frame_sources, "get", lambda source_id: camera if source_id == camera.source_id else None)
     monkeypatch.setattr(ptz_control, "get_controller", lambda _source_id: None)
-    world: dict[str, Any] = {"plugin": True, "calls": [], "watcher": _Watcher()}
+    world: dict[str, Any] = {"plugin": True, "calls": [], "watcher": _Watcher(), "vision_llm": "Qwen3VL-4B-Instruct-Q8_0"}
     monkeypatch.setattr(plugin_registry, "is_plugin_enabled", lambda name: world["plugin"] if name == "vision" else True)
     monkeypatch.setattr(vision_watcher, "get_default_watcher", lambda: world["watcher"])
 
@@ -89,9 +88,8 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Tes
     monkeypatch.setattr(vision_autostart, "stop_all_background_watchers", stop_all)
     monkeypatch.setattr(vision_prewarm, "prewarm_vlm", prewarm)
     monkeypatch.setattr(vision_prewarm, "unload_vlm_model", unload)
-    monkeypatch.setattr(vision_routing, "image_models", lambda: ["Qwen3VL-4B-Instruct-Q8_0", "qwen3-vl:8b"])
-    # The 4B one has a llama-swap describer profile (llama-swap swaps it itself), the 8B one is Ollama's only.
-    monkeypatch.setattr(vision_routing, "visiond_profile_for", lambda name: "Qwen3VL-4B-visiond" if "4b" in name.lower() else None)
+    # The one image model of this machine: the Vision-LLM of the main settings.
+    monkeypatch.setattr(vision_routing, "settings_model", lambda role: world["vision_llm"] if role == "vision" else "")
     with TestClient(api_app) as test_client:
         test_client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))
         yield test_client, world, settings_file
@@ -107,19 +105,20 @@ def test_the_eye_arms_and_disarms_every_background_watcher_and_needs_the_plugin(
     assert json.loads(settings_file.read_text())["vigilantia_armed"] is False
 
 
-def test_the_settings_show_the_listed_model_and_change_with_their_consequences(world: tuple[TestClient, dict[str, Any], Path]) -> None:
+def test_the_settings_show_the_vision_llm_and_change_with_their_consequences(world: tuple[TestClient, dict[str, Any], Path]) -> None:
     client, state, settings_file = world
     shown = client.get("/vision/settings").json()
-    assert shown["model"] == "Qwen3VL-4B-Instruct-Q8_0"          # the Ollama spelling read as the listed model
+    assert shown["model"] == "Qwen3VL-4B-Instruct-Q8_0"          # the Vision-LLM of the main settings
+    assert "models" not in shown
     assert [kind["id"] for kind in shown["alert_types"]] == ["person", "vehicle", "animal", "face"]
-    client.patch("/vision/settings", json={"mode": "live", "model": "qwen3-vl:8b", "face_continuous": True})
-    assert state["calls"] == ["prewarm"]                          # live loads; the old llama-swap model swaps itself
-    client.patch("/vision/settings", json={"model": "Qwen3VL-4B-Instruct-Q8_0"})
-    assert state["calls"] == ["prewarm", "unload qwen3-vl:8b"]    # the old Ollama model leaves the card
+    client.patch("/vision/settings", json={"mode": "live", "face_continuous": True})
+    assert state["calls"] == ["prewarm"]                          # live loads
     stored = json.loads(settings_file.read_text())
-    assert (stored["vision_mode"], stored["vlm"]["model"]) == ("live", "Qwen3VL-4B-Instruct-Q8_0")
+    assert stored["vision_mode"] == "live" and "vlm" not in stored
     assert stored["face_recognition"] == {"enabled": True, "retention_days": 7, "continuous": True}   # the rest stays
     assert client.patch("/vision/settings", json={"mode": "off"}).status_code == 422
+    assert client.patch("/vision/settings", json={"model": "qwen3-vl:8b"}).status_code == 422   # chosen in the main settings only
+    assert "vlm" not in json.loads(settings_file.read_text())
     for gone in ({"retention_days": 30}, {"gc_prune": False}, {"gc_describe": False}):    # only the plugin's form changes these
         assert client.patch("/vision/settings", json=gone).status_code == 422
     assert not {"retention_days", "gc_prune", "gc_describe"} & set(shown)
@@ -318,7 +317,7 @@ def test_the_describer_list_is_shown_moved_and_switched_and_kept_in_the_settings
     assert shown["measuring"] == ""
     assert [(row["source"], row["enabled"], row["remote"]) for row in shown["rows"]] == [
         ("local", True, False), ("main", True, False), (f"Box/{BIG}", False, True)]
-    assert shown["rows"][0]["label"] == "qwen3-vl:4b-instruct-q8_0 · dieser Rechner"
+    assert shown["rows"][0]["label"] == "Qwen3VL-4B-Instruct-Q8_0 · dieser Rechner"     # the Vision-LLM of the main settings
     assert shown["rows"][2]["warn"] is True and "24.576" in shown["rows"][2]["note"]      # not measured at its context
 
     moved = client.post("/describers/move", json={"index": 2, "delta": -1}).json()
@@ -369,5 +368,5 @@ def test_a_zone_mask_changes_only_its_own_camera_and_leaves_the_other_settings(w
     assert client.post("/vision/zone-mask", json={"source_id": "cam/a", "cols": 2, "rows": 1, "cells": "00"}).status_code == 200
     stored = json.loads(settings_file.read_text())
     assert stored["zone_masks"] == {"cam/b": mask}
-    assert stored["vigilantia_armed"] is True and stored["vlm"] == {"model": "qwen3-vl:4b-instruct-q8_0"}
+    assert stored["vigilantia_armed"] is True and "vlm" not in stored
     assert client.post("/vision/zone-mask", json={"source_id": "cam/b", "cols": 2, "rows": 1, "cells": "09"}).status_code == 400

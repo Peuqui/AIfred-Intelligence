@@ -30,7 +30,8 @@ def patched_settings(monkeypatch, tmp_path: Path):
 
     ``state["settings"]`` feeds load_vision_settings (vision_mode/vlm),
     ``state["plugin_enabled"]`` feeds is_plugin_enabled (the override trigger)."""
-    state: dict = {"settings": {}, "plugin_enabled": True, "visiond": None, "visiond_fits": True}
+    state: dict = {"settings": {}, "plugin_enabled": True, "visiond": None, "visiond_fits": True,
+                   "vision_llm": "qwen3-vl:4b-instruct-q8_0"}
 
     monkeypatch.setattr(vpw, "load_vision_settings", lambda: state["settings"])
     monkeypatch.setattr(pr, "is_plugin_enabled", lambda *a, **k: state["plugin_enabled"])
@@ -50,6 +51,8 @@ def patched_settings(monkeypatch, tmp_path: Path):
         return (state["visiond"] if state["visiond_fits"] else None), fit
 
     monkeypatch.setattr(vr, "fitting_visiond", fitting)
+    # The image model is the Vision-LLM of the main settings (state["vision_llm"]), not a field of the vision settings.
+    monkeypatch.setattr(vr, "settings_model", lambda role: state["vision_llm"] if role == "vision" else "")
     return state
 
 
@@ -64,10 +67,16 @@ class TestActiveCheck:
         patched_settings["plugin_enabled"] = True
         patched_settings["settings"] = {
             "vision_mode": "on-demand",
-            "vlm": {"model": "qwen3-vl:4b-instruct-q8_0"},
         }
         assert vpw.is_vision_active() is True
         assert vpw.get_active_vlm_model() == "qwen3-vl:4b-instruct-q8_0"
+
+    def test_the_image_model_is_the_vision_llm_not_a_vision_settings_field(self, patched_settings):
+        patched_settings["settings"] = {"vision_mode": "on-demand", "vlm": {"model": "Stale-Field-VL"}}
+        patched_settings["vision_llm"] = "Vision-LLM-27B"
+        assert vpw.get_active_vlm_model() == "Vision-LLM-27B"
+        patched_settings["plugin_enabled"] = False
+        assert vpw.get_active_vlm_model() is None          # vision off: nothing
 
     def test_plugin_enabled_live(self, patched_settings):
         patched_settings["plugin_enabled"] = True
@@ -86,7 +95,8 @@ class TestPrewarm:
         import threading
 
         import aifred.lib.vision_routing as vr
-        patched_settings["settings"] = {"vision_mode": "live", "vlm": {"model": "Local-VL"}}
+        patched_settings["settings"] = {"vision_mode": "live"}
+        patched_settings["vision_llm"] = "Local-VL"
         asked: list[int] = []
 
         def fitting(name):
@@ -106,7 +116,7 @@ class TestPrewarm:
         # on-demand: slot reserved but empty → no Ollama call, just True.
         patched_settings["settings"] = {
             "vision_mode": "on-demand",
-            "vlm": {"model": "qwen3-vl:4b-instruct-q8_0", "keep_alive": "30m"},
+            "vlm": {"keep_alive": "30m"},
         }
         called: dict = {"hit": False}
 
@@ -124,7 +134,7 @@ class TestPrewarm:
     ):
         patched_settings["settings"] = {
             "vision_mode": "live",
-            "vlm": {"model": "qwen3-vl:4b-instruct-q8_0", "keep_alive": "30m"},
+            "vlm": {"keep_alive": "30m"},
         }
         captured: dict = {}
 
@@ -147,7 +157,6 @@ class TestPrewarm:
         # Mini-Request über llama-swap statt über Ollama.
         patched_settings["settings"] = {
             "vision_mode": "live",
-            "vlm": {"model": "qwen3-vl:4b-instruct-q8_0"},
         }
         patched_settings["visiond"] = "Qwen3VL-4B-Instruct-Q8_0-visiond"
         captured: dict = {}
@@ -182,7 +191,6 @@ class TestPrewarm:
         # Prewarm nichts (kein Request, der das Chat-LLM verdrängen würde).
         patched_settings["settings"] = {
             "vision_mode": "live",
-            "vlm": {"model": "qwen3-vl:4b-instruct-q8_0"},
         }
         patched_settings["visiond"] = "Qwen3VL-4B-Instruct-Q8_0-visiond"
         patched_settings["visiond_fits"] = False
@@ -197,13 +205,13 @@ class TestPrewarm:
 
     def test_returns_false_when_no_model_configured(self, patched_settings):
         # live mode reaches the model check (on-demand would no-op earlier).
-        patched_settings["settings"] = {"vision_mode": "live", "vlm": {}}
+        patched_settings["settings"] = {"vision_mode": "live"}
+        patched_settings["vision_llm"] = ""
         assert run(vpw.prewarm_vlm()) is False
 
     def test_ollama_failure_returns_false(self, patched_settings, monkeypatch):
         patched_settings["settings"] = {
             "vision_mode": "live",
-            "vlm": {"model": "qwen3-vl:4b-instruct-q8_0"},
         }
 
         async def boom(self, **kwargs):
@@ -217,7 +225,7 @@ class TestPrewarm:
         # override bypasses the on-demand no-op and forces a load.
         patched_settings["settings"] = {
             "vision_mode": "on-demand",
-            "vlm": {"model": "qwen3-vl:4b-instruct-q8_0", "keep_alive": "30m"},
+            "vlm": {"keep_alive": "30m"},
         }
         captured: dict = {}
 

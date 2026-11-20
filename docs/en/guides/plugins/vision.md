@@ -33,9 +33,11 @@ each, all in `aifred/lib/`):
 | `vision_continuous_vlm` | continuous VLM of the live teleprompter |
 | `vision_settings` | access to the plugin's `settings.json` |
 
-A key design point: **VLM calls go through Ollama as a side-channel**, fully
-independent of the active chat backend on llama-swap. A snapshot analysis never
-swaps out the running chat model.
+A key design point: **the describer list decides who describes**
+([vision-routing.md](../../architecture/vision-routing.md)): models of other machines, this machine
+(the Vision-LLM via its `-visiond` profile beside the chat model, Ollama only as an optional side
+channel) and the loaded main model when it sees itself. Automatic paths never evict the running chat
+model; only an explicit request may.
 
 ## Tools
 
@@ -508,8 +510,9 @@ Two models back this plugin, both loaded on demand:
   `~/.insightface/models/buffalo_l/` on first use (~280 MB). Lazy init, one
   instance per process. Provider and GPU are configurable; on a GPU-poor host it
   falls back to `CPUExecutionProvider`.
-- **VLM via Ollama** — image description. Default in code is `qwen2.5vl:7b-q8_0`;
-  the shipped `settings.json` overrides this to `qwen3-vl:4b-instruct-q8_0`.
+- **VLM (the Vision-LLM of the main settings)** — image description. The model
+  is chosen only there (Settings → Vision-LLM, `backend_models[<backend>]["vision"]`);
+  the Vigilantia settings show it, the plugin has no model choice of its own.
   Multi-image inputs are sent as a temporal sequence. The model is held in VRAM
   via `keep_alive` (default `30m`); in `live` mode `keep_alive` is forced to `-1`
   so the model stays permanently loaded for always-on surveillance.
@@ -537,7 +540,7 @@ All settings live in `aifred/plugins/tools/vision/settings.json` and are loaded
 fresh on every call, so you can tune them from the plugin manager without
 restarting. Key groups:
 
-- **`vlm`** — `model`, `num_ctx`, `keep_alive`, `host`.
+- **`vlm`** — `num_ctx`, `keep_alive`, `host` (the model is the Vision-LLM of the main settings).
 - **`face_recognition`** — `providers`, `gpu_id` (int / `"auto"` / `null` for
   CPU-only), `det_size`, `model_name` (`buffalo_l`), `threshold_known`,
   `threshold_unsure`, `retention_days`, `gc_describe` and `gc_prune` (the two

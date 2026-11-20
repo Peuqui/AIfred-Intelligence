@@ -61,8 +61,8 @@ mehreren Minuten dauern).
 
 **Die Beschreiber-Liste** ([`aifred/lib/describer_list.py`](../../../aifred/lib/describer_list.py)),
 in den Vigilantia-Einstellungen bearbeitet wie die TTS-Liste (Pfeile, Schalter): Einträge sind ein Modell
-eines anderen Rechners (`<rechner>/<modell>`), dieser Rechner (das VLM der Vigilantia-Einstellungen über
-sein `-visiond`-Profil) und das Hauptmodell, wenn es selbst sieht. Der erste eingeschaltete Eintrag, der
+eines anderen Rechners (`<rechner>/<modell>`), dieser Rechner (das Vision-LLM der Haupteinstellungen über
+sein `-visiond`-Profil; es gibt kein zweites Bildmodell in den Vigilantia-Einstellungen, dort steht sein Name nur zur Anzeige) und das Hauptmodell, wenn es selbst sieht. Der erste eingeschaltete Eintrag, der
 jetzt kann, beschreibt. Die angezeigte und gespeicherte Liste ist immer der Abgleich mit dem, was da ist:
 Neues kommt ausgeschaltet ans Ende, ein Modell, das ein antwortender Rechner nicht mehr hat, fällt raus,
 die Einträge eines Rechners, der nicht antwortet, bleiben. Ohne gespeicherte Liste: dieser Rechner, dann das

@@ -272,7 +272,7 @@ def test_vigilantia_under_a_hold_ends_like_no_describer_free(orc, seen, describe
 
     async def cluster(_ids: Any, **_kw: Any) -> str:
         description, _ = await vision_event_analysis.analyze_frames_with_vlm(
-            [_frame()], base_prompt="p", source_id="cam/test", model="Small-VL-4B", explicit=False,
+            [_frame()], base_prompt="p", source_id="cam/test", explicit=False,
         )
         return description
 

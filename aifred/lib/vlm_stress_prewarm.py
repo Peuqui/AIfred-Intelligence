@@ -308,13 +308,13 @@ async def resolve_vlm_reserve(
     Two call modes:
 
     * **Phase 1 — no override.** Reads :func:`is_vision_active` and
-      :func:`get_active_vlm_model` from the plugin settings; if vision is
+      :func:`get_active_vlm_model` (the Vision-LLM of the main settings); if vision is
       off, returns ``(None, 0)``. This is the path the BASE/TTS
       calibration takes when the user did not pick any VLM checkbox in
       the modal.
     * **Phase 2 — explicit override.** The modal loop passes a concrete
       ``model_id`` (e.g. ``qwen3-vl:8b-instruct-q8_0``); ``vision_mode``
-      and ``vlm.model`` from settings.json are ignored. This is how the
+      and the Vision-LLM of the main settings are ignored. This is how the
       multi-variant loop measures each user-selected VLM independently.
 
     Resolution order — hardware-agnostic, no hand-pinned tables:

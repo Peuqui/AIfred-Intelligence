@@ -7,6 +7,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import asyncio
+from types import SimpleNamespace
+
+from aifred.lib import vision_event_analysis, vision_prewarm, vision_routing
 from aifred.lib.vision_event_analysis import _select_keyframes
 
 _T0 = datetime(2026, 6, 3, 19, 0, 0)
@@ -53,3 +57,52 @@ def test_prefers_change_point_within_bin():
 
 def test_max_frames_zero_is_empty():
     assert _select_keyframes(_items([(0, 1), (1, 2)]), 0) == []
+
+
+def test_the_describing_target_follows_the_vision_llm_of_the_main_settings(monkeypatch):
+    """The cluster/bulk description asks for the image model of this machine: the Vision-LLM of settings.json
+    (no second choice in the vision settings)."""
+    asked: list[str] = []
+
+    def describer(model: str, *, explicit: bool):
+        asked.append(model)
+        return vision_routing.Describer(f"{model}-visiond", evicts_chat_model=False)
+
+    async def describe_via(pick, _run):
+        pick()
+        return SimpleNamespace(text="a person at the door", model="m")
+
+    monkeypatch.setattr(vision_prewarm, "is_vision_active", lambda: True)
+    monkeypatch.setattr(vision_routing, "settings_model", lambda role: "Vision-LLM-27B" if role == "vision" else "")
+    monkeypatch.setattr(vision_routing, "camera_describer", describer)
+    monkeypatch.setattr(vision_routing, "describe_via", describe_via)
+    monkeypatch.setattr(vision_event_analysis, "build_vlm_prompt", lambda *args, **kwargs: "p")
+    frame = SimpleNamespace(image_bytes=b"x")
+    text, _model = asyncio.run(vision_event_analysis.analyze_frames_with_vlm(
+        [frame], base_prompt="p", source_id="cam/x", explicit=False))
+    assert asked == ["Vision-LLM-27B"] and text == "a person at the door"
+
+
+def test_without_a_vision_llm_the_describer_list_still_describes(monkeypatch):
+    """No Vision-LLM set: the entry "this machine" has no model, but another machine of the list can still
+    describe — the camera paths ask the list instead of refusing beforehand (they raised "no VLM model
+    configured" before the list was asked)."""
+    asked: list[str] = []
+
+    def describer(model: str, *, explicit: bool):
+        asked.append(model)
+        return vision_routing.Describer("Aragon/Remote-VL-visiond", evicts_chat_model=False)
+
+    async def describe_via(pick, _run):
+        pick()
+        return SimpleNamespace(text="a parcel on the step", model="Aragon/Remote-VL-visiond")
+
+    monkeypatch.setattr(vision_prewarm, "is_vision_active", lambda: True)
+    monkeypatch.setattr(vision_routing, "settings_model", lambda role: "")
+    monkeypatch.setattr(vision_routing, "camera_describer", describer)
+    monkeypatch.setattr(vision_routing, "describe_via", describe_via)
+    monkeypatch.setattr(vision_event_analysis, "build_vlm_prompt", lambda *args, **kwargs: "p")
+    frame = SimpleNamespace(image_bytes=b"x")
+    text, model = asyncio.run(vision_event_analysis.analyze_frames_with_vlm(
+        [frame], base_prompt="p", source_id="cam/x", explicit=False))
+    assert asked == [""] and text == "a parcel on the step" and model == "Aragon/Remote-VL-visiond"

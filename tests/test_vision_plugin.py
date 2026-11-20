@@ -143,6 +143,8 @@ def patched_plugin(monkeypatch, store: VisionStore, tmp_path: Path):
     install_fake_gpu_orc(monkeypatch, FakeGpuOrc())
     # Ohne das hinge das Routing am echten freien Speicher der Karten dieses Rechners.
     monkeypatch.setattr("aifred.lib.vision_routing.fitting_visiond", lambda name: (None, None))
+    # The image model is the Vision-LLM of the main settings (not the real settings.json of this machine).
+    monkeypatch.setattr("aifred.lib.vision_routing.settings_model", lambda role: "qwen3-vl:4b-instruct-q8_0" if role == "vision" else "")
     watcher = VisionWatcher(store, frames_dir=tmp_path / "frames")
     monkeypatch.setattr(vp, "_store", lambda: store)
     monkeypatch.setattr(vp, "_watcher", lambda store=None: watcher)

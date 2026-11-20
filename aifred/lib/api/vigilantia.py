@@ -18,12 +18,11 @@ class VigilantiaRow(BaseModel):
     plugin_enabled: bool = Field(description="The eye can only be armed with the vision plugin on")
     armed: bool
     mode: str
-    model: str = Field(description="The chosen image model, as the list names it ('' = not in the list)")
+    model: str = Field(description="The image model of this machine: the Vision-LLM of the main settings ('' = none set or vision off)")
     face_enabled: bool
     face_continuous: bool
     person_detect: bool
     modes: list[ChoiceOption]
-    models: list[str] = Field(description="The image models (llama-swap describer profiles, then Ollama's)")
     alert_types: list[ChoiceOption] = Field(description="The event types a camera can alert on")
     event_intervals: list[ChoiceOption]
 
@@ -31,7 +30,6 @@ class VigilantiaRow(BaseModel):
 class VigilantiaChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
     mode: str | None = None
-    model: str | None = None
     face_enabled: bool | None = None
     face_continuous: bool | None = None
     person_detect: bool | None = None
@@ -53,18 +51,16 @@ def _row() -> VigilantiaRow:
     from ..i18n import t
     from ..prompt_loader import get_language
     from ..vigilantia import VISION_MODES, vigilantia
-    from ..vision_routing import image_models, listed_name
+    from ..vision_prewarm import get_active_vlm_model
 
     lang = get_language()
     current = vigilantia()
-    models = image_models()
     fields = asdict(current)
-    fields["model"] = listed_name(models, current.model) if current.model else ""
+    fields["model"] = get_active_vlm_model() or ""
     mode_labels = {"on-demand": "vision_settings_mode_ondemand", "live": "vision_settings_mode_live"}
     return VigilantiaRow(
         **fields,
         modes=[ChoiceOption(id=mode, label=t(mode_labels[mode], lang=lang)) for mode in VISION_MODES],
-        models=models,
         alert_types=[ChoiceOption(id=kind, label=t(f"vision_settings_alert_type_{kind}", lang=lang)) for kind in VISION_ALERT_TYPES],
         event_intervals=[ChoiceOption(id=f"{seconds:g}", label=f"{format_number(seconds, 0)} s") for seconds in VISION_EVENT_INTERVAL_CHOICES],
     )
@@ -78,8 +74,7 @@ async def vision_settings() -> VigilantiaRow:
 
 @vision_api.patch("/vision/settings", response_model=VigilantiaRow, tags=["Vision"])
 async def vision_settings_change(change: VigilantiaChange) -> VigilantiaRow:
-    """Change some of the general settings: a mode switched to live loads the model at once, a new model unloads
-    the old one; 422 for a mode the eye does not take."""
+    """Change some of the general settings: a mode switched to live loads the model at once, 422 for a mode the eye does not take."""
     from ..vigilantia import change as change_settings
 
     changes = change.model_dump(exclude_none=True)

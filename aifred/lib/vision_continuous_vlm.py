@@ -23,12 +23,12 @@ from .prompt_loader import (
 from .vigilantia import vision_mode
 from .vision_analyzer import (
     DEFAULT_KEEP_ALIVE,
-    DEFAULT_MODEL,
     DEFAULT_NUM_CTX,
     analyze_sequence,
 )
 from .vision_event_bus import publish_vlm_event
 from .vision_output import OutputChain
+from .vision_prewarm import get_active_vlm_model
 from .vision_routing import camera_describer, describe_via
 from .vision_settings import load_vision_settings
 from .vision_store import VisionStore
@@ -91,7 +91,7 @@ class ContinuousVlm:
         # erhalten, die Zeitstempel unten stimmen also).
         vlm_frame = (await self._output.finalize(frame, save=False)).output
         result = await describe_via(
-            lambda: camera_describer(str(vlm_cfg.get("model", DEFAULT_MODEL)), explicit=False),
+            lambda: camera_describer(get_active_vlm_model() or "", explicit=False),
             lambda describer: analyze_sequence(
                 [vlm_frame],
                 prompt,

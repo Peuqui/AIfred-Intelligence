@@ -53,14 +53,13 @@ def is_vision_active() -> bool:
 
 
 def get_active_vlm_model() -> str | None:
-    """Currently configured VLM model id (e.g. ``qwen3-vl:4b-instruct-q8_0``).
-    ``None`` if vision is off."""
+    """The image model of this machine: the Vision-LLM of the main settings (``settings.json``,
+    ``backend_models[<backend>]["vision"]``), the one source of every reader (Vigilantia, describer list,
+    watcher, analysis). ``None`` if vision is off or no Vision-LLM is set."""
     if not is_vision_active():
         return None
-    cfg = load_vision_settings()
-    vlm_cfg = cfg.get("vlm", {})
-    model = vlm_cfg.get("model")
-    return str(model) if model else None
+    from .vision_routing import settings_model
+    return settings_model("vision") or None
 
 
 def get_active_vlm_key() -> str:
@@ -118,9 +117,9 @@ async def prewarm_vlm(
         return True
 
     vlm_cfg = cfg.get("vlm", {})
-    model = vlm_cfg.get("model")
+    model = get_active_vlm_model()
     if not model:
-        logger.warning("prewarm_vlm: no vlm.model configured")
+        logger.warning("prewarm_vlm: no Vision-LLM set in the main settings")
         return False
 
     # Both ways (llama-swap profile, Ollama) put the model onto the cards: not while somebody holds them.

@@ -3,7 +3,7 @@
 An entry is a source with a switch:
 
 * ``"<machine>/<model>"`` — a model of another machine (lib/remote_describers),
-* :data:`LOCAL` — this machine's describer: the VLM of the Vigilantia settings, via its ``-visiond`` profile
+* :data:`LOCAL` — this machine's describer: the Vision-LLM of the main settings, via its ``-visiond`` profile
   (or the optional Ollama side channel for camera images),
 * :data:`MAIN` — the loaded model, when it sees itself.
 
@@ -112,11 +112,11 @@ class Row:
 
 def rows(lang: str) -> list[Row]:
     """The list as it stands now (:func:`matched`), one row per entry; this machine's entry names the image model
-    of the Vigilantia settings. Asks every configured machine (short limit for one that is off)."""
+    (the Vision-LLM of the main settings). Asks every configured machine (short limit for one that is off)."""
     from .formatting import format_number, format_stamp
     from .i18n import t
     from .remote_describers import overview, split
-    from .vigilantia import vigilantia
+    from .vision_prewarm import get_active_vlm_model
     from .vlm_vram_cache import get_any, measured_at
 
     machines = overview()
@@ -125,7 +125,7 @@ def rows(lang: str) -> list[Row]:
     for index, entry in enumerate(matched(stored(), machines)):
         note, warn, remote, loaded = "", False, False, False
         if entry.source == LOCAL:
-            label = f"{vigilantia().model or '—'} · {t('vision_describer_this_machine', lang=lang)}"
+            label = f"{get_active_vlm_model() or '—'} · {t('vision_describer_this_machine', lang=lang)}"
         elif entry.source == MAIN:
             label = t("vision_describer_main", lang=lang)
         else:

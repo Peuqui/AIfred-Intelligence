@@ -14,7 +14,7 @@ import pytest
 from fake_gpu_orc import FakeGpuOrc, card
 from fake_vlm_stream import streaming_client
 
-from aifred.lib import describer_list, remote_describers, vision_routing, vision_utils, vlm_vram_cache
+from aifred.lib import describer_list, remote_describers, vision_prewarm, vision_routing, vision_utils, vlm_vram_cache
 from aifred.lib.describer_list import LOCAL, MAIN
 from aifred.lib.config import GPU_ORC_STATUSBAR_HOLD_OWNER
 from aifred.lib.frame_sources import Frame
@@ -216,7 +216,7 @@ def local(monkeypatch):
     monkeypatch.setattr(vision_routing, "fitting_visiond", lambda name: (f"{name}-visiond", fits))
     monkeypatch.setattr(vision_routing, "loaded_seeing_profile", lambda: None)
     monkeypatch.setattr(vision_utils, "is_vision_model_sync", lambda m: m == "Seeing-Main")
-    monkeypatch.setattr(vision_routing, "camera_vlm", lambda: "Local-VL")
+    monkeypatch.setattr(vision_prewarm, "get_active_vlm_model", lambda: "Local-VL")
 
     def order(*sources: str, off: tuple[str, ...] = ()) -> None:
         entries = [{"source": s, "enabled": s not in off} for s in sources]

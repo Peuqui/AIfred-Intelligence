@@ -41,8 +41,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Defaults — übersteuerbar pro Call oder via Plugin-Settings.
-DEFAULT_MODEL = "qwen2.5vl:7b-q8_0"
+# Defaults — übersteuerbar pro Call oder via Plugin-Settings. Das Modell hat keine Vorgabe: es ist immer der
+# Beschreiber, den vision_routing gewählt hat.
 from .config import (
     VISION_VLM_MAX_PIXELS as DEFAULT_MAX_PIXELS,
 )
@@ -106,7 +106,7 @@ async def analyze_sequence(
     prompt: str,
     *,
     while_held: WhileHeld,
-    model: str = DEFAULT_MODEL,
+    model: str,
     num_ctx: int = DEFAULT_NUM_CTX,
     keep_alive: str = DEFAULT_KEEP_ALIVE,
     host: str | None = None,

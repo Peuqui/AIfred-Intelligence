@@ -88,7 +88,6 @@ async def analyze_frames_with_vlm(
     source_id: str = "",
     identity_names: list[str] | None = None,
     headcount: int = 0,
-    model: str | None = None,
     explicit: bool,
 ) -> tuple[str, str]:
     """SSoT-VLM-Call für Vigilantia: Prompt assemblieren (build_vlm_prompt),
@@ -106,9 +105,6 @@ async def analyze_frames_with_vlm(
 
     if not frames:
         raise ValueError("analyze_frames_with_vlm requires at least one frame")
-    target_model = model or get_active_vlm_model()
-    if not target_model:
-        raise RuntimeError("no VLM model configured")
     prompt = build_vlm_prompt(
         base_prompt,
         source_id=source_id,
@@ -117,7 +113,7 @@ async def analyze_frames_with_vlm(
         headcount=headcount,
     )
     result = await describe_via(
-        lambda: camera_describer(str(target_model), explicit=explicit),
+        lambda: camera_describer(get_active_vlm_model() or "", explicit=explicit),
         # Vigilantia describes outside any turn (watcher, alerts, Casus, bulk): a hold ends it, it never waits.
         lambda describer: analyze_sequence(frames, prompt, while_held="refuse", model=describer.model),
     )
@@ -132,15 +128,12 @@ async def analyze_event_with_vlm(
     *,
     prompt: str | None = None,
     store: VisionStore | None = None,
-    model: str | None = None,
 ) -> str:
     """Single-Event-Analyse. Lädt das Frame, ruft VLM, persistiert
     Beschreibung in ``classification.description``, returnt den Text.
 
     Idempotent: existiert schon eine description, wird sie überschrieben
     (User-Wunsch: nochmal analysieren = neue Beschreibung).
-
-    ``model``: optional, sonst aus plugins/tools/vision/settings.json.
     """
     store = store or VisionStore()
     # Direkter Primary-Key-Lookup — der frühere Scan der jüngsten 1000
@@ -160,11 +153,7 @@ async def analyze_event_with_vlm(
     # Dispatch + Downscale leben dort, kein eigener Ollama-Call mehr).
     from .frame_sources import Frame
     from .prompt_loader import get_vision_event_single_prompt
-    from .vision_prewarm import get_active_vlm_model
 
-    target_model = model or get_active_vlm_model()
-    if not target_model:
-        raise RuntimeError("no VLM model configured")
     target_prompt = (prompt or get_vision_event_single_prompt()).strip()
 
     try:
@@ -204,7 +193,6 @@ async def analyze_event_with_vlm(
         base_prompt=target_prompt,
         source_id=source_id,
         identity_names=names,
-        model=str(target_model),
         explicit=True,
     )
 
@@ -276,7 +264,6 @@ async def analyze_cluster_with_vlm(
     *,
     prompt: str | None = None,
     store: VisionStore | None = None,
-    model: str | None = None,
     explicit: bool,
     max_frames: int | None = None,
     headcount: int = 0,
@@ -295,7 +282,6 @@ async def analyze_cluster_with_vlm(
     from .config import VISION_DESCRIBE_MAX_FRAMES
     from .frame_sources import Frame
     from .prompt_loader import get_vision_event_sequence_prompt
-    from .vision_prewarm import get_active_vlm_model
 
     if not event_ids:
         raise ValueError("analyze_cluster_with_vlm requires at least one event")
@@ -360,9 +346,6 @@ async def analyze_cluster_with_vlm(
         for (data, src) in images
     ]
 
-    target_model = model or get_active_vlm_model()
-    if not target_model:
-        raise RuntimeError("no VLM model configured")
     target_prompt = (prompt or get_vision_event_sequence_prompt()).strip()
     # Kamera-Briefing über die Quelle des Repräsentanten — Cluster sind pro
     # Quelle homogen (cluster_id entsteht pro Source).
@@ -372,7 +355,6 @@ async def analyze_cluster_with_vlm(
         source_id=frames[0].source_id,
         identity_names=identity_names,
         headcount=headcount,
-        model=str(target_model),
         explicit=explicit,
     )
 
@@ -397,7 +379,6 @@ async def describe_cluster_by_id(
     *,
     store: VisionStore | None = None,
     headcount: int = 0,
-    model: str | None = None,
 ) -> str:
     """Vorkommnis über seine ``cluster_id`` als Bildfolge beschreiben —
     Einstieg für den Live-Alert-Pfad, der den Cluster kennt, aber keine
@@ -408,6 +389,5 @@ async def describe_cluster_by_id(
     if not event_ids:
         raise ValueError(f"cluster {cluster_id} has no events with frames")
     return await analyze_cluster_with_vlm(
-        event_ids, store=store, headcount=headcount, model=model,
-        explicit=False,
+        event_ids, store=store, headcount=headcount, explicit=False,
     )

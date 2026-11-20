@@ -16,12 +16,13 @@ from fake_vlm_stream import streaming_client
 from aifred.lib.frame_sources import Frame
 from aifred.lib.perf_metrics import InferenceWork
 from aifred.lib.vision_analyzer import (
-    DEFAULT_MODEL,
     DEFAULT_NUM_CTX,
     VisionAnalysis,
     analyze_sequence,
 )
 
+
+TEST_MODEL = "test-vlm"  # any name: the routing picks the real describer, the analyzer only passes it on
 
 def run(coro):
     return asyncio.run(coro)
@@ -66,18 +67,18 @@ class TestAnalyzeFrame:
 
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
 
-        result = run(analyze_sequence([_make_frame(0)], "What is in this image?", while_held="wait"))
+        result = run(analyze_sequence([_make_frame(0)], "What is in this image?", while_held="wait", model=TEST_MODEL))
 
         assert isinstance(result, VisionAnalysis)
         assert result.text == "A cat sitting on a chair."
         assert result.n_frames == 1
-        assert result.model == DEFAULT_MODEL
+        assert result.model == TEST_MODEL
         assert result.prompt == "What is in this image?"
         assert result.duration_ms >= 0.0
         assert "eval_count" in result.metadata
 
         # Verify Ollama was called with correct shape
-        assert captured_kwargs["model"] == DEFAULT_MODEL
+        assert captured_kwargs["model"] == TEST_MODEL
         assert captured_kwargs["prompt"] == "What is in this image?"
         assert captured_kwargs["stream"] is False
         assert captured_kwargs["keep_alive"] == "30m"
@@ -130,7 +131,7 @@ class TestAnalyzeSequence:
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
 
         frames = [_make_frame(i) for i in range(3)]
-        result = run(analyze_sequence(frames, "What is happening?", while_held="wait"))
+        result = run(analyze_sequence(frames, "What is happening?", while_held="wait", model=TEST_MODEL))
 
         assert result.n_frames == 3
         imgs = captured["images"]
@@ -140,7 +141,7 @@ class TestAnalyzeSequence:
 
     def test_empty_sequence_raises(self):
         with pytest.raises(ValueError):
-            run(analyze_sequence([], "anything", while_held="wait"))
+            run(analyze_sequence([], "anything", while_held="wait", model=TEST_MODEL))
 
 
 class TestErrorHandling:
@@ -153,7 +154,7 @@ class TestErrorHandling:
         monkeypatch.setattr(ollama.AsyncClient, "generate", boom)
 
         with pytest.raises(RuntimeError, match="VLM call failed"):
-            run(analyze_sequence([_make_frame(0)], "hi", while_held="wait"))
+            run(analyze_sequence([_make_frame(0)], "hi", while_held="wait", model=TEST_MODEL))
 
 
 class TestResponseParsing:
@@ -172,7 +173,7 @@ class TestResponseParsing:
 
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
 
-        result = run(analyze_sequence([_make_frame(0)], "hi", while_held="wait"))
+        result = run(analyze_sequence([_make_frame(0)], "hi", while_held="wait", model=TEST_MODEL))
         assert result.text == "ok"
         assert result.metadata["eval_count"] == 5
 
@@ -320,7 +321,7 @@ class TestEmptyResponseRetry:
         import ollama
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
 
-        result = run(analyze_sequence([_make_frame(0)], "Was ist zu sehen?", while_held="wait"))
+        result = run(analyze_sequence([_make_frame(0)], "Was ist zu sehen?", while_held="wait", model=TEST_MODEL))
         assert calls["n"] == 2  # retried exactly once
         assert result.text == "Ein Hauseingang mit Tür."
 
@@ -337,7 +338,7 @@ class TestEmptyResponseRetry:
         import ollama
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
 
-        result = run(analyze_sequence([_make_frame(0)], "hi", while_held="wait"))
+        result = run(analyze_sequence([_make_frame(0)], "hi", while_held="wait", model=TEST_MODEL))
         assert calls["n"] == 1  # no needless retry
         assert result.text == "Sofort gut."
 
@@ -354,6 +355,6 @@ class TestEmptyResponseRetry:
         import ollama
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
 
-        result = run(analyze_sequence([_make_frame(0)], "hi", while_held="wait"))
+        result = run(analyze_sequence([_make_frame(0)], "hi", while_held="wait", model=TEST_MODEL))
         assert calls["n"] == 2  # one retry, then give up
         assert result.text == ""

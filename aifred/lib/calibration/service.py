@@ -940,7 +940,7 @@ class CalibrationRun:
 
             # Matrix-driven calibration: every variant the user wants
             # is explicit in ``calibration_matrix``. No hidden VLM
-            # reserve from ``vision_mode``/``vlm.model`` — what's not
+            # reserve from ``vision_mode``/the Vision-LLM — what's not
             # ticked doesn't get calibrated. Imports stay here so the
             # downstream loops can still resolve per-VLM reserves.
             from ..config import VLM_NUM_CTX
@@ -1978,7 +1978,7 @@ class CalibrationRun:
                     yield
 
                     # Resolve reserve for this specific model — bypasses
-                    # vision_mode / vlm.model in settings.json via override.
+                    # vision_mode / the Vision-LLM in the settings via override.
                     try:
                         _vlm_u, _vlm_mb = await resolve_vlm_reserve(
                             VLM_NUM_CTX, model_id_override=vlm_model_id,

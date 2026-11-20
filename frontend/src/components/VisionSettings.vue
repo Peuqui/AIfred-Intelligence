@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // The vision's settings: the eye in the mode line (armed: every camera with its background switch watched, inside its window), the
-// image model (on demand or live, which one, loaded or not), face and person
+// image model (on demand or live, loaded or not; which one is the Vision-LLM of the main settings, shown here only), face and person
 // detection, how long events are kept, the alert rules, and per camera everything that belongs to it: name,
 // background, alerts with their types, quiet hours, active window, event interval, zones, its connection. A change
 // of the background or the window takes effect at once.
 import { Bell, MapIcon, Plug, Power, TriangleAlert } from "lucide-vue-next";
 import { computed, onMounted, ref, watch } from "vue";
+import { RouterLink } from "vue-router";
 import { ApiError, api } from "../api/client";
 import type { AlertRules, CameraRow, LiveView, RtspCameras, VigilantiaRow } from "../api/types";
 import { t } from "../i18n";
@@ -113,12 +114,10 @@ const checked = (event: Event): boolean => (event.target as HTMLInputElement).ch
       </div>
       <div class="line">
         <span class="name">{{ t("vision_settings_model_label") }}</span>
-        <select :value="settings.model" :title="t('vision_settings_model_help')" @change="change({ model: value($event) })">
-          <option v-if="!settings.model" value="">–</option>
-          <option v-for="model in settings.models" :key="model" :value="model">{{ model }}</option>
-        </select>
+        <span class="model">{{ settings.model || "–" }}</span>
         <button v-if="loaded !== null" :disabled="busy || !settings.model" :class="{ on: loaded }" :title="t(loaded ? 'vision_model_unload' : 'vision_model_load')" @click="power"><Power :size="14" /></button>
       </div>
+      <p class="hint">{{ t("vision_settings_model_help") }} <RouterLink to="/settings">{{ t("vision_settings_model_link") }}</RouterLink></p>
     </article>
 
     <article>
@@ -234,6 +233,7 @@ h3 { margin: 6px 0 0; font-size: 1rem; }
 .rules td { padding: 3px 8px; text-align: center; border-top: 1px solid var(--aifred-border); }
 .rules th.off { color: var(--aifred-accent-amber); }
 .rules td.who { text-align: left; white-space: nowrap; }
+.model { font-size: 0.9rem; }
 .hint { margin: 0; font-size: 0.8rem; color: var(--aifred-text-muted); }
 .notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 </style>

@@ -35,7 +35,6 @@ from ....lib.plugin_base import BackgroundPart, CredentialField, PluginContext, 
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 from ....lib.vision_analyzer import (
     DEFAULT_KEEP_ALIVE,
-    DEFAULT_MODEL,
     DEFAULT_NUM_CTX,
     analyze_sequence,
 )
@@ -467,6 +466,7 @@ class VisionPlugin:
             # Haupteinstellungen).
             from ....lib.config import get_effective_model_from_settings
             from ....lib.logging_utils import log_message
+            from ....lib.vision_prewarm import get_active_vlm_model
             from ....lib.vision_routing import (
                 Describer, NoVisionModelError, camera_describer, describe_via, image_describer,
             )
@@ -474,7 +474,7 @@ class VisionPlugin:
             def pick() -> Describer:
                 return (
                     camera_describer(
-                        str(vlm_cfg.get("model", DEFAULT_MODEL)), explicit=True,
+                        get_active_vlm_model() or "", explicit=True,
                     )
                     if source_id else image_describer(
                         get_effective_model_from_settings(ctx.agent_id)

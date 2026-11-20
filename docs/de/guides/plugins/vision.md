@@ -35,9 +35,11 @@ Der Watcher selbst ist nur Lebenszyklus und Verdrahtung. Seine Bausteine
 | `vision_continuous_vlm` | Dauer-VLM des Live-Teleprompters |
 | `vision_settings` | Zugriff auf die `settings.json` des Plugins |
 
-Ein zentraler Designpunkt: **VLM-Calls laufen über Ollama als Side-Channel**,
-vollständig unabhängig vom aktiven Chat-Backend auf llama-swap. Eine
-Snapshot-Analyse verdrängt nie das laufende Chat-Modell.
+Ein zentraler Designpunkt: **Wer beschreibt, entscheidet die Beschreiber-Liste**
+([vision-routing.md](../../architecture/vision-routing.md)): Modelle anderer Rechner, dieser Rechner
+(das Vision-LLM über sein `-visiond`-Profil neben dem Chat-Modell, Ollama nur als optionaler
+Seitenkanal) und das geladene Hauptmodell, wenn es selbst sieht. Automatische Wege verdrängen nie
+das laufende Chat-Modell, nur eine ausdrückliche Bitte darf es.
 
 ## Tools
 
@@ -529,9 +531,10 @@ Zwei Modelle stützen dieses Plugin, beide bei Bedarf geladen:
   automatisch nach `~/.insightface/models/buffalo_l/` heruntergeladen (~280 MB).
   Lazy Init, eine Instanz pro Prozess. Provider und GPU sind konfigurierbar; auf
   einem GPU-armen Host wird auf `CPUExecutionProvider` zurückgefallen.
-- **VLM via Ollama** — Bildbeschreibung. Default im Code ist `qwen2.5vl:7b-q8_0`;
-  die mitgelieferte `settings.json` übersteuert das auf
-  `qwen3-vl:4b-instruct-q8_0`. Multi-Image-Inputs werden als zeitliche Sequenz
+- **VLM (Vision-LLM der Haupteinstellungen)** — Bildbeschreibung. Das Modell
+  wird nur dort gewählt (Einstellungen → Vision-LLM, `backend_models[<Backend>]["vision"]`);
+  die Vigilantia-Einstellungen zeigen es an, das Plugin hat keine eigene Modellwahl.
+  Multi-Image-Inputs werden als zeitliche Sequenz
   gesendet. Das Modell bleibt per `keep_alive` (Standard `30m`) im VRAM; im
   `live`-Modus wird `keep_alive` auf `-1` gezwungen, sodass das Modell für
   Always-On-Überwachung dauerhaft geladen bleibt.
@@ -562,7 +565,7 @@ Alle Einstellungen liegen in `aifred/plugins/tools/vision/settings.json` und
 werden bei jedem Call frisch geladen, sodass man sie aus dem Plugin-Manager ohne
 Neustart anpassen kann. Wichtige Gruppen:
 
-- **`vlm`** — `model`, `num_ctx`, `keep_alive`, `host`.
+- **`vlm`** — `num_ctx`, `keep_alive`, `host` (das Modell ist das Vision-LLM der Haupteinstellungen).
 - **`face_recognition`** — `providers`, `gpu_id` (int / `"auto"` / `null` für
   Nur-CPU), `det_size`, `model_name` (`buffalo_l`), `threshold_known`,
   `threshold_unsure`, `retention_days`, `gc_describe` und `gc_prune` (die zwei
