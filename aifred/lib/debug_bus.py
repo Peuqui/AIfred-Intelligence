@@ -36,6 +36,11 @@ _pending: dict[str, list[str]] = {}
 _pending_lock = threading.Lock()
 
 
+def current_session_id() -> str | None:
+    """The session the current task works for (``session_scope``), ``None`` outside one."""
+    return _current_session.get()
+
+
 class session_scope:
     """Context manager that binds a session_id for debug message routing.
 
@@ -84,11 +89,14 @@ def show_in_session(msg: str) -> None:
         session_events.publish(sid, "debug", {"line": line})
 
 
-def report_phase(phase: str, *, current: int = 0, total: int = 0, failed: int = 0) -> None:
+def report_phase(
+    phase: str, *, current: int = 0, total: int = 0, failed: int = 0, detail: dict[str, str | bool] | None = None,
+) -> None:
     """Tell the pages of the current session what the turn is doing: ``intent`` (the Automatik call),
     ``images`` (their description), ``compress`` (the history), ``model_wait`` (another turn's models run),
     ``gpu_hold`` (somebody holds the cards, GPU-Orc /hold), ``scraping`` (``current`` of ``total``
-    pages read, ``failed`` unreachable). An empty phase ends it; the caller ends what it began. The
+    pages read, ``failed`` unreachable). ``detail``: what the page shows besides the name (``gpu_hold``: who holds
+    which machine's cards, see ``gpu_hold._hold_detail``). An empty phase ends it; the caller ends what it began. The
     browser shows each phase by its name (``frontend/src/lib/turnProgress.ts``, tests/test_turn_phases.py).
 
     Outside a session_scope nobody listens (a search outside a turn).
@@ -97,7 +105,7 @@ def report_phase(phase: str, *, current: int = 0, total: int = 0, failed: int = 
     if sid:
         from . import session_events
         session_events.publish(
-            sid, "turn_phase", {"phase": phase, "current": current, "total": total, "failed": failed},
+            sid, "turn_phase", {"phase": phase, "current": current, "total": total, "failed": failed, "detail": detail},
             replaces=frozenset({"turn_phase"}),
         )
 

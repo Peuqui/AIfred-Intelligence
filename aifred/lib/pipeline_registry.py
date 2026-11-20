@@ -83,10 +83,10 @@ def is_pipeline_running(session_id: str) -> bool:
     return task is not None and not task.done()
 
 
-def running_pipeline_count() -> int:
-    """How many turns run right now, over every session and channel."""
+def running_pipeline_sessions() -> frozenset[str]:
+    """The sessions whose turn runs right now, over every channel."""
     with _lock:
-        return sum(1 for task in _active_pipelines.values() if not task.done())
+        return frozenset(session_id for session_id, task in _active_pipelines.items() if not task.done())
 
 
 def cancel_pipeline(session_id: str) -> bool:

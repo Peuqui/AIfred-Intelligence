@@ -153,7 +153,7 @@ def gpu_orc(host: RemoteHost) -> GpuOrcClient:
         raise GpuOrcError(f"{host.name}: GPU-Orc token file {path} unreadable: {error}") from error
     if not token:
         raise GpuOrcError(f"{host.name}: GPU-Orc token file {path} is empty")
-    return GpuOrcClient(host.gpu_orc_url, token=token)
+    return GpuOrcClient(host.gpu_orc_url, token=token, machine=host.name)
 
 
 def gpu_orc_for_llamaswap(llamaswap_root: str) -> GpuOrcClient | None:

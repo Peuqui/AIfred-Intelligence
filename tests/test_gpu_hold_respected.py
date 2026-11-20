@@ -126,3 +126,53 @@ def test_a_requested_hold_nobody_granted_holds_nothing_back(
     monkeypatch.setattr(base.asyncio, "sleep", sleep)
     asyncio.run(_backend()._wait_while_held(MODEL))
     assert seen["phases"] == []
+
+
+# ── The phase carries what the page shows ────────────────────────────────
+
+
+def _phases_with_detail(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, Any]]:
+    reported: list[tuple[str, Any]] = []
+    monkeypatch.setattr(gpu_hold, "report_phase", lambda phase, **kw: reported.append((phase, kw.get("detail"))))
+    monkeypatch.setattr(gpu_hold, "machine_name", lambda: "Mini")
+    return reported
+
+
+def test_the_phase_names_the_machine_the_holder_and_the_state_and_follows_a_change(
+    orc: FakeGpuOrc, seen: dict[str, list[Any]], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reported = _phases_with_detail(monkeypatch)
+    orc.hold_requested = {**HOLD, "owner": "vllm-research", "granted_by": "Peuqui"}
+
+    async def sleep(_seconds: float) -> None:
+        seen["sleeps"].append(_seconds)
+        if len(seen["sleeps"]) == 1:          # GPU-Orc cleared: the granted hold became active
+            orc.hold_requested, orc.held = None, {**HOLD, "owner": "vllm-research"}
+        else:
+            orc.held = None
+
+    monkeypatch.setattr(base.asyncio, "sleep", sleep)
+    asyncio.run(_backend()._wait_while_held(MODEL))
+    common = {"machine": "Mini", "owner": "vllm-research", "reason": HOLD["reason"], "since": HOLD["since"], "local": True}
+    assert reported == [
+        ("gpu_hold", {**common, "state": "granted"}),
+        ("gpu_hold", {**common, "state": "active"}),
+        ("", None),
+    ]
+
+
+def test_a_hold_on_another_machine_is_named_by_that_machine_and_not_local(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reported = _phases_with_detail(monkeypatch)
+    aragon = FakeGpuOrc()
+    aragon.held = {**HOLD, "owner": "somebody"}
+    client = gpu_orc_client.GpuOrcClient(aragon.serve(), machine="Aragon")
+
+    async def sleep(_seconds: float) -> None:
+        aragon.held = None
+
+    monkeypatch.setattr(gpu_hold.asyncio, "sleep", sleep)
+    asyncio.run(gpu_hold.wait_until_free(client, "a test"))
+    detail = reported[0][1]
+    assert detail["machine"] == "Aragon" and detail["local"] is False and detail["state"] == "active"

@@ -5,6 +5,7 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { HostStatus, LocalHoldStatus, ServiceSnapshot } from "../api/types";
+import { t } from "../i18n";
 import type { Action } from "../lib/serviceStatus";
 
 // What the server answered to a click (a refusal, an error) stays under the list this long.
@@ -76,5 +77,13 @@ export const useServiceStatus = defineStore("serviceStatus", () => {
     }
   }
 
-  return { snapshot, receivedAt, hosts, localHold, notice, acting, receive, fetch, act };
+  // Ending a hold takes work away from somebody: ask first, with who holds the cards and why. The one place for the
+  // status line and the waiting turn.
+  async function endHold(owner: string, reason: string): Promise<void> {
+    if (window.confirm(t("service_status_local_end_confirm", { owner, reason }))) {
+      await act({ verb: "end", service: "host", item: owner });
+    }
+  }
+
+  return { snapshot, receivedAt, hosts, localHold, notice, acting, receive, fetch, act, endHold };
 });

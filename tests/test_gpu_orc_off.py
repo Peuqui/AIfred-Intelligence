@@ -77,7 +77,7 @@ def test_the_describer_room_is_the_free_vram_of_nvidia_smi(
 
 
 def test_no_work_is_reported(standing_by: FakeGpuOrc, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(gpu_orc_work, "running_pipeline_count", lambda: 1)  # a turn runs
+    monkeypatch.setattr(gpu_orc_work, "running_pipeline_sessions", lambda: frozenset({"s0"}))  # a turn runs
 
     async def scenario() -> None:
         async with server_startup.gpu_orc_work_lifespan():

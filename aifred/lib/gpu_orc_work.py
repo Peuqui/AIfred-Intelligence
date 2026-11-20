@@ -2,7 +2,8 @@
 
 Work is a turn: every message that gets an answer runs as one (the chat, every channel, the scheduler, the
 API), and the pipeline registry knows them all. A single lease, owner ``GPU_ORC_WORK_OWNER``, stands for them:
-it is reported while at least one turn runs and ended when the last one is over. GPU-Orc ends a lease by itself
+it is reported while at least one turn runs and ended when the last one is over. A turn that waits for the
+cards under a hold (``gpu_hold``) is not counted. GPU-Orc ends a lease by itself
 when the renewals stop, so a crash of AIfred holds nothing back. No model is asked: the count decides.
 """
 
@@ -12,16 +13,17 @@ import asyncio
 from collections.abc import Callable
 
 from .config import GPU_ORC_WORK_OWNER, GPU_ORC_WORK_POLL_S, GPU_ORC_WORK_TTL_S
+from .gpu_hold import waiting_sessions
 from .gpu_orc_client import GpuOrcClient, GpuOrcError, get_gpu_orc_client
 from .logging_utils import log_message
-from .pipeline_registry import running_pipeline_count
+from .pipeline_registry import running_pipeline_sessions
 
 
 class WorkReporter:
     def __init__(
         self,
         client: GpuOrcClient,
-        running_turns: Callable[[], int],
+        running_turns: Callable[[], frozenset[str]],  # the sessions whose turn runs
         *,
         owner: str = GPU_ORC_WORK_OWNER,
         poll_s: float = GPU_ORC_WORK_POLL_S,
@@ -37,7 +39,8 @@ class WorkReporter:
 
     def report_once(self) -> None:
         """Bring GPU-Orc's lease in line with the turns that run now. Blocking (HTTP)."""
-        turns = self._running_turns()
+        # A turn that waits for the cards is no work: it would keep GPU-Orc from ever clearing them for the hold.
+        turns = len(self._running_turns() - waiting_sessions())
         try:
             if turns:
                 self._client.work_begin(self._owner, f"AIfred: {turns} running turn(s)", self._ttl_s)
@@ -73,4 +76,4 @@ class WorkReporter:
 def make_work_reporter() -> WorkReporter | None:
     """``None`` when GPU-Orc is off (empty ``GPU_ORC_URL``): there is nobody to report to."""
     client = get_gpu_orc_client()
-    return None if client is None else WorkReporter(client, running_pipeline_count)
+    return None if client is None else WorkReporter(client, running_pipeline_sessions)

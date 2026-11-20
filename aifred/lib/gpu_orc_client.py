@@ -50,9 +50,11 @@ class CardStatus:
 
 
 class GpuOrcClient:
-    def __init__(self, base_url: str, *, token: str | None = None) -> None:
-        """``token``: for a GPU-Orc on another machine (it answers only loopback without one)."""
+    def __init__(self, base_url: str, *, token: str | None = None, machine: str | None = None) -> None:
+        """``token``: for a GPU-Orc on another machine (it answers only loopback without one). ``machine``: the name of
+        that machine (the page names whose cards a turn waits for); ``None`` for this machine's own."""
         self._orc = GpuOrc(base_url, token)
+        self.machine = machine
 
     def free_for_model(self, model: str, *, reason: str) -> FreeResult:
         """Clear the cards ``model`` will load on (GPU-Orc's ``model`` form): the STT and TTS workers

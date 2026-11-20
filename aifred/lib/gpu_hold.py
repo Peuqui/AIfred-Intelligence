@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from .config import GPU_ORC_HOLD_POLL_S
-from .debug_bus import report_phase
+from .debug_bus import current_session_id, report_phase
 from .gpu_orc_client import (
     GpuOrcClient,
     GpuOrcError,
@@ -90,26 +90,61 @@ def hold_refusal(client: GpuOrcClient | None) -> UserError | None:
     return refusal_for(light)
 
 
-def _still_held(client: GpuOrcClient, what: str, waiting: bool) -> bool:
-    """One look at the hold for ``what``: True while the cards are held (the first time it says so in the log and the
-    phase ``gpu_hold``), False when they are free or GPU-Orc does not answer (logged: the work goes on). Blocking."""
+# The session of every wait in progress, by a token of the wait (its turn is held back and does not work on the cards).
+# The work report to GPU-Orc (gpu_orc_work) does not count the turns of these sessions: while a hold waits for running
+# work to end, the waiting turn itself must not be that work, or GPU-Orc never clears and the turn waits forever. By
+# session, not by wait: a wait outside any turn (an embedding, a camera image in the background) must not take away the
+# work of a turn that really runs, and two waits of one turn count once. No lock: setting and popping a key and
+# ``dict.copy`` are single steps under the GIL, also across the threads of ``wait_until_free_blocking``.
+_waiting: dict[object, str] = {}
+
+
+def waiting_sessions() -> frozenset[str]:
+    """The sessions whose turn waits for the cards right now (:func:`wait_until_free`, :func:`wait_until_free_blocking`)."""
+    return frozenset(_waiting.copy().values())
+
+
+def _mark_waiting(token: object) -> None:
+    """The current turn waits for the cards; a wait outside a session is no turn and marks nothing."""
+    session_id = current_session_id()
+    if session_id is not None:
+        _waiting[token] = session_id
+
+
+def _hold_detail(client: GpuOrcClient, hold: Hold, state: str) -> dict[str, str | bool]:
+    """What the page shows of the hold a turn waits for: the machine, who holds it and why, since when, whether it is
+    ``active`` or ``granted`` (a person let go, GPU-Orc clears when the running work ends) and whether it is this machine's
+    own GPU-Orc (only there may the page end it, ``/service-status/end-hold``)."""
+    is_local = client is get_gpu_orc_client()
+    machine = machine_name() if is_local else client.machine
+    assert machine is not None, "a client of another machine carries its name (remote_describers.gpu_orc)"
+    return {"machine": machine, "owner": hold.owner, "reason": hold.reason, "since": hold.since, "state": state, "local": is_local}
+
+
+def _still_held(client: GpuOrcClient, what: str, last_state: str | None) -> str | None:
+    """One look at the hold for ``what``: its state (``active`` or ``granted``) while the cards are held, ``None`` when
+    they are free or GPU-Orc does not answer (logged: the work goes on). ``last_state`` is what the previous look said
+    (``None``: it did not wait yet); the log line comes with the first look, the phase ``gpu_hold`` with every new state
+    (the page shows who holds, so it follows ``granted`` to ``active``). Blocking."""
     try:
         hold = held(client)
     except GpuOrcError as error:
         log_message(f"⚠️ GPU-Orc did not say whether the cards are held, {what} goes on: {error}", "warning")
-        return False
+        return None
     if hold is None:
-        if waiting:
+        if last_state is not None:
             log_message(f"▶️ The hold of the cards has ended, {what} goes on")
-        return False
-    if not waiting:
-        state = f"granted by {hold.granted_by}" if hold.state == "requested" else "active"
+        return None
+    state = "granted" if hold.state == "requested" else "active"
+    if last_state is None:
+        granted = f"granted by {hold.granted_by}" if state == "granted" else "active"
         log_message(
-            f"⏸️ The cards are held by {hold.owner} since {hold.since} ({hold.reason}, {state}): "
+            f"⏸️ The cards are held by {hold.owner} since {hold.since} ({hold.reason}, {granted}): "
             f"{what} waits until they are free", "warning",
         )
-        report_phase("gpu_hold")
-    return True
+    if state != last_state:
+        report_phase("gpu_hold", detail=_hold_detail(client, hold, state))
+    return state
 
 
 async def wait_until_free(client: GpuOrcClient | None, what: str) -> None:
@@ -117,14 +152,17 @@ async def wait_until_free(client: GpuOrcClient | None, what: str) -> None:
     sees it (phase ``gpu_hold``) and can be stopped (the sleep is cancellable). ``client`` ``None`` asks nothing."""
     if client is None:
         return
-    waiting = False
+    token = object()
+    state: str | None = None
     try:
         # to_thread carries the context: the phase reaches the session's pages.
-        while await asyncio.to_thread(_still_held, client, what, waiting):
-            waiting = True
+        while (now := await asyncio.to_thread(_still_held, client, what, state)) is not None:
+            state = now
+            _mark_waiting(token)
             await asyncio.sleep(GPU_ORC_HOLD_POLL_S)
     finally:
-        if waiting:
+        _waiting.pop(token, None)
+        if state is not None:
             report_phase("")
 
 
@@ -133,13 +171,16 @@ def wait_until_free_blocking(client: GpuOrcClient | None, what: str) -> None:
     Its phase reaches the page when the thread carries the session's context."""
     if client is None:
         return
-    waiting = False
+    token = object()
+    state: str | None = None
     try:
-        while _still_held(client, what, waiting):
-            waiting = True
+        while (now := _still_held(client, what, state)) is not None:
+            state = now
+            _mark_waiting(token)
             time.sleep(GPU_ORC_HOLD_POLL_S)
     finally:
-        if waiting:
+        _waiting.pop(token, None)
+        if state is not None:
             report_phase("")
 
 

@@ -186,3 +186,11 @@ def test_a_turn_waiting_for_other_models_shows_the_wait_and_ends_it(session: Non
                 seen.append(_phase())   # the turn runs: the phase is over
 
     assert asyncio.run(scenario()) == ["model_wait", "released", ""]
+
+
+def test_the_gpu_hold_phase_reaches_the_pages_with_its_detail(session: None) -> None:
+    detail: dict[str, str | bool] = {"machine": "Mini", "owner": "vllm-research", "reason": "v13", "since": "2026-11-19T15:55:00+01:00", "state": "granted", "local": True}
+    with debug_bus.session_scope(SESSION):
+        debug_bus.report_phase("gpu_hold", detail=detail)
+    events = [event.data for event in session_events.replay_after(SESSION, 0) if event.kind == "turn_phase"]
+    assert events == [{"phase": "gpu_hold", "current": 0, "total": 0, "failed": 0, "detail": detail}]

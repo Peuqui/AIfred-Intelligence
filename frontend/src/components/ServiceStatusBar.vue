@@ -64,10 +64,8 @@ function timeText(row: Row): string {
   return `${t("service_status_unloads_in")} ${row.upperBound ? "≤ " : ""}${formatRemaining(row.remaining - elapsed.value, t("service_status_days_short"))}`;
 }
 
-// Ending a hold takes work away from somebody: ask first, with who holds the cards and why.
-function endHold(action: Action): void {
-  const question = t("service_status_local_end_confirm", { owner: status.localHold?.owner ?? "", reason: status.localHold?.reason ?? "" });
-  if (window.confirm(question)) void status.act(action);
+function endLocalHold(): void {
+  void status.endHold(status.localHold?.owner ?? "", status.localHold?.reason ?? "");
 }
 
 const ACTION_TITLES: Record<Action["verb"], string> = {
@@ -139,7 +137,7 @@ onBeforeUnmount(() => {
             {{ t("service_status_local_grant") }}
           </button>
           <span v-if="localHold.grant.blocked" class="hint">{{ localHold.grant.blocked }}</span>
-          <button class="hold-button" :disabled="status.acting || !!localHold.end.blocked" @click="endHold(localHold.end)">
+          <button class="hold-button" :disabled="status.acting || !!localHold.end.blocked" @click="endLocalHold">
             {{ t("service_status_local_end") }}
           </button>
           <span v-if="localHold.end.blocked" class="hint">{{ localHold.end.blocked }}</span>
