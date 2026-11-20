@@ -42,6 +42,7 @@ const rows = computed(() => (status.snapshot ? serviceRows(status.snapshot, labe
 const machines = computed(() => hostRows(status.hosts, labels.value));
 const localLabels = computed(() => ({
   lang: language.value,
+  hostUsed: t("service_status_host_used"),
   free: t("service_status_local_free"),
   requested: t("service_status_local_requested"),
   granted: t("service_status_local_granted"),

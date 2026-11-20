@@ -82,20 +82,22 @@ describe("summaryColor and formatRemaining", () => {
 
 describe("localHoldRow", () => {
   const LOCAL = {
-    lang: "de", free: "frei", requested: "{owner} möchte die Karten", granted: "überlassen an {owner}, wartet auf das Ende laufender Arbeit",
+    lang: "de", hostUsed: "{used} von {total} MiB belegt", free: "keine Anfrage", requested: "{owner} möchte die Karten", granted: "überlassen an {owner}, wartet auf das Ende laufender Arbeit",
     active: "gehalten von {owner}", reason: "„{reason}“", model: "Modell {model}", since: "seit {time}",
     off: "GPU-Orc ist aus", unreachable: "GPU-Orc antwortet nicht: {error}", notRequested: "keine Anfrage", noHold: "kein Hold",
   };
   const SINCE = "2026-11-20T09:30:00+01:00";
   const time = new Date(SINCE).toLocaleTimeString("de", { hour: "2-digit", minute: "2-digit" });
   const status = (state: LocalHoldStatus["state"], extra: Partial<LocalHoldStatus> = {}): LocalHoldStatus => ({
-    state, machine: "Mini", owner: "vllm-research", reason: "v13", since: SINCE, model: null, granted_by: null, error: "", ...extra,
+    state, machine: "Mini", owner: "vllm-research", reason: "v13", since: SINCE, model: null, granted_by: null, error: "",
+    used_mib: 120384, total_mib: 196608, ...extra,
   });
   const enabled = (row: ReturnType<typeof localHoldRow>) => [!row.grant.blocked, !row.end.blocked];
 
-  it("free: a plain green line with one word, no card and no detail, nothing to grant or end", () => {
+  it("free: a plain green line with how full the cards are and that nobody asks, nothing to grant or end", () => {
     const row = localHoldRow(status("free", { owner: null, reason: null, since: null }), LOCAL);
-    expect(row).toMatchObject({ label: "Mini", color: "green", title: "frei", detail: null, card: false });
+    // No hold is not empty cards: the title says how full they are.
+    expect(row).toMatchObject({ label: "Mini", color: "green", title: "120.384 von 196.608 MiB belegt", detail: "keine Anfrage", card: false });
     expect(enabled(row)).toEqual([false, false]);
   });
 

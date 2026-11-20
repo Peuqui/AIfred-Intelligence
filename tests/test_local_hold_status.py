@@ -47,6 +47,16 @@ def test_free_without_a_hold(orc: FakeGpuOrc) -> None:
     assert (status.state, status.owner, status.reason, status.since, status.granted_by) == ("free", None, None, None, None)
 
 
+def test_no_hold_still_says_how_full_the_cards_are(orc: FakeGpuOrc) -> None:
+    """No hold is not empty cards (a model may run): the state carries the memory in use over every card."""
+    orc.cards = [
+        {"index": 0, "uuid": "GPU-a", "name": "A", "memory_total_mib": 49152, "memory_used_mib": 40000, "holders": [], "unattributed_mib": 0},
+        {"index": 1, "uuid": "GPU-b", "name": "B", "memory_total_mib": 32768, "memory_used_mib": 1000, "holders": [], "unattributed_mib": 0},
+    ]
+    status = local_hold_status()
+    assert (status.state, status.used_mib, status.total_mib) == ("free", 41000, 81920)
+
+
 def test_requested_carries_owner_reason_and_time(orc: FakeGpuOrc) -> None:
     orc.hold_requested = dict(HOLD)
     status = local_hold_status()

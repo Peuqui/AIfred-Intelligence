@@ -992,7 +992,7 @@
   "service_status_local_model": "model {model}",
   "service_status_local_since": "since {time}",
   "gpu_hold_banner": "{owner} wants the cards: {reason}",
-  "service_status_local_free": "free",
+  "service_status_local_free": "no request",
   "service_status_local_requested": "{owner} wants the cards",
   "service_status_local_granted": "granted to {owner}, waiting for running work to end",
   "service_status_local_active": "held by {owner}",

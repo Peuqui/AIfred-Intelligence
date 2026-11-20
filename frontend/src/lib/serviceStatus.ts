@@ -129,6 +129,7 @@ export function hostRows(hosts: HostStatus[], labels: Labels): (Row & { label: s
 
 export interface LocalHoldLabels {
   lang: string;
+  hostUsed: string; // "{used} of {total} MiB in use": no hold is not empty cards, the line says how full they are
   free: string;
   requested: string; // "{owner} wants the cards"
   granted: string; // "granted to {owner}, waiting for running work to end"
@@ -171,10 +172,15 @@ export function localHoldRow(status: LocalHoldStatus, labels: LocalHoldLabels): 
     status.since ? labels.since.replace("{time}", clockTime(status.since, labels.lang)) : null,
   ].filter((part) => part !== null);
   const detail = detailParts.join(" · ");
+  const mib = (n: number) => n.toLocaleString(labels.lang);
+  const usedText = status.used_mib !== null && status.total_mib !== null
+    ? labels.hostUsed.replace("{used}", mib(status.used_mib)).replace("{total}", mib(status.total_mib))
+    : null;
   const states: Record<LocalHoldStatus["state"], [Color, string, string | null]> = {
     off: ["grey", labels.off, null],
     unreachable: ["red", fill(labels.unreachable), null],
-    free: ["green", labels.free, null],
+    // No hold: the title says how full the cards are (no hold is not empty cards), the detail that nobody asks.
+    free: ["green", usedText ?? labels.free, usedText === null ? null : labels.free],
     requested: ["amber", fill(labels.requested), detail],
     granted: ["amber", fill(labels.granted), null],
     active: ["amber", fill(labels.active), detail],

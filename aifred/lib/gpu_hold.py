@@ -199,6 +199,8 @@ class LocalHoldStatus:
     model: str | None
     granted_by: str | None
     error: str
+    used_mib: int | None  # memory in use over every card, as GPU-Orc's /status reports it; None while it does not answer
+    total_mib: int | None
 
 
 def machine_name() -> str:
@@ -207,20 +209,23 @@ def machine_name() -> str:
 
 
 def local_hold_status() -> LocalHoldStatus:
-    """One look at this machine's hold (``GET /loading``). Blocking: call in a thread."""
+    """One look at this machine's hold (``GET /loading``) and at how full its cards are (``GET /status``): "no hold" is
+    not "the cards are empty", the status line shows both. Blocking: call in a thread."""
     machine = machine_name()
     client = get_gpu_orc_client()
     if client is None:
-        return LocalHoldStatus("off", machine, None, None, None, None, None, "")
+        return LocalHoldStatus("off", machine, None, None, None, None, None, "", None, None)
     try:
         light = client.traffic_light()
+        cards = client.card_status()
     except GpuOrcError as error:
-        return LocalHoldStatus("unreachable", machine, None, None, None, None, None, str(error))
+        return LocalHoldStatus("unreachable", machine, None, None, None, None, None, str(error), None, None)
+    used, total = sum(card.used_mib for card in cards), sum(card.total_mib for card in cards)
     hold = light.held or light.hold_requested
     if hold is None:
-        return LocalHoldStatus("free", machine, None, None, None, None, None, "")
+        return LocalHoldStatus("free", machine, None, None, None, None, None, "", used, total)
     if light.held is not None:
         state: Literal["requested", "granted", "active"] = "active"
     else:
         state = "granted" if hold.granted_by is not None else "requested"
-    return LocalHoldStatus(state, machine, hold.owner, hold.reason, hold.since, hold.model, hold.granted_by, "")
+    return LocalHoldStatus(state, machine, hold.owner, hold.reason, hold.since, hold.model, hold.granted_by, "", used, total)
