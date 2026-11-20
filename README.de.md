@@ -27,8 +27,8 @@ AIfred läuft auf deinem eigenen Rechner und arbeitet für dich über jeden Kana
 - 🔒 **Security im Framework verankert** — Berechtigungsstufen pro Kanal, Schutz gegen Prompt Injection, Credential Broker, Audit-Log
 
 <p align="center">
-  <img src="docs/images/multi-agent-debate.webp" alt="Auto-Konsens-Debatte in AIfred: AIfred antwortet, Sokrates kritisiert, Salomo fasst zusammen" width="820">
-  <br><sub>Auto-Konsens-Modus: AIfred antwortet, Sokrates kritisiert, Salomo fasst zusammen — lokales DeepSeek-V4-Flash über vLLM, mit Messwerten je Antwort.</sub>
+  <img src="docs/images/interface-overview.webp" alt="AIfreds Weboberfläche: gespeicherte Chats, Statusleiste, eine Auto-Konsens-Debatte, Eingabe mit Diktat, Agenten und Modi" width="820">
+  <br><sub>Die Weboberfläche: gespeicherte Chats, die Statusleiste der Modelle und Dienste, eine Auto-Konsens-Debatte (AIfred antwortet, Sokrates kritisiert) mit Messwerten je Antwort, Wiedergabe, Eingabe mit Diktierknopf, die Agenten und die Moduswahl.</sub>
 </p>
 
 ---

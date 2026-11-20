@@ -27,8 +27,8 @@ AIfred runs on your own machine and works for you across every channel you use: 
 - 🔒 **Security built into the framework** — permission tiers per channel, prompt-injection defences, credential broker, audit log
 
 <p align="center">
-  <img src="docs/images/multi-agent-debate.webp" alt="Auto-Consensus debate in AIfred: AIfred answers, Sokrates criticises, Salomo synthesises" width="820">
-  <br><sub>Auto-Consensus mode: AIfred answers, Sokrates criticises, Salomo synthesises — local DeepSeek-V4-Flash via vLLM, with timings per answer.</sub>
+  <img src="docs/images/interface-overview.webp" alt="AIfred's web interface: saved chats, status line, an Auto-Consensus debate, input with dictation, agents and modes" width="820">
+  <br><sub>The web interface: saved chats, the status line of models and services, an Auto-Consensus debate (AIfred answers, Sokrates criticises) with timings per answer, playback, input with dictation, the agents and the mode selector.</sub>
 </p>
 
 ---
