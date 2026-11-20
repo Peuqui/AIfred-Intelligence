@@ -224,3 +224,25 @@ def test_the_count_of_waiting_turns_sinks_again_after_a_cancel_and_after_an_erro
     with pytest.raises(RuntimeError):
         gpu_hold.wait_until_free_blocking(current_client(), "a test")
     assert gpu_hold.waiting_sessions() == frozenset()
+
+
+def test_an_embedding_of_a_turn_waits_as_that_turn(fake, monkeypatch) -> None:
+    """The embedding waits blocking in a thread (embeddings._wait_while_cards_held); every way there from a turn goes
+    through asyncio.to_thread (DocumentStore, AgentMemory), which carries the session: the turn counts as waiting."""
+    from aifred.lib import embeddings, gpu_hold
+
+    fake.hold_requested = dict(HELD)
+    seen: list[frozenset[str]] = []
+
+    def sleep(_seconds: float) -> None:
+        seen.append(gpu_hold.waiting_sessions())
+        fake.hold_requested = None
+
+    monkeypatch.setattr(gpu_hold.time, "sleep", sleep)
+
+    async def scenario() -> None:
+        with session_scope("s0"):
+            await asyncio.to_thread(embeddings._wait_while_cards_held)
+
+    asyncio.run(scenario())
+    assert seen == [frozenset({"s0"})] and gpu_hold.waiting_sessions() == frozenset()
