@@ -18,7 +18,7 @@ import MemorySwitchIcon from "../components/MemorySwitchIcon.vue";
 import TtsIcon from "../components/TtsIcon.vue";
 import MessageBubble from "../components/MessageBubble.vue";
 import SessionList from "../components/SessionList.vue";
-import TurnProgress from "../components/TurnProgress.vue";
+import StreamingAnswer from "../components/StreamingAnswer.vue";
 import { t } from "../i18n";
 import { ZOOM, chatHeight, chatZoom, zoomBy } from "../lib/devicePrefs";
 import { pinQuestion } from "../lib/devicePrefs";
@@ -232,7 +232,7 @@ onMounted(() => void start());
       <GpuHoldBanner />
       <div ref="messages" class="messages" :style="chatHeight ? { height: `min(${chatHeight}px, calc(100 * var(--dvh)))` } : undefined" @scroll.passive="updateStuck">
         <div class="bubbles">
-        <section v-for="turn in turns" :key="turn.key" :data-key="turn.key" class="turn">
+        <section v-for="(turn, at) in turns" :key="turn.key" :data-key="turn.key" class="turn">
           <MessageBubble
             v-for="entry in turn.entries"
             :key="entry.timestamp + entry.role"
@@ -244,15 +244,12 @@ onMounted(() => void start());
             :color="entry.agent ? colors[entry.agent] : undefined"
             @read-again="chat.readAgain"
           />
+          <!-- The answer being written belongs to the last turn, where it lands once done: inside the turn its question
+               sticks above it at once, also when "keep the question at the top" is switched on during the answer. -->
+          <StreamingAnswer v-if="at === turns.length - 1" :sections="streamingSections" :progress="progress" :color="chat.streaming ? colors[chat.streaming.agent] : undefined" />
         </section>
-        <article v-if="chat.streaming" class="streaming" :style="colors[chat.streaming.agent] ? { '--agent-color': colors[chat.streaming.agent] } : undefined">
-          <header>{{ chat.streaming.emoji }} {{ chat.streaming.displayName }}</header>
-          <!-- eslint-disable-next-line vue/no-v-html -- sanitized by renderMarkdown (DOMPurify) -->
-          <div v-for="(section, at) in streamingSections" :key="at" v-html="section.html" />
-          <p v-if="chat.toolStatus" class="tool">{{ chat.toolStatus }}</p>
-          <TurnProgress v-if="progress" :line="progress" />
-        </article>
-        <TurnProgress v-else-if="progress" class="waiting" :line="progress" />
+        <!-- No turn yet (an empty chat): the answer being written stands on its own. -->
+        <StreamingAnswer v-if="!turns.length" :sections="streamingSections" :progress="progress" :color="chat.streaming ? colors[chat.streaming.agent] : undefined" />
         <p v-if="chat.notice" class="notice"><TriangleAlert :size="16" /> {{ chat.notice }}</p>
         <p v-if="chat.info" class="info"><Pin :size="16" /> {{ chat.info }}</p>
         <p v-if="settings.notice" class="notice"><TriangleAlert :size="16" /> {{ settings.notice }}</p>
@@ -367,15 +364,6 @@ h2 { margin: 0; font-size: 1.1rem; }
 .turn { display: flex; flex-direction: column; gap: 10px; }
 /* Above the collapsibles' headers, which stick too (formatting.py writes them with z-index 2 into the answer). */
 .turn > .pinned { position: sticky; top: 0; z-index: 3; box-shadow: 0 4px 10px var(--aifred-page-bg); }
-/* As the finished bubble (MessageBubble), its rim dashed while it streams. */
-.streaming {
-  box-sizing: border-box; width: 100%; padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--aifred-border-light);
-  border-left: 1px solid var(--agent-color, var(--aifred-border-light));
-  color: var(--aifred-answer-text);
-}
-.streaming header { font-size: var(--text-small); font-weight: 600; color: var(--agent-color, var(--aifred-primary)); }
-.tool { margin: 4px 0 0; font-size: var(--text-small); color: var(--aifred-accent-cyan); }
-.waiting { align-self: flex-start; padding: 0 14px; }
 .notice { color: var(--aifred-accent-amber); --icon-own: currentColor; }
 .info { color: var(--aifred-accent-success); --icon-own: currentColor; }
 </style>
