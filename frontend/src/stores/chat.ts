@@ -76,6 +76,7 @@ export const useChat = defineStore("chat", () => {
 
   async function open(id: string): Promise<void> {
     speech.stop(); // the other session's reading goes on for its other tabs, not here
+    speech.forget();
     await load(id);
     notice.value = "";
     info.value = "";
@@ -134,6 +135,7 @@ export const useChat = defineStore("chat", () => {
   function close(): void {
     source?.close();
     speech.stop();
+    speech.forget();
     source = null;
     sessionId.value = null;
   }

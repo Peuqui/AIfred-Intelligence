@@ -75,3 +75,18 @@ test("a bubble's reading played again is over when its last part has played", as
   await settle();
   expect(speech.speaking.value).toBe(false);
 });
+
+test("once something was read aloud in the chat the player keeps it, also after the end and a stop, until another chat", async () => {
+  speech.forget();
+  expect(speech.spokeHere.value).toBe(false);
+  speech.enqueue("tts", { url: "/a/1.wav" });
+  await settle();
+  FakeAudio.playing[0]!.onended?.();
+  speech.ended();
+  await settle();
+  speech.stop();
+  expect(speech.speaking.value).toBe(false);
+  expect(speech.spokeHere.value).toBe(true);
+  speech.forget();
+  expect(speech.spokeHere.value).toBe(false);
+});

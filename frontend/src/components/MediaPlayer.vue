@@ -17,7 +17,8 @@ const chat = useChat();
 const mode = computed<"speech" | "media" | "kept" | null>(() => {
   if (speech.speaking.value) return "speech";
   if (media.current.value) return "media";
-  return speech.hasReading.value ? "kept" : null;
+  // Once something was read aloud in this chat, the player stays (play it again, rewind), not only while it speaks.
+  return speech.hasReading.value || speech.spokeHere.value ? "kept" : null;
 });
 const isSpeech = computed(() => mode.value !== "media");
 const name = computed(() => (isSpeech.value ? t("speech_player_title") : (media.current.value.split("/").pop() ?? "")));
@@ -65,7 +66,7 @@ function stop(): void {
     <div class="controls">
       <button v-if="isSpeech" :title="t('audio_restart')" :disabled="!speech.hasReading.value" @click="speech.replayKept()"><SkipBack :size="16" /></button>
       <button :title="t('audio_back')" :disabled="!seekable" @click="seekTo(position - SKIP_SEC)"><Rewind :size="16" /></button>
-      <button :title="playing ? t('audio_pause') : t('audio_resume')" @click="playPause"><Pause v-if="playing" :size="16" /><Play v-else :size="16" /></button>
+      <button :title="playing ? t('audio_pause') : t('audio_resume')" :disabled="mode === 'kept' && !speech.hasReading.value" @click="playPause"><Pause v-if="playing" :size="16" /><Play v-else :size="16" /></button>
       <button :title="t('audio_forward')" :disabled="!seekable" @click="seekTo(position + SKIP_SEC)"><FastForward :size="16" /></button>
       <button :title="t('audio_stop')" :disabled="mode === 'kept'" @click="stop"><Square :size="16" /></button>
       <input v-model.number="volume" class="slider volume" type="range" min="0" max="1" step="0.05" :title="t('audio_volume')" />

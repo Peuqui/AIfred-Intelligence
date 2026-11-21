@@ -27,6 +27,9 @@ export const volume = ref(1);
 // in), or the parts the device's own voice spoke. A reading still arriving is not seekable: its files come piece by piece.
 const kept = shallowRef<{ audioUrls: string[]; browserSpeech: Utterance[] } | null>(null);
 export const hasReading = ref(false);
+// Something was read aloud in the open chat on this page: the player stays (to play it again, to rewind), also once the
+// reading is over, stopped or kept nothing, until another chat is opened (forget()).
+export const spokeHere = ref(false);
 export const live = ref(false);
 export const position = ref(0);          // seconds, in the audio that plays
 export const duration = ref(0);
@@ -48,10 +51,16 @@ window.addEventListener("keydown", unlock);
 export function enqueue(kind: string, data: Record<string, unknown>): void {
   live.value = true;
   arriving = true;
+  spokeHere.value = true;
   if (kind === "tts") queue.push({ kind: "audio", url: String(data.url) });
   else if (kind === "tts_pause") queue.push({ kind: "pause", ms: Number(data.ms) });
   else if (kind === "tts_speak") queue.push({ kind: "speak", utterance: data.utterance as Utterance });
   void next();
+}
+
+// Another chat is opened (or none): what was read in the last one no longer holds the player.
+export function forget(): void {
+  spokeHere.value = false;
 }
 
 // The server's reading has handed over its last part: once that has played, the reading is over.
@@ -148,6 +157,7 @@ export function replay(audioUrls: string[], browserSpeech: Utterance[]): void {
   stop();
   keep(audioUrls, browserSpeech);
   live.value = false;
+  spokeHere.value = true;
   for (const url of audioUrls) queue.push({ kind: "audio", url });
   for (const utterance of browserSpeech) queue.push({ kind: "speak", utterance });
   void next();
