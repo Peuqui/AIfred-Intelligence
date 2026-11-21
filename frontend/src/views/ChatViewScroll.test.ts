@@ -261,20 +261,47 @@ test("something new while the reader reads: nothing moves, the button counts wha
   expect(wrapper.find("button.new-below").text()).toBe("unread_below 1");
 });
 
-test("the button takes the box to the first unread bubble below, at the upper edge below the question, and marks nothing", async () => {
+test("the button takes the box to the line above the oldest unread bubble, at the upper edge below the question, and marks nothing", async () => {
   const { chat, wrapper, box } = await shown("t11");
   await readerScrollsTo(wrapper, 200);
   chat.history = [...history, entry("assistant", "t12"), entry("assistant", "t13"), entry("assistant", "t14")] as never;
   await flushPromises();
   expect(wrapper.find("button.new-below").text()).toBe("unread_below 3");
   await wrapper.find("button.new-below").trigger("click");
-  // The line stands after entry 11 (at(12) = 1320 is its place, and entry 12 comes after it: +LINE+GAP); its turn's question is entry 10.
-  const firstNew = at(12) + LINE + GAP;
-  expect(box.scrollTop).toBe(firstNew - 12 - BUBBLE);
+  // The line stands after entry 11, at at(12) = 1320; the question of its turn is entry 10.
+  expect(box.scrollTop).toBe(at(12) - 12 - BUBBLE);
   expect(chat.readUntil).toBe("t11");
   expect(posted).toEqual([]);
   // The one beyond the view is still counted, the ones in view are not.
   expect(wrapper.find("button.new-below").text()).toBe("unread_below 1");
+});
+
+test("a new question with its answer below the view: the button shows the line above the question, not the answer", async () => {
+  const { chat, wrapper, box } = await shown("t11");
+  await readerScrollsTo(wrapper, 200);
+  chat.history = [...history, entry("user", "t12"), entry("assistant", "t13")] as never;
+  await flushPromises();
+  expect(wrapper.find("button.new-below").text()).toBe("unread_below 1");
+  await wrapper.find("button.new-below").trigger("click");
+  // Only the answer is unread, but the line stands above the question (entry 12): the line at the upper edge.
+  expect(box.scrollTop).toBe(at(12) - 12 - BUBBLE);
+  const question = box.querySelector<HTMLElement>(`[data-entry="${keyOf(12)}"]`)!.getBoundingClientRect();
+  expect(question.top).toBeGreaterThan(0);
+});
+
+test("a later unread bubble below the view: the line lies behind the reader, the button goes to that bubble", async () => {
+  heights[keyOf(13)] = 400;
+  const { chat, wrapper, box } = await shown("t11");
+  await readerScrollsTo(wrapper, 200);
+  // A question after entry 14 (never unread) leaves room below it, so the box can put entry 14 at the upper edge.
+  chat.history = [...history, entry("user", "t12"), entry("assistant", "t13"), entry("assistant", "t14"), entry("user", "t15")] as never;
+  await flushPromises();
+  await wrapper.find("button.new-below").trigger("click");
+  expect(wrapper.find("button.new-below").text()).toBe("unread_below 1");
+  await wrapper.find("button.new-below").trigger("click");
+  // Entry 14 stands after the line and the 400 high entry 13; the question of its turn (entry 12) sticks above it.
+  const later = at(14) + LINE + GAP + (400 - BUBBLE);
+  expect(box.scrollTop).toBe(later - 12 - BUBBLE);
 });
 
 test("something new while the reader follows with nothing unread: the box goes to the end", async () => {

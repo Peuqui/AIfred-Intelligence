@@ -144,11 +144,14 @@ export function useChatScroll(box: Ref<HTMLElement | null>, sessionId: () => str
     if (event.target === box.value) takenByHand();
   }
 
-  /** The button "N new ↓": down to the first unread bubble below the view, at the upper edge. */
+  /** The button "N new ↓": down to the first unread bubble below the view, at the upper edge. For the oldest unread one
+   * the "read up to here" line goes there instead: it stands above that bubble and above the question that came before
+   * it (only an answer is ever unread), which would otherwise be passed over (Peuqui 21.11.2026). */
   function showNewBelow(): void {
     const key = unreadBelowView()[0];
     const scroller = box.value;
     if (key === undefined || !scroller) return;
+    if (key === unreadKeys()[0]) return goTo(() => linePosition(scroller, false));
     goTo(() => {
       const element = bubble(key);
       return element ? topOf(scroller, element) : scroller.scrollTop;
