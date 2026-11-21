@@ -1444,6 +1444,8 @@
   "mark_all_read": "Mark all read ({count})",
   "mark_all_read_plural": "Mark all read ({count})",
   "unread_line": "new",
+  "unread_below": "{count} new ↓",
+  "unread_below_plural": "{count} new ↓",
   "session_unread": "{count} new",
   "session_unread_plural": "{count} new"
 }

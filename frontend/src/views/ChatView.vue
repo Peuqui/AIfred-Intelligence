@@ -23,8 +23,8 @@ import StreamingAnswer from "../components/StreamingAnswer.vue";
 import { t, tCount } from "../i18n";
 import { ZOOM, chatHeight, chatZoom, zoomBy } from "../lib/devicePrefs";
 import { pinQuestion } from "../lib/devicePrefs";
-import { answerStartTop, isAtEnd } from "../lib/followScroll";
-import { isPlainClick, lineAfterIndex } from "../lib/unread";
+import { useChatScroll } from "../lib/useChatScroll";
+import { isPlainClick, isUnread, lineAfterIndex } from "../lib/unread";
 import { useSessionsColumn } from "../lib/sessionsColumn";
 import HelpButton from "../components/help/HelpButton.vue";
 import { saveAs } from "../lib/download";
@@ -166,41 +166,43 @@ async function remove(sessionIds: string[]): Promise<void> {
   }
 }
 
-// While an answer streams the box follows its end, as long as the reader stands there (followScroll.ts); when it is
-// finished the box jumps once to its start, below its question, to be read from the beginning. Where the page itself
-// put the box still counts as following (the next agent of a debate streams in view too); scrolled by hand, it stays.
-// Measured before the change reaches the page (the watcher runs first), scrolled after it.
-let placedAt: number | null = null;
+// The box's scrolling (lib/followScroll.ts has the rules, lib/useChatScroll.ts the movement): a chat that opens goes to
+// the "read up to here" line, else to where the reader was, else to the end; what comes in moves the box only while the
+// reader follows; sending something takes it to the end.
+const unreadKeys = computed(() => chat.history.filter((entry) => isUnread(entry, chat.readUntil)).map(entryKey));
+const { unreadBelow, place, placeIncoming, expectOwn, onScroll, takenByHand, onKey, onPointerDown, showNewBelow } = useChatScroll(
+  messages,
+  () => chat.sessionId,
+  () => unreadKeys.value,
+);
 watch(
-  () => [chat.history.length, chat.streaming?.text.length, progress.value?.text] as const,
-  async ([length], [lengthBefore]) => {
-    const view = messages.value;
-    if (!view) return;
-    const following = isAtEnd(view) || (placedAt !== null && Math.abs(view.scrollTop - placedAt) <= 1);
-    await nextTick();
-    if (!following) return;
-    const answer = length > lengthBefore ? finishedAnswer(view) : null;
-    // The turn's end (no stream, no progress line) leaves the box at the answer's start it jumped to.
-    if (!answer && !chat.streaming && !progress.value) return;
-    view.scrollTop = answer ? answerStartTop(view, ...answer) : view.scrollHeight;
-    placedAt = view.scrollTop;
+  () => [chat.sessionId, chat.history.length, chat.streaming?.text.length, progress.value?.text] as const,
+  ([sessionId, length], [sessionBefore, lengthBefore]) => {
+    if (sessionId !== sessionBefore) return void place("opened");
+    void placeIncoming(chat.history.slice(lengthBefore, length).some((entry) => entry.role === "user"));
   },
 );
+// The mark moved (a click, "all read", a reading heard to its end, another tab): what is unread below the view changes
+// with it. Within the same chat it lets go of what the box held: marking must not move the view (the line that goes
+// away would otherwise send a box held at the line to the end).
+watch(
+  () => [chat.sessionId, chat.readUntil] as const,
+  ([sessionId], [sessionBefore]) => {
+    if (sessionId === sessionBefore) takenByHand();
+    onScroll();
+  },
+  { flush: "post" },
+);
 
-// The answer just added to the last turn (not its question) and the question that sticks above it.
-function finishedAnswer(view: HTMLElement): [HTMLElement, HTMLElement | null] | null {
-  const turn = view.querySelector<HTMLElement>(".turn:last-of-type");
-  const last = turn?.lastElementChild;
-  if (!(last instanceof HTMLElement) || last.classList.contains("question")) return null;
-  // A question that sticks covers the answer's start: the answer stops below it (none sticks: right at the top).
-  return [last, turn?.querySelector<HTMLElement>(".pinned") ?? null];
+function scrolled(): void {
+  updateStuck();
+  onScroll();
 }
-// A session opened shows its end.
-watch(() => chat.sessionId, async () => {
-  await nextTick();
-  placedAt = null;
-  if (messages.value) messages.value.scrollTop = messages.value.scrollHeight;
-});
+
+function sendOwn(text: string): Promise<void> {
+  expectOwn();
+  return chat.send(text);
+}
 
 // A chat chosen in the list: it opens, the list has closed, and the page goes to the chat so that it shows: the agents'
 // row, the last of what belongs to the chat, at the bottom edge, the title above the box at the top (the box is sized for it).
@@ -245,34 +247,49 @@ onMounted(() => void start());
         </div>
       </div>
       <GpuHoldBanner />
-      <div ref="messages" class="messages" :style="chatHeight ? { height: `min(${chatHeight}px, calc(100 * var(--dvh)))` } : undefined" @scroll.passive="updateStuck">
-        <div class="bubbles">
-        <section v-for="(turn, at) in turns" :key="turn.key" :data-key="turn.key" class="turn">
-          <ReadMark v-if="at === 0 && readLineAfter === ''" />
-          <template v-for="entry in turn.entries" :key="entryKey(entry)">
-            <MessageBubble
-              :class="{ question: entry.role === 'user', pinned: entry.role === 'user' && pinQuestion }"
-              :entry="entry"
-              :pinned="entry.role === 'user' && pinQuestion"
-              :stuck="turn.key === stuckTurn"
-              :speech-on="!!settings.current?.enable_tts && entry.role === 'assistant'"
-              :color="entry.agent ? colors[entry.agent] : undefined"
-              :reading-requested="chat.readingRequested === entry.timestamp"
-              @read-again="chat.readAgain"
-              @click="bubbleClicked(entry, $event)"
-            />
-            <ReadMark v-if="readLineAfter === entryKey(entry)" />
-          </template>
-          <!-- The answer being written belongs to the last turn, where it lands once done: inside the turn its question
-               sticks above it at once, also when "keep the question at the top" is switched on during the answer. -->
-          <StreamingAnswer v-if="at === turns.length - 1" :sections="streamingSections" :progress="progress" :color="chat.streaming ? colors[chat.streaming.agent] : undefined" />
-        </section>
-        <!-- No turn yet (an empty chat): the answer being written stands on its own. -->
-        <StreamingAnswer v-if="!turns.length" :sections="streamingSections" :progress="progress" :color="chat.streaming ? colors[chat.streaming.agent] : undefined" />
-        <p v-if="chat.notice" class="notice"><TriangleAlert :size="16" /> {{ chat.notice }}</p>
-        <p v-if="chat.info" class="info"><Pin :size="16" /> {{ chat.info }}</p>
-        <p v-if="settings.notice" class="notice"><TriangleAlert :size="16" /> {{ settings.notice }}</p>
+      <div class="messages-box">
+        <div
+          ref="messages"
+          class="messages"
+          :style="chatHeight ? { height: `min(${chatHeight}px, calc(100 * var(--dvh)))` } : undefined"
+          @scroll.passive="scrolled"
+          @wheel.passive="takenByHand"
+          @touchmove.passive="takenByHand"
+          @keydown="onKey"
+          @pointerdown="onPointerDown"
+        >
+          <div class="bubbles">
+          <section v-for="(turn, at) in turns" :key="turn.key" :data-key="turn.key" class="turn">
+            <ReadMark v-if="at === 0 && readLineAfter === ''" />
+            <template v-for="entry in turn.entries" :key="entryKey(entry)">
+              <MessageBubble
+                :class="{ question: entry.role === 'user', pinned: entry.role === 'user' && pinQuestion }"
+                :entry="entry"
+                :data-entry="entryKey(entry)"
+                :data-pinned="entry.role === 'user' && pinQuestion ? '' : undefined"
+                :pinned="entry.role === 'user' && pinQuestion"
+                :stuck="turn.key === stuckTurn"
+                :speech-on="!!settings.current?.enable_tts && entry.role === 'assistant'"
+                :color="entry.agent ? colors[entry.agent] : undefined"
+                :reading-requested="chat.readingRequested === entry.timestamp"
+                @read-again="chat.readAgain"
+                @click="bubbleClicked(entry, $event)"
+              />
+              <ReadMark v-if="readLineAfter === entryKey(entry)" />
+            </template>
+            <!-- The answer being written belongs to the last turn, where it lands once done: inside the turn its question
+                 sticks above it at once, also when "keep the question at the top" is switched on during the answer. -->
+            <StreamingAnswer v-if="at === turns.length - 1" :sections="streamingSections" :progress="progress" :color="chat.streaming ? colors[chat.streaming.agent] : undefined" />
+          </section>
+          <!-- No turn yet (an empty chat): the answer being written stands on its own. -->
+          <StreamingAnswer v-if="!turns.length" :sections="streamingSections" :progress="progress" :color="chat.streaming ? colors[chat.streaming.agent] : undefined" />
+          <p v-if="chat.notice" class="notice"><TriangleAlert :size="16" /> {{ chat.notice }}</p>
+          <p v-if="chat.info" class="info"><Pin :size="16" /> {{ chat.info }}</p>
+          <p v-if="settings.notice" class="notice"><TriangleAlert :size="16" /> {{ settings.notice }}</p>
+          </div>
         </div>
+        <!-- Shown while unread bubbles lie below the view; it marks nothing as read. -->
+        <button v-if="unreadBelow > 0" class="new-below" @click="showNewBelow">{{ tCount("unread_below", unreadBelow) }}</button>
       </div>
       <ResizeGrip :target="messages" :min-height="MESSAGES_MIN_HEIGHT" :max-screens="1" @resize="(height) => (chatHeight = height)" @reset="chatHeight = null" />
       <MediaPlayer />
@@ -286,7 +303,7 @@ onMounted(() => void start());
         :transcribing="chat.dictations.length > 0"
         :dictations-landed="chat.dictationsLanded"
         :settings="settings.current"
-        @send="chat.send"
+        @send="sendOwn"
         @stop="chat.stop"
         @upload="chat.uploadImages"
         @remove-image="chat.removeImage"
@@ -364,6 +381,9 @@ h2 { margin: 0; font-size: 1.1rem; }
 .zoom:disabled { opacity: 0.5; cursor: default; }
 /* The box keeps 70 % of the screen whatever the sizes; only its content takes the chat's size (the interface's
    size, set on the page, is taken out again). */
+.messages-box { position: relative; }
+/* Over the lower edge of the box, above the sticking question (z-index 3). */
+.new-below { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 4; box-shadow: 0 2px 8px var(--aifred-page-bg); }
 .messages {
   box-sizing: border-box; /* the grip's height is the one the box takes */
   height: calc(var(--chat-height-desktop) / var(--ui-zoom));

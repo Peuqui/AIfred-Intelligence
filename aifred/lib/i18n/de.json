@@ -1444,6 +1444,8 @@
   "mark_all_read": "Alle gelesen ({count})",
   "mark_all_read_plural": "Alle gelesen ({count})",
   "unread_line": "neu",
+  "unread_below": "{count} neue ↓",
+  "unread_below_plural": "{count} neue ↓",
   "session_unread": "{count} neu",
   "session_unread_plural": "{count} neu"
 }

@@ -4,7 +4,7 @@ import { t } from "../i18n";
 </script>
 
 <template>
-  <div class="read-mark" role="separator"><span>{{ t("unread_line") }}</span></div>
+  <div class="read-mark" role="separator" data-read-mark><span>{{ t("unread_line") }}</span></div>
 </template>
 
 <style scoped>
