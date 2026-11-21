@@ -33,6 +33,7 @@ export const SESSION_EVENT_KINDS = [
   "tts",
   "tts_pause",
   "tts_speak",
+  "tts_end",
   "stop",
   "media",
   "pause",

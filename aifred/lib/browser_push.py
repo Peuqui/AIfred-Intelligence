@@ -8,7 +8,7 @@ from typing import Any
 
 from . import session_events
 
-TTS_CHUNK_KINDS = frozenset({"tts", "tts_speak", "tts_pause"})
+TTS_CHUNK_KINDS = frozenset({"tts", "tts_speak", "tts_pause", "tts_end"})
 # What the open pages show of the server's data, each as a list a page loads on its own: when it changes (an agent's tool,
 # a scheduled job, another tab), every connected page is told which and asks for it anew (stores/*.ts via
 # lib/resourceChanges.ts). One name per kind of data; the browser's list is api/events.ts: RESOURCES.
@@ -32,6 +32,7 @@ def browser_push(session_id: str, kind: str, **fields: Any) -> None:
       - ``"tts"``         : an audio file of the reading. {url}
       - ``"tts_speak"``   : a part the browser's own voice speaks. {utterance: {text, language, voice, rate, pitch}}
       - ``"tts_pause"``   : silence between two parts of the reading. {ms}
+      - ``"tts_end"``     : the reading has handed over its last part (it ended, broke off or was aborted). {}
       - ``"media"``       : one track, its position saved. {url, state_key, start_pos_sec, is_stream, audio_type,
                             queue (the folder's tracks {audio_url, state_key} after this one), pre_roll_sec,
                             position_save_sec}

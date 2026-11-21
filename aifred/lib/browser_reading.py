@@ -165,6 +165,11 @@ class BrowserReading:
             log_message(f"❌ [Browser {self.agent_label}] reading failed: {type(error).__name__}: {error}", "error")
             self._report(f"❌ [Browser {self.agent_label}] reading failed: {type(error).__name__}: {error}")
             self._notify("error", t("tts_reading_service_failed_silent", lang=self._ui_language, reason=str(error)))
+        finally:
+            # The playlist learns that no part follows, however the reading ended: until then the page keeps the
+            # reading as running, also while the next sentence is still being made (the player stays).
+            if self._first_output_done:
+                self._push(self.session_id, "tts_end")
 
     async def _read(self) -> None:
         browser_unit = browser_entry_unit()

@@ -231,6 +231,9 @@ export const useChat = defineStore("chat", () => {
         readingRequested.value = null;
         speech.enqueue(kind, data);
         break;
+      case "tts_end":
+        speech.ended();
+        break;
       case "stop":
         speech.stop();
         media.stop();

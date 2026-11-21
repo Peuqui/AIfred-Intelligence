@@ -15,8 +15,11 @@ let pauseTimer: ReturnType<typeof setTimeout> | null = null;
 let finishPause: (() => void) | null = null;
 let finishAudio: (() => void) | null = null;
 
-// True while something plays or waits on the playlist: the stop button shows as long as it is.
+// True while something plays or waits on the playlist, or while a reading still comes from the server: the stop
+// button and the player show as long as it is, also while the next sentence is being made.
 export const speaking = ref(false);
+// A reading the server sends part by part is not over before its "tts_end" (ended()).
+let arriving = false;
 // The reading is held (not stopped): the playlist stays where it is. Volume is this device's own.
 export const paused = ref(false);
 export const volume = ref(1);
@@ -44,10 +47,17 @@ window.addEventListener("keydown", unlock);
 
 export function enqueue(kind: string, data: Record<string, unknown>): void {
   live.value = true;
+  arriving = true;
   if (kind === "tts") queue.push({ kind: "audio", url: String(data.url) });
   else if (kind === "tts_pause") queue.push({ kind: "pause", ms: Number(data.ms) });
   else if (kind === "tts_speak") queue.push({ kind: "speak", utterance: data.utterance as Utterance });
   void next();
+}
+
+// The server's reading has handed over its last part: once that has played, the reading is over.
+export function ended(): void {
+  arriving = false;
+  if (!playing && queue.length === 0) speaking.value = false;
 }
 
 // Generation of the playlist: bumped on every stop, so an entry that ends after the stop does not
@@ -57,6 +67,7 @@ let generation = 0;
 export function stop(): void {
   generation += 1;
   queue.length = 0;
+  arriving = false;
   current?.pause();
   current = null;
   finishAudio?.();
@@ -146,7 +157,7 @@ async function next(): Promise<void> {
   if (playing) return;
   const entry = queue.shift();
   if (!entry) {
-    speaking.value = false;
+    speaking.value = arriving;
     return;
   }
   playing = true;

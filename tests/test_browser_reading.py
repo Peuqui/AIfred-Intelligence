@@ -95,7 +95,7 @@ class TestThroughTheService:
                 return page, await read(page, ["Erster Absatz. ", "Zweiter ", "Absatz."])
 
         page, reading = asyncio.run(scenario())
-        assert kinds(page) == ["tts", "tts_pause", "tts", "tts"]
+        assert kinds(page) == ["tts", "tts_pause", "tts", "tts", "tts_end"]
         assert page.playlist[1][1] == {"ms": 500}
         assert [(tmp_path / fields["url"].rsplit("/", 1)[-1]).read_bytes() for kind, fields in page.playlist if kind == "tts"] == [
             b"one", b"two", b"three",
@@ -172,8 +172,8 @@ class TestBrowserEntry:
 
         page = asyncio.run(scenario())
         assert stream.started == {}  # no connection to the service
-        assert kinds(page) == ["tts_speak"] * 3
-        spoken = [fields["utterance"] for _, fields in page.playlist]
+        assert kinds(page) == ["tts_speak"] * 3 + ["tts_end"]
+        spoken = [fields["utterance"] for kind, fields in page.playlist if kind == "tts_speak"]
         assert [u["text"] for u in spoken] == ["Das ist der erste Satz.", "Das ist der zweite fette Satz.", "Rest"]
         assert spoken[0]["language"] == "de" and spoken[0]["rate"] == 1.0
         assert page.toasts == []
@@ -189,7 +189,7 @@ class TestBrowserEntry:
                 return page
 
         page = asyncio.run(scenario())
-        assert kinds(page) == ["tts_speak"]
+        assert kinds(page) == ["tts_speak", "tts_end"]
 
     def test_the_service_fails_before_the_first_sound_then_the_browser_speaks_everything(
         self, monkeypatch, tmp_path, fake,
@@ -203,8 +203,8 @@ class TestBrowserEntry:
                 return page, reading
 
         page, reading = asyncio.run(scenario())
-        assert kinds(page) == ["tts_speak"] * 3
-        assert [fields["utterance"]["text"] for _, fields in page.playlist] == [
+        assert kinds(page) == ["tts_speak"] * 3 + ["tts_end"]
+        assert [fields["utterance"]["text"] for kind, fields in page.playlist if kind == "tts_speak"] == [
             "Der erste Satz ist lang genug.", "Der zweite Satz auch.", "Und noch ein dritter.",
         ]
         assert reading.audio_urls == []
@@ -224,7 +224,7 @@ class TestBrowserEntry:
                 return page
 
         page = asyncio.run(scenario())
-        assert kinds(page) == ["tts_speak"]
+        assert kinds(page) == ["tts_speak", "tts_end"]
 
     def test_the_service_cannot_be_started_then_the_browser_speaks(self, monkeypatch, tmp_path, fake):
         monkeypatch.setattr(tts_client, "_systemctl_start", lambda: (1, "no unit"))
@@ -237,7 +237,7 @@ class TestBrowserEntry:
             return page
 
         page = asyncio.run(scenario())
-        assert kinds(page) == ["tts_speak"]
+        assert kinds(page) == ["tts_speak", "tts_end"]
         assert page.toasts[0][0] == "warning"
 
     def test_without_a_browser_entry_a_failure_before_the_first_sound_is_shown_not_hidden(
@@ -297,7 +297,7 @@ class TestBreakOffAndAbort:
                 return page, await read(page, ["Erster Satz ist da. ", "Zweiter Satz kommt noch."])
 
         page, reading = asyncio.run(scenario())
-        assert kinds(page) == ["tts"]  # no tts_speak: AIfred does not know what was spoken
+        assert kinds(page) == ["tts", "tts_end"]  # no tts_speak: AIfred does not know what was spoken
         assert [kind for kind, _ in page.toasts] == ["error"]
         assert "engine died" in page.toasts[0][1]
         assert reading.audio_urls and len(reading.audio_urls) == 1
@@ -318,6 +318,28 @@ class TestBreakOffAndAbort:
                 return stream.finished
 
         assert asyncio.run(scenario()) is False  # the service saw the connection close, no "finish" came
+
+    def test_an_aborted_reading_that_sounded_tells_the_page_it_is_over(self, monkeypatch, tmp_path, fake):
+        """The page keeps a reading as running until tts_end (the player stays between two sentences): an aborted
+        one that had sounded must end it too, or the player would stay forever."""
+        stream = FakeStreamingService(after_text=[[audio_frame(b"one")]])
+
+        async def scenario() -> Page:
+            async with served(monkeypatch, tmp_path, fake, stream, ["xtts"]):
+                page = Page()
+                reading = page.reading()
+                reading.start()
+                reading.feed("Ein Satz, der noch nicht zu Ende ist. ")
+                for _ in range(50):
+                    if page.playlist:
+                        break
+                    await asyncio.sleep(0.1)
+                reading.abort()
+                await asyncio.wait_for(reading.wait(), timeout=5)
+                return page
+
+        page = asyncio.run(scenario())
+        assert kinds(page) == ["tts", "tts_end"]
 
     def test_text_after_the_end_of_the_reading_is_ignored(self, monkeypatch, tmp_path, fake):
         stream = FakeStreamingService(on_start=[error_frame("no_engine", "nope")])
