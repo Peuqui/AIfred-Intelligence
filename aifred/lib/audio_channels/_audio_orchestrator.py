@@ -244,7 +244,7 @@ class AudioOrchestrator:
             self._paused = False
             log_message(f"AudioOrchestrator[{self.room}]: → music active")
 
-    async def play_tts(self, pcm_data: bytes | TTSBuffer) -> None:
+    async def play_tts(self, pcm_data: bytes | TTSBuffer) -> bool:
         """Starte einen TTS-PCM-Stream (standalone) und warte bis er durch ist.
 
         Konsens-Spec audio-pipeline.md "Variante (ii)": **kein** Takeover
@@ -256,9 +256,10 @@ class AudioOrchestrator:
 
         Frame-Sequenz: audio_flag(tts) + audio_start + chunks + audio_end,
         ohne Beginn- und Ende-Ton. ``pcm_data`` ist fertiges PCM oder ein
-        (wachsender) ``TTSBuffer`` für satzweises Streaming.
+        (wachsender) ``TTSBuffer`` für satzweises Streaming. Rückgabe wie ``_play_buffer``: ``True`` bei
+        natürlichem Ende, ``False`` bei Abbruch (Stopp/Pause).
         """
-        await self._play_buffer("tts", pcm_data, start_tone=False, end_tone=False)
+        return await self._play_buffer("tts", pcm_data, start_tone=False, end_tone=False)
 
     async def play_alarm(
         self, tts_pcm: bytes | TTSBuffer | None = None, *, start_tone: bool, end_tone: bool,

@@ -273,9 +273,10 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
         return None
 
 
-async def _compose_via_llm(ev: AlertEvent, extra_context: str = "") -> str | None:
+async def _compose_via_llm(ev: AlertEvent, extra_context: str = "") -> tuple[str, str | None] | None:
     """AIfred formuliert den Alert via ``process_inbound`` — das legt
-    gleichzeitig die Browser-Session an. Returnt den Text oder None bei
+    gleichzeitig die Browser-Session an. Returnt Text und Zeitstempel der Blase
+    der letzten Antwort (gesprochen wird der Text aller Antworten: bis zu ihr ist alles gehört) oder None bei
     Fehlschlag (Caller fällt dann aufs Template zurück).
 
     ``extra_context``: optionale VLM-Bildbeschreibung, die AIfred als
@@ -301,7 +302,9 @@ async def _compose_via_llm(ev: AlertEvent, extra_context: str = "") -> str | Non
         task=True,
     )
     out = await process_inbound(msg)
-    return out.text if out and out.text else None
+    if not out or not out.text:
+        return None
+    return out.text, out.parts[-1].bubble if out.parts else None
 
 
 def _ensure_session_title(channel: str, channel_id: str, title: str) -> None:
@@ -358,6 +361,7 @@ async def _deliver_in_session(ev: AlertEvent, rule: AlertRule) -> bool:
     mode = (rule.compose or ALERT_COMPOSE_DEFAULT).lower()
     text = _format(ev)
     recorded = False  # browser session already written?
+    bubble: str | None = None  # its bubble: what a speaking sink plays goes there and is marked read
 
     # VLM-Bildbeschreibung holen, wenn der Modus sie braucht ("vlm" oder
     # "vlm+llm"). Läuft hier — NACH dem Dedup in emit() — also genau einmal
@@ -399,7 +403,7 @@ async def _deliver_in_session(ev: AlertEvent, rule: AlertRule) -> bool:
             logger.warning("alert: LLM compose failed (%s) — template fallback", e, exc_info=True)
             composed = None
         if composed:
-            text = composed
+            text, bubble = composed
             recorded = True  # process_inbound recorded the session itself
     elif mode == "vlm":
         # Reine VLM-Beschreibung in den Body. Bei leerer VLM-Antwort bleibt
@@ -414,11 +418,11 @@ async def _deliver_in_session(ev: AlertEvent, rule: AlertRule) -> bool:
 
     if not recorded:
         try:
-            record_autonomous_turn(
+            bubble = record_autonomous_turn(
                 ev.producer, ev.session_key or ev.source_id or ev.producer,
                 ev.title or ev.category, text + _film_players(ev.media_album),
                 media_gallery=ev.media_gallery,
-            )
+            ).timestamp
             recorded = True
         except OSError as e:  # the session file; the alert is delivered anyway
             logger.warning("alert: session record failed: %s", e)
@@ -474,7 +478,7 @@ async def _deliver_in_session(ev: AlertEvent, rule: AlertRule) -> bool:
         for recipient in recipients:
             try:
                 delivered = await announce_to_channel(
-                    channel, recipient, text, session_id=alert_session_id,
+                    channel, recipient, text, session_id=alert_session_id, bubble=bubble,
                     media=ev.media, metadata=sink_metadata,
                 )
             except Conflict as refused:     # a channel that is switched off sends nothing; the other sinks go on

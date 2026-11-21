@@ -40,9 +40,9 @@ def service(monkeypatch, tmp_path):
     return fake
 
 
-def start(paragraphs, pause_ms=0, agent="aifred", session_id=None):
+def start(paragraphs, pause_ms=0, agent="aifred", session_id=None, bubble="t1"):
     """One speaker: the paragraphs as one part, divided by blank lines (as the announcement sends them)."""
-    return start_parts([ReplyPart(agent, "\n\n".join(paragraphs))], pause_ms, session_id)
+    return start_parts([ReplyPart(agent, "\n\n".join(paragraphs), bubble)], pause_ms, session_id)
 
 
 def start_parts(parts, pause_ms=0, session_id=None):
@@ -214,33 +214,26 @@ class TestSpokenAudioOnTheBubble:
 
     @pytest.fixture
     def bubble(self, monkeypatch):
-        saved: list[tuple] = []
-        attached: list[tuple] = []
+        kept: list[tuple] = []
 
-        def save(urls: list[str], sid: str) -> str:
-            saved.append((list(urls), sid))
-            return f"/_upload/audio/{sid}/joined.wav"
-
-        def attach(sid: str, url: str, note: str) -> bool:
-            attached.append((sid, url, note))
+        async def put_on_bubble(session_id: str, bubble: str, urls: list[str], _browser: list, note: str) -> bool:
+            kept.append((session_id, bubble, list(urls), note))
             return True
 
-        monkeypatch.setattr("aifred.lib.audio_processing.save_audio_to_session", save)
-        monkeypatch.setattr("aifred.lib.session_storage.attach_reply_audio", attach)
-        return saved, attached
+        monkeypatch.setattr("aifred.lib.reply_speech.put_on_bubble", put_on_bubble)
+        return kept
 
     def test_every_segment_lands_on_the_bubble_with_the_note(self, service, bubble, tmp_path):
-        saved, attached = bubble
+        kept = bubble
         trace = [{"entry": "xtts", "outcome": "spoke"}]
         service.script = [audio_frame(b"\x01" * 4) + audio_frame(b"\x02" * 4) + summary_frame(trace)]
         start(["Satz eins hier. Satz zwei dort."], session_id="abc")
-        ((urls, session),) = saved
-        assert session == "abc" and len(urls) == 2
+        ((session, bubble_timestamp, urls, note),) = kept
+        assert (session, bubble_timestamp, note) == ("abc", "t1", "XTTS · lokal") and len(urls) == 2
         assert all((tmp_path / url.rsplit("/", 1)[-1]).is_file() for url in urls)
-        assert attached == [("abc", "/_upload/audio/abc/joined.wav", "XTTS · lokal")]
 
     def test_a_voice_change_is_noted_with_its_reason(self, service, bubble):
-        _, attached = bubble
+        kept = bubble
         trace = [
             {"entry": "xtts", "outcome": "spoke"},
             {"entry": "xtts", "outcome": "failed", "reason": "unreachable", "detail": "gone"},
@@ -248,29 +241,33 @@ class TestSpokenAudioOnTheBubble:
         ]
         service.script = [audio_frame(b"\x01") + audio_frame(b"\x02", engine="edge") + summary_frame(trace, "unreachable")]
         start(["Text hier."], session_id="abc")
-        assert attached[0][2] == "XTTS · lokal → EDGE · Cloud (Serverausfall)"
+        assert kept[0][3] == "XTTS · lokal → EDGE · Cloud (Serverausfall)"
 
     def test_an_entry_that_failed_before_it_ever_spoke_is_no_change(self, service, bubble):
-        _, attached = bubble
+        kept = bubble
         trace = [
             {"entry": "xtts", "outcome": "skipped", "reason": "stopped"},
             {"entry": "edge", "outcome": "spoke"},
         ]
         service.script = [audio_frame(b"\x01", engine="edge") + summary_frame(trace)]
         start(["Text hier."], session_id="abc")
-        assert attached[0][2] == "EDGE · Cloud"
+        assert kept[0][3] == "EDGE · Cloud"
 
     def test_a_broken_stream_keeps_what_was_spoken(self, service, bubble):
-        saved, _ = bubble
+        kept = bubble
         service.script = [audio_frame(b"\x01" * 4) + error_frame("engine_control_failed", "died")]
         start(["Satz eins hier. Satz zwei dort."], session_id="abc")
-        assert len(saved[0][0]) == 1
+        assert len(kept[0][2]) == 1
 
     def test_without_a_session_nothing_is_kept(self, service, bubble):
-        saved, attached = bubble
         service.script = [audio_frame(b"\x01") + summary_frame()]
         start(["Text hier."], session_id=None)
-        assert saved == [] and attached == []
+        assert bubble == []
+
+    def test_without_a_bubble_nothing_is_kept(self, service, bubble):
+        service.script = [audio_frame(b"\x01") + summary_frame()]
+        start(["Text hier."], session_id="abc", bubble=None)
+        assert bubble == []
 
 
 class TestSeveralSpeakers:
@@ -300,22 +297,3 @@ class TestSeveralSpeakers:
         service.script = [audio_frame(b"\x01" * 4) + summary_frame()]
         buffer = start_parts([ReplyPart("aifred", "<think>nur Gedanken</think>", "t1"), ReplyPart("aifred", "Gesagt.", "t2")])
         assert [sent["text"] for sent in service.speaks] == ["Gesagt."] and drain(buffer) == b"\x01" * 4
-
-
-def test_attach_reply_audio_takes_the_newest_reply_without_audio(tmp_path, monkeypatch):
-    import aifred.lib.session_storage as storage
-
-    sessions: dict = {"s": {"data": {"chat_history": [
-        {"role": "assistant", "content": "alt", "has_audio": False},
-        {"role": "user", "content": "Frage"},
-        {"role": "assistant", "content": "neu", "has_audio": False},
-        {"role": "assistant", "content": "mit Ton", "has_audio": True},
-    ]}}}
-    monkeypatch.setattr(storage, "load_session", lambda sid: sessions.get(sid))
-    monkeypatch.setattr(storage, "save_session", lambda sid, session: True)
-    assert storage.attach_reply_audio("s", "/_upload/audio/s/a.wav", "Edge · Cloud")
-    old, _, new, _ = sessions["s"]["data"]["chat_history"]
-    assert (new["has_audio"], new["tts_note"], new["audio_urls_json"]) == (True, "Edge · Cloud", '["/_upload/audio/s/a.wav"]')
-    assert new["metadata"]["audio_urls"] == ["/_upload/audio/s/a.wav"]
-    assert old["has_audio"] is False
-    assert storage.attach_reply_audio("missing", "x", "y") is False

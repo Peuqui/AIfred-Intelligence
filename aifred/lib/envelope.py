@@ -33,7 +33,7 @@ class ReplyPart:
 
     agent: str                 # whose voice
     text: str
-    bubble: str | None = None  # timestamp of its bubble in the session; None = the newest one without audio
+    bubble: str | None = None  # timestamp of its bubble in the session; None = it has none: nothing is kept or marked
 
 
 @dataclass

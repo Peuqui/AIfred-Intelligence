@@ -160,28 +160,15 @@ async def keep_spoken_audio(
     reading: SpokenReading, bubble: str | None, language: str, label: str, session_id: str | None,
 ) -> None:
     """What the device spoke of a part goes onto its bubble like a browser reply: the segments joined
-    into the session's audio, with who spoke. ``bubble`` is its timestamp; None = the newest bubble
-    without audio (an announcement, recorded right before). Without a session (a tool's announcement
-    has no bubble of its own) nothing to keep."""
-    if not session_id or not reading.audio_urls:
+    into the session's audio, with who spoke. ``bubble`` is its timestamp. Without a session or a bubble
+    (an announcement that has none of its own) nothing to keep."""
+    if not session_id or bubble is None or not reading.audio_urls:
         return
-    from .audio_processing import save_audio_to_session
     from .reply_speech import put_on_bubble
-    from .session_storage import attach_reply_audio
 
     note = await asyncio.to_thread(spoken_note, reading.summary.trace, language) if reading.summary else ""
-    if bubble is not None:
-        if not await put_on_bubble(session_id, bubble, list(reading.audio_urls), [], note):
-            log_message(f"[{label}] spoken audio not kept on bubble {bubble} of session {session_id[:8]}", "warning")
-        return
-    session_audio = await asyncio.to_thread(save_audio_to_session, list(reading.audio_urls), session_id)
-    if session_audio is None:
-        log_message(f"[{label}] spoken audio not saved to session {session_id[:8]}", "warning")
-        return
-    if await asyncio.to_thread(attach_reply_audio, session_id, session_audio, note):
-        log_message(f"[{label}] spoken audio kept on the bubble ({len(reading.audio_urls)} segment(s))")
-    else:
-        log_message(f"[{label}] no reply bubble without audio in session {session_id[:8]}", "warning")
+    if not await put_on_bubble(session_id, bubble, list(reading.audio_urls), [], note):
+        log_message(f"[{label}] spoken audio not kept on bubble {bubble} of session {session_id[:8]}", "warning")
 
 
 @dataclass

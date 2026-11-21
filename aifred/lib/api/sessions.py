@@ -329,12 +329,10 @@ async def sessions_mark_read(session_id: str, mark: ReadMark, request: Request) 
     """The user has read up to the bubble with ``timestamp``. The mark only moves forward: an older or equal
     timestamp changes nothing (still 204). 422 when it is no bubble of the session. The open tabs hear
     ``read_until``; the session list is announced by the file write (``sessions_changed``)."""
-    from ..session_storage import mark_read_until
+    from ..read_mark import mark_read
 
     owned_session(request, session_id)
-    if await asyncio.to_thread(mark_read_until, session_id, mark.timestamp):
-        # A state, not an event: a tab that reconnects needs the newest mark only.
-        session_events.publish(session_id, "read_until", {"timestamp": mark.timestamp}, replaces=frozenset({"read_until"}))
+    await asyncio.to_thread(mark_read, session_id, mark.timestamp)
     return Response(status_code=204)
 
 

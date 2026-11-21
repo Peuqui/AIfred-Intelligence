@@ -15,6 +15,7 @@ from aifred.lib import message_processor, plugin_registry, settings
 from aifred.lib.alert_bus import AlertEvent, AlertRule, _deliver_in_session
 from aifred.lib.envelope import OutboundMessage
 from aifred.lib.plugin_base import PluginContext
+from aifred.lib.read_mark import BubbleRef
 from aifred.lib.user_error import Conflict
 
 
@@ -72,9 +73,9 @@ def test_nothing_is_sent_through_a_channel_that_is_off(channels: dict[str, _Chan
 def test_an_announcement_in_rooms_refuses_before_it_makes_a_bubble(channels: dict[str, _Channel], monkeypatch: pytest.MonkeyPatch) -> None:
     recorded: list[str] = []
 
-    def record(*_args: Any, **_kwargs: Any) -> str:
+    def record(*_args: Any, **_kwargs: Any) -> BubbleRef:
         recorded.append("bubble")
-        return "s"
+        return BubbleRef("s", "t1")
 
     monkeypatch.setattr(message_processor, "record_autonomous_turn", record)
     with pytest.raises(Conflict):
@@ -85,7 +86,7 @@ def test_an_announcement_in_rooms_refuses_before_it_makes_a_bubble(channels: dic
 def test_an_alert_goes_on_to_its_other_sinks_when_one_channel_is_off(channels: dict[str, _Channel], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(message_processor, "_resolve_channel_recipient", lambda channel, recipient: recipient or "me")
     monkeypatch.setattr(message_processor, "resolve_announce_targets", lambda channel, target: [target or "me"])
-    monkeypatch.setattr(message_processor, "record_autonomous_turn", lambda *args, **kwargs: None)
+    monkeypatch.setattr(message_processor, "record_autonomous_turn", lambda *args, **kwargs: BubbleRef("s", "t1"))
     event = AlertEvent(producer="vision", category="face_unknown", source_id="cam", severity="warning", title="t", body="b",
                        timestamp=datetime(2026, 11, 14, 12, 0))
     rule = AlertRule(producer="vision", sinks=["chat:me", "mail:me"], rule_id="r")

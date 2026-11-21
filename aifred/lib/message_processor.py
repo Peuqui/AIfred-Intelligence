@@ -19,6 +19,7 @@ from .envelope import InboundMessage, OutboundMessage, ReplyPart
 from .formatting import build_channel_chat_entry, build_user_chat_entry
 from .logging_utils import log_exception, log_message
 from .plugin_base import BaseChannel
+from .read_mark import BubbleRef
 from .routing_table import routing_table
 from .session_storage import create_empty_session, update_chat_data
 from .turn_service import TurnOrigin, TurnReply, TurnRequest, run_turn
@@ -635,6 +636,7 @@ def resolve_announce_targets(channel: str, target: str) -> list[str]:
 async def announce_to_channel(
     channel: str, recipient: str, text: str, *,
     session_id: str | None,
+    bubble: str | None = None,
     media: str | None = None, metadata: dict | None = None,
 ) -> bool:
     """SSoT for sending an autonomous (non-reply) message to a channel.
@@ -645,7 +647,11 @@ async def announce_to_channel(
     or the alert's), carried in the outbound metadata exactly like a reply's:
     a channel that threads replies (email) registers it, so an answer to the
     announcement lands in that same session instead of opening a new one.
-    ``None`` when the message belongs to no session."""
+    ``None`` when the message belongs to no session.
+
+    ``bubble``: the timestamp of the announcement's bubble in that session (``record_autonomous_turn``
+    or the turn's reply). A speaking channel keeps what it spoke on exactly that bubble and, when the
+    listener heard it to the end, marks it read. ``None`` = no bubble known: nothing is kept or marked."""
     from datetime import datetime
 
     from .plugin_registry import get_channel, require_channel_on
@@ -659,12 +665,11 @@ async def announce_to_channel(
     if not target:
         log_message(f"announce: no recipient/allowlist for '{channel}'", "warning")
         return False
-    # An announcement speaks in AIfred's voice; its bubble is the newest one without audio (announce_into_rooms
-    # records it right before).
+    # An announcement speaks in AIfred's voice; ``bubble`` is where what was spoken is kept.
     outbound = OutboundMessage(
         channel=channel, channel_id=target, recipient=target,
         text=text, media=media, metadata={**(metadata or {}), "session_id": session_id},
-        parts=[ReplyPart(BASE_AGENT, text)],
+        parts=[ReplyPart(BASE_AGENT, text, bubble)],
     )
     dummy = InboundMessage(
         channel=channel, channel_id=target, sender="system",
@@ -747,11 +752,11 @@ def record_autonomous_turn(
     media_gallery: list[str] | None = None,
     owner: str = MESSAGE_HUB_OWNER,
     speaker: str | None = None,
-) -> str:
+) -> BubbleRef:
     """SSoT for surfacing an autonomous event as a normal browser session.
     Routes to a (stable) session, appends an assistant chat turn, and writes a
     hub notification — same primitives process_inbound persists with, just
-    without the LLM. Returns the session_id.
+    without the LLM. Returns the session and the timestamp of the bubble it appended.
 
     ``media_gallery``: die Bilder der Meldung als URLs (Weitwinkel, Zoom, Ausschnitte), als Markdown-Bilder in
     die Bubble eingebettet, damit die Browser-Sitzung zeigt, was ein Kanal wie Telegram bekam. Leer oder ``None``
@@ -801,12 +806,13 @@ def record_autonomous_turn(
         session = load_session(session_id)
         data = (session or {}).get("data", {})
         chat_history = list(data.get("chat_history", []))
-        chat_history.append(build_channel_chat_entry(content, channel, title))
+        entry = build_channel_chat_entry(content, channel, title)
+        chat_history.append(entry)
         llm_history = [*data.get("llm_history", []), llm_entry]
         update_chat_data(session_id, chat_history, llm_history=llm_history, owner=owner)
 
     push_hub_notification(session_id, title, channel, "system", status="done")
-    return session_id
+    return BubbleRef(session_id, str(entry["timestamp"]))
 
 
 async def announce_into_rooms(
@@ -816,7 +822,8 @@ async def announce_into_rooms(
     ``freeecho2_announce``, the announce API): per room the bubble first —
     ``record_autonomous_turn`` in the room's session, ``speaker`` as sender —
     then the announcement into that session, so what the puck speaks is kept
-    on that bubble (speech_synthesis.keep_spoken_audio). Recorded after, a
+    on that bubble (speech_synthesis.keep_spoken_audio) and, once the puck has played it to the end,
+    marks it read (the alert queue). Recorded after, a
     short announcement would be spoken before its bubble existed.
 
     Returns the rooms reached. A room not reached keeps its bubble unspoken;
@@ -826,8 +833,10 @@ async def announce_into_rooms(
     require_channel_on(channel)
     reached: list[str] = []
     for room in rooms:
-        session_id = record_autonomous_turn(channel, room, speaker, text, speaker=speaker)
-        if await announce_to_channel(channel, room, text, session_id=session_id, metadata=metadata):
+        bubble = record_autonomous_turn(channel, room, speaker, text, speaker=speaker)
+        if await announce_to_channel(
+            channel, room, text, session_id=bubble.session_id, bubble=bubble.timestamp, metadata=metadata,
+        ):
             reached.append(room)
         else:
             log_message(f"Announcement by {speaker}: {channel}:{room} not reached — its bubble was not spoken", "warning")

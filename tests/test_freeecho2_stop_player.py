@@ -50,7 +50,7 @@ def setup(monkeypatch: pytest.MonkeyPatch) -> tuple[FreeEcho2Channel, MagicMock,
     return channel, bridge, orchestrator
 
 
-async def _speech_running(orchestrator: AudioOrchestrator) -> asyncio.Task[None]:
+async def _speech_running(orchestrator: AudioOrchestrator) -> asyncio.Task[bool]:
     """Speech that has not ended: a growing buffer nobody closes."""
     speech = asyncio.create_task(orchestrator.play_tts(TTSBuffer(b"", growing=True)))
     await asyncio.sleep(0.05)

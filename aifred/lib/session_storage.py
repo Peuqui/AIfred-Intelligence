@@ -526,19 +526,6 @@ def update_chat_data(
         return save_session(session_id, session)
 
 
-def attach_reply_audio(session_id: str, audio_url: str, tts_note: str) -> bool:
-    """Put spoken audio onto the newest assistant bubble that has none yet —
-    what a device channel (the Echo) spoke becomes listenable in the browser
-    like a browser reply's. False when the session has no such bubble."""
-
-    def newest_without_audio(history: list[dict[str, Any]]) -> dict[str, Any] | None:
-        return next(
-            (m for m in reversed(history) if m.get("role") == "assistant" and not m.get("has_audio")), None,
-        )
-
-    return _put_reply_audio(session_id, newest_without_audio, [audio_url], [], tts_note) is not None
-
-
 def keep_reply_audio(
     session_id: str, timestamp: str, audio_urls: list[str], browser_speech: list[dict[str, Any]], tts_note: str,
 ) -> dict[str, Any] | None:

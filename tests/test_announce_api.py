@@ -7,6 +7,7 @@ from starlette.testclient import TestClient
 
 from aifred.lib.api import announce
 from aifred.lib.api.app import api_app
+from aifred.lib.read_mark import BubbleRef
 
 TOKEN = "test-announce-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -22,7 +23,7 @@ def client(monkeypatch: pytest.MonkeyPatch, channels_on: Callable[..., None]) ->
     recorded: list[tuple] = []
     order: list[str] = []
 
-    async def fake_announce(channel, room, text, *, session_id, metadata):
+    async def fake_announce(channel, room, text, *, session_id, bubble, metadata):
         delivered.append((channel, room, text, session_id, metadata))
         order.append("announce")
         return True
@@ -30,7 +31,7 @@ def client(monkeypatch: pytest.MonkeyPatch, channels_on: Callable[..., None]) ->
     def fake_record(channel, room, title, text, *, speaker):
         recorded.append((channel, room, title, text, speaker))
         order.append("record")
-        return f"session-{room}"
+        return BubbleRef(f"session-{room}", f"t-{room}")
 
     # Die Session-Dokumentation nicht in echte Sessions schreiben
     from aifred.lib import message_processor

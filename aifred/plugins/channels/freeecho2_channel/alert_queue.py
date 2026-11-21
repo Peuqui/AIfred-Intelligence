@@ -17,9 +17,11 @@ from typing import Any
 
 from ....lib.audio_channels._audio_orchestrator import PCM_BYTES_PER_SEC, TTSBuffer
 from ....lib.config import FREEECHO2_PAUSE_ACK_TIMEOUT_SEC
+from ....lib.read_mark import BubbleRef, mark_heard
 
-# Item: (audio_type, tts_pcm, start_tone, end_tone); die Töne gelten nur für notification
-_alert_queues: dict[str, asyncio.Queue[tuple[str, bytes | TTSBuffer | None, bool, bool]]] = {}
+# Item: (audio_type, tts_pcm, start_tone, end_tone, bubble); die Töne gelten nur für notification;
+# bubble = die Blase, zu der die Ansage gehört (None: keine Sitzung/Blase, z. B. Türklingel)
+_alert_queues: dict[str, asyncio.Queue[tuple[str, bytes | TTSBuffer | None, bool, bool, BubbleRef | None]]] = {}
 _alert_workers: dict[str, asyncio.Task] = {}
 _playback_done: dict[str, asyncio.Event] = {}
 # Event-Loop des WebSocket-Servers (aiohttp). Der proaktive Emit-Pfad
@@ -74,6 +76,7 @@ def signal_playback_done(room: str) -> None:
 
 async def _enqueue_on_ws_loop(
     room: str, audio_type: str, tts_pcm: bytes | TTSBuffer | None, start_tone: bool, end_tone: bool,
+    bubble: BubbleRef | None,
 ) -> None:
     """Put + Worker-Sicherstellung — läuft IMMER im ws-Loop, damit Queue,
     Worker und das spätere ws.send_bytes loop-konsistent sind."""
@@ -81,7 +84,7 @@ async def _enqueue_on_ws_loop(
     if queue is None:
         queue = asyncio.Queue()
         _alert_queues[room] = queue
-    await queue.put((audio_type, tts_pcm, start_tone, end_tone))
+    await queue.put((audio_type, tts_pcm, start_tone, end_tone, bubble))
     worker = _alert_workers.get(room)
     if worker is None or worker.done():
         _alert_workers[room] = asyncio.create_task(
@@ -91,17 +94,19 @@ async def _enqueue_on_ws_loop(
 
 async def enqueue_alert(
     room: str, audio_type: str, tts_pcm: bytes | TTSBuffer | None, *,
-    start_tone: bool, end_tone: bool,
+    start_tone: bool, end_tone: bool, bubble: BubbleRef | None = None,
 ) -> None:
     """Proaktiven Alarm in die room-Queue legen + Worker sicherstellen.
     Kehrt sofort zurück (entkoppelt vom Emit-Pfad). ``start_tone``/``end_tone``
     wählen Beginn- und Ende-Ton am Puck. ``tts_pcm`` ist fertiges PCM, ein
     (wachsender) ``TTSBuffer`` für satzweises Streaming oder ``None`` (Türklingel).
+    ``bubble``: wozu die Ansage gehört; spielt der Puck sie bis zum Ende und quittiert mit ``_done``,
+    gilt die Blase als gelesen. ``None`` für Ansagen ohne Sitzung/Blase.
 
     Der Emit-Pfad läuft typischerweise in einem anderen Event-Loop als der
     WebSocket; ``run_on_ws_loop`` schiebt Queue/Worker auf den ws-Loop, damit
     der Pump nicht cross-loop sendet."""
-    await run_on_ws_loop(_enqueue_on_ws_loop(room, audio_type, tts_pcm, start_tone, end_tone))
+    await run_on_ws_loop(_enqueue_on_ws_loop(room, audio_type, tts_pcm, start_tone, end_tone, bubble))
 
 
 async def _alert_worker(room: str) -> None:
@@ -113,7 +118,7 @@ async def _alert_worker(room: str) -> None:
 
     queue = _alert_queues[room]
     while True:
-        audio_type, tts_pcm, start_tone, end_tone = await queue.get()
+        audio_type, tts_pcm, start_tone, end_tone, bubble = await queue.get()
         buffer = tts_pcm if isinstance(tts_pcm, TTSBuffer) else TTSBuffer(tts_pcm or b"")
         try:
             ch = audio_channels.resolve(f"freeecho2:{room}")
@@ -167,11 +172,14 @@ async def _alert_worker(room: str) -> None:
             try:
                 await asyncio.wait_for(evt.wait(), timeout=done_timeout)
             except TimeoutError:
+                # Der Puck hat das Ende nicht bestätigt: nicht als gehört werten.
                 log_message(
                     f"[FreeEcho.2 {room}] alert worker: no _done within "
                     f"{done_timeout:.0f}s (playback ~{playback_sec:.0f}s) — proceeding",
                     "warning",
                 )
+            else:
+                await mark_heard(bubble, f"FreeEcho.2 {room}")
         except OSError as e:  # the puck did not confirm the pause, or the connection is gone
             log_message(
                 f"[FreeEcho.2 {room}] alert worker error — announcement dropped: {e}", "error",
@@ -181,3 +189,4 @@ async def _alert_worker(room: str) -> None:
         finally:
             buffer.discard()   # ein noch laufender Erzeuger (verworfene/abgebrochene Ansage)
             queue.task_done()
+

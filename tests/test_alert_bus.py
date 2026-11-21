@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from aifred.lib.alert_bus import AlertDispatcher, AlertEvent, AlertRule
+from aifred.lib.read_mark import BubbleRef
 
 _T0 = datetime(2026, 6, 3, 14, 0, 0)
 
@@ -194,18 +195,51 @@ class TestSinkMedia:
 
         sent: dict[str, Any] = {}
 
-        async def fake_announce(channel, recipient, text, *, session_id=None, media=None, metadata=None):
+        async def fake_announce(channel, recipient, text, *, session_id=None, bubble=None, media=None, metadata=None):
             sent.update(channel=channel, media=media, metadata=metadata or {})
             return True
 
         monkeypatch.setattr(mp, "announce_to_channel", fake_announce)
         monkeypatch.setattr(mp, "resolve_announce_targets", lambda channel, target: ["1"])
-        monkeypatch.setattr(mp, "record_autonomous_turn", lambda *a, **k: None)
+        monkeypatch.setattr(mp, "record_autonomous_turn", lambda *a, **k: BubbleRef("sess", "t1"))
         monkeypatch.setattr(mp, "session_for_channel", lambda *a, **k: "sess")
         monkeypatch.setattr(routing_table, "get_route", lambda *a, **k: None)
         rule = AlertRule(producer="vision", sinks=["telegram:1"], rule_id="r", compose=compose)
         asyncio.run(_default_deliver(ev, rule))
         return sent
+
+    def _bubble_announced(self, monkeypatch, compose: str, reply_bubbles: list[str]) -> str | None:
+        """The bubble the announcement carries to the channel (where a speaking device keeps its audio and marks it read)."""
+        import aifred.lib.message_processor as mp
+        from aifred.lib.alert_bus import _default_deliver
+        from aifred.lib.envelope import OutboundMessage, ReplyPart
+        from aifred.lib.routing_table import routing_table
+
+        seen: dict[str, str | None] = {}
+
+        async def fake_announce(channel, recipient, text, *, session_id=None, bubble=None, media=None, metadata=None):
+            seen["bubble"] = bubble
+            return True
+
+        async def fake_process_inbound(message):
+            parts = [ReplyPart("aifred", f"Antwort {n}", stamp) for n, stamp in enumerate(reply_bubbles)]
+            return OutboundMessage(channel="vision", channel_id="x", recipient="x", text="Antworten", media=None,
+                                   metadata={}, parts=parts)
+
+        monkeypatch.setattr(mp, "announce_to_channel", fake_announce)
+        monkeypatch.setattr(mp, "process_inbound", fake_process_inbound)
+        monkeypatch.setattr(mp, "resolve_announce_targets", lambda channel, target: ["1"])
+        monkeypatch.setattr(mp, "record_autonomous_turn", lambda *a, **k: BubbleRef("sess", "t-recorded"))
+        monkeypatch.setattr(mp, "session_for_channel", lambda *a, **k: "sess")
+        monkeypatch.setattr(routing_table, "get_route", lambda *a, **k: None)
+        asyncio.run(_default_deliver(_ev(), AlertRule(producer="vision", sinks=["telegram:1"], rule_id="r", compose=compose)))
+        return seen["bubble"]
+
+    def test_the_announcement_carries_the_bubble_it_recorded(self, monkeypatch):
+        assert self._bubble_announced(monkeypatch, "template", []) == "t-recorded"
+
+    def test_an_answer_of_several_agents_carries_the_last_bubble_all_of_it_is_spoken_up_to_there(self, monkeypatch):
+        assert self._bubble_announced(monkeypatch, "llm", ["t1", "t2"]) == "t2"
 
     def test_new_media_goes_to_the_channel_with_its_context(self, monkeypatch):
         ev = _ev(media="/x/zoom.jpg", media_context="/x/wide.jpg")
@@ -265,7 +299,12 @@ class TestReadyDescription:
 
         monkeypatch.setattr(ab, "_describe_media_via_vlm", describe)
         monkeypatch.setattr(mp, "announce_to_channel", announce)
-        monkeypatch.setattr(mp, "record_autonomous_turn", lambda *a, **kw: recorded.append(a[3]))
+
+        def record(*a, **kw):
+            recorded.append(a[3])
+            return BubbleRef("sess", "t1")
+
+        monkeypatch.setattr(mp, "record_autonomous_turn", record)
         monkeypatch.setattr(mp, "resolve_announce_targets", lambda channel, target: [target])
         rule = AlertRule(producer="vision", sinks=["telegram"], compose=compose, rule_id="r")
         assert asyncio.run(ab._deliver_in_session(_ev(**event), rule))

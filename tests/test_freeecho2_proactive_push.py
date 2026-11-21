@@ -23,6 +23,7 @@ import pytest
 
 from aifred.lib.audio_channels._audio_orchestrator import TTSBuffer
 from aifred.lib.envelope import InboundMessage, OutboundMessage
+from aifred.lib.read_mark import BubbleRef
 from aifred.plugins.channels.freeecho2_channel import FreeEchoChannel, _devices
 
 
@@ -307,7 +308,7 @@ class TestAlertBusSeverityMapping:
 
         captured: dict = {}
 
-        async def fake_announce(channel, recipient, text, *, session_id, media=None, metadata=None):
+        async def fake_announce(channel, recipient, text, *, session_id, bubble=None, media=None, metadata=None):
             captured["channel"] = channel
             captured["metadata"] = metadata or {}
             return True
@@ -317,7 +318,7 @@ class TestAlertBusSeverityMapping:
         with patch(
             "aifred.lib.message_processor.announce_to_channel", new=fake_announce
         ), patch(
-            "aifred.lib.message_processor.record_autonomous_turn", return_value="sess"
+            "aifred.lib.message_processor.record_autonomous_turn", return_value=BubbleRef("sess", "t1")
         ):
             ok = run(_default_deliver(ev, rule))
 
@@ -340,14 +341,14 @@ class TestAlertBusSeverityMapping:
 
         captured: dict = {}
 
-        async def fake_announce(channel, recipient, text, *, session_id, media=None, metadata=None):
+        async def fake_announce(channel, recipient, text, *, session_id, bubble=None, media=None, metadata=None):
             captured["metadata"] = metadata or {}
             return True
 
         with patch(
             "aifred.lib.message_processor.announce_to_channel", new=fake_announce
         ), patch(
-            "aifred.lib.message_processor.record_autonomous_turn", return_value="sess"
+            "aifred.lib.message_processor.record_autonomous_turn", return_value=BubbleRef("sess", "t1")
         ):
             run(_default_deliver(ev, rule))
 
@@ -365,14 +366,14 @@ class TestAlertBusSeverityMapping:
 
         captured: dict = {}
 
-        async def fake_announce(channel, recipient, text, *, session_id, media=None, metadata=None):
+        async def fake_announce(channel, recipient, text, *, session_id, bubble=None, media=None, metadata=None):
             captured["metadata"] = metadata or {}
             return True
 
         with patch(
             "aifred.lib.message_processor.announce_to_channel", new=fake_announce
         ), patch(
-            "aifred.lib.message_processor.record_autonomous_turn", return_value="sess"
+            "aifred.lib.message_processor.record_autonomous_turn", return_value=BubbleRef("sess", "t1")
         ):
             run(_default_deliver(ev, rule))
 

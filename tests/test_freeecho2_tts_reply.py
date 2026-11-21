@@ -19,6 +19,7 @@ from fake_tts_service import (
 from aifred.lib import speech_synthesis
 from aifred.lib.audio_channels._audio_orchestrator import silence_pcm
 from aifred.lib.envelope import InboundMessage, OutboundMessage, ReplyPart
+from aifred.lib.read_mark import BubbleRef
 from aifred.plugins.channels.freeecho2_channel import FreeEchoChannel, _devices, tts_reply
 
 
@@ -114,6 +115,23 @@ class TestEchoReply:
             run(channel.send_reply(reply("Text hier."), user_turn()))
         orc.play_tts.assert_not_awaited()
         assert any(line.startswith("error:") and "silent" in line for line in logged)
+
+    @pytest.mark.parametrize(("played_to_the_end", "marked"), [(True, 1), (False, 0)])
+    def test_an_answer_played_at_the_puck_without_a_stop_marks_its_bubble_read(self, echo, played_to_the_end, marked):
+        """Read aloud to its end counts as read, also at the puck; a stop there (False from the orchestrator) does not."""
+        fake, _, orc = echo
+        fake.script = [audio_frame(b"\x01") + summary_frame()]
+        orc.play_tts = AsyncMock(return_value=played_to_the_end)
+        answer = OutboundMessage(
+            channel="freeecho2", channel_id="buero", recipient="buero", text="Text hier.", media=None,
+            metadata={"session_id": "s1"}, parts=[ReplyPart("aifred", "Text hier.", "t1")],
+        )
+        with patch.object(tts_reply, "mark_heard", AsyncMock()) as heard, \
+                patch("aifred.lib.reply_speech.put_on_bubble", AsyncMock(return_value=True)):
+            run(FreeEchoChannel().send_reply(answer, user_turn()))
+        assert heard.await_count == marked
+        if marked:
+            assert heard.await_args is not None and heard.await_args.args[0] == BubbleRef("s1", "t1")
 
     def test_silent_reply_speaks_nothing(self, echo):
         fake, _, orc = echo

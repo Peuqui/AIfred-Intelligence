@@ -11,12 +11,22 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ....lib.plugin_base import BaseChannel
+from ....lib.read_mark import BubbleRef, mark_heard
 from ....lib.speech_synthesis import start_speech_stream
 from ._shared import _devices, channel_language, notification_tone_enabled
 from .alert_queue import enqueue_alert
 
 if TYPE_CHECKING:
     from ....lib.envelope import InboundMessage, OutboundMessage
+
+
+def _announced_bubble(outbound: OutboundMessage) -> BubbleRef | None:
+    """The bubble what is spoken belongs to (an announcement's, or a reply's last part: up to it everything was
+    heard), None without session or bubble."""
+    session_id = outbound.metadata.get("session_id")
+    if not session_id or not outbound.parts or outbound.parts[-1].bubble is None:
+        return None
+    return BubbleRef(session_id, outbound.parts[-1].bubble)
 
 
 class TtsReplyMixin(BaseChannel):
@@ -127,10 +137,14 @@ class TtsReplyMixin(BaseChannel):
                 else:
                     start_tone = notification_tone_enabled("start")
                     end_tone = notification_tone_enabled("end")
-                await enqueue_alert(room, audio_type, buffer, start_tone=start_tone, end_tone=end_tone)
+                await enqueue_alert(
+                    room, audio_type, buffer, start_tone=start_tone, end_tone=end_tone, bubble=_announced_bubble(outbound),
+                )
             else:
                 self.channel_log(f"[FreeEcho.2 {room}] Sending TTS (streaming) via orchestrator")
-                await orc.play_tts(buffer)
+                # The answer to a question asked at the puck, played without a stop: heard, so read.
+                if await orc.play_tts(buffer):
+                    await mark_heard(_announced_bubble(outbound), f"FreeEcho.2 {room}")
             self.channel_log(f"[FreeEcho.2 {room}] TTS playback complete")
         except BaseException:
             buffer.discard()
