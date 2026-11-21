@@ -3,7 +3,7 @@
 // dot (green loaded and breathing, yellow loading and faster, grey nothing loaded, red not reachable); open, a line
 // per loaded thing with the time until it unloads and its button (unload, load, hold a machine's card free). The
 // refresh button reads STT and TTS anew. The page counts down from the moment the snapshot arrived.
-import { Gpu, Hand, Power, RefreshCw, TriangleAlert, X } from "lucide-vue-next";
+import { CircuitBoard, Hand, Power, RefreshCw, TriangleAlert, X } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { language, t } from "../i18n";
 import { type Action, type Color, type Row, SERVICES, type Service, formatRemaining, hostRows, localHoldRow, serviceRows, summaryColor } from "../lib/serviceStatus";
@@ -112,7 +112,7 @@ onBeforeUnmount(() => {
       </span>
       <!-- This machine's hold also in the closed bar: a request or a hold turns it yellow, seen without opening. -->
       <span v-if="localHold" class="badge" :class="[localHold.color, { pending: localHold.pending }]" :title="localHold.title">
-        <Gpu :size="20" /><span class="dot" />
+        <CircuitBoard :size="20" /><span class="dot" />
       </span>
       <button class="refresh" :title="t('service_status_refresh')" @click.prevent="status.fetch(true)"><RefreshCw :size="14" /></button>
     </summary>
@@ -134,7 +134,7 @@ onBeforeUnmount(() => {
       <!-- This machine: a plain line while nobody asks, an amber card once somebody asks for or holds the cards. The state
            in words is the visible reason a button is greyed out; the buttons stay. -->
       <div v-if="localHold" class="local-hold" :class="{ card: localHold.card }">
-        <span class="badge" :class="[localHold.color, { pending: localHold.pending }]"><Gpu :size="20" /><span class="dot" /></span>
+        <span class="badge" :class="[localHold.color, { pending: localHold.pending }]"><CircuitBoard :size="20" /><span class="dot" /></span>
         <span class="label">{{ localHold.label }}</span>
         <span class="value wrap" :class="{ held: localHold.card }">{{ localHold.title }}</span>
         <span v-if="localHold.detail" class="detail">{{ localHold.detail }}</span>
@@ -148,7 +148,7 @@ onBeforeUnmount(() => {
         </span>
       </div>
       <div v-for="host in machines" :key="host.label" class="line">
-        <span class="badge" :class="host.color"><Gpu :size="20" /><span class="dot" /></span>
+        <span class="badge" :class="host.color"><CircuitBoard :size="20" /><span class="dot" /></span>
         <span class="label">{{ host.label }}</span>
         <span class="value wrap" :title="host.title ?? host.text">{{ host.text }}</span>
         <span class="time" />
