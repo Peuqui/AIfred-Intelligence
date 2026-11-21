@@ -17,12 +17,14 @@ import MediaPlayer from "../components/MediaPlayer.vue";
 import MemorySwitchIcon from "../components/MemorySwitchIcon.vue";
 import TtsIcon from "../components/TtsIcon.vue";
 import MessageBubble from "../components/MessageBubble.vue";
+import ReadMark from "../components/ReadMark.vue";
 import SessionList from "../components/SessionList.vue";
 import StreamingAnswer from "../components/StreamingAnswer.vue";
-import { t } from "../i18n";
+import { t, tCount } from "../i18n";
 import { ZOOM, chatHeight, chatZoom, zoomBy } from "../lib/devicePrefs";
 import { pinQuestion } from "../lib/devicePrefs";
 import { answerStartTop, isAtEnd } from "../lib/followScroll";
+import { isPlainClick, lineAfterIndex } from "../lib/unread";
 import { useSessionsColumn } from "../lib/sessionsColumn";
 import HelpButton from "../components/help/HelpButton.vue";
 import { saveAs } from "../lib/download";
@@ -62,6 +64,18 @@ const turns = computed(() => {
   }
   return grouped;
 });
+// Where the "read up to here" line stands: under the entry with this key; "" above the first one; null: no line.
+const entryKey = (entry: ChatEntry): string => entry.timestamp + entry.role;
+const readLineAfter = computed<string | null>(() => {
+  const at = lineAfterIndex(chat.history, chat.readUntil);
+  if (at === null) return null;
+  const entry = chat.history[at];
+  return entry ? entryKey(entry) : "";
+});
+// A click on a bubble below the line says "read up to here" (not on what has a click of its own, not while text is selected).
+function bubbleClicked(entry: ChatEntry, event: MouseEvent): void {
+  if (isPlainClick(event)) void chat.markRead(entry.timestamp);
+}
 // The turn whose question sticks at the top edge of the box now: its turn begins above the box's top edge and still
 // reaches into it. Only that question is folded to a few lines; where it stands in the history it shows in full.
 const stuckTurn = ref<string | null>(null);
@@ -211,6 +225,7 @@ onMounted(() => void start());
       <div class="toolbar">
         <h2>{{ chat.title || t("untitled_chat") }}</h2>
         <div class="tools">
+          <button class="all-read" :disabled="!chat.unread" @click="chat.markAllRead">{{ tCount("mark_all_read", chat.unread) }}</button>
           <button class="zoom" :disabled="chatZoom <= ZOOM.min" :title="t('chat_font_smaller')" @click="zoomBy('chat', -1)">A−</button>
           <button class="zoom" :disabled="chatZoom >= ZOOM.max" :title="t('chat_font_larger')" @click="zoomBy('chat', 1)">A+</button>
           <ChatMenu>
@@ -233,18 +248,21 @@ onMounted(() => void start());
       <div ref="messages" class="messages" :style="chatHeight ? { height: `min(${chatHeight}px, calc(100 * var(--dvh)))` } : undefined" @scroll.passive="updateStuck">
         <div class="bubbles">
         <section v-for="(turn, at) in turns" :key="turn.key" :data-key="turn.key" class="turn">
-          <MessageBubble
-            v-for="entry in turn.entries"
-            :key="entry.timestamp + entry.role"
-            :class="{ question: entry.role === 'user', pinned: entry.role === 'user' && pinQuestion }"
-            :entry="entry"
-            :pinned="entry.role === 'user' && pinQuestion"
-            :stuck="turn.key === stuckTurn"
-            :speech-on="!!settings.current?.enable_tts && entry.role === 'assistant'"
-            :color="entry.agent ? colors[entry.agent] : undefined"
-            :reading-requested="chat.readingRequested === entry.timestamp"
-            @read-again="chat.readAgain"
-          />
+          <ReadMark v-if="at === 0 && readLineAfter === ''" />
+          <template v-for="entry in turn.entries" :key="entryKey(entry)">
+            <MessageBubble
+              :class="{ question: entry.role === 'user', pinned: entry.role === 'user' && pinQuestion }"
+              :entry="entry"
+              :pinned="entry.role === 'user' && pinQuestion"
+              :stuck="turn.key === stuckTurn"
+              :speech-on="!!settings.current?.enable_tts && entry.role === 'assistant'"
+              :color="entry.agent ? colors[entry.agent] : undefined"
+              :reading-requested="chat.readingRequested === entry.timestamp"
+              @read-again="chat.readAgain"
+              @click="bubbleClicked(entry, $event)"
+            />
+            <ReadMark v-if="readLineAfter === entryKey(entry)" />
+          </template>
           <!-- The answer being written belongs to the last turn, where it lands once done: inside the turn its question
                sticks above it at once, also when "keep the question at the top" is switched on during the answer. -->
           <StreamingAnswer v-if="at === turns.length - 1" :sections="streamingSections" :progress="progress" :color="chat.streaming ? colors[chat.streaming.agent] : undefined" />
@@ -341,6 +359,8 @@ onMounted(() => void start());
 .how .watch { margin-left: auto; }
 h2 { margin: 0; font-size: 1.1rem; }
 .agent-choices, .zoom { padding: 2px 8px; }
+.all-read { padding: 2px 8px; }
+.all-read:disabled { opacity: 0.5; cursor: default; }
 .zoom:disabled { opacity: 0.5; cursor: default; }
 /* The box keeps 70 % of the screen whatever the sizes; only its content takes the chat's size (the interface's
    size, set on the page, is taken out again). */

@@ -83,7 +83,7 @@ onBeforeUnmount(() => resizes.disconnect());
 watch(() => [props.entry.content, props.pinned, props.stuck, folded.value], () => void nextTick(measure));
 
 function play(): void {
-  toggleReading(metadata.value.audio_urls ?? [], metadata.value.browser_speech ?? []);
+  toggleReading(metadata.value.audio_urls ?? [], metadata.value.browser_speech ?? [], props.entry.timestamp || null);
 }
 
 // A click on one of the bubble's own pictures (an upload, a camera picture, a plot) shows it large, the others of

@@ -1,7 +1,7 @@
 // The open session: its history, the turn that runs, its debug lines. The server is the truth;
 // this store only follows its event stream (src/api/events.ts) and sends commands.
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { ApiError, api } from "../api/client";
 import { RESOURCES, followSession } from "../api/events";
 import type {
@@ -23,6 +23,7 @@ import * as media from "../lib/media";
 import { resourceChanged, resourceOfKind } from "../lib/resourceChanges";
 import { withConfigChanges } from "../lib/sessionConfig";
 import * as speech from "../lib/speech";
+import { unreadCount } from "../lib/unread";
 import type { TurnPhase } from "../lib/turnProgress";
 import { type HubNotice, useHubNotice } from "./hubNotice";
 import { useServiceStatus } from "./serviceStatus";
@@ -69,10 +70,16 @@ export const useChat = defineStore("chat", () => {
   const readingRequested = ref<string | null>(null);
   // Every reply of the session is being read into new audio (its button is off meanwhile).
   const regenerating = ref(false);
+  // The timestamp of the last bubble read ("" = none); the server keeps it and it only moves forward. The answers after it
+  // are unread (lib/unread.ts).
+  const readUntil = ref("");
+  const unread = computed(() => unreadCount(history.value, readUntil.value));
   let source: EventSource | null = null;
   // The session whose audio player plays in this page.
   let mediaSession: string | null = null;
   media.onQueueEnd(() => void mediaControl("ended"));
+  // A bubble read aloud by its own buttons, to its end, counts as read.
+  speech.onFinished((timestamp) => void markRead(timestamp));
 
   async function open(id: string): Promise<void> {
     speech.stop(); // the other session's reading goes on for its other tabs, not here
@@ -96,6 +103,7 @@ export const useChat = defineStore("chat", () => {
     sessionId.value = id;
     title.value = detail.title ?? null;
     history.value = detail.chat_history;
+    readUntil.value = detail.read_until;
     const lastSpoken = [...detail.chat_history].reverse().find((entry) => entry.metadata?.audio_urls?.length || entry.metadata?.browser_speech?.length);
     speech.keep(lastSpoken?.metadata?.audio_urls ?? [], lastSpoken?.metadata?.browser_speech ?? []);
     debugLines.value = detail.debug_messages;
@@ -199,8 +207,12 @@ export const useChat = defineStore("chat", () => {
       case "history_replaced":
         history.value = data.chat_history as ChatEntry[];
         break;
+      case "read_until":
+        if (String(data.timestamp) > readUntil.value) readUntil.value = String(data.timestamp);
+        break;
       case "chat_cleared":
         history.value = [];
+        readUntil.value = "";
         debugLines.value = [];
         queued.value = [];
         pendingImages.value = [];
@@ -230,6 +242,8 @@ export const useChat = defineStore("chat", () => {
       case "tts":
       case "tts_pause":
       case "tts_speak":
+        // The reading a bubble's button asked for: it belongs to that bubble (read when heard to its end).
+        if (readingRequested.value) speech.claim(readingRequested.value);
         readingRequested.value = null;
         speech.enqueue(kind, data);
         break;
@@ -354,6 +368,27 @@ export const useChat = defineStore("chat", () => {
       readingRequested.value = null;
       notice.value = error instanceof ApiError ? error.detail : String(error);
     }
+  }
+
+  // Everything up to this bubble is read; what stands below stays new. The mark only moves forward: it shows at once, the
+  // server's answer or event changes nothing; a refused one takes it back.
+  async function markRead(timestamp: string): Promise<void> {
+    const id = sessionId.value;
+    if (!id || timestamp <= readUntil.value) return;
+    const before = readUntil.value;
+    readUntil.value = timestamp;
+    try {
+      await api<void>(`sessions/${id}/read`, { method: "POST", body: JSON.stringify({ timestamp }) });
+    } catch (error) {
+      if (readUntil.value === timestamp) readUntil.value = before;
+      notice.value = error instanceof ApiError ? error.detail : String(error);
+    }
+  }
+
+  // "Mark all read": up to the newest bubble of the chat.
+  async function markAllRead(): Promise<void> {
+    const newest = history.value.at(-1);
+    if (newest) await markRead(newest.timestamp);
   }
 
   // Every reply read into new audio, without playing it; each bubble comes back as message_updated.
@@ -492,6 +527,6 @@ export const useChat = defineStore("chat", () => {
     pendingImages, uploading, draft, dictations, dictationsLanded, open, openLatest, resync, close, send, stop, configure,
     uploadImages, removeImage, dictate, dictated,
     readAgain, readingRequested, regenerating, regenerateAll, rotateImage, cropImage, exportChat, clearChat,
-    remembering, remember, mediaControl,
+    remembering, remember, mediaControl, readUntil, unread, markRead, markAllRead,
   };
 });

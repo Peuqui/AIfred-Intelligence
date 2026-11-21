@@ -13,6 +13,7 @@ const detail = {
   speech_regenerating: false,
   live_events: [] as { kind: string; data: Record<string, unknown> }[],
   last_event_id: 7,
+  read_until: "",
 };
 const followed: { afterId: number; handle: (kind: string, data: Record<string, unknown>) => void }[] = [];
 

@@ -20,6 +20,22 @@ let finishAudio: (() => void) | null = null;
 export const speaking = ref(false);
 // A reading the server sends part by part is not over before its "tts_end" (ended()).
 let arriving = false;
+// Who asked for the reading that plays (a bubble's own button), told to onFinished when it ends by itself. A stop, or
+// another reading, takes the claim away: only a reading heard to its end counts.
+let owner: string | null = null;
+let finished: ((owner: string) => void) | null = null;
+export function onFinished(callback: (owner: string) => void): void {
+  finished = callback;
+}
+export function claim(by: string): void {
+  owner = by;
+}
+function finishedByItself(): void {
+  const done = owner;
+  owner = null;
+  if (done !== null) finished?.(done);
+}
+
 // The reading is held (not stopped): the playlist stays where it is. Volume is this device's own.
 export const paused = ref(false);
 export const volume = ref(1);
@@ -66,7 +82,10 @@ export function forget(): void {
 // The server's reading has handed over its last part: once that has played, the reading is over.
 export function ended(): void {
   arriving = false;
-  if (!playing && queue.length === 0) speaking.value = false;
+  if (!playing && queue.length === 0 && speaking.value) {
+    speaking.value = false;
+    finishedByItself();
+  }
 }
 
 // Generation of the playlist: bumped on every stop, so an entry that ends after the stop does not
@@ -75,6 +94,7 @@ let generation = 0;
 
 export function stop(): void {
   generation += 1;
+  owner = null;
   queue.length = 0;
   arriving = false;
   current?.pause();
@@ -145,10 +165,14 @@ export function isSpeaking(audioUrls: string[], browserSpeech: Utterance[]): boo
 }
 
 // The speaker of a bubble: starts its reading; while that very reading plays it holds it where it is, and goes on
-// from there when pressed again (a reading of another bubble, or none, starts anew).
-export function toggleReading(audioUrls: string[], browserSpeech: Utterance[]): void {
+// from there when pressed again (a reading of another bubble, or none, starts anew). `by` is the bubble: its reading
+// heard to the end is reported to onFinished.
+export function toggleReading(audioUrls: string[], browserSpeech: Utterance[], by: string | null): void {
   if (speaking.value && isReading(audioUrls, browserSpeech)) togglePause();
-  else replay(audioUrls, browserSpeech);
+  else {
+    replay(audioUrls, browserSpeech);
+    if (by) claim(by);
+  }
 }
 
 // What a finished bubble kept of its reading, played again on request: its audio, or the parts
@@ -179,6 +203,11 @@ async function next(): Promise<void> {
   if (mine !== generation) return;
   playing = false;
   current = null;
+  // The last part has played and no more is coming: the reading is over by itself.
+  if (queue.length === 0 && !arriving) {
+    speaking.value = false;
+    finishedByItself();
+  }
   void next();
 }
 

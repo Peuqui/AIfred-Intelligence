@@ -13,6 +13,7 @@ const detail = {
   speech_regenerating: false,
   live_events: [],
   last_event_id: 0,
+  read_until: "",
 };
 const followed: ((kind: string, data: Record<string, unknown>) => void)[] = [];
 let refuse = false;
