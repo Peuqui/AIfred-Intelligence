@@ -9,7 +9,6 @@ the results stay in the history anyway.
 
 import json
 import logging
-from collections.abc import Sequence
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -39,18 +38,12 @@ def _is_network_outage(tool_results: list[dict[str, Any]]) -> bool:
     )
 
 
-def research_note(source_count: int, queries: Sequence[str], lang: str) -> str:
-    """The llm_history line of a web search: how many sources were read and
-    for which queries. A count alone did not tell the model in a follow-up
-    WHAT it had researched, and it accepted the user's "you did not research"
-    (18.09.: Kuanda searched as Kondo). Text in prompts/<lang>/shared."""
+def research_result_text(source_count: int, lang: str) -> str:
+    """The result text of a web search in the llm_history: how many sources were read. The queries
+    stand in the call's arguments (18.09.: the model accepted "you did not research" after searching
+    Kondo for Kuanda). Text in prompts/<lang>/shared."""
     from .prompt_loader import load_prompt
-    return load_prompt(
-        "shared/research_marker",
-        lang=lang,
-        source_count=source_count,
-        queries=", ".join(f'"{query}"' for query in queries),
-    )
+    return load_prompt("shared/research_result", lang=lang, source_count=source_count)
 
 
 async def run_web_search(queries: list[str], llm_history: list[dict]) -> tuple[str, int]:
@@ -63,7 +56,7 @@ async def run_web_search(queries: list[str], llm_history: list[dict]) -> tuple[s
     Reads backend and models from settings. Debug messages go through the Debug Bus (session_scope must be active).
 
     Returns (context, number of sources read); the caller builds the
-    llm_history line from the count (research_note).
+    llm_history result text from the count (research_result_text).
     """
     from .config import BACKEND_DEFAULT_MODELS, BACKEND_URLS, DEFAULT_SETTINGS
     from .debug_bus import debug, report_phase

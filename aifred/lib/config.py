@@ -1779,9 +1779,6 @@ SECURITY_AUDIT_RETENTION_DAYS = 7       # tool_audit-Zeilen aelter als N Tage ta
 # 2026-08-13: 50 → 100 — eine legitime Datei-Pipeline (Transkript in
 # ~40 Chunks übersetzen + Datei-Ops) lief bei 50 gegen den Deckel.
 SECURITY_MAX_TOOL_CHAIN_DEPTH = env_int("SECURITY_MAX_TOOL_CHAIN_DEPTH", 100)
-# Notiz in der llm_history, was die Werkzeuge einer Antwort getan haben
-# (ToolKit.call_note): lange Werte werden einzeln gekürzt.
-TOOL_CALL_NOTE_VALUE_CHARS = 120
 
 # Maximum tool call rounds per LLM response — der harte Not-Aus der
 # Loop-SCHLEIFE (nach Limit: Finalantwort ohne Tools erzwungen), während

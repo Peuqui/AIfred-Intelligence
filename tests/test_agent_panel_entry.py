@@ -35,12 +35,11 @@ def test_audio_urls_mark_the_entry() -> None:
 
 
 def test_the_history_entry_carries_the_speaker_and_drops_thinking() -> None:
-    entry = assistant_history_entry("aifred", "<think>überlegen</think>Antwort.", ["Notiz"])
+    entry = assistant_history_entry("aifred", "<think>überlegen</think>Antwort.")
     assert entry is not None
     assert entry["role"] == "assistant"
     assert entry["content"].startswith("[AIFRED]: Antwort.")
     assert "überlegen" not in entry["content"]
-    assert "Notiz" in entry["content"]
 
 
 def test_a_reply_of_thinking_only_leaves_no_history_entry() -> None:

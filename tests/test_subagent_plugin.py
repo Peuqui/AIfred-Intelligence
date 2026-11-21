@@ -220,6 +220,8 @@ class TestRun:
             yield {"type": "tool_call", "name": "read_file", "arguments": '{"path": "a.txt"}'}
             yield {"type": "tool_progress", "message": "lese …"}
             yield {"type": "tool_result", "name": "read_file", "result": "INHALT VON A"}
+            yield {"type": "tool_round", "text": "", "calls": [
+                {"name": "read_file", "arguments": '{"path": "a.txt"}', "result": "Ausgeführt."}]}
             yield {"type": "content", "text": "Der Bericht: "}
             yield {"type": "content", "text": "alles gut."}
             yield {"type": "pipeline_result", "result": self.pipeline_result}
@@ -263,6 +265,20 @@ class TestRun:
         from aifred.lib.formatting import build_tool_collapsible
         html = build_tool_collapsible(transcript["data"])
         assert '<div style="padding: 0.6em 0 0 1em; font-style: italic;">( ' in html and " )</div>" in html
+
+    def test_the_rounds_of_the_subagent_are_not_written_into_the_sessions_history(self, plugin, ctx, monkeypatch):
+        # Its loop hands on a tool_round like every loop; only the turn service writes those into a session, and it
+        # never sees the sub-agent's stream.
+        from aifred.lib import turn_service
+
+        def written(*_args, **_kwargs):
+            raise AssertionError("the sub-agent wrote into the session")
+
+        monkeypatch.setattr(turn_service, "_append", written)
+        tool = plugin.get_tools(ctx)[0]
+        events = _run(_collect(tool.executor(task="Lies a.txt", expected_result="Zusammenfassung")))
+        assert not any("tool_round" in str(event) for event in events)
+        assert next(e for e in events if "result" in e)["result"] == "Der Bericht: alles gut."
 
     def test_artifacts_of_the_subagent_turn_go_up(self, plugin, ctx):
         from aifred.lib.sandbox import SANDBOX_HTML_URL_MARKER, SANDBOX_IMAGE_URL_MARKER

@@ -19,9 +19,9 @@ import json
 import logging
 import re
 import time
-from collections.abc import AsyncGenerator, Callable, Collection
+from collections.abc import AsyncGenerator, Callable, Collection, Sequence
 from dataclasses import dataclass, field
-from typing import Any, NamedTuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -51,36 +51,39 @@ def _redact_args_preview(value: Any) -> str:
     return str(_redact_args(value))
 
 
-def _shorten_values(value: Any, limit: int) -> Any:
-    """Cut long strings one by one and visibly. The model reads a note as the call
-    it made: cut as a whole, a date ended mid-value, the model took that for a wrong
-    argument and took back a call that had worked."""
-    if isinstance(value, dict):
-        return {k: _shorten_values(val, limit) for k, val in value.items()}
-    if isinstance(value, list):
-        return [_shorten_values(x, limit) for x in value]
-    if isinstance(value, str) and len(value) > limit:
-        return f"{value[:limit]}…"
-    return value
-
-
-def _reports_error(result: str) -> bool:
-    """Tools report an expected failure as a result with an ``error`` field, not
-    as an exception."""
+def _error_of(result: str) -> str | None:
+    """The error text of a result: tools report an expected failure as a result with an ``error``
+    field, not as an exception (None when the result reports none)."""
     try:
         parsed = json.loads(result)
     except (json.JSONDecodeError, TypeError):
-        return False
-    return isinstance(parsed, dict) and "error" in parsed
+        return None
+    return str(parsed["error"]) if isinstance(parsed, dict) and "error" in parsed else None
 
 
-class _ToolCall(NamedTuple):
-    """One executed call, for ToolKit.call_note."""
+def history_arguments(arguments: str) -> str:
+    """The arguments of a call as the llm_history keeps them: complete, values of secret keys masked,
+    always a JSON object (llama.cpp and Ollama reject a history with other arguments). A call whose
+    arguments are no JSON object failed anyway, its result says so (``history_result_text``)."""
+    try:
+        parsed = json.loads(arguments) if arguments else {}
+    except json.JSONDecodeError:
+        return "{}"
+    return json.dumps(_redact_args(parsed), ensure_ascii=False) if isinstance(parsed, dict) else "{}"
 
-    name: str
-    reads_only: bool
-    args: Any
-    failed: bool
+
+def history_result_text(result: str, notes: Sequence[str]) -> str:
+    """What a later turn sees of a call's result (the full result stays in the turn that made the call): the
+    tool's own notes when it gave any, else the error of a failed call (an exception, an ``error`` field, a
+    refusal by the breaker, the rate limit or the chain depth), else that it ran."""
+    from .prompt_loader import load_prompt
+
+    if notes:
+        return "\n\n".join(notes)
+    error = _error_of(result)
+    if error is not None:
+        return load_prompt("shared/tool_result_failed", error=error)
+    return load_prompt("shared/tool_result_kept")
 
 
 def _identical_call_refusal(name: str, repeats: int, unchanged_result: bool) -> str:
@@ -150,8 +153,6 @@ class ToolKit:
         # result and how often in a row it came back unchanged. A repeat after
         # something changed in between (a write, a sub-agent) is legitimate.
         self._unchanged_reads: dict[str, tuple[str, int]] = {}
-        # What ran during this request, for call_note.
-        self._calls: list[_ToolCall] = []
         # Files in the documents the calls changed, path → new/changed/deleted
         # (lib/document_changes.py); kept for the whole turn, the recensio reads it.
         self._changed_documents: dict[str, str] = {}
@@ -179,28 +180,6 @@ class ToolKit:
         artifact paths (sandbox screenshots) without reaching into the
         private audit field."""
         return self._session_id
-
-    def call_note(self) -> str | None:
-        """One line on what ran in this request, for the turn's llm_history entry
-        (PipelineResult.history_notes): the calls themselves are not kept between
-        turns, and without this the model denies its own actions in the next one.
-        Writes with their arguments, reads only counted, failures marked. Empties
-        the record."""
-        from .config import TOOL_CALL_NOTE_VALUE_CHARS
-        from .prompt_loader import load_prompt
-
-        calls, self._calls = self._calls, []
-        if not calls:
-            return None
-        parts = [f"{call.name}({_shorten_values(_redact_args(call.args), TOOL_CALL_NOTE_VALUE_CHARS)})"
-                 f"{' ✗' if call.failed else ''}"
-                 for call in calls if not call.reads_only]
-        reads = [call for call in calls if call.reads_only]
-        for name in dict.fromkeys(call.name for call in reads):
-            runs = [call for call in reads if call.name == name]
-            failed = sum(call.failed for call in runs)
-            parts.append(f"{name} ×{len(runs)}{f' ✗{failed}' if failed else ''}")
-        return load_prompt("shared/tool_calls_marker", calls="; ".join(parts))
 
     def _refuse_unchanged_read(self, name: str, call_key: str, result_str: str) -> str:
         """Count a read-only call whose result equals the previous one for the
@@ -247,9 +226,9 @@ class ToolKit:
             ``{"type": "tool_work", "work": {...}}`` — inference a tool ran
                 itself (a sub-agent), as ``perf_metrics.InferenceWork``; the
                 caller adds it to its own turn's metrics.
-            ``{"type": "tool_note", "note": "..."}`` — one line on what the
-                tool did, for the turn's llm_history entry (the call itself
-                is not kept between turns; see PipelineResult.history_notes).
+            ``{"type": "tool_note", "note": "..."}`` — what a later turn
+                sees of this call's result instead of the result itself
+                (``history_result_text``).
             ``{"type": "tool_result",   "result":  "..."}`` — final result
                 string (sanitised). Always exactly one is emitted.
 
@@ -258,7 +237,7 @@ class ToolKit:
         - async generator → must yield ``{"progress": "..."}`` for interim
           updates, may yield ``{"artifacts": [{"kind", "data"}, ...]}`` for
           the caller's bubble, may yield ``{"work": {...}}`` for inference it
-          ran, may yield ``{"note": "..."}`` for the llm_history, and exactly
+          ran, may yield ``{"note": "..."}`` for the result text of the llm_history, and exactly
           one ``{"result": "..."}`` for the final payload (string). Anything
           else yielded is treated as a fallback plain-string result.
         """
@@ -418,7 +397,6 @@ class ToolKit:
                 result_str = self._refuse_unchanged_read(name, call_key, result_str)
             yield {"type": "tool_result", "result": result_str}
         finally:
-            self._calls.append(_ToolCall(name, reads_only, args, not success or _reports_error(result_str)))
             document_changes.merge(
                 self._changed_documents, document_changes.changes(documents_before, document_changes.snapshot()),
             )

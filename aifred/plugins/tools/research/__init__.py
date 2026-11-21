@@ -21,14 +21,13 @@ from ....lib.security import TIER_READONLY
 
 def get_research_tools(lang: str = "de", llm_history: list | None = None) -> list[Tool]:
     """web_search (search, ranking against the conversation, scraping) and web_fetch."""
-    from ....lib.research_tools import research_note, run_web_search
+    from ....lib.research_tools import research_result_text, run_web_search
 
     _llm_history: list = llm_history or []
 
     async def _execute_web_search(queries: list[str]) -> AsyncGenerator[dict[str, Any], None]:
-        """Tool executor (async-generator-shaped, see ToolKit.execute_streaming): the llm_history line of the
-        search (``note``: source count and queries, so the next turn knows what was searched), then exactly one
-        ``result``."""
+        """Tool executor (async-generator-shaped, see ToolKit.execute_streaming): the result text of the llm_history
+        (``note``: the source count; the queries stand in the call's arguments), then exactly one ``result``."""
         if not queries:
             yield {"result": json.dumps({"error": "No search queries provided"})}
             return
@@ -38,14 +37,14 @@ def get_research_tools(lang: str = "de", llm_history: list | None = None) -> lis
         if result:
             from ....lib.security import wrap_untrusted_data
             result = wrap_untrusted_data(result, "web_research")
-        yield {"note": research_note(source_count, queries, lang)}
+        yield {"note": research_result_text(source_count, lang)}
         yield {"result": result}
 
     async def _execute_web_fetch(url: str) -> AsyncGenerator[dict[str, Any], None]:
         """Tool executor: fetch and extract content from a specific URL.
 
-        Async generator like web_search: every call leaves a line for the
-        llm_history (fetched or failed, with the URL), then the result.
+        Async generator like web_search: every call leaves a result text for the
+        llm_history (fetched or failed; the URL stands in the call's arguments), then the result.
         """
         from ....lib.logging_utils import log_message
         from ....lib.prompt_loader import load_prompt
@@ -56,7 +55,7 @@ def get_research_tools(lang: str = "de", llm_history: list | None = None) -> lis
             validate_external_url(url)
         except UnsafeURLError as e:
             log_message(f"🛑 web_fetch blocked: {e}", "warning")
-            yield {"note": load_prompt("shared/web_fetch_failed_marker", lang=lang, url=url)}
+            yield {"note": load_prompt("shared/web_fetch_failed_result", lang=lang)}
             yield {"result": json.dumps({"error": f"URL rejected: {e}"})}
             return
 
@@ -68,12 +67,12 @@ def get_research_tools(lang: str = "de", llm_history: list | None = None) -> lis
             word_count = result.get("word_count", 0)
             log_message(f"✅ web_fetch: {word_count} words from {url}")
             from ....lib.security import wrap_untrusted_data
-            yield {"note": load_prompt("shared/web_fetch_marker", lang=lang, url=url)}
+            yield {"note": load_prompt("shared/web_fetch_result", lang=lang)}
             yield {"result": wrap_untrusted_data(f"# Content from {url}\n\n{content}", url)}
         else:
             error = result.get("error", "Failed to fetch URL")
             log_message(f"❌ web_fetch failed: {error}")
-            yield {"note": load_prompt("shared/web_fetch_failed_marker", lang=lang, url=url)}
+            yield {"note": load_prompt("shared/web_fetch_failed_result", lang=lang)}
             yield {"result": json.dumps({"error": f"Could not fetch {url}: {error}"})}
 
     return [

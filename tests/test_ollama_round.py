@@ -225,7 +225,7 @@ def test_a_tool_turn_over_ollama_runs_the_tool_and_answers(monkeypatch: pytest.M
             "qwen3:8b", [LLMMessage(role="user", content="Psalm?")], LLMOptions(num_ctx=8192), toolkit=toolkit)]
 
     items = asyncio.run(run())
-    assert [item["type"] for item in items] == ["tool_call_start", "tool_call", "tool_result", "content", "done"]
+    assert [item["type"] for item in items] == ["tool_call_start", "tool_call", "tool_result", "tool_round", "content", "done"]
     assert toolkit.calls == ['{"q": "Psalm 91"}']
     assert sent[1]["messages"][1:] == [
         {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "lookup", "arguments": {"q": "Psalm 91"}}}]},

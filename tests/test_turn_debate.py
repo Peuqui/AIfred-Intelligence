@@ -27,7 +27,8 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     """A session on disk, the default agents in a test agents.json, every model call replaced.
 
     ``world["replies"][label]`` lists what the speaker with that log label says, call by call (an
-    unscripted call says "<label> spricht."); ``world["calls"]`` records ``(label, messages)``,
+    unscripted call says "<label> spricht."); ``world["tool_rounds"][label]`` the tool rounds the speaker's loop hands on before its answer;
+    ``world["calls"]`` records ``(label, messages)``,
     ``world["temperatures"]`` ``(label, temperature)``.
     """
     from aifred.lib import (
@@ -56,7 +57,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     view.agent_tuning["aifred"].model_id = "qwen3:8b"
     world: dict[str, Any] = {
         "view": view, "replies": {}, "calls": [], "temperatures": [], "compressed_for": [], "block_label": None,
-        "agents_file": agents_file, "memory": [],
+        "agents_file": agents_file, "memory": [], "tool_rounds": {},
     }
 
     async def intent(_session_id: str, _view: Any, _client: Any, _text: str) -> turn_service._Intent:
@@ -75,6 +76,8 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
         world["temperatures"].append((label, options.temperature))
         scripted = world["replies"].get(label) or []
         text = scripted.pop(0) if scripted else f"{label} spricht."
+        for tool_round in world["tool_rounds"].get(label, []):     # the rounds the speaker's tool loop handed on
+            yield {"type": "tool_round", **tool_round}
         yield {"type": "content", "text": text}
         if label == world["block_label"]:
             world["streamed"].set()
@@ -162,6 +165,25 @@ def test_critical_review_answers_then_the_critic_critiques_once(world: dict[str,
     assert "[Kritische Prüfung R1]" in critique          # the mode is the step: no prefix
     assert [e["agent"] for e in _events("agent_started")] == ["aifred", "sokrates"]
     assert _events("turn_finished")[0]["status"] == "done"
+
+
+def test_every_speaker_writes_its_tool_rounds_under_its_own_label(world: dict[str, Any]) -> None:
+    from aifred.lib.history_entries import history_units, is_round
+
+    def tool_round(text: str, name: str) -> dict[str, Any]:
+        return {"text": text, "calls": [{"name": name, "arguments": '{"q": "Kaffee"}', "result": "ok"}]}
+
+    _mode("critical_review")
+    world["tool_rounds"] = {"AIfred": [tool_round("Ich suche.", "web_search")], "Sokrates": [tool_round("Ich prüfe.", "web_fetch")]}
+    _turn()
+    history = _data()["llm_history"]
+    assert [(entry["role"], entry["content"]) for entry in history if entry["role"] != "tool"] == [
+        ("user", history[0]["content"]),
+        ("assistant", "[AIFRED]: Ich suche."), ("assistant", "[AIFRED]: AIfred spricht."),
+        ("assistant", "[SOKRATES]: Ich prüfe."), ("assistant", "[SOKRATES]: Sokrates spricht."),
+    ]
+    assert [entry["tool_calls"][0]["function"]["name"] for entry in history if is_round(entry)] == ["web_search", "web_fetch"]
+    assert len(history_units(history)) == 5       # each round with its result, no result torn from it
 
 
 def test_an_incognito_debate_recalls_no_memory_for_any_speaker(world: dict[str, Any]) -> None:

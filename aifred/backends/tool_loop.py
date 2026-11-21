@@ -196,16 +196,31 @@ class _Turn:
             last_round_had_tool_calls = True
             self._append_assistant_message(tool_calls)
             round_result_tokens = 0
+            kept_calls: list[dict[str, str]] = []
             for call in tool_calls:
                 result = ""
+                kept_result = ""
                 async for item in self._run_tool_call(call):
                     if item["type"] == "tool_result":
                         result = item["result"]
+                    elif item["type"] == "kept_result":
+                        kept_result = item["text"]
+                        continue
                     yield item
                 self.messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
                 from aifred.lib.context_manager import estimate_tokens
+                from aifred.lib.function_calling import history_arguments
                 round_result_tokens += estimate_tokens([{"content": result}])
+                kept_calls.append({"name": call.name, "arguments": history_arguments(call.arguments), "result": kept_result})
 
+            # Before the context guard takes a message of the user in: the session's history must hold the round
+            # first, or the message would stand in front of the round it came after.
+            from aifred.lib.context_manager import strip_thinking_blocks
+            yield {
+                "type": "tool_round",
+                "text": strip_thinking_blocks(self.round_text.visible or "").strip(),
+                "calls": kept_calls,
+            }
             async for item in self._guard_or_interject(round_result_tokens):
                 yield item
 
@@ -305,12 +320,14 @@ class _Turn:
         self.messages.append(message)
 
     async def _run_tool_call(self, call: ToolCall) -> AsyncIterator[dict[str, Any]]:
-        """Run one tool call; yields the UI items and, last, the ``tool_result`` item (capped, with the
-        description of sandbox screenshots)."""
+        """Run one tool call; yields the UI items, the ``kept_result`` item (what a later turn sees of the
+        result, for ``run`` alone) and, last, the ``tool_result`` item (capped, with the description of sandbox
+        screenshots)."""
         assert self.toolkit is not None
         # Full arguments: the sub-agent transcript shows the code a tool ran; debug views shorten them.
         yield {"type": "tool_call", "name": call.name, "arguments": call.arguments}
         result = ""
+        notes: list[str] = []
         # execute_streaming lets streaming tools (web_search, search_documents, ...) emit tool_progress
         # while they run; non-streaming tools yield a single tool_result.
         async for item in self.toolkit.execute_streaming(call.name, call.arguments):
@@ -321,13 +338,16 @@ class _Turn:
                 # A sub-agent's inference: part of this turn's work.
                 self.work = self.work + InferenceWork.from_dict(item["work"])
             elif kind == "tool_note":
-                # What the tool did, for the turn's llm_history entry (PipelineResult.history_notes).
-                yield {"type": "tool_note", "name": call.name, "note": item["note"]}
+                notes.append(item["note"])
             elif kind == "tool_artifacts":
                 # Bubble artifacts: forwarded to the consumer, never appended to the messages the model sees.
                 yield {"type": "tool_artifacts", "name": call.name, "artifacts": item.get("artifacts", [])}
             elif kind == "tool_result":
                 result = item.get("result", "") or ""
+        # What a later turn sees of this call, decided here where the notes, the result of every way a call
+        # can end (also the refusals) and the failure meet; before the cap, which can cut an error's JSON.
+        from aifred.lib.function_calling import history_result_text
+        yield {"type": "kept_result", "text": history_result_text(result, notes)}
         # Cap the result against the active model's context budget. On a thread: counting the tokens of
         # a large result takes about a second per MB, which would stop the whole backend.
         from aifred.lib.tool_output_cap import budget_var, cap_tool_output

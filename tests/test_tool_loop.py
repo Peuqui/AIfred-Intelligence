@@ -167,7 +167,7 @@ def test_the_tool_results_go_back_to_the_model() -> None:
     ])
     toolkit = FakeToolkit()
     items = play(backend, toolkit)
-    assert [item["type"] for item in items] == ["tool_call_start", "tool_call", "tool_result", "content", "done"]
+    assert [item["type"] for item in items] == ["tool_call_start", "tool_call", "tool_result", "tool_round", "content", "done"]
     assert items[1] == {"type": "tool_call", "name": "lookup", "arguments": '{"q": 1}'}
     assert toolkit.calls == ['{"q": 1}']
     first, second = backend.requests
@@ -362,3 +362,118 @@ def test_a_rejected_request_comes_at_once(monkeypatch: pytest.MonkeyPatch) -> No
     rejected = httpx.HTTPStatusError("bad", request=request, response=httpx.Response(400, request=request))
     with pytest.raises(BackendInferenceError):
         _retry_turn(monkeypatch, [[rejected], [TextDelta("ok"), end()]])
+
+
+# ---- The round for the session's llm_history ----------------------------------------------------------
+
+
+def _writing_kit() -> Any:
+    """A real ToolKit: a note-giving tool, a plain one, a failing one and a writing one the breaker stops."""
+    from aifred.lib.function_calling import ToolKit
+
+    async def searching(q: str) -> AsyncGenerator[dict[str, Any], None]:
+        yield {"note": "3 Quellen gelesen."}
+        yield {"note": "Zweite Notiz."}
+        yield {"result": f"lange Treffer zu {q}"}
+
+    def plain(**_kw: Any) -> str:
+        return "sehr langes Ergebnis"
+
+    def broken(**_kw: Any) -> str:
+        raise RuntimeError("kaputt")
+
+    def reporting(**_kw: Any) -> str:
+        return json.dumps({"error": "kein Kalender"})
+
+    def writing(**_kw: Any) -> str:
+        return "geschrieben"
+
+    return ToolKit(
+        tools=[
+            Tool(name="searching", description="x", parameters={}, executor=searching, tier=0),
+            Tool(name="plain", description="x", parameters={}, executor=plain, tier=0),
+            Tool(name="broken", description="x", parameters={}, executor=broken, tier=0),
+            Tool(name="reporting", description="x", parameters={}, executor=reporting, tier=0),
+            Tool(name="writing", description="x", parameters={}, executor=writing, tier=2),
+        ],
+        _source="browser", _max_tier=4,
+    )
+
+
+def _calls(*specs: tuple[str, str]) -> list[ToolCall]:
+    return [ToolCall(id=f"call_{n}", name=name, arguments=arguments) for n, (name, arguments) in enumerate(specs, 1)]
+
+
+def _rounds(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [item for item in items if item["type"] == "tool_round"]
+
+
+def test_a_round_carries_its_text_and_every_call_with_arguments_and_result_text() -> None:
+    from aifred.lib.prompt_loader import load_prompt
+
+    calls = _calls(("searching", '{"q": "Bonn"}'), ("plain", '{"a": 1}'), ("broken", "{}"), ("reporting", "{}"))
+    backend = FakeBackend([
+        [TextDelta("<think>erst denken</think>Ich suche."), end(calls, finish="tool_calls")],
+        [TextDelta("Fertig."), end()],
+    ])
+    (round_item,) = _rounds(play(backend, _writing_kit()))
+    assert round_item["text"] == "Ich suche."
+    assert [call["name"] for call in round_item["calls"]] == ["searching", "plain", "broken", "reporting"]
+    assert [call["arguments"] for call in round_item["calls"]] == ['{"q": "Bonn"}', '{"a": 1}', "{}", "{}"]
+    assert [call["result"] for call in round_item["calls"]] == [
+        "3 Quellen gelesen.\n\nZweite Notiz.",                                   # the notes, not the long result
+        load_prompt("shared/tool_result_kept"),                                   # no note: that it ran
+        load_prompt("shared/tool_result_failed", error="kaputt"),                 # an exception
+        load_prompt("shared/tool_result_failed", error="kein Kalender"),          # an error field
+    ]
+
+
+def test_a_refused_call_is_a_failed_one_in_the_round() -> None:
+    from aifred.lib.prompt_loader import load_prompt
+
+    same = ("writing", '{"title": "x"}')
+    backend = FakeBackend([[end(_calls(same, same, same), finish="tool_calls")], [TextDelta("ok"), end()]])
+    (round_item,) = _rounds(play(backend, _writing_kit()))
+    results = [call["result"] for call in round_item["calls"]]
+    assert results[:2] == [load_prompt("shared/tool_result_kept")] * 2
+    assert results[2].startswith(load_prompt("shared/tool_result_failed", error="Refused: 'writing' was already called 2×"))
+
+
+def test_the_arguments_stay_complete_with_secrets_masked_and_broken_ones_become_an_empty_object() -> None:
+    long_value = "a" * 5000
+    secret = {"data": {"title": "x", "password": "streng-geheim"}, "content": long_value}
+    backend = FakeBackend([
+        [end(_calls(("writing", json.dumps(secret)), ("writing", "{kaputt"), ("writing", "[1, 2]")), finish="tool_calls")],
+        [TextDelta("ok"), end()],
+    ])
+    (round_item,) = _rounds(play(backend, _writing_kit()))
+    first, broken, not_an_object = (call["arguments"] for call in round_item["calls"])
+    assert json.loads(first) == {"data": {"title": "x", "password": "***"}, "content": long_value}
+    assert "streng-geheim" not in first
+    assert broken == "{}" and not_an_object == "{}"                               # valid JSON, as llama.cpp and Ollama need
+    assert all(call["result"].startswith("Fehlgeschlagen") or call["result"].startswith("Failed")
+               for call in round_item["calls"][1:])                                 # the call failed, the result says so
+
+
+def test_the_round_is_handed_on_before_the_users_message_is_taken_in() -> None:
+    order: list[str] = []
+
+    async def interjections() -> list[MessageContent]:
+        order.append("message")
+        return ["Nimm auch Aachen"]
+
+    backend = FakeBackend([
+        [end(_calls(("plain", "{}")), finish="tool_calls")],
+        [end(_calls(("plain", '{"n": 2}')), finish="tool_calls")],
+        [TextDelta("Antwort."), end()],
+    ])
+
+    async def run() -> None:
+        async for item in backend.chat_stream(
+            "m", [LLMMessage(role="user", content="Frage")], None, toolkit=_writing_kit(), interjections=interjections,
+        ):
+            if item["type"] in ("tool_round", "content"):
+                order.append(item["type"])
+
+    asyncio.run(run())
+    assert order == ["tool_round", "message", "tool_round", "message", "content"]

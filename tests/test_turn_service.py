@@ -2,6 +2,7 @@
 file, event hub, routing, bubble building, cancellation and title run for real."""
 
 import asyncio
+import json
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from fake_lineups import choose_mode
 from fake_tuning import default_agents_tuning
 
 from fake_reading import FakeReading
+from test_tool_loop import FakeBackend, end
 
 from aifred.lib import (
     audio_processing,
@@ -23,7 +25,10 @@ from aifred.lib import (
     vision_routing,
     vision_utils,
 )
-from aifred.lib.llm_pipeline import PipelineResult
+from aifred.lib.llm_pipeline import PipelineResult, run_llm_stream
+from aifred.backends.base import LLMMessage
+from aifred.backends.round_pieces import TextDelta, ToolCall
+from aifred.lib.function_calling import Tool, ToolKit
 from aifred.lib.model_gate import model_gate
 from aifred.lib.runtime_settings import RuntimeSettings
 
@@ -799,3 +804,166 @@ def test_a_turn_from_outside_the_chat_hands_the_loop_no_source(world: dict[str, 
     origin = turn_service.TurnOrigin({"role": "user", "content": "Mail"}, "Mail", 2, "owner", {})
     asyncio.run(turn_service.run_turn(turn_service.TurnRequest(SESSION, "Mail", source="hub", origin=origin)))
     assert world["stream_kwargs"] and world["stream_kwargs"][0]["interjections"] is None
+
+
+# ── The tool rounds in the llm history ───────────────────────────────────
+# The real tool loop and the real pipeline run against a scripted backend; the turn writes each round as soon as
+# its calls ran, in front of the message the user sent meanwhile.
+
+
+def _real_loop(world: dict[str, Any], backend: FakeBackend, toolkit: ToolKit) -> None:
+    from aifred.lib import agent_memory, llm_client, llm_pipeline
+
+    class LoopClient:
+        backend_type = "vllm"
+
+        def __init__(self, **_kwargs: Any) -> None: ...
+
+        async def close(self) -> None: ...
+
+        async def chat_stream(
+            self, model: str, messages: list[dict[str, Any]], options: Any = None, toolkit: Any = None,
+            compression: Any = None, interjections: Any = None,
+        ) -> AsyncIterator[dict[str, Any]]:
+            async for item in backend.chat_stream(
+                model, [LLMMessage(**message) for message in messages], options, toolkit=toolkit,
+                compression=compression, interjections=interjections,
+            ):
+                yield item
+
+    async def toolkit_of(*_args: Any, **_kwargs: Any) -> tuple[str, ToolKit]:
+        return "", toolkit
+
+    monkeypatch = world["monkeypatch"]
+    monkeypatch.setattr(llm_pipeline, "run_llm_stream", run_llm_stream)
+    monkeypatch.setattr(llm_client, "LLMClient", LoopClient)
+    monkeypatch.setattr(agent_memory, "prepare_agent_toolkit", toolkit_of)
+
+
+def _call(number: int, name: str, arguments: str = "{}") -> ToolCall:
+    return ToolCall(id=f"call_{number}", name=name, arguments=arguments)
+
+
+def _tool(name: str, executor: Any, tier: int = 0) -> Tool:
+    return Tool(name=name, description="x", parameters={}, executor=executor, tier=tier)
+
+
+def _llm_history() -> list[dict[str, Any]]:
+    history: list[dict[str, Any]] = _data()["llm_history"]
+    return history
+
+
+def test_every_round_stands_in_the_history_in_front_of_the_message_taken_in_after_it(world: dict[str, Any]) -> None:
+    from aifred.lib.history_entries import history_units
+    from aifred.lib.message_builder import build_messages_from_llm_history
+
+    async def searching(q: str) -> Any:
+        yield {"note": "3 Quellen gelesen."}
+        yield {"result": f"lange Treffer zu {q}"}
+
+    submitted: list[bool] = []
+
+    def lookup(**_kwargs: Any) -> str:
+        if not submitted:
+            submitted.append(turn_service.submit_turn(turn_service.TurnRequest(SESSION, "Nimm auch Aachen")))   # while round 1 runs
+        return "ein sehr langes Ergebnis"
+
+    backend = FakeBackend([
+        [TextDelta("Ich suche."), end([_call(1, "searching", '{"q": "Bonn"}'), _call(2, "lookup")], finish="tool_calls")],
+        [TextDelta("Ich lese weiter."), end([_call(3, "lookup", '{"n": 2}')], finish="tool_calls")],
+        [TextDelta("Bonn hat Regen."), end()],
+    ])
+    _real_loop(world, backend, ToolKit(tools=[_tool("searching", searching), _tool("lookup", lookup)], _source="browser"))
+    asyncio.run(_turn("Wetter in Bonn?"))
+
+    history = _llm_history()
+    assert [entry["role"] for entry in history] == ["user", "assistant", "tool", "tool", "user", "assistant", "tool", "assistant"]
+    assert history[1]["content"] == "[AIFRED]: Ich suche."
+    assert [call["function"] for call in history[1]["tool_calls"]] == [
+        {"name": "searching", "arguments": '{"q": "Bonn"}'}, {"name": "lookup", "arguments": "{}"},
+    ]
+    assert [entry["tool_call_id"] for entry in history[2:4]] == [call["id"] for call in history[1]["tool_calls"]]
+    assert history[2]["content"] == "3 Quellen gelesen."          # the note, not the long result
+    assert "Nimm auch Aachen" in history[4]["content"]
+    assert history[5]["content"] == "[AIFRED]: Ich lese weiter." and history[5]["tool_calls"][0]["function"]["arguments"] == '{"n": 2}'
+    assert history[7] == {"role": "assistant", "content": "[AIFRED]: Bonn hat Regen."}
+    assert len(history_units(history)) == 5
+    assert [entry["role"] for entry in _data()["chat_history"]] == ["user", "user", "assistant"]   # the bubbles do not change
+
+    # The next turn's request: the agent's own rounds as native tool calls, results behind them.
+    messages = build_messages_from_llm_history(history, "Und morgen?", perspective="aifred", detected_language="de")
+    rounds = [message for message in messages if message.get("tool_calls")]
+    assert [message["content"] for message in rounds] == ["Ich suche.", "Ich lese weiter."]
+    assert [message["role"] for message in messages].count("tool") == 3
+
+
+def test_the_notes_of_a_search_and_a_fetch_are_their_result_texts_and_no_bracket_line_stands_in_the_history(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aifred.lib import research_tools, security
+    from aifred.lib.tools import registry
+    from aifred.plugins.tools.research import get_research_tools
+
+    async def search(queries: list[str], _history: list[dict[str, Any]]) -> tuple[str, int]:
+        return "Treffer", 4
+
+    pages = {"https://example.org/a": {"success": True, "content": "Inhalt", "word_count": 1},
+             "https://example.org/b": {"success": False, "error": "404"}}
+    monkeypatch.setattr(research_tools, "run_web_search", search)
+    monkeypatch.setattr(registry, "scrape_webpage", lambda url: pages[url])
+    monkeypatch.setattr(security, "validate_external_url", lambda url: url)
+    backend = FakeBackend([
+        [end([_call(1, "web_search", '{"queries": ["Kondo effect"]}'), _call(2, "web_fetch", '{"url": "https://example.org/a"}'),
+              _call(3, "web_fetch", '{"url": "https://example.org/b"}')], finish="tool_calls")],
+        [TextDelta("Ergebnis."), end()],
+    ])
+    _real_loop(world, backend, ToolKit(tools=get_research_tools("de", []), _source="browser"))
+    asyncio.run(_turn("Recherchiere"))
+
+    history = _llm_history()
+    assert [entry["content"] for entry in history if entry["role"] == "tool"] == [
+        "4 Web-Quellen abgerufen und ausgewertet.", "Webseite abgerufen und ausgewertet.", "Webseite konnte nicht abgerufen werden.",
+    ]
+    assert '{"queries": ["Kondo effect"]}' in history[1]["tool_calls"][0]["function"]["arguments"]   # the queries stand in the call
+    text = json.dumps(history, ensure_ascii=False)
+    assert "[Vom System notiert" not in text and "[Recherche:" not in text and "[Webseite" not in text
+
+
+def test_the_answer_written_before_a_tool_call_stays_in_the_history(world: dict[str, Any]) -> None:
+    # The model writes the whole answer, stores a memory in the same round and then only says "Erledigt": the answer
+    # of the turn is that last text, the rest was only in the bubble (and is in the round now).
+    backend = FakeBackend([
+        [TextDelta("Hier steht die ganze Antwort."), end([_call(1, "store_memory", '{"content": "x"}')], finish="tool_calls")],
+        [TextDelta("Erledigt."), end()],
+    ])
+    _real_loop(world, backend, ToolKit(tools=[_tool("store_memory", lambda **_: "gespeichert", tier=2)], _source="browser"))
+    asyncio.run(_turn("Erkläre es"))
+
+    history = _llm_history()
+    assert history[1]["content"] == "[AIFRED]: Hier steht die ganze Antwort."
+    assert history[-1] == {"role": "assistant", "content": "[AIFRED]: Erledigt."}
+
+
+def test_a_cancelled_turn_keeps_the_rounds_that_ran(world: dict[str, Any]) -> None:
+    async def scenario() -> None:
+        started = asyncio.Event()
+
+        async def hanging(**_kwargs: Any) -> str:
+            started.set()
+            await asyncio.Event().wait()
+            return ""
+
+        backend = FakeBackend([
+            [TextDelta("Erst."), end([_call(1, "quick")], finish="tool_calls")],
+            [TextDelta("Dann."), end([_call(2, "hanging")], finish="tool_calls")],
+        ])
+        _real_loop(world, backend, ToolKit(tools=[_tool("quick", lambda **_: "fertig"), _tool("hanging", hanging)], _source="browser"))
+        task = asyncio.create_task(_turn("Los"))
+        await started.wait()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(scenario())
+    history = _llm_history()
+    assert [entry["role"] for entry in history[:4]] == ["user", "assistant", "tool", "assistant"]    # round 1 with its result stays
+    assert history[1]["content"] == "[AIFRED]: Erst."

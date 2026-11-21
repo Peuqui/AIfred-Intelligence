@@ -63,10 +63,6 @@ class PipelineResult:
     # Everything the turn's tools produced for the bubble, each with its
     # offset in ``text`` (see lib/bubble.py, rendered by render_bubble).
     artifacts: list[BubbleArtifact] = field(default_factory=list)
-    # What the turn's tools left for the next turn, one line each (e.g. the
-    # web_search queries) — appended to the turn's llm_history entry, since
-    # the tool calls and results themselves are not kept between turns.
-    history_notes: list[str] = field(default_factory=list)
     silent_reply: bool = False                          # any tool requested TTS-skip
     truncated: bool = False                             # hit token/context limit — answer incomplete
 
@@ -254,7 +250,6 @@ async def run_llm_stream(
     # the call in flight gets its success flag from the next tool result.
     own_sources: BubbleArtifact | None = None
     pending_fetch: dict[str, Any] | None = None
-    history_notes: list[str] = []
     # Text a model writes before a tool call is narration of the turn, not its
     # answer: after the tools it delivers the answer whole (2026-10-20: daily
     # prayer mail, every message twice). The spans of the running round move
@@ -347,8 +342,9 @@ async def run_llm_stream(
                 add_artifact(BubbleArtifact.from_dict(raw))
             yield chunk
 
-        elif chunk_type == "tool_note":
-            history_notes.append(str(chunk["note"]))
+        elif chunk_type == "tool_round":
+            # A round whose calls ran, for the consumer to write into the session's llm_history.
+            yield chunk
 
         elif chunk_type == "tool_result":
             result_text = chunk.get("result", "")
@@ -593,10 +589,6 @@ async def run_llm_stream(
         load_time=load_time,
     )
 
-    tool_call_note = toolkit.call_note() if toolkit is not None else None
-    if tool_call_note:
-        history_notes.append(tool_call_note)
-
     yield {
         "type": "pipeline_result",
         "result": PipelineResult(
@@ -612,7 +604,6 @@ async def run_llm_stream(
             load_time=load_time,
             work=work,
             artifacts=artifacts,
-            history_notes=history_notes,
             silent_reply=silent_reply,
             truncated=truncated,
         ),

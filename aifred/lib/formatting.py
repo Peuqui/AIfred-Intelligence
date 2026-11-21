@@ -8,7 +8,6 @@ and thinking processes in the chat.
 import re
 import secrets
 import threading
-from collections.abc import Sequence
 from typing import Any
 from .logging_utils import log_message
 from .config import get_xml_tag_config, DATA_DIR, PROJECT_ROOT, HTML_PREVIEW_MAX_FILES
@@ -508,13 +507,13 @@ def build_agent_panel_entry(
     return entry
 
 
-def assistant_history_entry(agent: str, content: str, history_notes: Sequence[str] = ()) -> dict | None:
-    """llm_history entry of an agent's reply: speaker label, text without thinking, the tools'
-    notes for the next turn. None when nothing is left (a reply of thinking only)."""
+def assistant_history_entry(agent: str, content: str) -> dict | None:
+    """llm_history entry of an agent's reply: speaker label, text without thinking, a note per HTML
+    preview. None when nothing is left (a reply of thinking only)."""
     from .context_manager import strip_thinking_blocks
     from .message_builder import labelled, with_history_notes
 
-    clean = with_history_notes(strip_thinking_blocks(content), history_notes)
+    clean = with_history_notes(strip_thinking_blocks(content))
     return {"role": "assistant", "content": labelled(agent, clean)} if clean else None
 
 

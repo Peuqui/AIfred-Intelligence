@@ -914,7 +914,10 @@ async def stream_call(ctx: TurnContext, call: AgentCall) -> PipelineResult | Non
             compression=LoopCompression(ctx.llm_client, call.model, ctx.intent.language),
             interjections=interjection_source(ctx, call),
         ):
-            result = _handle_stream_event(ctx.session_id, event, stream, ctx.view.ui_language, tool_agent) or result
+            if event["type"] == "tool_round":
+                _keep_tool_round(ctx.session_id, call.agent, event)
+            else:
+                result = _handle_stream_event(ctx.session_id, event, stream, ctx.view.ui_language, tool_agent) or result
         streamed = True
     except asyncio.CancelledError:
         _save_partial(ctx.session_id, call.agent, stream.text, ctx.view.ui_language)
@@ -927,6 +930,21 @@ async def stream_call(ctx: TurnContext, call: AgentCall) -> PipelineResult | Non
     if result is not None:
         debug(result.debug_msg)
     return result
+
+
+def _keep_tool_round(session_id: str, agent: str, event: dict[str, Any]) -> None:
+    """A tool round of ``agent`` into the session's llm history, as soon as its calls ran: the next request of
+    the loop (and a cancelled turn) finds it there, and a message the user sends meanwhile lands behind it.
+    Not in the chat: the bubble shows the tools its own way."""
+    from .history_entries import new_call_id, round_entry, tool_result_entry
+
+    ids = [new_call_id() for _ in event["calls"]]
+    calls = [
+        {"id": call_id, "type": "function", "function": {"name": call["name"], "arguments": call["arguments"]}}
+        for call_id, call in zip(ids, event["calls"], strict=True)
+    ]
+    results = [tool_result_entry(call_id, call["result"]) for call_id, call in zip(ids, event["calls"], strict=True)]
+    _append(session_id, chat=[], llm=[round_entry(agent, event["text"], calls), *results])
 
 
 def finish_call(
@@ -955,7 +973,7 @@ def finish_call(
         call.agent, content, mode=mode, round_num=round_num, metadata=metadata,
         marker=_marker(ctx.mode, mode, round_num, ctx.view.ui_language), lang=ctx.intent.language,
     )
-    history_entry = assistant_history_entry(call.agent, result.answer_text, result.history_notes)
+    history_entry = assistant_history_entry(call.agent, result.answer_text)
     _append(ctx.session_id, chat=[entry], llm=[history_entry] if history_entry else [])
     session_events.publish(ctx.session_id, "message_added", {"entry": entry})
     reply_speech.keep_on(ctx.session_id, call, entry)
