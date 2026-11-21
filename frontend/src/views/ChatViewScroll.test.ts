@@ -56,7 +56,11 @@ const scrolledTo = new WeakMap<Element, number>();
 const rectangle = (top: number, height: number): DOMRect =>
   ({ top, bottom: top + height, height, left: 0, right: 0, width: 0, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
 
+// The zoom of the page (body zoom, A-/A+): rectangles come in the pixels on screen, the box's sizes and scroll position in
+// its own. 1 unless a test zooms.
+let screenScale = 1;
 Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get(this: HTMLElement) { return isBox(this) ? VIEW : 0; } });
+Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get(this: HTMLElement) { return isBox(this) ? VIEW : 0; } });
 Object.defineProperty(HTMLElement.prototype, "scrollHeight", { configurable: true, get(this: HTMLElement) { return isBox(this) ? contentHeight(this) : 0; } });
 Object.defineProperty(HTMLElement.prototype, "scrollTop", {
   configurable: true,
@@ -65,10 +69,12 @@ Object.defineProperty(HTMLElement.prototype, "scrollTop", {
   set(this: HTMLElement, value: number) { scrolledTo.set(this, Math.max(0, Math.min(this.scrollHeight - this.clientHeight, value))); },
 });
 Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
-  if (isBox(this)) return rectangle(0, VIEW);
+  if (isBox(this)) return rectangle(0, VIEW * screenScale);
   const box = this.closest<HTMLElement>(".messages");
   const item = this as HTMLElement;
-  if (box && (item.dataset.entry || item.dataset.readMark !== undefined)) return rectangle(offsetOf(item) - box.scrollTop, heightOf(item));
+  if (box && (item.dataset.entry || item.dataset.readMark !== undefined)) {
+    return rectangle((offsetOf(item) - box.scrollTop) * screenScale, heightOf(item) * screenScale);
+  }
   return rectangle(0, 0);
 };
 
@@ -92,6 +98,7 @@ beforeEach(() => {
   setActivePinia(createPinia());
   posted.length = 0;
   contentGrew = [];
+  screenScale = 1;
   for (const key of Object.keys(heights)) delete heights[key];
   localStorage.clear();
 });
@@ -128,6 +135,20 @@ test("opening with unread: the line stands at the upper edge, nothing sticks ove
   // The line stands above the question of entry 6 (position 660), at the start of its turn: the question of the turn
   // before (entry 4) no longer sticks there, the one of entry 6 comes below the line.
   expect(box.scrollTop).toBe(at(6) - 12);
+});
+
+test("under a zoom (the page's, A-/A+) the line stands at the upper edge all the same", async () => {
+  screenScale = 1.2;
+  const { box } = await shown("t05");
+  expect(box.scrollTop).toBe(at(6) - 12);
+});
+
+test("under a zoom the remembered bubble comes back at its distance", async () => {
+  screenScale = 1.2;
+  savePlace("s1", { key: keyOf(2), offset: 30 });
+  const { box } = await shown("t11");
+  // Entry 2 ends at at(3) - GAP; it stands 30 (box pixels) above the lower edge.
+  expect(box.scrollTop).toBe(at(3) - GAP - VIEW + 30);
 });
 
 test("opening with unread never goes beyond the end: what follows the line fits the screen, so the end", async () => {
