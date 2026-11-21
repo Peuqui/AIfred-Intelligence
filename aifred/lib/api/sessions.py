@@ -66,6 +66,8 @@ class SessionSummary(BaseModel):
     last_message_display: str
     message_count: int
     channel: str
+    read_until: str = Field(description="Timestamp of the last bubble the user has read ('' = none)")
+    unread: int = Field(description="Replies after read_until")
 
 
 class Utterance(BaseModel):
@@ -153,6 +155,7 @@ class SessionDetail(BaseModel):
     title: str | None
     config: SessionConfig
     chat_history: list[ChatEntry]
+    read_until: str = Field(description="Timestamp of the last bubble the user has read ('' = none)")
     debug_messages: list[str]
     running: bool
     speech_regenerating: bool = Field(description="Every reply is being read into new audio")
@@ -198,6 +201,7 @@ async def sessions_open(session_id: str, request: Request) -> SessionDetail:
         title=data.get("title"),
         config=_config_of(session_id),
         chat_history=data.get("chat_history", []),
+        read_until=session["read_until"],
         debug_messages=[*data.get("debug_messages", []), *debug_bus.pending_lines(session_id)],
         running=running,
         speech_regenerating=reply_speech.regenerating(session_id),
@@ -313,6 +317,24 @@ async def sessions_clear(session_id: str, request: Request) -> Response:
     if not await asyncio.to_thread(clear_chat, session_id):
         raise Missing("no_session")
     session_events.publish(session_id, "chat_cleared", {})
+    return Response(status_code=204)
+
+
+class ReadMark(BaseModel):
+    timestamp: str = Field(description="Timestamp of a bubble of the session")
+
+
+@api_app.post("/sessions/{session_id}/read", status_code=204, tags=["Sessions"])
+async def sessions_mark_read(session_id: str, mark: ReadMark, request: Request) -> Response:
+    """The user has read up to the bubble with ``timestamp``. The mark only moves forward: an older or equal
+    timestamp changes nothing (still 204). 422 when it is no bubble of the session. The open tabs hear
+    ``read_until``; the session list is announced by the file write (``sessions_changed``)."""
+    from ..session_storage import mark_read_until
+
+    owned_session(request, session_id)
+    if await asyncio.to_thread(mark_read_until, session_id, mark.timestamp):
+        # A state, not an event: a tab that reconnects needs the newest mark only.
+        session_events.publish(session_id, "read_until", {"timestamp": mark.timestamp}, replaces=frozenset({"read_until"}))
     return Response(status_code=204)
 
 

@@ -30,6 +30,7 @@ from .atomic_write import write_text_atomic
 from .browser_push import notify_changed
 from .config import DATA_DIR
 from .formatting import format_stamp
+from .user_error import Invalid, Missing
 
 # Session directory (subdirectory of data/)
 SESSION_DIR = DATA_DIR / "sessions"
@@ -48,12 +49,6 @@ SESSION_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 # (same decision as the EPIM DB serialization, EP6). RLock because the
 # multi-step writers (turn_service._append etc.) nest into the locked
 # helpers here. New RMW functions MUST take this lock.
-#
-# Known limit (fixed by the Unified Inference Pipeline, not by locking):
-# the browser's _save_current_session writes its full in-memory history —
-# if the hub appended after the browser's last mtime-sync, that append
-# is overwritten regardless of the lock (stale-state overwrite, not an
-# RMW race).
 session_rmw_lock = threading.RLock()
 
 # Accounts file (username → password_hash mapping)
@@ -341,6 +336,7 @@ def _stamp_new_session(session: dict[str, Any], now: str) -> None:
     """
     session["created_at"] = now
     session["last_message_at"] = now
+    session["read_until"] = ""      # nothing read yet; see mark_read_until()
 
 
 def _write_session_file(path: Path, session: dict[str, Any]) -> bool:
@@ -363,6 +359,36 @@ def _write_session_file(path: Path, session: dict[str, Any]) -> bool:
         return True
     except OSError:
         return False
+
+
+def unread_count(chat_history: list[dict[str, Any]], read_until: str) -> int:
+    """Replies the user has not read: assistant bubbles stamped after ``read_until``. ISO stamps of
+    ``datetime.isoformat()`` compare correctly as text, also with and without fractions of a second."""
+    return sum(1 for entry in chat_history if entry["role"] == "assistant" and entry["timestamp"] > read_until)
+
+
+def mark_read_until(session_id: str, timestamp: str) -> bool:
+    """Move the session's read mark forward to the bubble with ``timestamp``; what is read stays read.
+
+    Returns True when the mark moved, False when ``timestamp`` is not newer than the stored one (nothing
+    is written then). Raises Missing for an unknown session and Invalid for a timestamp that is no bubble
+    of the session. Reading must not reorder the chat picker, so ``last_message_at`` and ``last_seen`` stay:
+    the file is written with ``_write_session_file`` under ``session_rmw_lock`` (the same lock and atomic
+    write as every other writer) instead of ``save_session``, which stamps ``last_seen``.
+    """
+    with session_rmw_lock:
+        session = load_session(session_id)
+        if session is None:
+            raise Missing("no_session")
+        history = session["data"].get("chat_history", [])
+        if not any(entry["timestamp"] == timestamp for entry in history):
+            raise Invalid("read_timestamp")
+        if timestamp <= session["read_until"]:
+            return False
+        session["read_until"] = timestamp
+        if not _write_session_file(get_session_path(session_id), session):
+            raise OSError(f"session {session_id} could not be written")
+        return True
 
 
 def create_empty_session(session_id: str, owner: str, channel: str = "") -> bool:
@@ -738,6 +764,8 @@ def list_sessions(owner: str) -> list[dict[str, Any]]:
     - message_count: Number of chat messages
     - owner: Username who owns this session
     - channel: Origin channel ("" = interactive browser session)
+    - read_until: Timestamp of the last bubble the user has read ("" = none)
+    - unread: Number of replies (role "assistant") after read_until
 
     Returns:
         List of session info dicts, sorted by last_message_at (newest first):
@@ -773,6 +801,8 @@ def list_sessions(owner: str) -> list[dict[str, Any]]:
                     "message_count": len(chat_history),
                     "owner": data.get("owner", "").lower(),
                     "channel": data.get("channel", ""),
+                    "read_until": data["read_until"],
+                    "unread": unread_count(chat_history, data["read_until"]),
                 }
                 _session_meta_cache[session_file.name] = (
                     stat.st_mtime_ns, stat.st_size, meta,

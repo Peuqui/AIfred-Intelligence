@@ -21,7 +21,7 @@ def changed_kind(resource: str) -> str:
 
 # Kinds that carry a state, not an event: the newest replaces its predecessors in the
 # replay buffer (a page that reconnects needs the latest, not the history).
-LATEST_WINS_KINDS = frozenset({"service_status"} | {changed_kind(resource) for resource in RESOURCES})
+LATEST_WINS_KINDS = frozenset({"service_status", "read_until"} | {changed_kind(resource) for resource in RESOURCES})
 
 
 def browser_push(session_id: str, kind: str, **fields: Any) -> None:
@@ -40,6 +40,7 @@ def browser_push(session_id: str, kind: str, **fields: Any) -> None:
       - ``"pause"`` / ``"resume"`` : halt keeping source and position / play on. {}
       - ``"seek"``        : jump to ``position_sec`` (``relative``: by it). {position_sec, relative}
       - ``"speed"``       : the player's playbackRate (0.25–4.0). {factor}
+      - ``"read_until"``  : the user read up to this bubble. {timestamp}; the newest replaces the older ones.
       - ``"service_status"`` : model, STT and TTS state for the status line (``ServiceSnapshot.as_json``); the newest
                             replaces the older ones.
     """

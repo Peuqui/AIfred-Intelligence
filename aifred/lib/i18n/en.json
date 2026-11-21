@@ -1113,6 +1113,7 @@
   "error_event_picture_gone": "The picture of event {event} is gone.",
   "error_zone_grid": "The zone grid does not match its columns and rows.",
   "error_no_session": "There is no such session.",
+  "error_read_timestamp": "The timestamp belongs to no message of this session.",
   "error_register_refused": "Cannot register: the name is not allowed or has an account already.",
   "register_submit": "Register",
   "register_switch": "Create an account",

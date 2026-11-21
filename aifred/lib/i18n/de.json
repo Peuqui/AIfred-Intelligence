@@ -1113,6 +1113,7 @@
   "error_event_picture_gone": "Das Bild zum Ereignis {event} ist nicht mehr da.",
   "error_zone_grid": "Das Zonenraster passt nicht zu seinen Spalten und Zeilen.",
   "error_no_session": "Diese Sitzung gibt es nicht.",
+  "error_read_timestamp": "Der Zeitstempel gehört zu keiner Nachricht dieser Sitzung.",
   "error_register_refused": "Registrieren geht nicht: Der Name ist nicht freigegeben oder hat schon ein Konto.",
   "register_submit": "Registrieren",
   "register_switch": "Neues Konto anlegen",
