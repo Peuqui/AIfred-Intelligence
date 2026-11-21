@@ -3,7 +3,7 @@ import { Crop, Send, Square, X } from "lucide-vue-next";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import type { Settings, UploadedImage } from "../api/types";
 import { language, t } from "../i18n";
-import { enterSends, inputHeight } from "../lib/devicePrefs";
+import { enterSends, inputHeight, TOUCH_FIRST } from "../lib/devicePrefs";
 import * as recorder from "../lib/recorder";
 import { speaking } from "../lib/speech";
 import { useServiceStatus } from "../stores/serviceStatus";
@@ -23,6 +23,8 @@ const props = defineProps<{
   images: UploadedImage[];
   uploading: boolean;
   transcribing: boolean;
+  // Counts the dictated texts put into the field (chat store).
+  dictationsLanded: number;
   settings: Settings;
 }>();
 const emit = defineEmits<{
@@ -53,6 +55,21 @@ watch(
 );
 // Never under one line (the buttons' height), whatever the finger drags to.
 const fieldSize = computed(() => `min(max(var(--line-size), ${inputHeight.value ?? 0}px), calc(100 * var(--dvh)))`);
+// A dictated text in the field: ready to send with Enter (or to correct) without clicking into the field first, the
+// cursor at its end (as in Agent-Orc). Before, the focus stayed off the field after a click on the microphone.
+// Not on touch screens: the focus would raise the on-screen keyboard; there the send button is ready.
+watch(
+  () => props.dictationsLanded,
+  async () => {
+    if (TOUCH_FIRST.matches) return;
+    await nextTick();
+    const box = field.value;
+    if (!box) return;
+    box.focus();
+    box.setSelectionRange(box.value.length, box.value.length);
+    box.scrollTop = box.scrollHeight;
+  },
+);
 const recording = recorder.recording;
 const badgePhase = computed<BadgePhase>(() => (recording.value ? "listening" : props.transcribing ? "transcribing" : "ready"));
 const canSend = computed(() => text.value.trim() !== "" || props.images.length > 0);

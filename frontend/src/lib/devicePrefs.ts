@@ -31,6 +31,9 @@ const isZoom = (value: unknown): value is number => typeof value === "number" &&
 export const enterSends = stored("aifred-enter-sends", true, isBoolean);
 // A narrow screen as the interface's CSS counts it (@media (max-width: 760px)): some defaults differ on a phone.
 const NARROW_SCREEN = window.matchMedia("(max-width: 760px)").matches;
+// A finger rather than a mouse is the main pointer (phones, tablets): there, giving the input field the focus by
+// itself would raise the on-screen keyboard.
+export const TOUCH_FIRST = window.matchMedia("(pointer: coarse)");
 // The question of a turn sticks at the top of the chat while its answer scrolls; on a phone it took too much of the
 // screen, so there it starts off (Peuqui 09.11.2026).
 export const pinQuestion = stored("aifred-pin-question", !NARROW_SCREEN, isBoolean);

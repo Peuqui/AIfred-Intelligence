@@ -265,6 +265,7 @@ onMounted(() => void start());
         :images="chat.pendingImages"
         :uploading="chat.uploading"
         :transcribing="chat.dictations.length > 0"
+        :dictations-landed="chat.dictationsLanded"
         :settings="settings.current"
         @send="chat.send"
         @stop="chat.stop"

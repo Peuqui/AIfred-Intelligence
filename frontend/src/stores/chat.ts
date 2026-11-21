@@ -62,6 +62,8 @@ export const useChat = defineStore("chat", () => {
   // Dictations this tab sent that are not finished yet: only this tab asks their questions and
   // takes their text into its input field.
   const dictations = ref<string[]>([]);
+  // Counts the dictated texts put into the input field: the field takes the focus for each (ChatInput).
+  const dictationsLanded = ref(0);
   // Every reply of the session is being read into new audio (its button is off meanwhile).
   const regenerating = ref(false);
   let source: EventSource | null = null;
@@ -244,9 +246,7 @@ export const useChat = defineStore("chat", () => {
         if (dictations.value.includes(String(data.job_id))) void answerDictation(String(data.job_id), String(data.text));
         break;
       case "dictation_text":
-        if (dictations.value.includes(String(data.job_id))) {
-          draft.value = draft.value.trim() ? `${draft.value.trim()} ${String(data.text)}` : String(data.text);
-        }
+        if (dictations.value.includes(String(data.job_id))) appendDictated(String(data.text));
         break;
       case "dictation_finished":
         dictations.value = dictations.value.filter((job) => job !== String(data.job_id));
@@ -323,7 +323,13 @@ export const useChat = defineStore("chat", () => {
       method: "POST",
       body: JSON.stringify({ text }),
     });
-    if (!result.sent) draft.value = draft.value.trim() ? `${draft.value.trim()} ${text}` : text;
+    if (!result.sent) appendDictated(text);
+  }
+
+  // A dictated text after what the field holds already, transcribed by the STT-Suite or heard by the browser.
+  function appendDictated(text: string): void {
+    draft.value = draft.value.trim() ? `${draft.value.trim()} ${text}` : text;
+    dictationsLanded.value += 1;
   }
 
   // A finished reply read aloud again; the reading arrives over the event stream like a new one.
@@ -468,7 +474,7 @@ export const useChat = defineStore("chat", () => {
 
   return {
     sessionId, title, history, debugLines, config, running, streaming, toolStatus, phase, notice, info, queued,
-    pendingImages, uploading, draft, dictations, open, openLatest, resync, close, send, stop, configure,
+    pendingImages, uploading, draft, dictations, dictationsLanded, open, openLatest, resync, close, send, stop, configure,
     uploadImages, removeImage, dictate, dictated,
     readAgain, regenerating, regenerateAll, rotateImage, cropImage, exportChat, clearChat,
     remembering, remember, mediaControl,
