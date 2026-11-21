@@ -287,6 +287,7 @@
   "audio_forward": "Forward 10 seconds",
   "audio_regenerate_tooltip": "Regenerate audio",
   "audio_generate_tooltip": "Generate audio",
+  "audio_generating_tooltip": "Generating audio …",
   "crop_modal_title": "Crop Image",
   "crop_modal_hint": "Drag corners or edges",
   "vision_preview_watch_start": "Vision analysis",

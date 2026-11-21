@@ -13,7 +13,8 @@ import ImageLightbox from "./ImageLightbox.vue";
 // color: the agent's (agents.json); none for an agent deleted since, whose bubble then has no stripe of colour.
 // pinned: the user's question sticks at the top of the chat; stuck: it does so right now. Then it shows a few lines only
 // (--pinned-question-lines) and a link below unfolds the rest; as long as it stands in the history, it shows in full.
-const props = defineProps<{ entry: ChatEntry; speechOn: boolean; color?: string; pinned?: boolean; stuck?: boolean }>();
+// readingRequested: its reading was asked for and has not sounded yet; the button turns and takes no second click.
+const props = defineProps<{ entry: ChatEntry; speechOn: boolean; color?: string; pinned?: boolean; stuck?: boolean; readingRequested?: boolean }>();
 const settings = useSettings();
 const emit = defineEmits<{ readAgain: [timestamp: string] }>();
 const isUser = computed(() => props.entry.role === "user");
@@ -129,7 +130,9 @@ function pictureGone(event: Event): void {
       <button
         v-if="speechOn && entry.timestamp"
         class="replay"
-        :title="canReplay ? t('audio_regenerate_tooltip') : t('audio_generate_tooltip')"
+        :class="{ requested: readingRequested }"
+        :disabled="readingRequested"
+        :title="readingRequested ? t('audio_generating_tooltip') : canReplay ? t('audio_regenerate_tooltip') : t('audio_generate_tooltip')"
         @click="emit('readAgain', entry.timestamp)"
       >
         <RefreshCw :size="16" />
@@ -175,6 +178,11 @@ header { font-size: var(--text-small); font-weight: 600; color: var(--aifred-pri
 .time { color: var(--aifred-text-muted); font-weight: 400; }
 .replay { background: none; border: none; padding: 0 4px; cursor: pointer; opacity: 0.7; font: inherit; }
 .replay:hover { opacity: 1; }
+/* Asked to read, not sounding yet: the arrows turn at full strength until the first part plays. */
+.replay.requested { opacity: 1; cursor: progress; }
+.replay.requested svg { animation: reading-requested 1s linear infinite; }
+@keyframes reading-requested { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .replay.requested svg { animation-duration: 3s; } }
 /* The speaker in the header is the one to hit with a thumb: larger than the text line, at full strength. */
 .replay:has(.tts-icon) { opacity: 1; }
 .replay :deep(.tts-icon) { height: 2.2em; width: 2.2em; vertical-align: middle; }

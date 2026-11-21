@@ -73,3 +73,32 @@ describe("MessageBubble user text", () => {
     expect(userBubble("Kurz").find(".more").exists()).toBe(false);
   });
 });
+
+function spokenBubble(readingRequested: boolean): ReturnType<typeof mount> {
+  setActivePinia(createPinia());
+  return mount(MessageBubble, {
+    props: { entry: {
+      role: "assistant", content: "Antwort", agent: "aifred", agent_display_name: "AIfred", agent_emoji: "🎩", mode: "",
+      timestamp: "t1", time_display: "15:33", has_audio: false, tts_note: "",
+    }, speechOn: true, readingRequested },
+  });
+}
+
+describe("MessageBubble reading button", () => {
+  it("asks for the reading of its bubble", async () => {
+    const wrapper = spokenBubble(false);
+    const button = wrapper.find("button.replay");
+    expect(button.classes()).not.toContain("requested");
+    await button.trigger("click");
+    expect(wrapper.emitted("readAgain")).toEqual([["t1"]]);
+  });
+
+  it("turns while the reading is asked for and takes no second click", async () => {
+    const wrapper = spokenBubble(true);
+    const button = wrapper.find("button.replay");
+    expect(button.classes()).toContain("requested");
+    expect(button.attributes("disabled")).toBeDefined();
+    await button.trigger("click");
+    expect(wrapper.emitted("readAgain")).toBeUndefined();
+  });
+});

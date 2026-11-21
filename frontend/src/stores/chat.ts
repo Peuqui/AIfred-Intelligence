@@ -64,6 +64,9 @@ export const useChat = defineStore("chat", () => {
   const dictations = ref<string[]>([]);
   // Counts the dictated texts put into the input field: the field takes the focus for each (ChatInput).
   const dictationsLanded = ref(0);
+  // The bubble (its timestamp) whose reading this tab asked for and that has not sounded yet: its button turns meanwhile,
+  // so a second click is not needed. Over with the first part of the reading, a notice (the reading failed) or a stop.
+  const readingRequested = ref<string | null>(null);
   // Every reply of the session is being read into new audio (its button is off meanwhile).
   const regenerating = ref(false);
   let source: EventSource | null = null;
@@ -80,6 +83,7 @@ export const useChat = defineStore("chat", () => {
     pendingImages.value = [];
     draft.value = "";
     dictations.value = [];
+    readingRequested.value = null;
   }
 
   // The session as the server has it, and its event stream from there on. Also when the stream says it may have
@@ -219,10 +223,12 @@ export const useChat = defineStore("chat", () => {
         break;
       case "notice":
         notice.value = String(data.text);
+        readingRequested.value = null;
         break;
       case "tts":
       case "tts_pause":
       case "tts_speak":
+        readingRequested.value = null;
         speech.enqueue(kind, data);
         break;
       case "stop":
@@ -333,11 +339,14 @@ export const useChat = defineStore("chat", () => {
   }
 
   // A finished reply read aloud again; the reading arrives over the event stream like a new one.
+  // The server answers at once; the stop it sends first (what played before ends) does not end the waiting here.
   async function readAgain(timestamp: string): Promise<void> {
     if (!sessionId.value) return;
+    readingRequested.value = timestamp;
     try {
       await api<void>(`sessions/${sessionId.value}/messages/speech`, { method: "POST", body: JSON.stringify({ timestamp }) });
     } catch (error) {
+      readingRequested.value = null;
       notice.value = error instanceof ApiError ? error.detail : String(error);
     }
   }
@@ -442,6 +451,7 @@ export const useChat = defineStore("chat", () => {
   async function stop(): Promise<void> {
     if (!sessionId.value) return;
     speech.stop();
+    readingRequested.value = null;
     await api<{ cancelled: boolean }>(`sessions/${sessionId.value}/stop`, { method: "POST" });
   }
 
@@ -476,7 +486,7 @@ export const useChat = defineStore("chat", () => {
     sessionId, title, history, debugLines, config, running, streaming, toolStatus, phase, notice, info, queued,
     pendingImages, uploading, draft, dictations, dictationsLanded, open, openLatest, resync, close, send, stop, configure,
     uploadImages, removeImage, dictate, dictated,
-    readAgain, regenerating, regenerateAll, rotateImage, cropImage, exportChat, clearChat,
+    readAgain, readingRequested, regenerating, regenerateAll, rotateImage, cropImage, exportChat, clearChat,
     remembering, remember, mediaControl,
   };
 });

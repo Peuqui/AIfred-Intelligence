@@ -242,6 +242,7 @@ onMounted(() => void start());
             :stuck="turn.key === stuckTurn"
             :speech-on="!!settings.current?.enable_tts && entry.role === 'assistant'"
             :color="entry.agent ? colors[entry.agent] : undefined"
+            :reading-requested="chat.readingRequested === entry.timestamp"
             @read-again="chat.readAgain"
           />
           <!-- The answer being written belongs to the last turn, where it lands once done: inside the turn its question
