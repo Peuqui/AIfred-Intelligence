@@ -131,6 +131,16 @@ def test_key_frames_sit_at_the_configured_interval(tmp_path):
     assert key_times == [0, VISION_FILM_KEYFRAME_SEC, 2 * VISION_FILM_KEYFRAME_SEC]
 
 
+def test_a_film_has_no_b_frames_and_starts_decoding_at_zero(tmp_path):
+    """Without B-frames no edit list shifts the start: every browser shows the first image first."""
+    out = tmp_path / "film.mp4"
+    asyncio.run(vf.encode_film([_jpeg(tmp_path / f"{i}.jpg", (64, 48), i * 20) for i in range(8)], out))
+    frames = _probe(out, "-show_entries", "frame=pict_type")["frames"]
+    assert {frame["pict_type"] for frame in frames} <= {"I", "P"}
+    packets = _probe(out, "-show_entries", "packet=dts_time")["packets"]
+    assert float(packets[0]["dts_time"]) == 0.0
+
+
 def test_the_file_name_carries_the_time_of_the_first_image_of_the_film(store, tmp_path):
     for index in range(7):
         _event(store, tmp_path, index, zoom=index >= 2)  # the zoom lens starts two seconds later

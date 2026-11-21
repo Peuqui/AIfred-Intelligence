@@ -125,6 +125,9 @@ async def encode_film(paths: list[str], out: Path, fps: float = VISION_FILM_FPS)
             "-c:v", "libx264", "-crf", str(VISION_FILM_CRF),
             # Feste Schlüsselbilder (keine Szenenschnitt-Erkennung), damit der Film an ihnen teilbar bleibt.
             "-g", str(keyframe_interval), "-keyint_min", str(keyframe_interval), "-sc_threshold", "0",
+            # Keine B-Bilder: sie brauchen eine Zeitverschiebung (Edit-Liste, negative Decodierzeiten), an der sich
+            # Browser beim ersten Bild unterscheiden; bei einer Diashow sparen sie nichts (21.11.2026).
+            "-bf", "0",
             "-movflags", "+faststart",
             str(out),
             stderr=asyncio.subprocess.PIPE,
