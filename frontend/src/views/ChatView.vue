@@ -24,7 +24,7 @@ import { t, tCount } from "../i18n";
 import { ZOOM, chatHeight, chatZoom, zoomBy } from "../lib/devicePrefs";
 import { pinQuestion } from "../lib/devicePrefs";
 import { useChatScroll } from "../lib/useChatScroll";
-import { isPlainClick, isUnread, lineAfterIndex } from "../lib/unread";
+import { type Press, isPlainClick, isUnread, lineAfterIndex } from "../lib/unread";
 import { useSessionsColumn } from "../lib/sessionsColumn";
 import HelpButton from "../components/help/HelpButton.vue";
 import { saveAs } from "../lib/download";
@@ -72,9 +72,11 @@ const readLineAfter = computed<string | null>(() => {
   const entry = chat.history[at];
   return entry ? entryKey(entry) : "";
 });
-// A click on a bubble below the line says "read up to here" (not on what has a click of its own, not while text is selected).
+// A click on a bubble below the line says "read up to here" (not on what has a click of its own, not the end of
+// dragging to select text: the press is where the pointer went down in the box).
+let press: Press | null = null;
 function bubbleClicked(entry: ChatEntry, event: MouseEvent): void {
-  if (isPlainClick(event)) void chat.markRead(entry.timestamp);
+  if (isPlainClick(event, press)) void chat.markRead(entry.timestamp);
 }
 // The turn whose question sticks at the top edge of the box now: its turn begins above the box's top edge and still
 // reaches into it. Only that question is folded to a few lines; where it stands in the history it shows in full.
@@ -170,7 +172,7 @@ async function remove(sessionIds: string[]): Promise<void> {
 // the "read up to here" line, else to where the reader was, else to the end; what comes in moves the box only while the
 // reader follows; sending something takes it to the end.
 const unreadKeys = computed(() => chat.history.filter((entry) => isUnread(entry, chat.readUntil)).map(entryKey));
-const { unreadBelow, place, placeIncoming, expectOwn, onScroll, takenByHand, onKey, onPointerDown, showNewBelow } = useChatScroll(
+const { unreadBelow, place, placeIncoming, expectOwn, ownFailed, onScroll, takenByHand, onKey, onPointerDown, showNewBelow } = useChatScroll(
   messages,
   () => chat.sessionId,
   () => unreadKeys.value,
@@ -199,9 +201,18 @@ function scrolled(): void {
   onScroll();
 }
 
-function sendOwn(text: string): Promise<void> {
+function pressed(event: PointerEvent): void {
+  press = { x: event.clientX, y: event.clientY };
+  onPointerDown(event);
+}
+
+// The reader's own message: the box goes to the end with its bubble. Refused, no bubble of theirs comes, and what they
+// typed comes back into the field (the field empties itself at once).
+async function sendOwn(text: string): Promise<void> {
   expectOwn();
-  return chat.send(text);
+  if (await chat.send(text)) return;
+  ownFailed();
+  if (!chat.draft) chat.draft = text;
 }
 
 // A chat chosen in the list: it opens, the list has closed, and the page goes to the chat so that it shows: the agents'
@@ -256,7 +267,7 @@ onMounted(() => void start());
           @wheel.passive="takenByHand"
           @touchmove.passive="takenByHand"
           @keydown="onKey"
-          @pointerdown="onPointerDown"
+          @pointerdown="pressed"
         >
           <div class="bubbles">
           <section v-for="(turn, at) in turns" :key="turn.key" :data-key="turn.key" class="turn">

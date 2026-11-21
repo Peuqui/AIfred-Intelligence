@@ -36,17 +36,22 @@ function clickOn(html: string, selector: string): MouseEvent {
 
 test("a click on text counts, a click on a button, link, picture, input or the head of a collapsible does not", () => {
   const body = '<article><p id="t">Text</p><button id="b">x</button><a id="a" href="#">l</a><img id="i" alt=""><input id="n"><details><summary id="s"><b id="sb">Denken</b></summary></details></article>';
-  expect(isPlainClick(clickOn(body, "#t"))).toBe(true);
-  for (const id of ["#b", "#a", "#i", "#n", "#s", "#sb"]) expect(isPlainClick(clickOn(body, id)), id).toBe(false);
+  expect(isPlainClick(clickOn(body, "#t"), null)).toBe(true);
+  for (const id of ["#b", "#a", "#i", "#n", "#s", "#sb"]) expect(isPlainClick(clickOn(body, id), null), id).toBe(false);
 });
 
-test("a click while text is selected does not count", () => {
+test("a click into text that is already selected counts; the end of dragging to select text does not", () => {
   document.body.innerHTML = "<article><p id='t'>Ein Satz</p></article>";
-  const text = document.querySelector("#t")!;
+  const text = document.querySelector<HTMLElement>("#t")!;
   window.getSelection()!.selectAllChildren(text);
-  let seen: MouseEvent | null = null;
-  document.body.addEventListener("click", (event) => (seen = event), { once: true });
-  (text as HTMLElement).click();
-  expect(isPlainClick(seen!)).toBe(false);
+  const at = (x: number, y: number): MouseEvent => {
+    let seen: MouseEvent | null = null;
+    document.body.addEventListener("click", (event) => (seen = event), { once: true });
+    text.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: x, clientY: y }));
+    return seen!;
+  };
+  expect(isPlainClick(at(100, 50), { x: 100, y: 50 })).toBe(true);
+  expect(isPlainClick(at(103, 52), { x: 100, y: 50 })).toBe(true);
+  expect(isPlainClick(at(160, 50), { x: 100, y: 50 })).toBe(false);
   window.getSelection()!.removeAllRanges();
 });

@@ -24,11 +24,22 @@ export function lineAfterIndex(history: ChatEntry[], readUntil: string): number 
   return line;
 }
 
-// Parts of a bubble that do something on their own click (and the selection of text): a click there is not "I read
-// this far". Pictures open the large view.
+// Parts of a bubble that do something on their own click: a click there is not "I read this far". Pictures open the
+// large view.
 const OWN_CLICK = "button, a, input, select, textarea, video, audio, summary, img";
 
-export function isPlainClick(event: MouseEvent): boolean {
+// How far the pointer may move between press and release and still be a click; more is selecting text by dragging.
+// Not the selection itself: a click into text that is already selected still sees it, and was swallowed (21.11.2026).
+export const CLICK_MOVE_TOLERANCE_PX = 4;
+
+export interface Press {
+  x: number;
+  y: number;
+}
+
+/** A click that says "read up to here": not on a part with a click of its own, and not the end of a drag from `press`
+ * (where the pointer went down; null when the click came without a press, e.g. from the keyboard). */
+export function isPlainClick(event: MouseEvent, press: Press | null): boolean {
   if (event.target instanceof Element && event.target.closest(OWN_CLICK)) return false;
-  return window.getSelection()?.isCollapsed !== false;
+  return press === null || Math.hypot(event.clientX - press.x, event.clientY - press.y) <= CLICK_MOVE_TOLERANCE_PX;
 }

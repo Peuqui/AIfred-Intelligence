@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import { api } from "../api/client";
 import type { SessionSummary } from "../api/types";
+import { keepPlacesOf } from "../lib/chatPlace";
 import { onResourceChanged } from "../lib/resourceChanges";
 
 export const useSessions = defineStore("sessions", () => {
@@ -9,6 +10,7 @@ export const useSessions = defineStore("sessions", () => {
 
   async function refresh(): Promise<void> {
     list.value = await api<SessionSummary[]>("sessions");
+    keepPlacesOf(list.value.map((session) => session.session_id));
   }
 
   async function create(): Promise<string> {

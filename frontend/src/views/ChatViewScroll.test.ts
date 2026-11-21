@@ -13,10 +13,12 @@ vi.mock("../i18n", () => ({
   tCount: (key: string, count: number) => `${key} ${count}`,
 }));
 const posted: string[] = [];
+let refuseSend = false;
 vi.mock("../api/client", () => ({
   ApiError: class extends Error {},
   api: (path: string, init?: { body?: string }) => {
     if (path.endsWith("/read")) posted.push(String(init?.body));
+    if (refuseSend && path.endsWith("/messages")) return Promise.reject(new Error("refused"));
     return Promise.resolve(path === "agents/colors" ? {} : []);
   },
 }));
@@ -326,6 +328,25 @@ test("the reader's own message takes the box to the end although they read above
   chat.history = [...chat.history, entry("assistant", "t13"), entry("assistant", "t14"), entry("assistant", "t15")] as never;
   await flushPromises();
   expect(box.scrollTop).toBe(at(12) - 12 - BUBBLE); // the line after entry 11, under the question of entry 10
+});
+
+test("a refused message: what was typed comes back, the refusal shows, and the next user bubble is not taken for it", async () => {
+  const settings = useSettings();
+  settings.current = { ui_language: "de" } as never;
+  const { chat, wrapper, box } = await shown("t11");
+  await readerScrollsTo(wrapper, 200);
+  refuseSend = true;
+  try {
+    wrapper.findComponent({ name: "ChatInput" }).vm.$emit("send", "hallo");
+    await flushPromises();
+  } finally {
+    refuseSend = false;
+  }
+  expect(chat.draft).toBe("hallo");
+  expect(chat.notice).toBe("Error: refused");
+  chat.history = [...history, entry("user", "t12")] as never; // another tab's message
+  await flushPromises();
+  expect(box.scrollTop).toBe(200);
 });
 
 test("a message of someone else (not sent here) does not take a reading reader to the end", async () => {

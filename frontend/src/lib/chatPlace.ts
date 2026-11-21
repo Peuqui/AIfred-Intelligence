@@ -22,6 +22,18 @@ export function readPlace(sessionId: string): ChatPlace | null {
   }
 }
 
+// The places of chats that are gone (deleted here, on another device, or by the cleanup of the trash) go with them:
+// kept are those of the sessions in the list.
+export function keepPlacesOf(sessionIds: string[]): void {
+  const kept = new Set(sessionIds.map((id) => KEY_PREFIX + id));
+  try {
+    const gone = Object.keys(localStorage).filter((key) => key.startsWith(KEY_PREFIX) && !kept.has(key));
+    for (const key of gone) localStorage.removeItem(key);
+  } catch {
+    // the browser keeps nothing: there is nothing to clear
+  }
+}
+
 export function savePlace(sessionId: string, place: ChatPlace): void {
   try {
     localStorage.setItem(KEY_PREFIX + sessionId, JSON.stringify(place));

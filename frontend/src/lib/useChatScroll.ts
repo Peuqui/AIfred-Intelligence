@@ -92,6 +92,11 @@ export function useChatScroll(box: Ref<HTMLElement | null>, sessionId: () => str
     ownPending = true;
   }
 
+  /** Sending failed: no bubble of theirs is coming, the next user bubble (another tab, a channel) is not theirs. */
+  function ownFailed(): void {
+    ownPending = false;
+  }
+
   function unreadBelowView(): string[] {
     const scroller = box.value;
     if (!scroller) return [];
@@ -164,5 +169,5 @@ export function useChatScroll(box: Ref<HTMLElement | null>, sessionId: () => str
   });
   onBeforeUnmount(() => observer?.disconnect());
 
-  return { unreadBelow, place, placeIncoming, expectOwn, onScroll, takenByHand, onKey, onPointerDown, showNewBelow };
+  return { unreadBelow, place, placeIncoming, expectOwn, ownFailed, onScroll, takenByHand, onKey, onPointerDown, showNewBelow };
 }

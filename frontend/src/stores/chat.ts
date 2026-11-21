@@ -297,14 +297,21 @@ export const useChat = defineStore("chat", () => {
     }
   }
 
-  async function send(text: string): Promise<void> {
-    if (!sessionId.value) return;
+  // True when the server took the message; a refusal is shown like the other actions' (before, it went unseen).
+  async function send(text: string): Promise<boolean> {
+    if (!sessionId.value) return false;
     const images = pendingImages.value.map((image) => image.url);
-    await api<MessageAccepted>(`sessions/${sessionId.value}/messages`, {
-      method: "POST",
-      body: JSON.stringify({ text, images }),
-    });
+    try {
+      await api<MessageAccepted>(`sessions/${sessionId.value}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ text, images }),
+      });
+    } catch (error) {
+      notice.value = error instanceof ApiError ? error.detail : String(error);
+      return false;
+    }
     pendingImages.value = [];
+    return true;
   }
 
   async function uploadImages(files: File[]): Promise<void> {
