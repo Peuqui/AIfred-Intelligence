@@ -9,6 +9,7 @@ from datetime import datetime, UTC
 
 import pytest
 
+from aifred.lib.formatting import build_user_chat_entry
 from aifred.lib import session_storage
 from aifred.lib.envelope import InboundMessage
 from aifred.lib.message_processor import save_inbound_to_session
@@ -50,6 +51,19 @@ class TestM3WrappedHistory:
         assert "hallo" in data["chat_history"][0]["content"]
         # The llm_history entry is not this function's: the turn (or a routed voice turn) writes it, wrapped.
         assert "llm_history" not in data
+
+    def test_the_users_message_from_a_channel_is_the_same_bubble_as_one_typed_in_the_browser(self, session_dir):
+        """A question spoken at the puck has a timestamp like every bubble (the read mark and the chat tell bubbles
+        apart by it; 21.11.2026 the puck's questions had none)."""
+        sid = "e" * 32
+        session_storage.create_empty_session(sid, owner="mp")
+
+        save_inbound_to_session(sid, _make_message("hallo"), from_user=True)
+
+        entry = _session_data(sid)["chat_history"][0]
+        typed = build_user_chat_entry("x")
+        assert set(entry) == set(typed)
+        assert datetime.fromisoformat(entry["timestamp"])
 
     def test_inbound_from_non_user_renders_left_under_own_name(self, session_dir):
         sid = "d" * 32

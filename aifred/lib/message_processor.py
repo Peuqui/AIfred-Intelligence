@@ -16,7 +16,7 @@ from typing import Any
 from .agent_config import BASE_AGENT
 from .config import MESSAGE_HUB_OWNER
 from .envelope import InboundMessage, OutboundMessage, ReplyPart
-from .formatting import build_channel_chat_entry
+from .formatting import build_channel_chat_entry, build_user_chat_entry
 from .logging_utils import log_exception, log_message
 from .plugin_base import BaseChannel
 from .routing_table import routing_table
@@ -448,7 +448,9 @@ def build_inbound_chat_entry(message: InboundMessage, from_user: bool) -> dict:
     """chat_history entry of an inbound message: the user's own words on the right
     ("[Channel] Sender" header), everyone else on the left under their own name."""
     if from_user:
-        return {"role": "user", "content": build_user_chat_content(message)}
+        # The same bubble as a message typed in the browser (timestamp, time, fields): a bubble without a timestamp
+        # cannot be told apart in the chat and broke the read mark (21.11.2026, the puck's questions).
+        return build_user_chat_entry(build_user_chat_content(message))
     subject = message.metadata.get("subject", "")
     content = f"**{subject}**\n\n{message.text}" if subject else message.text
     return build_channel_chat_entry(content, message.channel, message.sender)
