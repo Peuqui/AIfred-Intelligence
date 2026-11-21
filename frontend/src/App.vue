@@ -176,12 +176,15 @@ svg.lucide { vertical-align: -0.15em; flex: none; }
 .pill.on { color: var(--aifred-primary); background: color-mix(in srgb, var(--aifred-primary) 18%, transparent); border-color: var(--aifred-primary); }
 .pill:disabled { cursor: default; }
 /* Agent-Orc's divider of the agents' cards: an orange line that fades out to both sides, with a glow (below the head,
-   above the debug console). */
+   above the debug console). Its colour is a variable: the chat's "read up to here" line is the same line in green
+   (ReadMark.vue). */
 .divider {
+  --divider-color: var(--aifred-primary);
+  --divider-glow: var(--aifred-primary-hover);
   height: 1.5px;
   margin: 10px 0;
-  background: linear-gradient(90deg, transparent, var(--aifred-primary) 50%, transparent);
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--aifred-primary-hover) 70%, transparent));
+  background: linear-gradient(90deg, transparent, var(--divider-color) 50%, transparent);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--divider-glow) 70%, transparent));
 }
 /* The interface's size on the body only: on html and body together it acted twice (130 % became 169 %). */
 body { zoom: var(--ui-zoom); }
