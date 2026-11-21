@@ -25,6 +25,7 @@ from .config import (
     TOOL_LOOP_KEPT_ROUNDS,
 )
 from .formatting import format_number
+from .history_entries import history_units
 from .logging_utils import log_message, log_raw_messages
 from .prompt_loader import load_prompt
 from .timer import Timer
@@ -351,7 +352,7 @@ async def summarize_messages(
     conversation_text = ""
     for i, msg in enumerate(messages, 1):
         role = msg.get("role", "unknown")
-        content = msg.get("content", "")
+        content = message_text(msg)
         # Strip thinking blocks from content
         clean_content = strip_thinking_blocks(content) if content else ""
         log_message(f"   └─ Msg {i}: {role}={len(content)}→{len(clean_content)} chars")
@@ -615,6 +616,8 @@ async def summarize_history_if_needed(
         else:
             llm_remaining.append(msg)
 
+    # Whole units only: a tool round is never cut from its results (history_entries)
+    llm_units = history_units(llm_remaining)
     llm_to_compress = []
     # Derselbe Massstab wie beim Ausloeser: System-Prompt und Tool-Schemata
     # sind Teil der Kontextfuellung und werden bei jedem Turn neu vorangestellt.
@@ -627,8 +630,9 @@ async def summarize_history_if_needed(
     )
 
     # Compress oldest llm messages until below target
-    while current_tokens > target_threshold and len(llm_remaining) > 1:
-        llm_to_compress.append(llm_remaining.pop(0))
+    while current_tokens > target_threshold and len(llm_units) > 1:
+        llm_to_compress.extend(llm_units.pop(0))
+        llm_remaining = [msg for unit in llm_units for msg in unit]
         current_tokens = fixed_tokens + estimate_tokens(
             llm_preserved_summaries + llm_remaining
         )
@@ -784,28 +788,28 @@ class LoopCompression:
 
 def _split_tool_loop(
     messages: list[dict[str, Any]],
+    rounds_start: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], list[list[dict[str, Any]]]]:
     """The tool loop's messages in their parts: the leading system message(s), the earlier
-    conversation, the current question, and this turn's tool rounds (an assistant message with its
-    tool_calls, then the tool results that answer them). Only the loop writes tool_calls, so the
-    first message carrying them opens the turn's rounds and the message before it is the question."""
+    conversation (which may hold tool rounds of earlier turns, native in the history), the current
+    question, and this turn's tool rounds (an assistant message with its tool_calls, then the tool
+    results that answer them, then what the user sent meanwhile). ``rounds_start`` is the index of the
+    loop's first message: the one before it is the question."""
     head = 0
     while messages[head]["role"] == "system":
         head += 1
-    first_round = next(
-        index for index, msg in enumerate(messages) if msg["role"] == "assistant" and msg.get("tool_calls")
-    )
     rounds: list[list[dict[str, Any]]] = []
-    for msg in messages[first_round:]:
+    for msg in messages[rounds_start:]:
         if msg["role"] == "assistant" and msg.get("tool_calls"):
             rounds.append([msg])
         else:
             rounds[-1].append(msg)
-    return messages[:head], messages[head:first_round - 1], messages[first_round - 1], rounds
+    return messages[:head], messages[head:rounds_start - 1], messages[rounds_start - 1], rounds
 
 
 async def compress_tool_loop(
     messages: list[dict[str, Any]],
+    rounds_start: int,
     used_tokens: int,
     num_ctx: int,
     compression: LoopCompression,
@@ -819,17 +823,20 @@ async def compress_tool_loop(
     summary takes the place of what it covers, as the context message a summary of the llm_history
     becomes, right before the question: system…, summary, user, assistant(tool_calls), tool…
 
+    ``rounds_start`` is the index of the loop's first message (the length of the messages the turn began
+    with; the question is the message before it).
+
     ``used_tokens`` is the context the loop measured (the server's count of the last request plus
     the new results); it shrinks by what is removed and grows by the summary. The messages are this
     request's only: the session's histories stay as they are.
 
     Yields debug and progress events and, when it compressed, last ``{"type": "loop_compressed",
-    "messages": [...], "used_tokens": int}``. Nothing to compress or a failed summary: no such event.
+    "messages": [...], "rounds_start": int, "used_tokens": int}`` (``rounds_start`` of the new messages). Nothing to compress or a failed summary: no such event.
     """
     from .message_builder import context_message
 
     target = int(num_ctx * HISTORY_COMPRESSION_TARGET)
-    system, earlier, question, rounds = _split_tool_loop(messages)
+    system, earlier, question, rounds = _split_tool_loop(messages, rounds_start)
     to_compress = list(earlier)
     removed = estimate_tokens(to_compress)
     taken = 0
@@ -886,6 +893,7 @@ async def compress_tool_loop(
     yield {
         "type": "loop_compressed",
         "messages": [*system, summary_message, question, *kept],
+        "rounds_start": len(system) + 2,
         "used_tokens": compressed_tokens,
     }
 

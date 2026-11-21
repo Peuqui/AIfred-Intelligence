@@ -1,9 +1,12 @@
 """The title of a session: from its first question and first reply, by the model of the turn that produced them."""
 
 import re
+from typing import Any
+
+from .history_entries import is_round
 
 
-def first_exchange(llm_history: list[dict[str, str]]) -> tuple[str, str] | None:
+def first_exchange(llm_history: list[dict[str, Any]]) -> tuple[str, str] | None:
     """The first user message and the first reply of a session, for its title.
 
     The reply loses its speaker label ("[AIFRED]: ", a custom agent's uppercased id): the title
@@ -11,7 +14,10 @@ def first_exchange(llm_history: list[dict[str, str]]) -> tuple[str, str] | None:
     None until both exist.
     """
     first_user = next((entry.get("content", "") for entry in llm_history if entry.get("role") == "user"), "")
-    first_reply = next((entry.get("content", "") for entry in llm_history if entry.get("role") == "assistant"), "")
+    # A tool round (assistant entry with tool_calls) is no reply; its results are tool entries
+    first_reply = next(
+        (entry.get("content", "") for entry in llm_history if entry.get("role") == "assistant" and not is_round(entry)), "",
+    )
     first_reply = re.sub(r"^\[[A-Z0-9_]+\]:\s*", "", first_reply, count=1)
     if not first_reply:
         return None

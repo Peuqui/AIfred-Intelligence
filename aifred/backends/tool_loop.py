@@ -128,6 +128,9 @@ class _Turn:
         self.backend = backend
         self.model = model
         self.messages = messages
+        # Where this turn's rounds begin (the message before is the question); the history may hold
+        # native rounds of earlier turns, so compress_tool_loop cannot find the start by itself.
+        self.rounds_start = len(messages)
         self.options = options
         self.toolkit = toolkit
         self.compression = compression
@@ -360,9 +363,10 @@ class _Turn:
         num_ctx = self.options.num_ctx
         if num_ctx and used_tokens >= HISTORY_COMPRESSION_TRIGGER * num_ctx and self.compression is not None:
             from aifred.lib.context_manager import compress_tool_loop
-            async for item in compress_tool_loop(self.messages, used_tokens, num_ctx, self.compression):
+            async for item in compress_tool_loop(self.messages, self.rounds_start, used_tokens, num_ctx, self.compression):
                 if item["type"] == "loop_compressed":
                     self.messages = item["messages"]
+                    self.rounds_start = item["rounds_start"]
                     used_tokens = item["used_tokens"]
                 else:
                     yield item

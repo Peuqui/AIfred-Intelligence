@@ -19,6 +19,11 @@ atexit.register(shutil.rmtree, _TEST_DATA_DIR, ignore_errors=True)
 # service's live debug log (14.09.2026).
 os.environ.setdefault("AIFRED_CLI_MODE", "1")
 
+# Before any aifred import: the owner of sessions a channel opens. Read once at import (also as default
+# arguments), and without it here the tests took the developer's .env (load_dotenv never overrides a set
+# value); in a checkout without .env they failed (21.11.2026).
+os.environ["MESSAGE_HUB_OWNER"] = "tester"
+
 import pytest
 
 @pytest.fixture(autouse=True, scope="session")

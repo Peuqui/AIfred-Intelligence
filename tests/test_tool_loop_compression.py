@@ -113,10 +113,11 @@ def test_system_question_and_the_last_rounds_stay_older_ones_become_one_summary(
     client = SummaryClient()
 
     # Far over the target: everything but the kept rounds has to go.
-    events = _run(_collect(compress_tool_loop(messages, NUM_CTX, NUM_CTX, _compression(client))))
+    events = _run(_collect(compress_tool_loop(messages, 1 + len(earlier) + 1, NUM_CTX, NUM_CTX, _compression(client))))
 
     compressed = events[-1]
     assert compressed["type"] == "loop_compressed"
+    assert compressed["rounds_start"] == 3      # system, summary, question: the kept rounds follow
     kept = [message for round_messages in rounds[-TOOL_LOOP_KEPT_ROUNDS:] for message in round_messages]
     summary = compressed["messages"][1]
     assert compressed["messages"] == [system, summary, question, *kept]
@@ -138,15 +139,45 @@ def test_rounds_are_compressed_only_when_the_earlier_conversation_is_not_enough(
     target = int(NUM_CTX * HISTORY_COMPRESSION_TARGET)
     used = target + estimate_tokens(earlier)   # the earlier conversation alone reaches the target
     client = SummaryClient()
-    events = _run(_collect(compress_tool_loop(messages, used, NUM_CTX, _compression(client))))
+    events = _run(_collect(compress_tool_loop(messages, 3, used, NUM_CTX, _compression(client))))
     assert events[-1]["messages"][2:] == messages[2:]     # question and all three rounds as they were
     assert "Ergebnis 1" not in client.prompts[0]
+
+
+def test_a_native_round_of_an_earlier_turn_is_earlier_conversation_not_the_start_of_the_rounds() -> None:
+    # The history now holds the rounds of earlier turns (history_entries): the first message with tool_calls
+    # is no longer this turn's first round, the question stays the question.
+    earlier = [{"role": "user", "content": "[USER]: Wetter gestern?"}, *_round(7, "Gestern: " + "Sonne. " * 100),
+               {"role": "assistant", "content": "Sonnig."}]
+    question = {"role": "user", "content": "[USER]: Und morgen?"}
+    rounds = [_round(number, f"Ergebnis {number}: " + "Regen, Wind. " * 40) for number in range(1, 5)]
+    messages = [{"role": "system", "content": "S"}, *earlier, question, *[m for r in rounds for m in r]]
+    client = SummaryClient()
+    events = _run(_collect(compress_tool_loop(messages, 1 + len(earlier) + 1, NUM_CTX, NUM_CTX, _compression(client))))
+    compressed = events[-1]
+    assert compressed["messages"][2] == question
+    assert compressed["messages"][3:] == [m for r in rounds[-TOOL_LOOP_KEPT_ROUNDS:] for m in r]
+    assert "Gestern:" in client.prompts[0] and "lookup(" in client.prompts[0]
+
+
+def test_a_second_compression_in_the_same_turn_uses_the_new_start() -> None:
+    earlier = [{"role": "user", "content": "[USER]: " + "Wortfüllung " * 100}]
+    question = {"role": "user", "content": "Frage"}
+    rounds = [_round(number, f"Ergebnis {number}: " + "Regen, Wind. " * 60) for number in range(1, 8)]
+    messages = [{"role": "system", "content": "S"}, *earlier, question, *[m for r in rounds[:4] for m in r]]
+    client = SummaryClient()
+    first = _run(_collect(compress_tool_loop(messages, 3, NUM_CTX, NUM_CTX, _compression(client))))[-1]
+    grown = [*first["messages"], *[m for r in rounds[4:] for m in r]]
+    second = _run(_collect(compress_tool_loop(grown, first["rounds_start"], NUM_CTX, NUM_CTX, _compression(client))))[-1]
+    assert second["messages"][2] == question
+    assert second["messages"][3:] == [m for r in rounds[-TOOL_LOOP_KEPT_ROUNDS:] for m in r]
+    assert second["rounds_start"] == 3
 
 
 def test_nothing_to_compress_gives_no_new_messages() -> None:
     messages = [{"role": "system", "content": "System"}, {"role": "user", "content": "Frage"}, *_round(1), *_round(2)]
     client = SummaryClient()
-    events = _run(_collect(compress_tool_loop(messages, NUM_CTX, NUM_CTX, _compression(client))))
+    events = _run(_collect(compress_tool_loop(messages, 2, NUM_CTX, NUM_CTX, _compression(client))))
     assert all(event["type"] != "loop_compressed" for event in events)
     assert client.prompts == []
 
@@ -154,7 +185,7 @@ def test_nothing_to_compress_gives_no_new_messages() -> None:
 def test_a_failed_summary_gives_no_new_messages() -> None:
     messages = [{"role": "system", "content": "System"}, {"role": "user", "content": "alt"},
                 {"role": "user", "content": "Frage"}, *_round(1)]
-    events = _run(_collect(compress_tool_loop(messages, NUM_CTX, NUM_CTX, _compression(SummaryClient("")))))
+    events = _run(_collect(compress_tool_loop(messages, 3, NUM_CTX, NUM_CTX, _compression(SummaryClient("")))))
     assert all(event["type"] != "loop_compressed" for event in events)
 
 

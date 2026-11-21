@@ -9,8 +9,9 @@ import logging
 import re
 
 from ..config import DEBUG_LOG_RAW_MESSAGES
-from ..context_manager import strip_thinking_blocks
+from ..context_manager import message_text, strip_thinking_blocks
 from ..formatting import format_number
+from ..history_entries import is_round
 from ..logging_utils import log_message
 from ..prompt_loader import load_prompt
 
@@ -130,12 +131,12 @@ async def rank_urls_by_relevance(
     # Format last 6 history messages as context (3 user/assistant pairs)
     conversation_context = ""
     if llm_history:
-        recent = [m for m in llm_history if m.get("role") in ("user", "assistant")][-6:]
+        recent = [m for m in llm_history if m.get("role") == "user" or (m.get("role") == "assistant" and not is_round(m))][-6:]
         if recent:
             lines = ["CONVERSATION CONTEXT (recent messages):"]
             for m in recent:
                 role = "User" if m["role"] == "user" else "Assistant"
-                content = str(m.get("content", ""))[:300]
+                content = message_text(m)[:300]
                 lines.append(f"{role}: {content}")
             conversation_context = "\n".join(lines) + "\n"
 

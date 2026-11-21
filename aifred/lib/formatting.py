@@ -512,10 +512,10 @@ def assistant_history_entry(agent: str, content: str, history_notes: Sequence[st
     """llm_history entry of an agent's reply: speaker label, text without thinking, the tools'
     notes for the next turn. None when nothing is left (a reply of thinking only)."""
     from .context_manager import strip_thinking_blocks
-    from .message_builder import with_history_notes
+    from .message_builder import labelled, with_history_notes
 
     clean = with_history_notes(strip_thinking_blocks(content), history_notes)
-    return {"role": "assistant", "content": f"[{agent.upper()}]: {clean}"} if clean else None
+    return {"role": "assistant", "content": labelled(agent, clean)} if clean else None
 
 
 def build_channel_chat_entry(content: str, channel: str, sender: str) -> dict:

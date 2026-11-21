@@ -8,6 +8,7 @@ All LLM calls use llm_history exclusively (not chat_history).
 import re
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
 from .prompt_loader import get_user_name
 
@@ -32,6 +33,11 @@ def history_speaker(content: str) -> tuple[str | None, str]:
     return agent, content[match.end():]
 
 
+def labelled(agent: str, text: str) -> str:
+    """The text of an agent's llm_history entry with its speaker label (what ``history_speaker`` reads)."""
+    return f"[{agent.upper()}]: {text}"
+
+
 def context_message(content: str, lang: str | None = None) -> dict[str, str]:
     """A summary of compressed history as the model sees it: a user message with a context prefix
     (shared/context_summary; many models allow one system message only, at the start). The history
@@ -48,14 +54,14 @@ def history_user_label() -> str:
 
 
 def build_messages_from_llm_history(
-    llm_history: list[dict[str, str]],
+    llm_history: list[dict[str, Any]],
     current_user_text: str = "",
     perspective: str = "aifred",
     detected_language: str | None = None,
     *,
     observer: bool = False,
     close: bool = False,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """The model's messages from llm_history, as the agent ``perspective`` sees the conversation.
 
     Its own replies are ``assistant`` without their label (it would imitate it); everything else is
@@ -70,11 +76,16 @@ def build_messages_from_llm_history(
     speaker gets them right before it answers.
     """
     from .agent_config import load_agents
+    from .history_entries import history_units, is_round
 
     agents = load_agents()
     user_label = history_user_label()
-    messages: list[dict[str, str]] = []
-    for msg in llm_history:
+    messages: list[dict[str, Any]] = []
+    for unit in history_units(llm_history):
+        if is_round(unit[0]):
+            messages.extend(_round_messages(unit, perspective, observer, agents, detected_language))
+            continue
+        msg = unit[0]
         role = msg.get("role", "user")
         content = msg.get("content", "")
         if role == "system":
@@ -96,6 +107,38 @@ def build_messages_from_llm_history(
         messages.append({"role": "user", "content": _closing(current_user_text, perspective, detected_language)})
 
     return messages
+
+
+def _round_messages(
+    unit: list[dict[str, Any]],
+    perspective: str,
+    observer: bool,
+    agents: dict[str, Any],
+    detected_language: str | None,
+) -> list[dict[str, Any]]:
+    """The messages of one tool round (history_entries): the agent's own round stays native, an
+    assistant message with its tool_calls and one tool message per result. Another agent's round (or any
+    round, for the observer) is one labelled user message: its text and a line with its calls and their
+    results (shared/others_tool_calls), as the model could not answer for calls it did not make."""
+    from .prompt_loader import load_prompt
+
+    round_entry, results = unit[0], unit[1:]
+    speaker, text = history_speaker(round_entry["content"])
+    if speaker is None:
+        raise ValueError(f"tool round without an agent label: {round_entry['content'][:60]!r}")
+    if speaker == perspective and not observer:
+        return [
+            {"role": "assistant", "content": text.strip(), "tool_calls": round_entry["tool_calls"]},
+            *results,
+        ]
+    result_texts = {result["tool_call_id"]: result["content"] for result in results}
+    calls = "; ".join(
+        f"{call['function']['name']}({call['function']['arguments']}) → {result_texts[call['id']]}"
+        for call in round_entry["tool_calls"]
+    )
+    line = load_prompt("shared/others_tool_calls", lang=detected_language, calls=calls).strip()
+    body = f"{text.strip()}\n{line}" if text.strip() else line
+    return [{"role": "user", "content": f"[{agents[speaker].display_name}]: {body}"}]
 
 
 def _closing(text: str, perspective: str, detected_language: str | None) -> str:
