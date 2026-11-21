@@ -4,7 +4,7 @@
 
 > Outline for extending the AI calibrator (`ai_agent.py`) with
 > distributed inference via llama.cpp RPC (Mini + Aragon). Status: planned,
-> waiting for the RPC setup to be reactivated (cable + Aragon).
+> waiting for an RPC profile in llama-swap (Aragon must be running).
 > Context: for RPC basics and benchmarks see
 > [showcase-notes.md](../benchmarks/showcase-notes.md) (update 2026-02-28).
 
@@ -67,10 +67,12 @@ profile choice itself (two-profile pattern: `Model` vs. `Model-rpc`).
 - Aragon must be running during calibration (fit-params really connects
   to the rpc-server — verified).
 - Aragon side: llama.cpp with `-DGGML_CUDA=ON -DGGML_RPC=ON` (arch 86),
-  `ggml-rpc-server -H 0.0.0.0 -p 50052`, static IP 10.0.0.2/30 on the
-  USB4 adapter.
-- Mini side: NetworkManager profile `rpc-direct` (enp4s0, 10.0.0.1/30)
-  already exists.
+  `ggml-rpc-server -H 0.0.0.0 -p 50052`, forwarded by a Windows portproxy
+  on 0.0.0.0:50052.
+- Reached over the home network by the machine's name: the RPC profile
+  carries `--rpc aragon:50052` (no direct cable since 2026-11-21; it last
+  ran at 1 Gbit/s like the home network). When Aragon is off, the RPC
+  check in the backend says so before the load.
 - The calibration LLM comes from the agent editor as before
   (system agent "Calibration" in `data/agents.json`) — no coupling
   to this work package.

@@ -4,7 +4,7 @@
 
 > Skizze für die Erweiterung des KI-Kalibrierers (`ai_agent.py`) um
 > verteilte Inferenz via llama.cpp RPC (Mini + Aragon). Status: geplant,
-> wartet auf reaktiviertes RPC-Setup (Kabel + Aragon).
+> wartet auf ein RPC-Profil in llama-swap (Aragon muss laufen).
 > Kontext: RPC-Grundlagen und Benchmarks siehe
 > [showcase-notes.md](../benchmarks/showcase-notes.md) (Update 2026-02-28).
 
@@ -67,10 +67,12 @@ Profilwahl selbst (Zwei-Profil-Muster: `Modell` vs. `Modell-rpc`).
 - Aragon muss während der Kalibrierung laufen (fit-params verbindet sich
   wirklich mit dem rpc-server — verifiziert).
 - Aragon-Seite: llama.cpp mit `-DGGML_CUDA=ON -DGGML_RPC=ON` (Arch 86),
-  `ggml-rpc-server -H 0.0.0.0 -p 50052`, statische IP 10.0.0.2/30 auf dem
-  USB4-Adapter.
-- Mini-Seite: NetworkManager-Profil `rpc-direct` (enp4s0, 10.0.0.1/30)
-  existiert bereits.
+  `ggml-rpc-server -H 0.0.0.0 -p 50052`, unter Windows per portproxy auf
+  0.0.0.0:50052 weitergeleitet.
+- Erreichbar übers Heimnetz unter dem Rechnernamen: das RPC-Profil trägt
+  `--rpc aragon:50052` (seit 21.11.2026 kein Direktkabel mehr; es lief
+  zuletzt nur noch mit 1 Gbit/s wie das Heimnetz). Ist Aragon aus,
+  meldet die RPC-Prüfung im Backend das vor dem Laden.
 - Das Kalibrier-LLM kommt wie gehabt aus dem Agent-Editor
   (System-Agent „Calibration" in `data/agents.json`) — keine Kopplung
   an dieses Arbeitspaket.
