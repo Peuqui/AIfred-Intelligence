@@ -25,10 +25,12 @@ export function useChatScroll(box: Ref<HTMLElement | null>, sessionId: () => str
   const bubbles = (): HTMLElement[] => [...(box.value?.querySelectorAll<HTMLElement>("[data-entry]") ?? [])];
   const bubble = (key: string): HTMLElement | undefined => bubbles().find((element) => element.dataset.entry === key);
   const endTop = (scroller: HTMLElement): number => scroller.scrollHeight - scroller.clientHeight;
-  // The room a question that sticks at the upper edge takes: what is read from its top stops below it.
+  // The room a question that sticks at the upper edge takes: what is read from its top stops below it. Only a question
+  // above the element sticks over it; the line at the start of a turn stands above its question.
   const pinnedRoom = (element: HTMLElement): number => {
     const pinned = element.closest("section")?.querySelector<HTMLElement>("[data-pinned]");
-    return pinned && !pinned.contains(element) ? pinned.getBoundingClientRect().height : 0;
+    const above = pinned && !pinned.contains(element) && pinned.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING;
+    return above ? pinned.getBoundingClientRect().height : 0;
   };
   // The scroll position that puts the element at the upper edge, below a sticking question.
   const topOf = (scroller: HTMLElement, element: HTMLElement): number =>

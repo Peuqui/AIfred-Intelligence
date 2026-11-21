@@ -12,16 +12,18 @@ export function unreadCount(history: ChatEntry[], readUntil: string): number {
   return history.filter((entry) => isUnread(entry, readUntil)).length;
 }
 
-// The line stands directly under the last bubble read, above everything newer: the index of that bubble, -1 for above the
-// first one (nothing read yet), null when nothing below it is unread (no line).
-export function lineAfterIndex(history: ChatEntry[], readUntil: string): number | null {
+// The line stands directly under the last bubble read, above everything newer: the index of the entry it stands above,
+// null when nothing is unread (no line). Never between a question and its first answer: above the question then, at the
+// start of its turn, where the question does not stick over it and the line shows at the upper edge (Peuqui 21.11.2026).
+export function lineBeforeIndex(history: ChatEntry[], readUntil: string): number | null {
   const firstUnread = history.findIndex((entry) => isUnread(entry, readUntil));
   if (firstUnread < 0) return null;
-  let line = -1;
+  let before = 0;
   for (let at = 0; at < firstUnread; at += 1) {
-    if (history[at]!.timestamp <= readUntil) line = at;
+    if (history[at]!.timestamp <= readUntil) before = at + 1;
   }
-  return line;
+  if (before === firstUnread && history[before - 1]?.role === "user") before -= 1;
+  return before;
 }
 
 // Parts of a bubble that do something on their own click: a click there is not "I read this far". Pictures open the

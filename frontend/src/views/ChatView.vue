@@ -24,7 +24,7 @@ import { t, tCount } from "../i18n";
 import { ZOOM, chatHeight, chatZoom, zoomBy } from "../lib/devicePrefs";
 import { pinQuestion } from "../lib/devicePrefs";
 import { useChatScroll } from "../lib/useChatScroll";
-import { type Press, isPlainClick, isUnread, lineAfterIndex } from "../lib/unread";
+import { type Press, isPlainClick, isUnread, lineBeforeIndex } from "../lib/unread";
 import { useSessionsColumn } from "../lib/sessionsColumn";
 import HelpButton from "../components/help/HelpButton.vue";
 import { saveAs } from "../lib/download";
@@ -64,13 +64,12 @@ const turns = computed(() => {
   }
   return grouped;
 });
-// Where the "read up to here" line stands: under the entry with this key; "" above the first one; null: no line.
+// Where the "read up to here" line stands: above the entry with this key; null: no line.
 const entryKey = (entry: ChatEntry): string => entry.timestamp + entry.role;
-const readLineAfter = computed<string | null>(() => {
-  const at = lineAfterIndex(chat.history, chat.readUntil);
-  if (at === null) return null;
-  const entry = chat.history[at];
-  return entry ? entryKey(entry) : "";
+const readLineBefore = computed<string | null>(() => {
+  const at = lineBeforeIndex(chat.history, chat.readUntil);
+  const entry = at === null ? undefined : chat.history[at];
+  return entry ? entryKey(entry) : null;
 });
 // A click on a bubble below the line says "read up to here" (not on what has a click of its own, not the end of
 // dragging to select text: the press is where the pointer went down in the box).
@@ -271,8 +270,8 @@ onMounted(() => void start());
         >
           <div class="bubbles">
           <section v-for="(turn, at) in turns" :key="turn.key" :data-key="turn.key" class="turn">
-            <ReadMark v-if="at === 0 && readLineAfter === ''" />
             <template v-for="entry in turn.entries" :key="entryKey(entry)">
+              <ReadMark v-if="readLineBefore === entryKey(entry)" />
               <MessageBubble
                 :class="{ question: entry.role === 'user', pinned: entry.role === 'user' && pinQuestion }"
                 :entry="entry"
@@ -286,7 +285,6 @@ onMounted(() => void start());
                 @read-again="chat.readAgain"
                 @click="bubbleClicked(entry, $event)"
               />
-              <ReadMark v-if="readLineAfter === entryKey(entry)" />
             </template>
             <!-- The answer being written belongs to the last turn, where it lands once done: inside the turn its question
                  sticks above it at once, also when "keep the question at the top" is switched on during the answer. -->

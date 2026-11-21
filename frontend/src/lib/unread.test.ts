@@ -1,7 +1,7 @@
 // Which answers are unread and where the "read up to here" line stands; which clicks on a bubble count as reading it.
 import { expect, test } from "vitest";
 import type { ChatEntry } from "../api/types";
-import { isPlainClick, isUnread, lineAfterIndex, unreadCount } from "./unread";
+import { isPlainClick, isUnread, lineBeforeIndex, unreadCount } from "./unread";
 
 function entry(role: "user" | "assistant", timestamp: string): ChatEntry {
   return { role, timestamp, content: "x", agent: "", agent_display_name: "", agent_emoji: "", mode: "", time_display: "", has_audio: false, tts_note: "" };
@@ -19,11 +19,20 @@ test("only an answer after the mark is unread, the user's own message never", ()
 });
 
 test("the line stands under the last bubble read, above the first one when nothing is read, nowhere without unread", () => {
-  expect(lineAfterIndex(history, "")).toBe(-1);
-  expect(lineAfterIndex(history, "2026-11-21T10:00:05")).toBe(1);
-  expect(lineAfterIndex(history, "2026-11-21T10:01:00")).toBe(2);
-  expect(lineAfterIndex(history, "2026-11-21T10:01:09")).toBeNull();
-  expect(lineAfterIndex([entry("user", "2026-11-21T10:00:00")], "")).toBeNull();
+  expect(lineBeforeIndex(history, "")).toBe(0);
+  expect(lineBeforeIndex(history, "2026-11-21T10:00:05")).toBe(2);
+  expect(lineBeforeIndex(history, "2026-11-21T10:01:09")).toBeNull();
+  expect(lineBeforeIndex([entry("user", "2026-11-21T10:00:00")], "")).toBeNull();
+});
+
+test("never between a question and its first answer: the line stands above the question, also when the question was read", () => {
+  // The mark at the question itself (e.g. a job's text, read in the list before its answer came).
+  expect(lineBeforeIndex(history, "2026-11-21T10:01:00")).toBe(2);
+});
+
+test("within a turn (a debate), after an answer read: the line stands between the answers, under the question", () => {
+  const debate = [entry("user", "2026-11-21T10:00:00"), entry("assistant", "2026-11-21T10:00:05"), entry("assistant", "2026-11-21T10:00:09")];
+  expect(lineBeforeIndex(debate, "2026-11-21T10:00:05")).toBe(2);
 });
 
 function clickOn(html: string, selector: string): MouseEvent {
