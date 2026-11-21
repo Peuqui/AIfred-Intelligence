@@ -126,7 +126,12 @@ class LLMClient:
         """Convert list of dicts to LLMMessage objects if needed."""
         if messages and isinstance(messages[0], dict):
             dict_messages = cast(list[dict[str, Any]], messages)
-            return [LLMMessage(role=m["role"], content=m["content"]) for m in dict_messages]
+            return [
+                LLMMessage(
+                    role=m["role"], content=m["content"], tool_calls=m.get("tool_calls"), tool_call_id=m.get("tool_call_id")
+                )
+                for m in dict_messages
+            ]
         return cast(list[LLMMessage], messages)
 
     @staticmethod

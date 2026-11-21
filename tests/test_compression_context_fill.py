@@ -86,7 +86,7 @@ class TestTriggerAndSelectionUseOneYardstick:
         # Schleife nichts aus und fasste eine leere Konversation zusammen.
         llm_history = _history(2)
         context_limit = 16384
-        history_tokens = context_manager.estimate_tokens_from_llm_history(llm_history)
+        history_tokens = context_manager.estimate_tokens(llm_history)
         assert history_tokens < int(context_limit * HISTORY_COMPRESSION_TARGET), (
             "Testaufbau: die History muss unter dem Ziel liegen"
         )

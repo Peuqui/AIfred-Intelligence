@@ -75,12 +75,20 @@ class LLMMessage:
             {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}
         ])
     """
-    role: str  # "system", "user", "assistant"
+    role: str  # "system", "user", "assistant", "tool"
     content: MessageContent  # String for text-only, list for multimodal
+    tool_calls: list[dict[str, Any]] | None = None  # assistant: the calls of a tool round (OpenAI shape)
+    tool_call_id: str | None = None  # tool: the call this result answers
 
     def as_dict(self) -> dict[str, Any]:
-        """The message as the OpenAI-shaped dict the backends and the tool loop work with."""
-        return {"role": self.role, "content": self.content}
+        """The message as the OpenAI-shaped dict the backends and the tool loop work with.
+        Call fields only when set, so a request without calls stays byte-identical (prefix cache)."""
+        message: dict[str, Any] = {"role": self.role, "content": self.content}
+        if self.tool_calls is not None:
+            message["tool_calls"] = self.tool_calls
+        if self.tool_call_id is not None:
+            message["tool_call_id"] = self.tool_call_id
+        return message
 
 
 # What the tool loop asks between two tool rounds for the messages the user sent meanwhile (turn_service.interjection_source).

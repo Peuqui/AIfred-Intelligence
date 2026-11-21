@@ -124,35 +124,37 @@ def strip_thinking_blocks(text: str) -> str:
     return text.strip()
 
 
-def estimate_tokens(messages: list[dict], model_name: str | None = None) -> int:
+def message_text(msg: dict[str, Any]) -> str:
+    """The text of one message as the model reads it: its content (text, or the text parts of a
+    multimodal list; images count no text tokens), the tool calls it makes as name(arguments), and
+    the reasoning a backend sends back. content None or missing is empty."""
+    content = msg.get("content")
+    if isinstance(content, list):
+        parts = [part.get("text", "") for part in content if part.get("type") == "text"]
+    else:
+        parts = [content] if content else []
+    parts.extend(f"{call['function']['name']}({call['function']['arguments']})" for call in msg.get("tool_calls", []))
+    if msg.get("reasoning_content"):
+        parts.append(msg["reasoning_content"])
+    return "\n".join(parts)
+
+
+def estimate_tokens(messages: list[dict[str, Any]], model_name: str | None = None) -> int:
     """
-    Count tokens in messages using the local Qwen3 tokenizer.
+    Count tokens in messages using the local Qwen3 tokenizer (the one count for every message list:
+    request messages, llm_history, tool-loop messages).
 
     No fallback — tokenizer errors must surface.
 
     Args:
-        messages: List of message dicts with 'content' key (str or list)
+        messages: List of message dicts; counted are content, tool_calls and reasoning_content (see message_text)
         model_name: Optional model name for accurate tokenization
 
     Returns:
         int: Exact token count
     """
-    # Combine all message content (handle both str and multimodal list format)
-    text_parts = []
-    for m in messages:
-        content = m['content']
-        if isinstance(content, str):
-            text_parts.append(content)
-        elif isinstance(content, list):
-            # Multimodal content: extract text parts only (images don't count as text tokens)
-            for part in content:
-                if part.get("type") == "text":
-                    text_parts.append(part.get("text", ""))
-
-    total_text = "\n".join(text_parts)
-
     # Use local Qwen3 tokenizer - no fallback, errors must surface
-    return count_tokens_with_tokenizer(total_text)
+    return count_tokens_with_tokenizer("\n".join(message_text(m) for m in messages))
 
 
 def strip_non_llm_content(text: str) -> str:
@@ -202,25 +204,6 @@ def estimate_tokens_from_history(history: list[dict[str, Any]]) -> int:
     """
     return count_tokens_with_tokenizer(
         "\n".join(strip_non_llm_content(msg.get("content", "")) for msg in history)
-    )
-
-
-def estimate_tokens_from_llm_history(llm_history: list[dict[str, str]]) -> int:
-    """
-    Estimate token count from llm_history (dict format).
-
-    llm_history is already cleaned - no stripping needed.
-
-    Args:
-        llm_history: List of {"role": ..., "content": ...} dicts
-
-    Returns:
-        int: Estimated token count
-    """
-    if not llm_history:
-        return 0
-    return count_tokens_with_tokenizer(
-        "\n".join(msg.get("content", "") for msg in llm_history)
     )
 
 
@@ -356,7 +339,7 @@ async def summarize_messages(
     from .formatting import fix_orphan_closing_think_tag
     from .logging_utils import log_exception
 
-    tokens_to_compress = estimate_tokens_from_llm_history(messages)
+    tokens_to_compress = estimate_tokens(messages)
     summary_target_tokens = get_summary_target_tokens(tokens_to_compress)
     summary_target_words = int(summary_target_tokens * 0.75)  # ~0.75 words per token for German
 
@@ -546,7 +529,7 @@ async def summarize_history_if_needed(
 
     # Token estimation - use llm_history if available (already cleaned, accurate)
     if llm_history:
-        history_tokens = estimate_tokens_from_llm_history(llm_history)
+        history_tokens = estimate_tokens(llm_history)
     else:
         history_tokens = estimate_tokens_from_history(history)
 
@@ -639,14 +622,14 @@ async def summarize_history_if_needed(
     # System-Prompt gar nicht erst anlaufen — die Kompression lief dann leer
     # und legte eine Zusammenfassung ohne Inhalt ab (07.09.2026).
     fixed_tokens = system_prompt_tokens + toolkit_tokens
-    current_tokens = fixed_tokens + estimate_tokens_from_llm_history(
+    current_tokens = fixed_tokens + estimate_tokens(
         llm_preserved_summaries + llm_remaining
     )
 
     # Compress oldest llm messages until below target
     while current_tokens > target_threshold and len(llm_remaining) > 1:
         llm_to_compress.append(llm_remaining.pop(0))
-        current_tokens = fixed_tokens + estimate_tokens_from_llm_history(
+        current_tokens = fixed_tokens + estimate_tokens(
             llm_preserved_summaries + llm_remaining
         )
 
@@ -760,7 +743,7 @@ async def summarize_history_if_needed(
     # Calculate results (based on llm_history for accurate LLM token count)
     if new_llm_history is not None:
         # Use llm_history estimation (already dict format)
-        new_history_tokens = estimate_tokens_from_llm_history(new_llm_history)
+        new_history_tokens = estimate_tokens(new_llm_history)
     else:
         new_history_tokens = estimate_tokens_from_history(new_chat_history)
 
@@ -797,26 +780,6 @@ class LoopCompression:
     llm_client: Any
     model: str
     language: str
-
-
-def _loop_message_text(msg: dict[str, Any]) -> str:
-    """A tool-loop message as text for the summary: what it says and the calls it makes."""
-    content = msg.get("content")
-    if isinstance(content, list):
-        text = "\n".join(part.get("text", "") for part in content if part.get("type") == "text")
-    else:
-        text = content or ""
-    calls = [
-        f"{call['function']['name']}({call['function']['arguments']})" for call in msg.get("tool_calls", [])
-    ]
-    return "\n".join([text, *calls]).strip()
-
-
-def _loop_tokens(messages: list[dict[str, Any]]) -> int:
-    """Tokens of tool-loop messages: text, calls and the reasoning a backend sends back."""
-    return estimate_tokens(
-        [{"content": f"{_loop_message_text(msg)}\n{msg.get('reasoning_content', '')}"} for msg in messages]
-    )
 
 
 def _split_tool_loop(
@@ -868,11 +831,11 @@ async def compress_tool_loop(
     target = int(num_ctx * HISTORY_COMPRESSION_TARGET)
     system, earlier, question, rounds = _split_tool_loop(messages)
     to_compress = list(earlier)
-    removed = _loop_tokens(to_compress)
+    removed = estimate_tokens(to_compress)
     taken = 0
     while used_tokens - removed > target and len(rounds) - taken > TOOL_LOOP_KEPT_ROUNDS:
         to_compress.extend(rounds[taken])
-        removed += _loop_tokens(rounds[taken])
+        removed += estimate_tokens(rounds[taken])
         taken += 1
     if not to_compress:
         log_message("⚠️ Tool loop compression: nothing left to compress")
@@ -894,7 +857,7 @@ async def compress_tool_loop(
         ),
     }
     summary: dict[str, Any] = {}
-    texts = [{"role": msg["role"], "content": _loop_message_text(msg)} for msg in to_compress]
+    texts = [{"role": msg["role"], "content": message_text(msg)} for msg in to_compress]
     async for event in summarize_messages(texts, compression.llm_client, compression.model, num_ctx, compression.language):
         if event["type"] == "summary":
             summary = event
@@ -907,7 +870,7 @@ async def compress_tool_loop(
         return
 
     summary_message = context_message(llm_summary_entry(summary["text"])["content"], compression.language)
-    compressed_tokens = used_tokens - removed + _loop_tokens([summary_message])
+    compressed_tokens = used_tokens - removed + estimate_tokens([summary_message])
     kept = [msg for round_messages in rounds[taken:] for msg in round_messages]
     log_message(
         f"✅ Tool loop compressed: ~{format_number(used_tokens)} → ~{format_number(compressed_tokens)} tok, "
