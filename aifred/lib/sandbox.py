@@ -369,6 +369,13 @@ async def describe_sandbox_screenshots(
 _PLOT_HOOK_PREFIX = "__plot_"
 
 
+def _produced_files(work_dir: Path, pattern: str) -> list[Path]:
+    """The real files matching ``pattern`` the run wrote into ``work_dir``, sorted. A symlink is no
+    product: the sandboxed code can point one at any host path, and reading it here (outside the
+    sandbox) would copy that file into the session's output."""
+    return [path for path in sorted(work_dir.glob(pattern)) if not path.is_symlink() and path.is_file()]
+
+
 def _collect_images(work_dir: Path, session_id: str) -> list[str]:
     """Collect generated PNG images, save to sandbox_output/{session_id}/, return URLs.
 
@@ -380,7 +387,7 @@ def _collect_images(work_dir: Path, session_id: str) -> list[str]:
     output_dir = session_output_dir(session_id)
 
     urls: list[str] = []
-    for png in sorted(work_dir.glob("*.png")):
+    for png in _produced_files(work_dir, "*.png"):
         stem = "plot" if png.name.startswith(_PLOT_HOOK_PREFIX) else png.stem
         filename = output_filename(stem, png.read_bytes(), ".png")
         shutil.copy2(png, output_dir / filename)
@@ -402,14 +409,10 @@ def _collect_html(work_dir: Path, session_id: str) -> list[str]:
     all_files = list(work_dir.iterdir())
     log_message(f"Sandbox _collect_html: files={[f.name for f in all_files]}")
 
-    candidates: list[Path] = []
+    produced = _produced_files(work_dir, "*.html")
     primary = work_dir / "output.html"
-    if primary.exists():
-        candidates.append(primary)
-    for extra in sorted(work_dir.glob("*.html")):
-        if extra.name == "__main.py" or extra in candidates:
-            continue
-        candidates.append(extra)
+    candidates = [primary] if primary in produced else []
+    candidates += [extra for extra in produced if extra != primary]
 
     urls: list[str] = []
     seen_hashes: set[str] = set()

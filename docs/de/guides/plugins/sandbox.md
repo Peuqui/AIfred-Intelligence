@@ -42,6 +42,13 @@ Der Code läuft in einem Subprocess, der mit **bubblewrap (`bwrap`)** und
   AIfreds eigene Umgebung trägt die Geheimnisse der `.env`. Es reicht nicht, nur die Umgebung des
   Kindes zu leeren (`--clearenv`): bubblewrap bleibt als Prozess 1 in der Sandbox, und dessen
   `/proc/1/environ` kann der Code lesen (bis 22.11.2026 offen)
+- **Erzeugte Dateien ohne Verweise:** Nach dem Lauf sammelt AIfred nur echte `.png`- und `.html`-Dateien
+  aus dem Arbeitsordner ein, keine Symlinks; ein Verweis auf eine Datei des Rechners würde sonst außerhalb
+  der Sandbox gelesen und in die Ausgabe der Sitzung kopiert (bis 22.11.2026 offen)
+- **Prüf-Browser (`render_html`) nur im eigenen Bereich:** Die Seite lädt Dateien nur aus ihrem Bereich
+  (Dokumentenordner bzw. Sandbox-Ausgabe der Sitzung), dazu `data:`, `blob:` und die Bibliotheken unter
+  `/vendor`; jede andere `file:`-Adresse, localhost und das Netz sind gesperrt. Vorher konnte Seiten-Skript
+  (etwa eine `evaluate`-Aktion) auf jede Datei oder jeden lokalen Dienst springen und ihn auslesen
 - **Ressourcen-Limits:** RAM via `RLIMIT_AS` (Default 2048 MB) und eine Laufzeit
   von **120 Sekunden** nach der Uhr (`asyncio.wait_for`, `SANDBOX_TIMEOUT_SECONDS`, über
   `.env` einstellbar). Danach endet bubblewrap und mit ihm alles in der Sandbox, auch

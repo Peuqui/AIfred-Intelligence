@@ -90,6 +90,23 @@ def resolve_sandbox_html_path(html_url: str, session_id: str) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def page_area(html_path: Path, session_id: str) -> Path:
+    """The folder a rendered page may load files from: the documents folder for a document, the session's
+    sandbox output for a sandbox page."""
+    from .config import DOCUMENTS_DIR
+    from .sandbox import session_output_dir
+
+    documents = Path(DOCUMENTS_DIR).resolve()
+    return documents if html_path.resolve().is_relative_to(documents) else session_output_dir(session_id).resolve()
+
+
+def file_url_inside(url_path: str, area: Path) -> bool:
+    """Whether the path of a file: URL lies in ``area`` (symlinks and ``..`` resolved)."""
+    from urllib.request import url2pathname
+
+    return Path(url2pathname(url_path)).resolve().is_relative_to(area)
+
+
 async def _apply_action(page: Any, action: dict, index: int, result: RenderResult,
                         take_screenshot) -> None:
     """Execute one interaction step; failures are reported, not swallowed."""
@@ -175,6 +192,7 @@ async def render_html_in_browser(
             )
         )
 
+    area = page_area(html_path, session_id)
     width, height = (int(v) for v in BROWSER_RENDER_WINDOW_SIZE.split(","))
     settle_ms = wait_ms if wait_ms and wait_ms > 0 else BROWSER_RENDER_DEFAULT_WAIT_MS
     result = RenderResult()
@@ -197,11 +215,14 @@ async def render_html_in_browser(
                     await page.screenshot(path=str(shot))
                     tmp_shots.append(shot)
 
-                # SECURITY: block all external network from the render browser.
+                # SECURITY: the render browser reaches nothing but the page's own area.
                 # render_html verifies the model's OWN, self-contained/local HTML
                 # — it must never become an egress channel (see the
-                # sandbox-escape study). Allow only file:/data:/blob: and
-                # localhost; abort everything else (fail-closed).
+                # sandbox-escape study), nor a reader: page script (an evaluate
+                # action) could navigate to any file: URL or a local service and
+                # hand back what it shows (.env, the session secret, GPU-Orc …).
+                # Allow data:/blob:, the vendor libraries and file: URLs inside
+                # page_area; abort everything else (fail-closed).
                 #
                 # Generated HTML references the mirrored JS libs root-relative
                 # (VENDOR_URL) so the same artifact works in the user's browser
@@ -217,7 +238,6 @@ async def render_html_in_browser(
 
                 async def _block_external(route: Any) -> None:
                     parsed = _urlparse(route.request.url)
-                    host = (parsed.hostname or "").lower()
                     if parsed.path.startswith(f"{VENDOR_URL}/"):
                         lib = vendor_file(parsed.path)
                         if lib is not None:
@@ -230,8 +250,8 @@ async def render_html_in_browser(
                         else:
                             await route.abort()
                         return
-                    if parsed.scheme in ("file", "data", "blob") or host in (
-                        "localhost", "127.0.0.1", "::1",
+                    if parsed.scheme in ("data", "blob") or (
+                        parsed.scheme == "file" and file_url_inside(parsed.path, area)
                     ):
                         await route.continue_()
                     else:

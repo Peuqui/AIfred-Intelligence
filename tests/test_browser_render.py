@@ -357,3 +357,67 @@ def test_an_image_url_gets_its_own_error_that_points_to_read_file_and_vision_ana
 def test_a_missing_html_page_keeps_the_invalid_url_error():
     result = asyncio.run(render_html_in_browser("/_upload/documents/gibt-es-nicht.html", SESSION))
     assert "SANDBOX_HTML_URL" in result.error
+
+
+# ── What a rendered page may reach: its own area, nothing else ───
+
+_MARKER = "nur-fuer-aifred-4711"
+
+
+@pytest.mark.skipif(_chrome_missing, reason="google-chrome not installed")
+def test_a_page_cannot_open_a_file_outside_its_area(session_html, tmp_path):
+    # Page script could navigate to any file: URL and hand back what it shows (.env, the session secret).
+    secret = tmp_path / "outside" / "secret.txt"
+    secret.parent.mkdir()
+    secret.write_text(_MARKER, encoding="utf-8")
+    result = asyncio.run(render_html_in_browser(
+        f"/_upload/sandbox_output/{SESSION}/{session_html}", SESSION, wait_ms=100,
+        actions=[{"evaluate": f"location.href = 'file://{secret}'"}, {"wait_ms": 500},
+                 {"evaluate": "document.documentElement.innerText"}],
+    ))
+    assert not any(_MARKER in value for value in result.evaluations), result.evaluations
+
+
+@pytest.mark.skipif(_chrome_missing, reason="google-chrome not installed")
+def test_a_page_cannot_ask_a_local_service(session_html):
+    import http.server
+    import threading
+
+    class _Answer(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("access-control-allow-origin", "*")
+            self.end_headers()
+            self.wfile.write(_MARKER.encode())
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), _Answer)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        result = asyncio.run(render_html_in_browser(
+            f"/_upload/sandbox_output/{SESSION}/{session_html}", SESSION, wait_ms=100,
+            actions=[{"evaluate": f"fetch('http://127.0.0.1:{server.server_port}/').then(r => r.text())"
+                                  ".catch(() => 'refused')"}],
+        ))
+    finally:
+        server.shutdown()
+    assert result.evaluations == ['action 1: "refused"'], result.evaluations
+
+
+@pytest.mark.skipif(_chrome_missing, reason="google-chrome not installed")
+def test_a_page_still_loads_a_file_beside_it(tmp_path, monkeypatch):
+    from aifred.lib import config
+    out_root = tmp_path / "sandbox_output"
+    monkeypatch.setattr(config, "SANDBOX_OUTPUT_DIR", out_root)
+    page = ('<!DOCTYPE html><html><body><img id="pic" src="beside.svg" '
+            'onload="window.loaded = true" onerror="window.loaded = false"></body></html>')
+    fname = _write_html(out_root, page)
+    (out_root / SESSION / "beside.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>', encoding="utf-8")
+    result = asyncio.run(render_html_in_browser(
+        f"/_upload/sandbox_output/{SESSION}/{fname}", SESSION, wait_ms=300,
+        actions=[{"evaluate": "window.loaded"}],
+    ))
+    assert result.evaluations == ["action 1: true"], (result.evaluations, result.action_errors)

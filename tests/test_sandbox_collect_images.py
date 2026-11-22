@@ -61,3 +61,19 @@ def test_no_png_gives_no_url(dirs):
     work, _ = dirs
     (work / "daten.csv").write_text("a,b\n1,2\n")
     assert sandbox._collect_images(work, SESSION) == []
+
+
+def test_a_symlink_the_code_left_is_no_product(dirs, tmp_path):
+    # The sandboxed code can point a symlink at any host path; collecting it (outside the sandbox)
+    # copied that file into the session's output, where the page and the model could read it.
+    work, output = dirs
+    secret = tmp_path / "outside.txt"
+    secret.write_text("nur-fuer-aifred-4711", encoding="utf-8")
+    (work / "x.html").symlink_to(secret)
+    (work / "y.png").symlink_to(secret)
+    (work / "output.html").symlink_to(secret)
+    (work / "echt.png").write_bytes(PNG)
+    assert sandbox._collect_html(work, SESSION) == []
+    (image,) = sandbox._collect_images(work, SESSION)
+    assert "/echt-" in image
+    assert all("nur-fuer-aifred" not in path.read_text(errors="replace") for path in (output / SESSION).iterdir())
