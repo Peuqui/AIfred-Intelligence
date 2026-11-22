@@ -6,6 +6,8 @@
 
 The Workspace Plugin provides the LLM with direct file access to the documents directory (`data/documents/`) and central management of all ChromaDB vector database collections.
 
+**Owner only** (since 2026-11-22): the documents folder is the owner's. The plugin offers its tools only when the owner is the one asking (`security.in_owner_context`: the browser, the verified owner on a channel, their own jobs); so do `translate_file`, `narrate_file` and `print_file`. A foreign sender, an AI-Connect peer and a webhook get none of them, not even the READONLY readers.
+
 ## Tools
 
 ### File System

@@ -19,7 +19,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from ....lib.function_calling import Tool
-from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
+from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, in_owner_context
 from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.tts_client import EngineRef, TTSSuiteError, new_run_id
 
@@ -286,7 +286,7 @@ class NarratorPlugin:
                 "voices": names,
             })
 
-        return [
+        tools = [
             Tool(
                 name="list_narrator_voices",
                 tier=TIER_READONLY,
@@ -294,7 +294,11 @@ class NarratorPlugin:
                 parameters=load_tool_parameters(__file__, "list_narrator_voices"),
                 executor=_list_narrator_voices,
             ),
-            Tool(
+        ]
+        # The documents folder is the owner's (Peuqui 22.11.2026): a foreign sender, an AI-Connect peer or a
+        # webhook gets no tool that reads it.
+        if in_owner_context(ctx.source, ctx.trust):
+            tools.append(Tool(
                 name="narrate_file",
                 # Schreibt eine Datei im Dokumentenbaum → gleiche Stufe wie
                 # write_file / translate_file.
@@ -302,8 +306,8 @@ class NarratorPlugin:
                 description=load_tool_description(__file__, "narrate_file"),
                 parameters=load_tool_parameters(__file__, "narrate_file"),
                 executor=_narrate_file,
-            ),
-        ]
+            ))
+        return tools
 
     def get_prompt_instructions(self, lang: str, granted_tools: set[str] | None = None) -> str:
         from ....lib.plugin_base import load_plugin_instructions

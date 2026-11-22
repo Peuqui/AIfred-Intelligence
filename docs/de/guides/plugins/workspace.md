@@ -6,6 +6,8 @@
 
 Das Workspace Plugin bietet dem LLM direkten Dateizugriff auf das Dokumenten-Verzeichnis (`data/documents/`) sowie die zentrale Verwaltung aller ChromaDB-Vektordatenbank-Collections.
 
+**Nur für den Eigentümer** (seit 22.11.2026): Der Dokumentenordner gehört dem Eigentümer. Das Plugin bietet seine Werkzeuge nur an, wenn er der Auftraggeber ist (`security.in_owner_context`: Browser, verifizierter Eigentümer auf einem Kanal, eigene Aufträge); ebenso `translate_file`, `narrate_file` und `print_file`. Ein fremder Absender, ein AI-Connect-Peer und ein Webhook bekommen keins davon, auch nicht die lesenden Werkzeuge der Stufe READONLY.
+
 ## Tools
 
 ### Dateisystem

@@ -24,7 +24,7 @@ from ....lib.message_builder import image_marker
 from ....lib.pdf_pages import page_selection, render_scanned_pages
 from ....lib.vision_utils import is_image_file
 from ....lib.function_calling import Tool
-from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM, retrieved_data_notice
+from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM, in_owner_context, retrieved_data_notice
 from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.i18n import t
 from ....lib.logging_utils import log_message
@@ -104,6 +104,10 @@ class WorkspacePlugin:
         return True  # File access always available, ChromaDB optional
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
+        # The documents folder is the owner's (Peuqui 22.11.2026): a foreign sender, an AI-Connect peer or a
+        # webhook gets no tool that reads it.
+        if not in_owner_context(ctx.source, ctx.trust):
+            return []
         tools: list[Tool] = []
 
         # ============================================================

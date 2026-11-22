@@ -24,7 +24,7 @@ from ....lib.plugin_base import (
     load_tool_parameters,
     save_plugin_settings,
 )
-from ....lib.security import TIER_COMMUNICATE, TIER_READONLY
+from ....lib.security import TIER_COMMUNICATE, TIER_READONLY, in_owner_context
 from . import cups
 
 DEFAULT_PRINTER_KEY = "PRINTER_DEFAULT"
@@ -110,14 +110,7 @@ class PrinterPlugin:
             result["full_waste_containers"] = [supply.name for supply in state.supplies if supply.full]
             return json.dumps(result, ensure_ascii=False)
 
-        return [
-            Tool(
-                name="print_file",
-                tier=TIER_COMMUNICATE,
-                description=load_tool_description(__file__, "print_file"),
-                parameters=load_tool_parameters(__file__, "print_file"),
-                executor=_print_file,
-            ),
+        tools = [
             Tool(
                 name="printer_status",
                 tier=TIER_READONLY,
@@ -126,6 +119,17 @@ class PrinterPlugin:
                 executor=_printer_status,
             ),
         ]
+        # The documents folder is the owner's (Peuqui 22.11.2026): a foreign sender, an AI-Connect peer or a
+        # webhook gets no tool that reads it.
+        if in_owner_context(ctx.source, ctx.trust):
+            tools.append(Tool(
+                name="print_file",
+                tier=TIER_COMMUNICATE,
+                description=load_tool_description(__file__, "print_file"),
+                parameters=load_tool_parameters(__file__, "print_file"),
+                executor=_print_file,
+            ))
+        return tools
 
     def get_prompt_instructions(self, lang: str, granted_tools: set[str] | None = None) -> str:
         return load_plugin_instructions(self, lang, granted_tools)

@@ -9,7 +9,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from ....lib.function_calling import Tool
-from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
+from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, in_owner_context
 from ....lib.plugin_base import CredentialField, PluginContext, load_tool_description, load_tool_parameters
 
 
@@ -409,7 +409,7 @@ class TranslatorPlugin:
 
         lang_list = ", ".join(f"{code} ({name})" for code, name in sorted(DEEPL_LANGUAGES.items()))
 
-        return [
+        tools = [
             Tool(
                 name="translate",
                 tier=TIER_READONLY,
@@ -419,7 +419,11 @@ class TranslatorPlugin:
                 parameters=load_tool_parameters(__file__, "translate", enums={"formality": sorted(DEEPL_FORMALITY_VALUES)}),
                 executor=_translate,
             ),
-            Tool(
+        ]
+        # The documents folder is the owner's (Peuqui 22.11.2026): a foreign sender, an AI-Connect peer or a
+        # webhook gets no tool that reads it.
+        if in_owner_context(ctx.source, ctx.trust):
+            tools.append(Tool(
                 name="translate_file",
                 # Schreibt eine Datei im Dokumentenbaum → gleiche Stufe wie
                 # write_file, nicht READONLY.
@@ -429,8 +433,8 @@ class TranslatorPlugin:
                 ),
                 parameters=load_tool_parameters(__file__, "translate_file", enums={"formality": sorted(DEEPL_FORMALITY_VALUES)}),
                 executor=_translate_file,
-            ),
-        ]
+            ))
+        return tools
 
     def get_prompt_instructions(self, lang: str, granted_tools: set[str] | None = None) -> str:
         # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
