@@ -566,10 +566,9 @@ async def execute_sandboxed_code(
     if DOCUMENTS_DIR.exists():
         mount_flag = "--bind" if allow_write else "--ro-bind"
         bwrap_args += [mount_flag, str(DOCUMENTS_DIR), sandbox_docs]
-    # Environment + chdir. bwrap hands the caller's environment on unless cleared, and AIfred's holds
-    # the secrets of .env (load_dotenv): the code gets only the variables set here.
+    # Environment + chdir: the code gets only the variables set here (bwrap starts with none, see
+    # create_subprocess_exec below).
     bwrap_args += [
-        "--clearenv",
         "--chdir", sandbox_work,
         "--setenv", "HOME", sandbox_work,
         "--setenv", "MPLBACKEND", "Agg",
@@ -602,8 +601,12 @@ async def execute_sandboxed_code(
         # NPROC-Budget: aktuelle Tasks der UID + erlaubte Sandbox-Kinder
         # (RLIMIT_NPROC zählt Tasks pro UID — siehe _set_resource_limits).
         nproc_limit = _count_user_tasks() + SANDBOX_MAX_PROCESSES
+        # bwrap itself gets an empty environment: AIfred's holds the secrets of .env (load_dotenv), and
+        # bwrap stays inside the sandbox as its PID 1, whose /proc/1/environ the code can read; clearing
+        # only the child's environment (--clearenv) left them there.
         proc = await asyncio.create_subprocess_exec(
             *bwrap_args,
+            env={},
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             preexec_fn=lambda: _set_resource_limits(nproc_limit),
