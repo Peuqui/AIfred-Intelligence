@@ -21,6 +21,7 @@ class _FakeBot:
         self.photos: list[dict] = []
         self.videos: list[dict] = []
         self.texts: list[str] = []
+        self.order: list[str] = []  # "video <file>" / "text" in the order they went out
         self._next_id = 100
 
     async def __aenter__(self):
@@ -39,6 +40,7 @@ class _FakeBot:
 
     async def send_video(self, chat_id, video, caption, filename, supports_streaming=False):
         self.videos.append({"caption": caption, "streaming": supports_streaming, "filename": filename})
+        self.order.append(f"video {filename}")
         return self._msg()
 
     async def send_photo(self, chat_id, photo, caption, filename):
@@ -47,6 +49,7 @@ class _FakeBot:
 
     async def send_message(self, chat_id, text):
         self.texts.append(text)
+        self.order.append("text")
         return self._msg()
 
 
@@ -159,16 +162,15 @@ class TestFilmAlbum:
         with patch.object(tg, "_UPLOAD_MAX_BYTES", limit), patch.object(tg, "split_video", side_effect=recording_split):
             ids = _deliver(tmp_path, bot, "Zusammenfassung", media_album=[str(big), str(small)])
         assert part_sizes[0] + small.stat().st_size > limit                # together they would be over the limit
-        # The first part takes the film's place in the album; with the zoom film it would be over the request limit,
-        # so both go out on their own, in the album's order, the caption at the first.
+        # The film's parts follow one another where it stands in the album, then the zoom film: the caption at the first.
         assert bot.groups == []
-        assert [(v["filename"], v["caption"]) for v in bot.videos[:2]] == [
-            ("Hauseingang_081500_wide_part000.mp4", "Zusammenfassung"), ("Hauseingang_081500_zoom.mp4", None),
+        total = len(part_sizes)
+        assert total >= 3
+        assert [(v["filename"], v["caption"]) for v in bot.videos] == [
+            ("Hauseingang_081500_wide_part000.mp4", "Zusammenfassung"),
+            *[(f"Hauseingang_081500_wide_part{n - 1:03d}.mp4", f"Weitwinkel – Teil {n}/{total}") for n in range(2, total + 1)],
+            ("Hauseingang_081500_zoom.mp4", None),
         ]
-        follow_ups = bot.videos[2:]
-        assert len(follow_ups) >= 2
-        total = len(follow_ups) + 1
-        assert [v["caption"] for v in follow_ups] == [f"Weitwinkel – Teil {n}/{total}" for n in range(2, total + 1)]
         assert ids == [101 + n for n in range(len(bot.videos))]  # alle IDs, in Sendereihenfolge
         assert sent_parts and not any(part.exists() for part in sent_parts if part != big)  # Temp-Teile weg
         assert big.exists()
@@ -204,6 +206,24 @@ class TestFilmAlbum:
         assert [[item.media.filename for item in group] for group in bot.groups] == [["film0.mp4", "film1.mp4"]]
         assert bot.groups[0][0].caption == "Zusammenfassung"
         assert bot.videos == [{"caption": None, "streaming": True, "filename": "film2.mp4"}]
+
+    def test_a_cut_film_between_whole_ones_keeps_its_place_and_the_long_text_comes_last(self, tmp_path):
+        bot = _FakeBot()
+        before = tmp_path / "film0.mp4"
+        before.write_bytes(b"\0" * 10)
+        big = make_video(tmp_path / "Garten_090000_wide.mp4", seconds=30, keyframe_every=20)
+        after = tmp_path / "film2.mp4"
+        after.write_bytes(b"\0" * 10)
+        limit = big.stat().st_size // 3
+        with patch.object(tg, "_UPLOAD_MAX_BYTES", limit):
+            _deliver(tmp_path, bot, "x" * 1500, media_album=[str(before), str(big), str(after)])
+        names = [v["filename"] for v in bot.videos]
+        assert names[0] == "film0.mp4" and names[-1] == "film2.mp4"
+        assert all(name.startswith("Garten_090000_wide_part") for name in names[1:-1])
+        assert bot.videos[0]["caption"] == "x" * 1024
+        assert bot.videos[1]["caption"].endswith(f"Teil 1/{len(names) - 2}")  # not the first message: labelled from 1
+        assert bot.texts == ["x" * (1500 - 1024)]
+        assert bot.order[-2:] == ["video film2.mp4", "text"]                # the long text after the last film
 
     def test_a_film_that_cannot_be_split_is_not_sent_and_logged(self, tmp_path):
         bot = _FakeBot()

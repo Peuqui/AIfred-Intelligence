@@ -103,20 +103,23 @@ async def _read_local(path: str) -> tuple[bytes, str]:
     return await asyncio.to_thread(pathlib.Path(path).read_bytes), pathlib.Path(path).name
 
 
-def _album_batches(paths: list[str], max_bytes: int) -> list[list[str]]:
-    """The items of an album as requests that each stay within ``max_bytes``, in order: consecutive items as long as
-    their sum fits. One item alone always makes a request (a video is cut to the limit before)."""
-    batches: list[list[str]] = []
+def _message_plan(sequence: list[tuple[str, str | None]], max_bytes: int) -> list[list[tuple[str, str | None]]]:
+    """The messages that carry ``sequence`` (each file with the label of a film part, ``None`` for a whole file), in
+    order: consecutive whole files go together as one album as long as their sum stays within ``max_bytes`` (Telegram
+    limits the request, not the file); a film part goes alone, its label as its caption. A whole file alone always
+    makes a message (a video is cut to the limit before)."""
+    messages: list[list[tuple[str, str | None]]] = []
     total = 0
-    for path in paths:
+    for path, label in sequence:
         size = os.path.getsize(path)
-        if batches and total + size <= max_bytes:
-            batches[-1].append(path)
+        joins = label is None and messages and messages[-1][-1][1] is None and total + size <= max_bytes
+        if joins:
+            messages[-1].append((path, label))
             total += size
         else:
-            batches.append([path])
+            messages.append([(path, label)])
             total = size
-    return batches
+    return messages
 
 
 async def _send_file(bot, chat_id: int, path: str, caption: str | None) -> int:
@@ -350,6 +353,20 @@ class TelegramChannel(BaseChannel):
             return None
         return [str(part) for part in parts]
 
+    async def _sequence(self, paths: list[str], work_dir: pathlib.Path) -> list[tuple[str, str | None]]:
+        """The files that carry ``paths`` in order, each with the label of a film part (``None``: the whole file). A
+        video over the limit becomes its parts right where it stands; one that cannot be cut is left out (logged)."""
+        sequence: list[tuple[str, str | None]] = []
+        for path in paths:
+            parts = await self._split_for_telegram(path, work_dir)
+            if parts is None:
+                continue
+            if len(parts) == 1:
+                sequence.append((parts[0], None))
+            else:
+                sequence.extend((part, self._part_caption(path, number, len(parts))) for number, part in enumerate(parts, start=1))
+        return sequence
+
     def _part_caption(self, film_path: str, number: int, total: int) -> str:
         """Label of a follow-up part: film name (lens for burst films, else file name) and part number."""
         from ....lib.prompt_loader import get_language
@@ -378,8 +395,9 @@ class TelegramChannel(BaseChannel):
         Mini-Film des Vorkommnisses, bis zu 10 Bilder wie das Telegram-Limit) —
         EIN Album, Caption am ersten Bild; geht vor ``media``/``media_context``.
 
-        Videos over the bot limit: the first part goes where the video would (album slot, caption), the
-        further parts follow as own messages, film by film, labelled "<film> – part n/m".
+        Telegram limits the request, not the file: an album over the limit goes out as several albums or single
+        messages in its order (:func:`_message_plan`); only a video over the limit on its own is cut, and its parts
+        follow one another where it stands, labelled "<film> – part n/m".
 
         Returns the ids of the sent messages."""
         from ....lib.vision_utils import is_image_file, is_video_file
@@ -410,55 +428,36 @@ class TelegramChannel(BaseChannel):
                 "Telegram Plugin: album file(s) missing — sending the rest",
                 "warning",
             )
-        follow_ups: list[tuple[str, list[str]]] = []  # (Film, alle Teile) je geteiltem Video
-        first_parts: list[str] = []
-        for path in album_local:
-            parts = await self._split_for_telegram(path, work_dir)
-            if parts is None:
-                continue
-            first_parts.append(parts[0])
-            if len(parts) > 1:
-                follow_ups.append((path, parts))
-        album_local = first_parts
-        if not album_local and local and is_video_file(pathlib.Path(local)):
-            parts = await self._split_for_telegram(local, work_dir)
-            if parts is None:
-                local = None
-            else:
-                local = parts[0]
-                if len(parts) > 1:
-                    follow_ups.append((media or "", parts))
         if len(album_local) == 1 and is_image_file(pathlib.Path(album_local[0])):
-            local, ctx_local = album_local[0], None
+            local, ctx_local, album_local = album_local[0], None, []
+        # The album, else a single film, as the files that go out in order: a video over the limit becomes its parts.
+        sequence = await self._sequence(album_local, work_dir)
+        if not sequence and local and is_video_file(pathlib.Path(local)):
+            sequence = await self._sequence([local], work_dir)
+            if not sequence:
+                local = None  # the film could not be cut: the text goes alone
         sent_ids: list[int] = []
         async with bot:
-            if len(album_local) >= 2:
+            if sequence:
                 from telegram import InputMediaPhoto, InputMediaVideo
                 caption, overflow = text[:1024], text[1024:]
-                # The caption goes with the first item of the first request; an album over the request limit goes out
-                # as several albums (or single messages) in its order.
-                for batch_number, batch in enumerate(_album_batches(album_local, _UPLOAD_MAX_BYTES)):
-                    batch_caption = caption if batch_number == 0 else None
-                    if len(batch) == 1:
-                        sent_ids.append(await _send_file(bot, chat_id, batch[0], batch_caption))
+                # The caption goes with the first message; the text over 1024 characters follows the last film.
+                for number, message in enumerate(_message_plan(sequence, _UPLOAD_MAX_BYTES)):
+                    first_caption = caption if number == 0 else None
+                    if len(message) == 1:
+                        path, label = message[0]
+                        sent_ids.append(await _send_file(bot, chat_id, path, first_caption if number == 0 else label))
                         continue
                     items: list[InputMediaPhoto | InputMediaVideo] = []
-                    for index, path in enumerate(batch):
+                    for index, (path, _label) in enumerate(message):
                         data, name = await _read_local(path)
-                        item_caption = batch_caption if index == 0 else None
+                        item_caption = first_caption if index == 0 else None
                         if is_video_file(pathlib.Path(path)):
                             items.append(InputMediaVideo(data, caption=item_caption, supports_streaming=True, filename=name))
                         else:
                             items.append(InputMediaPhoto(data, caption=item_caption, filename=name))
                     msgs = await bot.send_media_group(chat_id=chat_id, media=items)
                     sent_ids.extend(m.message_id for m in msgs)
-                if overflow:
-                    for chunk in split_message(overflow, _MAX_MESSAGE_LENGTH):
-                        m = await bot.send_message(chat_id=chat_id, text=chunk)
-                        sent_ids.append(m.message_id)
-            elif len(album_local) == 1 and is_video_file(pathlib.Path(album_local[0])):
-                caption, overflow = text[:1024], text[1024:]
-                sent_ids.append(await _send_file(bot, chat_id, album_local[0], caption))
                 if overflow:
                     for chunk in split_message(overflow, _MAX_MESSAGE_LENGTH):
                         m = await bot.send_message(chat_id=chat_id, text=chunk)
@@ -505,9 +504,6 @@ class TelegramChannel(BaseChannel):
                 for chunk in split_message(text, _MAX_MESSAGE_LENGTH):
                     m = await bot.send_message(chat_id=chat_id, text=chunk)
                     sent_ids.append(m.message_id)
-            for film_path, parts in follow_ups:
-                for number, part in enumerate(parts[1:], start=2):
-                    sent_ids.append(await _send_file(bot, chat_id, part, self._part_caption(film_path, number, len(parts))))
         # TD6: track sent ids so /clear can delete our own sends too.
         await asyncio.to_thread(_msglog_add, chat_id, *sent_ids)
         return sent_ids
