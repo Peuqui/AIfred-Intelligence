@@ -15,6 +15,7 @@ from pathlib import Path
 import httpx
 
 from .config import DATA_DIR, TTS_MEDIA_TYPE_EXTENSIONS
+from .debug_bus import debug
 from .i18n import t
 from .logging_utils import log_message
 from .tts_text_filter import (
@@ -1141,6 +1142,8 @@ def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",
     user_text = data.get("text", "").strip()
     stt_time = data.get("time", 0.0)
     device_used = str(data["device"])
+    # The STT-Suite of the Mini hands a dictation on to Aragon's (device auto): the console says which machine did it.
+    debug(f"🎙️ Transcribed on {data['host']} ({device_used})")
     for fallback in data.get("fallback", []):
         log_message(f"⚠️ STT {fallback['tried']} not used: {fallback['reason']}", "warning")
     if device_used == "cpu" and device != "cpu":

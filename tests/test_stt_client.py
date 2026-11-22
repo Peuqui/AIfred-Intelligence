@@ -196,7 +196,7 @@ class _Recorder:
 
     def transcribe(self, audio_path, language, device, diarize):
         self.calls.append(device)
-        return {"text": "hallo", "time": 0.1, "device": self.device_used}
+        return {"text": "hallo", "time": 0.1, "device": self.device_used, "host": "Aragon"}
 
 
 @pytest.mark.parametrize("small_file, asked", [(True, "auto"), (False, "cpu")])
@@ -210,6 +210,19 @@ def test_the_service_picks_the_device_only_a_long_file_goes_to_the_cpu(monkeypat
     monkeypatch.setattr(stt_client, "get_default_client", lambda: recorder)
     text, _seconds, device_used = audio_processing.transcribe_audio_auto(str(wav))
     assert (text, recorder.calls, device_used) == ("hallo", [asked], "cpu")
+
+
+def test_the_debug_console_names_the_machine_that_transcribed(monkeypatch, tmp_path):
+    """Peuqui 22.11.2026: the Mini's STT-Suite hands a dictation on to Aragon's; the console says which machine did it."""
+    from aifred.lib import audio_processing
+
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"0" * 1024)
+    lines: list[str] = []
+    monkeypatch.setattr(stt_client, "get_default_client", _Recorder)
+    monkeypatch.setattr(audio_processing, "debug", lines.append)
+    audio_processing.transcribe_audio_auto(str(wav))
+    assert "🎙️ Transcribed on Aragon (cpu)" in lines
 
 
 # ---- GPU release (the suites' common release API) --------------------------------
