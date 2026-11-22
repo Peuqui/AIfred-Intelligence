@@ -194,7 +194,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", discardOnEscape));
   display: flex;
   align-items: flex-end;
   gap: 6px;
+  /* The chat's size, as the history's, inside the controls' size of the component (ChatView): taken out again. */
   zoom: calc(var(--chat-zoom) / var(--ui-zoom));
+  --vw: calc(1vw / var(--chat-zoom)); --vh: calc(1vh / var(--chat-zoom)); --dvh: calc(1dvh / var(--chat-zoom));
 }
 textarea {
   flex: 1;

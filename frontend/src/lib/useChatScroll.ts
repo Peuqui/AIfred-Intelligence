@@ -25,10 +25,8 @@ export function useChatScroll(box: Ref<HTMLElement | null>, sessionId: () => str
   const bubbles = (): HTMLElement[] => [...(box.value?.querySelectorAll<HTMLElement>("[data-entry]") ?? [])];
   const bubble = (key: string): HTMLElement | undefined => bubbles().find((element) => element.dataset.entry === key);
   const endTop = (scroller: HTMLElement): number => scroller.scrollHeight - scroller.clientHeight;
-  // Rectangles come in the pixels on screen, the scroll position in the box's own: under a zoom (the page's, A-/A+)
-  // they differ by the box's zoom, and a placement off by it put the line far from the upper edge (21.11.2026).
-  const boxPx = (scroller: HTMLElement, screenPx: number): number =>
-    screenPx * (scroller.offsetHeight / scroller.getBoundingClientRect().height);
+  // Rectangles on screen and the box's scroll position count the same pixels because the box is never zoomed (only
+  // its content is, ChatView.vue); under a zoom of its own they would differ by it.
   // The room a question that sticks at the upper edge takes: what is read from its top stops below it. Only a question
   // above the element sticks over it; the line at the start of a turn stands above its question.
   const pinnedRoom = (element: HTMLElement): number => {
@@ -38,9 +36,7 @@ export function useChatScroll(box: Ref<HTMLElement | null>, sessionId: () => str
   };
   // The scroll position that puts the element at the upper edge, below a sticking question.
   const topOf = (scroller: HTMLElement, element: HTMLElement): number =>
-    scroller.scrollTop +
-    boxPx(scroller, element.getBoundingClientRect().top - scroller.getBoundingClientRect().top - pinnedRoom(element)) -
-    TOP_ROOM_PX;
+    scroller.scrollTop + element.getBoundingClientRect().top - scroller.getBoundingClientRect().top - TOP_ROOM_PX - pinnedRoom(element);
 
   // The line at the upper edge, or the end where what follows the line fits the screen first. The reader who follows
   // is never taken back up (neverUp); a chat that is opened starts from wherever the last one left the box.
@@ -54,7 +50,7 @@ export function useChatScroll(box: Ref<HTMLElement | null>, sessionId: () => str
   function rememberedPosition(scroller: HTMLElement, place: ChatPlace): number {
     const element = bubble(place.key);
     if (!element) return endTop(scroller);
-    return scroller.scrollTop + boxPx(scroller, element.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom) + place.offset;
+    return scroller.scrollTop + element.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom + place.offset;
   }
 
   function target(move: Exclude<Move, "stay">, reason: Reason, id: string | null): (() => number) | null {
@@ -122,7 +118,7 @@ export function useChatScroll(box: Ref<HTMLElement | null>, sessionId: () => str
     });
     const lowest = seen.at(-1);
     if (id === null || !lowest?.dataset.entry) return;
-    const place: ChatPlace = { key: lowest.dataset.entry, offset: Math.round(boxPx(scroller, view.bottom - lowest.getBoundingClientRect().bottom)) };
+    const place: ChatPlace = { key: lowest.dataset.entry, offset: Math.round(view.bottom - lowest.getBoundingClientRect().bottom) };
     const serialized = id + JSON.stringify(place);
     if (serialized === lastSaved) return;
     lastSaved = serialized;

@@ -229,7 +229,7 @@ onMounted(() => void start());
 </script>
 
 <template>
-  <div class="layout" :class="{ column: sessionsColumn }">
+  <div class="layout zooms-itself" :class="{ column: sessionsColumn }">
     <SessionList class="side" :current="chat.sessionId" @open="openSession" @create="create" @remove="remove" />
     <main class="chat">
       <!-- The history's title with the text size and the ⋮ of what concerns the whole chat above it; the input as in
@@ -374,6 +374,11 @@ onMounted(() => void start());
   flex: none; width: var(--sessions-column-width); position: sticky; top: 12px; max-height: calc(100 * var(--dvh) - 24px);
 }
 .layout.column .chat { flex: 1; }
+/* The interface's size on every part of the chat but the history's box (its content takes the chat's size, as the
+   input's text field does): the box itself stays unzoomed, so the rectangles its placements read and its scroll
+   position count the same pixels. */
+.side,
+.chat > :not(.messages-box) { zoom: var(--ui-zoom); }
 .chat { --grip-gap: 10px; display: flex; flex-direction: column; gap: 10px; min-width: 0; padding-bottom: 12px; }
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .toolbar h2 { margin-right: auto; }
@@ -388,14 +393,14 @@ h2 { margin: 0; font-size: 1.1rem; }
 .all-read { padding: 2px 8px; }
 .all-read:disabled { opacity: 0.5; cursor: default; }
 .zoom:disabled { opacity: 0.5; cursor: default; }
-/* The box keeps 70 % of the screen whatever the sizes; only its content takes the chat's size (the interface's
-   size, set on the page, is taken out again). */
-.messages-box { position: relative; }
-/* Over the lower edge of the box, above the sticking question (z-index 3). */
-.new-below { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 4; box-shadow: 0 2px 8px var(--aifred-page-bg); }
+/* The box keeps 70 % of the screen whatever the sizes; only its content takes the chat's size. Unzoomed: its screen
+   units are the plain ones. */
+.messages-box { position: relative; --vw: 1vw; --vh: 1vh; --dvh: 1dvh; }
+/* Over the lower edge of the box, above the sticking question (z-index 3); a control, in the interface's size. */
+.new-below { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 4; box-shadow: 0 2px 8px var(--aifred-page-bg); zoom: var(--ui-zoom); }
 .messages {
   box-sizing: border-box; /* the grip's height is the one the box takes */
-  height: calc(var(--chat-height-desktop) / var(--ui-zoom));
+  height: var(--chat-height-desktop);
   overflow-y: auto;
   /* The browser's scroll anchoring would carry the position along when the pinned question folds or unfolds (its
      height changes by the fold, the margin under it makes it good a tick later): near the top the box then jumped
@@ -409,9 +414,12 @@ h2 { margin: 0; font-size: 1.1rem; }
   border-radius: 8px;
 }
 @media (max-width: 760px) {
-  .messages { height: calc(var(--chat-height-mobile) / var(--ui-zoom)); }
+  .messages { height: var(--chat-height-mobile); }
 }
-.bubbles { color: var(--aifred-text-primary); display: flex; flex-direction: column; gap: 10px; zoom: calc(var(--chat-zoom) / var(--ui-zoom)); }
+.bubbles {
+  color: var(--aifred-text-primary); display: flex; flex-direction: column; gap: 10px; zoom: var(--chat-zoom);
+  --vw: calc(1vw / var(--chat-zoom)); --vh: calc(1vh / var(--chat-zoom)); --dvh: calc(1dvh / var(--chat-zoom));
+}
 .turn { display: flex; flex-direction: column; gap: 10px; }
 /* Above the collapsibles' headers, which stick too (formatting.py writes them with z-index 2 into the answer). */
 .turn > .pinned { position: sticky; top: 0; z-index: 3; box-shadow: 0 4px 10px var(--aifred-page-bg); }

@@ -165,8 +165,9 @@ html { font-size: var(--text-base); }
 /* No rectangle the phone's browser lays over a tapped button (on the round microphone it showed its box), as in
    Agent-Orc; the buttons show a press by themselves. */
 html, body { -webkit-tap-highlight-color: transparent; }
-/* A hundredth of the screen with the interface's size taken out: the body is zoomed by --ui-zoom, and inside it
-   vw/vh would grow with it (a dialog of 88vw became wider than the screen). Every size in screen units uses these. */
+/* A hundredth of the screen with the zoom of the part taken out: inside a zoomed element vw/vh grow with it (a dialog of
+   88vw became wider than the screen). Every size in screen units uses these; a part with a zoom of its own (the chat's
+   history, its field) sets them anew. */
 :root { --vw: calc(1vw / var(--ui-zoom)); --vh: calc(1vh / var(--ui-zoom)); --dvh: calc(1dvh / var(--ui-zoom)); }
 input, select, textarea { font: inherit; }
 /* Lucide icons sit on the line of the text beside them (a label with an icon in front), and never shrink in a flex row. */
@@ -186,8 +187,12 @@ svg.lucide { vertical-align: -0.15em; flex: none; }
   background: linear-gradient(90deg, transparent, var(--divider-color) 50%, transparent);
   filter: drop-shadow(0 0 4px color-mix(in srgb, var(--divider-glow) 70%, transparent));
 }
-/* The interface's size on the body only: on html and body together it acted twice (130 % became 169 %). */
-body { zoom: var(--ui-zoom); }
+/* The interface's size on the parts it is for, as in Agent-Orc: never on the page as a whole. Zoomed with the body, the
+   chat's scrolling box was zoomed too, and its placements (from rectangles on screen into its own scroll position) were
+   off by the zoom: the "read up to here" line landed far below the upper edge (21.11.2026). A view that holds such a
+   box sizes its parts itself (class zooms-itself, the chat). */
+#app > :not(.app),
+.app > :not(.zooms-itself) { zoom: var(--ui-zoom); }
 /* As on the Reflex page, the near-white is for what one reads and writes (chat bubbles, fields, headings); labels,
    descriptions and the rest of the page in the softer grey (Peuqui 09.11.2026: too much white). */
 html,
