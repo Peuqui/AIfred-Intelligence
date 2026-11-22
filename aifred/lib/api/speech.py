@@ -100,6 +100,7 @@ class NarratorChange(BaseModel):
 
 class SpeechRecognition(BaseModel):
     available: bool = Field(description="The STT service answers (device, engine and model are set on its own page)")
+    machine: str | None = Field(description="The machine the STT service runs on, as it names itself; None while it does not answer")
 
 
 def _lang() -> str:
@@ -294,7 +295,7 @@ async def speech_recognition() -> SpeechRecognition:
     from ..stt_client import STTError, get_default_client
 
     try:
-        await asyncio.to_thread(get_default_client().health)
+        health = await asyncio.to_thread(get_default_client().health)
     except STTError:
-        return SpeechRecognition(available=False)
-    return SpeechRecognition(available=True)
+        return SpeechRecognition(available=False, machine=None)
+    return SpeechRecognition(available=True, machine=health["machine"])

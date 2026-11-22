@@ -58,7 +58,7 @@ chat LLM, `eviction_notice` announces it (reloading can take several minutes).
 
 **The describer list** ([`aifred/lib/describer_list.py`](../../../aifred/lib/describer_list.py)),
 edited in the settings ("Image describers (order)") like the TTS list (arrows, switches): entries are a model of another
-machine (`<machine>/<model>`), this machine (the Vision-LLM of the main settings via its `-visiond` profile;
+machine (`<machine>/<model>`), this machine (the Vision-LLM of the main settings via its `-visiond` profile, listed with the machine's name, `lib/machine.py`;
 there is no second image model in the Vigilantia settings, they only show its name) and the main model, when it sees itself. The first entry switched on that can right now describes. The list
 shown and saved is always matched with what is there: new sources come switched off at the end, a model an
 answering machine no longer has drops out, the entries of a machine that does not answer stay. Without a

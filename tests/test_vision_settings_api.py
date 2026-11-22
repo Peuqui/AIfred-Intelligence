@@ -294,12 +294,13 @@ BIG = "Big-VL-30B-visiond"
 def describers(world: tuple[TestClient, dict[str, Any], Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, Path]:
     """The describer list read from the test's vision settings, one other machine that answers with one model that
     sees (never measured), no burn-in before."""
-    from aifred.lib import describer_list, remote_describers, vlm_vram_cache
+    from aifred.lib import describer_list, machine, remote_describers, vlm_vram_cache
     from aifred.lib.remote_describers import RemoteHost, RemoteModel
 
     client, _state, settings_file = world
     monkeypatch.setattr(describer_list, "_settings", vision_settings.load_vision_settings)
     monkeypatch.setattr(describer_list, "_failed", {})
+    monkeypatch.setattr(machine, "machine_name", lambda: "Mini")
     monkeypatch.setattr(remote_describers, "VISION_REMOTE_HOSTS", json.dumps([BOX]))
     monkeypatch.setattr(remote_describers, "reachable", lambda host: True)
 
@@ -311,13 +312,22 @@ def describers(world: tuple[TestClient, dict[str, Any], Path], tmp_path: Path, m
     return client, settings_file
 
 
+def test_the_local_describer_is_labelled_with_the_name_of_the_machine(describers: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch) -> None:
+    # Old label: "<model> · dieser Rechner", whatever the machine was called.
+    from aifred.lib import machine
+
+    monkeypatch.setattr(machine, "machine_name", lambda: "Narnia-Tower")
+    client, _settings_file = describers
+    assert client.get("/describers").json()["rows"][0]["label"] == "Qwen3VL-4B-Instruct-Q8_0 · Narnia-Tower"
+
+
 def test_the_describer_list_is_shown_moved_and_switched_and_kept_in_the_settings(describers: tuple[TestClient, Path]) -> None:
     client, settings_file = describers
     shown = client.get("/describers").json()
     assert shown["measuring"] == ""
     assert [(row["source"], row["enabled"], row["remote"]) for row in shown["rows"]] == [
         ("local", True, False), ("main", True, False), (f"Box/{BIG}", False, True)]
-    assert shown["rows"][0]["label"] == "Qwen3VL-4B-Instruct-Q8_0 · dieser Rechner"     # the Vision-LLM of the main settings
+    assert shown["rows"][0]["label"] == "Qwen3VL-4B-Instruct-Q8_0 · Mini"     # the Vision-LLM of the main settings
     assert shown["rows"][2]["warn"] is True and "24.576" in shown["rows"][2]["note"]      # not measured at its context
 
     moved = client.post("/describers/move", json={"index": 2, "delta": -1}).json()

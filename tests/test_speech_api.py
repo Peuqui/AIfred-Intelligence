@@ -44,6 +44,8 @@ class _Service:
         if request.url.path == "/voices":
             names = VOICES.get(request.url.params["engine"], [])
             return httpx.Response(200, json=[{"name": name, "label": name} for name in names])
+        if request.url.path == "/health":   # the labels name the machine of the service
+            return httpx.Response(200, json={"status": "ok", "machine": "Mini"})
         raise AssertionError(f"unexpected {request.url.path}")
 
 
@@ -72,6 +74,16 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Tes
     tts_service.reset_cache()
 
 
+@pytest.fixture
+def client_without_tts() -> TestClient:
+    from aifred.lib.api.app import api_app
+    from aifred.lib.auth import USERNAME_COOKIE_NAME, sign_username
+
+    test_client = TestClient(api_app)
+    test_client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))
+    return test_client
+
+
 def _saved(file: Path) -> dict[str, Any]:
     data: dict[str, Any] = json.loads(file.read_text())
     return data
@@ -82,7 +94,7 @@ def test_the_list_comes_in_speaking_order_with_what_the_catalog_adds_switched_of
     listed = client.get("/speech/list").json()
     assert listed["service_error"] == ""
     assert [(row["engine"], row["label"], row["enabled"]) for row in listed["rows"]] == [
-        ("xtts", "XTTS · lokal", True), ("qwen3", "QWEN3 · Aragon", True), ("browser", "BROWSER · Gerät", False),
+        ("xtts", "XTTS · Mini", True), ("qwen3", "QWEN3 · Aragon", True), ("browser", "BROWSER · Gerät", False),
     ]
     assert listed["rows"][0]["reserved"] and not listed["rows"][1]["reserved"]
 
@@ -109,9 +121,33 @@ def test_without_the_service_the_list_shows_from_the_settings_and_does_not_chang
     service.down = True
     listed = client.post("/speech/list/refresh").json()           # a fresh read: the cached catalog is no answer
     assert listed["service_error"] and [row["engine"] for row in listed["rows"]] == ["xtts", "qwen3"]
+    # Bare labels as the settings hold them: only the service can name the machine an entry without a host speaks on.
+    assert [row["label"] for row in listed["rows"]] == ["xtts", "qwen3 · Aragon"]
     assert client.post("/speech/list/move", json={"index": 1, "delta": -1}).status_code == 503
     assert file.read_text() == before
     assert client.get("/speech/choices").json()["engines"] == []
+
+
+def test_the_recognition_names_the_machine_of_the_stt_service(client_without_tts, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Old SpeechRecognition had no "machine" field at all.
+    from types import SimpleNamespace
+
+    from aifred.lib import stt_client
+
+    monkeypatch.setattr(stt_client, "get_default_client", lambda: SimpleNamespace(health=lambda: {"status": "ok", "machine": "Aragon-Box"}))
+    assert client_without_tts.get("/speech/recognition").json() == {"available": True, "machine": "Aragon-Box"}
+
+
+def test_the_recognition_has_no_machine_while_the_stt_service_does_not_answer(client_without_tts, monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from aifred.lib import stt_client
+
+    def down() -> dict[str, Any]:
+        raise stt_client.STTError("not reachable")
+
+    monkeypatch.setattr(stt_client, "get_default_client", lambda: SimpleNamespace(health=down))
+    assert client_without_tts.get("/speech/recognition").json() == {"available": False, "machine": None}
 
 
 def test_each_chat_agent_has_its_voice_per_engine_its_switch_and_language(world: tuple[TestClient, _Service, Path]) -> None:

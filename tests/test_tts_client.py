@@ -528,6 +528,19 @@ def test_engines_and_voices_are_decoded() -> None:
     assert seen_params[1] == {"engine": "xtts"}
 
 
+def test_machine_is_the_field_of_health() -> None:
+    # Old code had no TTSClient.machine().
+    client = make_client(lambda request: httpx.Response(200, json={"status": "ok", "machine": "Aragon-Box"}))
+    assert client.machine() == "Aragon-Box"
+
+
+@pytest.mark.parametrize("answer", [{"status": "ok"}, {"status": "ok", "machine": None}, ["ok"]])
+def test_a_health_without_a_machine_is_an_incompatible_service(answer: Any) -> None:
+    client = make_client(lambda request: httpx.Response(200, json=answer))
+    with pytest.raises(IncompatibleService, match="names no machine"):
+        client.machine()
+
+
 # ---- Service on demand (ensure_ready) ---------------------------------------------
 
 

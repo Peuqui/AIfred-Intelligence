@@ -115,6 +115,7 @@ def rows(lang: str) -> list[Row]:
     (the Vision-LLM of the main settings). Asks every configured machine (short limit for one that is off)."""
     from .formatting import format_number, format_stamp
     from .i18n import t
+    from .machine import machine_name
     from .remote_describers import overview, split
     from .vision_prewarm import get_active_vlm_model
     from .vlm_vram_cache import get_any, measured_at
@@ -125,7 +126,7 @@ def rows(lang: str) -> list[Row]:
     for index, entry in enumerate(matched(stored(), machines)):
         note, warn, remote, loaded = "", False, False, False
         if entry.source == LOCAL:
-            label = f"{get_active_vlm_model() or '—'} · {t('vision_describer_this_machine', lang=lang)}"
+            label = f"{get_active_vlm_model() or '—'} · {machine_name()}"
         elif entry.source == MAIN:
             label = t("vision_describer_main", lang=lang)
         else:

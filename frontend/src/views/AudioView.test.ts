@@ -20,7 +20,7 @@ const overview = (enabled: boolean): PluginOverview =>
 const answers: Record<string, unknown> = {
   "speech/list": { rows: [], service_error: "" },
   "speech/choices": { engines: [{ id: "edge", label: "Edge" }], units: [], languages: [], speeds: [], pitches: [], service_error: "" },
-  "speech/recognition": { available: true },
+  "speech/recognition": { available: true, machine: "Mini" },
   "speech/agents?engine=edge": [{ agent: "aifred", display_name: "AIfred", emoji: "", enabled: true, language: "de", voice: "", voices: [], speed: "", pitch: "" }],
   "speech/narrator/edge": { engine: "edge", voice: "Katja", voices: ["Katja"] },
 };

@@ -57,7 +57,7 @@ from .user_error import Invalid
 # ---- The catalog: GET /engines (cached) ---------------------------------------
 
 _lock = threading.Lock()
-_cached: tuple[float, tuple[EngineInfo, ...]] | None = None
+_cached: tuple[float, tuple[EngineInfo, ...], str] | None = None  # (when, catalog, the service's machine)
 
 
 def reset_cache() -> None:
@@ -75,13 +75,29 @@ def catalog(*, fresh: bool = False) -> tuple[EngineInfo, ...]:
     Raises:
         TTSSuiteUnreachable: the service does not answer; there is no stand-in catalog.
     """
+    return _catalog_and_machine(fresh=fresh)[0]
+
+
+def service_machine() -> str:
+    """The machine the service runs on, as it names itself (cached with the catalog): the place of every engine without
+    a host. Peuqui opens the pages of one machine from another, so the page names it instead of "this machine".
+
+    Raises:
+        TTSSuiteUnreachable: the service does not answer.
+    """
+    return _catalog_and_machine(fresh=False)[1]
+
+
+def _catalog_and_machine(*, fresh: bool) -> tuple[tuple[EngineInfo, ...], str]:
     global _cached
     with _lock:
         if not fresh and _cached is not None and monotonic() - _cached[0] < TTS_SUITE_CACHE_TTL_S:
-            return _cached[1]
-        offered = tuple(get_tts_client().engines())
-        _cached = (monotonic(), offered)
-        return offered
+            return _cached[1], _cached[2]
+        client = get_tts_client()
+        offered = tuple(client.engines())
+        machine = client.machine()
+        _cached = (monotonic(), offered, machine)
+        return offered, machine
 
 
 def unreachable_text(error: TTSSuiteError, lang: str | None = None) -> str:
@@ -182,8 +198,8 @@ def row_status_key(info: EngineInfo) -> str:
 
 
 def location_label(info: EngineInfo, lang: str | None = None) -> str:
-    """Where an engine speaks: host name, device (the user's browser), cloud, local (GPU
-    container on this machine) or CPU."""
+    """Where an engine speaks: host name, device (the user's browser), cloud, the service's machine (a GPU
+    container there) or CPU."""
     if info.host is not None:
         return info.host
     if info.browser:
@@ -191,7 +207,7 @@ def location_label(info: EngineInfo, lang: str | None = None) -> str:
     if info.cloud:
         return t("tts_location_cloud", lang=lang)
     if info.needs_gpu:
-        return t("tts_location_local", lang=lang)
+        return service_machine()
     return t("tts_location_cpu", lang=lang)
 
 
@@ -307,8 +323,14 @@ def status_key(entry: ListEntry) -> str:
 def entry_label(entry: ListEntry, lang: str | None = None) -> str:
     """``Engine · place``; for an entry the service does not offer, its key and host."""
     if entry.info is None:
-        return f"{entry.engine} · {entry.host or t('tts_location_this_machine', lang=lang)}"
+        return f"{entry.engine} · {entry.host or service_machine()}"
     return row_label(entry.info, lang)
+
+
+def stored_label(entry: ListEntry) -> str:
+    """``Engine · host`` as the settings hold the entry, for the list while the service does not answer: an entry
+    without a host speaks on the service's machine, which only the service can name, so it shows the engine alone."""
+    return f"{entry.engine} · {entry.host}" if entry.host else entry.engine
 
 
 def request_engines() -> list[EngineRef]:

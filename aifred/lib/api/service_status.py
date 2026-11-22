@@ -20,9 +20,10 @@ from pydantic import BaseModel
 from ...backends.base import BackendError
 from .. import session_events
 from ..browser_push import browser_push
-from ..gpu_hold import LocalHoldStatus, local_hold_status, machine_name
+from ..gpu_hold import LocalHoldStatus, local_hold_status
 from ..gpu_orc_client import GpuOrcClient, GpuOrcError, get_gpu_orc_client
 from ..logging_utils import log_message
+from ..machine import machine_name
 from ..remote_describers import HostStatus
 from ..service_control import (
     ServiceControlRefused,

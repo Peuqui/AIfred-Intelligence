@@ -22,6 +22,7 @@ from .config import (
     OLLAMA_READY_TIMEOUT_S,
 )
 from .logging_utils import log_message
+from .machine import machine_name
 from .runtime_settings import RuntimeSettings
 from .user_error import Conflict, Invalid, NotDone
 
@@ -206,7 +207,7 @@ async def switch_backend(backend_type: str) -> None:
     _claim_switch()
     try:
         if backend_type not in available_backends(await asyncio.to_thread(server_gpu_info)):
-            raise Invalid("backend_not_offered", backend=backend_type)
+            raise Invalid("backend_not_offered", backend=backend_type, machine=machine_name())
         saved = persisted_settings()
         old = saved["backend_type"]
         if backend_type == old:

@@ -85,7 +85,7 @@ class FakeTTSService:
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if path == "/health":
-            return httpx.Response(200, json={"status": "ok"})
+            return httpx.Response(200, json={"status": "ok", "machine": "Mini"})  # the real service names its machine
         if path == "/engines":
             return httpx.Response(200, json=self.catalog)
         if path == "/voices":

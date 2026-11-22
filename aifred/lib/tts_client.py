@@ -614,6 +614,14 @@ class TTSClient:
     def engines(self) -> list[EngineInfo]:
         return [_decode(EngineInfo, item, "/engines") for item in self._get("/engines")]
 
+    def machine(self) -> str:
+        """The name of the machine the service runs on (``GET /health``): the place of its engines without a host."""
+        answer = self._get("/health")
+        if not isinstance(answer, dict) or not isinstance(answer.get("machine"), str):
+            raise IncompatibleService(f"TTS service /health names no machine: {answer!r}")
+        machine: str = answer["machine"]
+        return machine
+
     def voices(self, engine: str | None = None) -> list[VoiceInfo]:
         params = {"engine": engine} if engine else None
         return [_decode(VoiceInfo, item, "/voices") for item in self._get("/voices", params)]

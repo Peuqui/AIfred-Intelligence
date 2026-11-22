@@ -96,7 +96,7 @@ class TestEscalationReport:
         service.script = [audio_frame(b"\x01" * 10) + summary_frame([{"entry": "xtts", "outcome": "spoke"}])]
         drain(start(["Satz eins hier."]))
         assert [line for line in lines if "TTS escalation" in line] == [
-            "🔊 [test] TTS escalation: XTTS · local speaks",
+            "🔊 [test] TTS escalation: XTTS · Mini speaks",
         ]
 
 
@@ -229,7 +229,7 @@ class TestSpokenAudioOnTheBubble:
         service.script = [audio_frame(b"\x01" * 4) + audio_frame(b"\x02" * 4) + summary_frame(trace)]
         start(["Satz eins hier. Satz zwei dort."], session_id="abc")
         ((session, bubble_timestamp, urls, note),) = kept
-        assert (session, bubble_timestamp, note) == ("abc", "t1", "XTTS · lokal") and len(urls) == 2
+        assert (session, bubble_timestamp, note) == ("abc", "t1", "XTTS · Mini") and len(urls) == 2
         assert all((tmp_path / url.rsplit("/", 1)[-1]).is_file() for url in urls)
 
     def test_a_voice_change_is_noted_with_its_reason(self, service, bubble):
@@ -241,7 +241,7 @@ class TestSpokenAudioOnTheBubble:
         ]
         service.script = [audio_frame(b"\x01") + audio_frame(b"\x02", engine="edge") + summary_frame(trace, "unreachable")]
         start(["Text hier."], session_id="abc")
-        assert kept[0][3] == "XTTS · lokal → EDGE · Cloud (Serverausfall)"
+        assert kept[0][3] == "XTTS · Mini → EDGE · Cloud (Serverausfall)"
 
     def test_an_entry_that_failed_before_it_ever_spoke_is_no_change(self, service, bubble):
         kept = bubble

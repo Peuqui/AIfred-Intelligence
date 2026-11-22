@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 
 from .debug_bus import debug
 from .formatting import format_number
+from .machine import machine_name
 from .ollama_models import list_ollama_vlm_models
 from .user_error import UserError
 
@@ -294,7 +295,7 @@ def _from_list(vlm_model: str, *, camera: bool) -> tuple[Describer | None, str]:
             skipped.append(f"{entry.source}: no loaded model sees")
         elif entry.source == LOCAL:
             if not vlm_model:
-                skipped.append(f"{entry.source}: no VLM is set for this machine")
+                skipped.append(f"{entry.source}: no VLM is set for {machine_name()}")
                 continue
             describer, reason = _local_describer(vlm_model, side_channel=camera)
             if describer is not None:

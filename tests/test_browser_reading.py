@@ -103,7 +103,7 @@ class TestThroughTheService:
         assert reading.audio_urls == [fields["url"] for kind, fields in page.playlist if kind == "tts"]
         assert page.first_outputs == 1
         assert page.toasts == []
-        assert reading.note == "XTTS · lokal"
+        assert reading.note == "XTTS · Mini"
 
     def test_the_request_carries_the_entries_above_the_browser_the_voices_and_the_pause(
         self, monkeypatch, tmp_path, fake,

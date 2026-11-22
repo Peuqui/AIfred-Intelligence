@@ -51,6 +51,7 @@ def list_view(lang: str, main_model: str) -> ListView:
         entry_label,
         status_key,
         stored_entries,
+        stored_label,
         unreachable_text,
     )
 
@@ -74,7 +75,7 @@ def list_view(lang: str, main_model: str) -> ListView:
         rows.append(ListRow(
             index=index,
             engine=entry.engine,
-            label=entry_label(entry, lang),
+            label=stored_label(entry) if service_error else entry_label(entry, lang),
             enabled=entry.enabled,
             unit=entry.unit,
             unavailable=unavailable,

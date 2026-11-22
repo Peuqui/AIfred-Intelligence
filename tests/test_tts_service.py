@@ -39,15 +39,18 @@ def stored(engine: str, host: str | None = None, enabled: bool = True) -> dict[s
 
 
 class FakeService:
-    def __init__(self, catalog: list[dict[str, Any]]) -> None:
+    def __init__(self, catalog: list[dict[str, Any]], machine: str = "Mini") -> None:
         self.catalog = catalog
+        self.machine = machine
         self.requests: list[tuple[str, str]] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append((request.method, request.url.path))
         if request.url.path == "/engines":
             return httpx.Response(200, json=self.catalog)
-        raise AssertionError(f"AIfred must only read the catalog, got {request.method} {request.url.path}")
+        if request.url.path == "/health":   # the pages name the machine of the service, so AIfred reads it with the catalog
+            return httpx.Response(200, json={"status": "ok", "machine": self.machine})
+        raise AssertionError(f"AIfred must only read the catalog and the health, got {request.method} {request.url.path}")
 
     def reads(self) -> int:
         return self.requests.count(("GET", "/engines"))
@@ -72,9 +75,9 @@ def service(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> Callable[...
     clock = {"now": 100.0}
     monkeypatch.setattr(tts_service, "monotonic", lambda: clock["now"])
 
-    def make(*catalog: dict[str, Any], listed: list[dict[str, Any]] | None = None) -> FakeService:
+    def make(*catalog: dict[str, Any], listed: list[dict[str, Any]] | None = None, machine: str = "Mini") -> FakeService:
         """``listed`` = what settings.json holds; default: every catalog row, all on."""
-        fake = FakeService(list(catalog))
+        fake = FakeService(list(catalog), machine)
         client = TTSClient("http://tts.test", transport=httpx.MockTransport(fake.handler))
         monkeypatch.setattr(tts_service, "get_tts_client", lambda: client)
         settings.data["tts_escalation"] = listed if listed is not None else [stored(r["engine"], r["host"]) for r in catalog]
@@ -119,19 +122,36 @@ def test_entry_status_adds_the_users_decision_and_the_missing_row() -> None:
     ({"host": "Aragon"}, "Aragon"),
     ({"browser": True, "needs_gpu": False}, "Gerät"),
     ({"cloud": True, "needs_gpu": False}, "Cloud"),
-    ({}, "lokal"),
+    ({}, "Mini"),   # a GPU engine without host speaks on the machine the service names
     ({"needs_gpu": False}, "CPU"),
 ])
-def test_location_and_labels(fields: dict[str, Any], place: str) -> None:
+def test_location_and_labels(service, fields: dict[str, Any], place: str) -> None:
+    service()
     info = engine_info(**fields)
     assert tts_service.location_label(info, "de") == place
     assert tts_service.row_label(info, "de") == f"XTTS · {place}"
     assert tts_service.entry_label(tts_service.ListEntry("xtts", info.host, True, "sentence", info), "de") == f"XTTS · {place}"
 
 
-def test_label_of_an_entry_the_service_does_not_offer_names_key_and_host() -> None:
-    assert tts_service.entry_label(tts_service.ListEntry("gone", None, True, "", None), "de") == "gone · Dieser Rechner"
+def test_label_of_an_entry_the_service_does_not_offer_names_key_and_host(service) -> None:
+    service()
+    assert tts_service.entry_label(tts_service.ListEntry("gone", None, True, "", None), "de") == "gone · Mini"
     assert tts_service.entry_label(tts_service.ListEntry("gone", "Box", True, "", None), "de") == "gone · Box"
+
+
+def test_a_local_gpu_engine_speaks_on_the_machine_the_service_names_not_on_the_hostname(service) -> None:
+    # Old code showed the text "lokal"/"local" here; the machine is a name distinct from this host's.
+    service(row("xtts"), machine="Aragon-Box")
+    assert tts_service.location_label(engine_info(), "de") == "Aragon-Box"
+    assert tts_service.location_label(engine_info(), "en") == "Aragon-Box"
+
+
+def test_an_entry_without_host_the_service_does_not_offer_is_labelled_with_the_services_machine(service) -> None:
+    # Old code: "gone · Dieser Rechner" / "gone · This machine".
+    service(row("xtts"), machine="Aragon-Box")
+    entry = tts_service.ListEntry("gone", None, True, "", None)
+    assert tts_service.entry_label(entry, "de") == "gone · Aragon-Box"
+    assert tts_service.entry_label(entry, "en") == "gone · Aragon-Box"
 
 
 def test_the_reserves_are_the_figures_the_service_names_for_its_local_gpu_engines(service) -> None:
@@ -399,7 +419,7 @@ def test_the_escalation_report_names_who_spoke_who_failed_and_the_change_of_voic
         switch="unreachable",
     )
     assert tts_service.escalation_report(summary, "Browser aifred") == [
-        "🔊 [Browser aifred] TTS escalation: failed XTTS · local (unreachable)",
+        "🔊 [Browser aifred] TTS escalation: failed XTTS · Mini (unreachable)",
         "🔊 [Browser aifred] TTS escalation: QWEN3LOCAL · Box speaks",
         "🔊 [Browser aifred] TTS escalation: skipped piper (deactivated)",
         "🔊 [Browser aifred] TTS escalation: voice change announced (unreachable)",
@@ -409,7 +429,7 @@ def test_the_escalation_report_names_who_spoke_who_failed_and_the_change_of_voic
 def test_the_note_of_a_step_the_catalog_does_not_have_names_its_key(service) -> None:
     service(row("xtts"))
     note = tts_service.spoken_note((TraceStep("xtts", "spoke"), TraceStep("deactivated_engine", "spoke")), "en")
-    assert note == "XTTS · local \u2192 deactivated_engine"
+    assert note == "XTTS · Mini \u2192 deactivated_engine"
 
 
 def test_the_note_of_the_browser_voice_needs_no_service() -> None:

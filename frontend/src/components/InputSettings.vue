@@ -1,14 +1,23 @@
 <script setup lang="ts">
-// The input's settings, a section of the settings page: who recognizes a dictation (the STT-Suite on this machine
+// The input's settings, a section of the settings page: who recognizes a dictation (the STT-Suite, named by its machine,
 // or the browser's own recognition, which sends the speech out of the house in Chrome and Edge) and whether it goes
 // into the field first (both in settings.json, lib/dictation.py), and whether Enter sends (this device only).
 import { CornerDownLeft } from "lucide-vue-next";
-import type { Settings, SettingsUpdate } from "../api/types";
+import { onMounted, ref } from "vue";
+import { api } from "../api/client";
+import type { Settings, SettingsUpdate, SpeechRecognition } from "../api/types";
 import { t } from "../i18n";
 import { enterSends } from "../lib/devicePrefs";
 
 defineProps<{ settings: Settings }>();
 const emit = defineEmits<{ change: [changes: SettingsUpdate] }>();
+
+// The machine the STT-Suite runs on, as it names itself: the page may be open on another machine. Null while it does
+// not answer (the audio page says so).
+const sttMachine = ref<string | null>(null);
+onMounted(async () => {
+  sttMachine.value = (await api<SpeechRecognition>("speech/recognition")).machine;
+});
 </script>
 
 <template>
@@ -22,7 +31,7 @@ const emit = defineEmits<{ change: [changes: SettingsUpdate] }>();
         :checked="settings.dictation_engine === 'stt_suite'"
         @change="emit('change', { dictation_engine: 'stt_suite' })"
       />
-      {{ t("dictation_engine_stt_suite") }}
+      {{ sttMachine ? t("dictation_engine_stt_suite", { machine: sttMachine }) : t("dictation_engine_stt_suite_silent") }}
     </label>
     <label>
       <input

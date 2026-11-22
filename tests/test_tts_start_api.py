@@ -38,7 +38,10 @@ def service(monkeypatch: pytest.MonkeyPatch):
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append((request.method, request.url.path))
-        assert (request.method, request.url.path) == ("GET", "/engines"), "AIfred must only read the catalog"
+        # Catalog and health: the labels name the machine of the service
+        assert request.method == "GET" and request.url.path in {"/engines", "/health"}, "AIfred must only read the catalog and the health"
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"status": "ok", "machine": "Mini"})
         return httpx.Response(200, json=listed)
 
     client = TTSClient("http://tts.test", transport=httpx.MockTransport(handler))
@@ -72,11 +75,11 @@ def test_the_list_comes_in_aifreds_order_with_status_and_only_reads(service) -> 
     assert [(row["engine"], row["host"]) for row in rows] == [
         ("qwen3local", None), ("qwen3local", "Box"), ("edge", None),
     ]
-    assert rows[0]["label"] == "Qwen3-TTS · lokal"
+    assert rows[0]["label"] == "Qwen3-TTS · Mini"
     assert rows[1]["label"] == "Qwen3-TTS · Box"
     assert rows[0]["status"] == "sleeping" and rows[0]["status_text"] == "schläft — startet bei Bedarf"
     assert rows[2]["status"] == "no_access"
-    assert set(service) == {("GET", "/engines")}
+    assert set(service) == {("GET", "/engines"), ("GET", "/health")}
 
 
 def test_there_is_no_start_or_stop_endpoint() -> None:

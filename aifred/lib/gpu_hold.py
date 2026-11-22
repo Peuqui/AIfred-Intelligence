@@ -13,7 +13,6 @@ is no other way to know). GPU-Orc off (``GPU_ORC_URL`` empty) asks nothing.
 from __future__ import annotations
 
 import asyncio
-import socket
 import time
 from dataclasses import asdict, dataclass
 from typing import Literal
@@ -30,6 +29,7 @@ from .gpu_orc_client import (
     get_gpu_orc_client,
 )
 from .logging_utils import log_exception, log_message
+from .machine import machine_name
 from .user_error import UserError
 
 # What work does when the cards are held: ``wait`` (inside a turn, visibly) or ``refuse`` (outside a turn: end).
@@ -236,11 +236,6 @@ class LocalHoldStatus:
     error: str
     used_mib: int | None  # memory in use over every card, as GPU-Orc's /status reports it; None while it does not answer
     total_mib: int | None
-
-
-def machine_name() -> str:
-    """The name of this machine, as the system has it."""
-    return socket.gethostname()
 
 
 def local_hold_status() -> LocalHoldStatus:
