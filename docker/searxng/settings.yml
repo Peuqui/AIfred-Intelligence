@@ -7,11 +7,6 @@ use_default_settings:
     remove:
       - ahmia
       - torch
-      # Wikimedia and OpenStreetMap require a contact address in every request (general.contact_url); since
-      # 2026.11.21 SearXNG does not load them without one. Peuqui (22.11.2026): send no contact address.
-      - wikipedia
-      - wikidata
-      - openstreetmap
 
 general:
   debug: false
@@ -59,6 +54,18 @@ engines:
   - name: duckduckgo
     engine: duckduckgo
     shortcut: ddg
+    disabled: false
+
+  # Wikipedia and Wikidata (and the default OpenStreetMap) need general.contact_url, set from SEARXNG_CONTACT_URL in
+  # docker/.env (docker-compose.yml); without it SearXNG does not load them.
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    disabled: false
+
+  - name: wikidata
+    engine: wikidata
+    shortcut: wd
     disabled: false
 
   - name: google news

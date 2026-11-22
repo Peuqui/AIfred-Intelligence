@@ -55,6 +55,9 @@ services:
       - SEARXNG_BASE_URL=http://localhost:8888/
       # Generated once per machine by scripts/install-all.sh into docker/.env
       - SEARXNG_SECRET=${SEARXNG_SECRET:?SEARXNG_SECRET missing - run scripts/install-all.sh or set it in docker/.env}
+      # Contact address Wikimedia and OpenStreetMap require in every request (mailto:… or a URL), kept in docker/.env
+      # (not in the repository); without it SearXNG does not load wikipedia, wikidata and openstreetmap.
+      - SEARXNG_CONTACT_URL=${SEARXNG_CONTACT_URL:-}
     networks:
       - aifred-network
     logging:
