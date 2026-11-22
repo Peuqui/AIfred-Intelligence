@@ -55,7 +55,7 @@ goes out (`SSE_KEEPALIVE_S`).
 
 An event that reports a state instead of an occurrence replaces its predecessors in the buffer: a page
 that reconnects needs the latest, not the history. These are `LATEST_WINS_KINDS` (`browser_push.py`):
-`service_status` and, per list, `<name>_changed`. `turn_phase`, `tool_status` and
+`service_status`, `local_hold` and, per list, `<name>_changed`. `turn_phase`, `tool_status` and
 `speech_regenerating` replace themselves through `replaces` as well.
 
 ---
@@ -72,6 +72,7 @@ that reconnects needs the latest, not the history. These are `LATEST_WINS_KINDS`
 | `seek` | `position_sec, relative` | jump in the track |
 | `speed` | `factor` | `playbackRate` (0.25 to 4.0) |
 | `service_status` | snapshot (`ServiceSnapshot.as_json`) | status line (model, describer, STT, TTS), see [service-status.md](service-status.md) |
+| `local_hold` | `LocalHoldStatus` (fields) | holder of this machine's cards in the status line, pushed by the server on every change, see [service-status.md](service-status.md) |
 | `<name>_changed` | – | the list `<name>` has changed (`notify_changed`) |
 
 The page reads them in `stores/chat.ts` (`handle`), `lib/speech.ts` (`tts*`) and `lib/media.ts`

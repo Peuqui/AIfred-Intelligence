@@ -71,6 +71,13 @@ den Stand beim Öffnen ihres Streams über `GET /api/service-status` (mit `?refr
 Server STT und TTS vorher neu). Die Restzeit reist als Sekunden zum Zeitpunkt des Snapshots; der
 Browser zählt selbst herunter.
 
+Der Halter der Karten dieses Rechners (`LocalHoldStatus`, `lib/gpu_hold.py`) kommt auf demselben Weg,
+nur schiebt ihn der Server selbst an, weil GPU-Orc nichts meldet: `watch_local_hold` (Lebensdauer des
+Servers, `local_hold_lifespan`) fragt alle `GPU_ORC_HOLD_POLL_S` Sekunden, solange mindestens eine Seite
+verbunden ist, und schiebt jede Änderung sofort als Art `local_hold` an alle verbundenen Seiten (nur der
+letzte Stand bleibt in der Warteschlange). Ohne Seite fragt der Server GPU-Orc nicht. Die Seite behält
+`GET /api/service-status/local-hold` beim Öffnen, im 30-s-Takt und nach ihren Knöpfen.
+
 Das Plugin `system_monitor` liest dieselbe SSOT (`system_status` mit `model`, `stt`, `tts`), es
 pusht nichts. Den einen `/running`-Zugriff (`running_models`) nutzen auch
 `tts_llm_coordination`, `backends/base.py` und der Chat-Mixin.

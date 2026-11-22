@@ -10,6 +10,7 @@ import type {
   CropBox,
   DictatedTextResult,
   DictationAccepted,
+  LocalHoldStatus,
   MessageAccepted,
   ServiceSnapshot,
   SessionConfig,
@@ -293,6 +294,9 @@ export const useChat = defineStore("chat", () => {
         break;
       case "service_status":
         useServiceStatus().receive(data as unknown as ServiceSnapshot);
+        break;
+      case "local_hold":
+        useServiceStatus().receiveLocalHold(data as unknown as LocalHoldStatus);
         break;
     }
   }

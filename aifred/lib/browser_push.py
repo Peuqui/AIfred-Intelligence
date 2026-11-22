@@ -21,7 +21,7 @@ def changed_kind(resource: str) -> str:
 
 # Kinds that carry a state, not an event: the newest replaces its predecessors in the
 # replay buffer (a page that reconnects needs the latest, not the history).
-LATEST_WINS_KINDS = frozenset({"service_status", "read_until"} | {changed_kind(resource) for resource in RESOURCES})
+LATEST_WINS_KINDS = frozenset({"service_status", "local_hold", "read_until"} | {changed_kind(resource) for resource in RESOURCES})
 
 
 def browser_push(session_id: str, kind: str, **fields: Any) -> None:
@@ -43,6 +43,8 @@ def browser_push(session_id: str, kind: str, **fields: Any) -> None:
       - ``"read_until"``  : the user read up to this bubble. {timestamp}; the newest replaces the older ones.
       - ``"service_status"`` : model, STT and TTS state for the status line (``ServiceSnapshot.as_json``); the newest
                             replaces the older ones.
+      - ``"local_hold"``  : the hold of this machine's cards for the status line (``LocalHoldStatus`` fields), pushed by
+                            ``lib/gpu_hold.watch_local_hold`` on every change; the newest replaces the older ones.
     """
     replaces = frozenset({kind}) if kind in LATEST_WINS_KINDS else frozenset()
     session_events.publish(session_id, kind, fields, replaces=replaces)

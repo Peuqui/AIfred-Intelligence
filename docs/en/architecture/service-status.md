@@ -70,6 +70,13 @@ kind `service_status` over the [browser push bus](browser-push-bus.md) to all co
 `GET /api/service-status` (with `?refresh=true` the server reads STT and TTS first). The time left
 travels as seconds at the moment of the snapshot; the browser counts down by itself.
 
+The holder of this machine's cards (`LocalHoldStatus`, `lib/gpu_hold.py`) takes the same way, but the
+server starts the push itself because GPU-Orc reports nothing: `watch_local_hold` (lives as long as the
+server, `local_hold_lifespan`) asks every `GPU_ORC_HOLD_POLL_S` seconds while at least one page is
+connected and pushes every change at once as kind `local_hold` to all connected pages (only the newest
+state stays in the queue). Without a page the server does not ask GPU-Orc. The page keeps
+`GET /api/service-status/local-hold` on opening, every 30 s and after its buttons.
+
 The `system_monitor` plugin reads the same SSOT (`system_status` with `model`, `stt`, `tts`); it
 pushes nothing. The one `/running` access (`running_models`) is also used by
 `tts_llm_coordination`, `backends/base.py` and the chat mixin.

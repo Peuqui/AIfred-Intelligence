@@ -25,6 +25,11 @@ export const useServiceStatus = defineStore("serviceStatus", () => {
     receivedAt.value = performance.now();
   }
 
+  // The server pushes every change of the hold (local_hold over the session stream), the page need not wait for its poll.
+  function receiveLocalHold(next: LocalHoldStatus): void {
+    localHold.value = next;
+  }
+
   function say(text: string): void {
     notice.value = text;
     window.clearTimeout(noticeTimer);
@@ -85,5 +90,5 @@ export const useServiceStatus = defineStore("serviceStatus", () => {
     }
   }
 
-  return { snapshot, receivedAt, hosts, localHold, notice, acting, receive, fetch, act, endHold };
+  return { snapshot, receivedAt, hosts, localHold, notice, acting, receive, fetch, act, endHold, receiveLocalHold };
 });

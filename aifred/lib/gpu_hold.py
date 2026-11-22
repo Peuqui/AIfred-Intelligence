@@ -14,9 +14,11 @@ from __future__ import annotations
 import asyncio
 import socket
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Literal
 
+from . import session_events
+from .browser_push import browser_push
 from .config import GPU_ORC_HOLD_POLL_S
 from .debug_bus import current_session_id, report_phase
 from .gpu_orc_client import (
@@ -26,7 +28,7 @@ from .gpu_orc_client import (
     TrafficLight,
     get_gpu_orc_client,
 )
-from .logging_utils import log_message
+from .logging_utils import log_exception, log_message
 from .user_error import UserError
 
 # What work does when the cards are held: ``wait`` (inside a turn, visibly) or ``refuse`` (outside a turn: end).
@@ -229,3 +231,32 @@ def local_hold_status() -> LocalHoldStatus:
     else:
         state = "granted" if hold.granted_by is not None else "requested"
     return LocalHoldStatus(state, machine, hold.owner, hold.reason, hold.since, hold.model, hold.granted_by, "", used, total)
+
+
+LOCAL_HOLD_KIND = "local_hold"
+
+
+async def push_local_hold_if_changed(last_pushed: LocalHoldStatus | None) -> LocalHoldStatus | None:
+    """One step of the watcher: with a page connected, look at the local hold and push it to every connected page when it
+    differs from ``last_pushed``. Returns what is now the last pushed status. Without a page GPU-Orc is not asked
+    (a page that opens loads the hold itself, and the next step after it connects compares again)."""
+    sessions = session_events.sessions_with_subscribers()
+    if not sessions:
+        return last_pushed
+    status = await asyncio.to_thread(local_hold_status)
+    if status == last_pushed:
+        return last_pushed
+    for session_id in sessions:
+        browser_push(session_id, LOCAL_HOLD_KIND, **asdict(status))
+    return status
+
+
+async def watch_local_hold() -> None:
+    """Push every change of the local hold to the connected pages at once (GPU-Orc does not push); runs until cancelled."""
+    last_pushed: LocalHoldStatus | None = None
+    while True:
+        try:
+            last_pushed = await push_local_hold_if_changed(last_pushed)
+        except Exception as error:  # noqa: BLE001 — loop boundary: one failed look must not end the watcher
+            log_exception("Local hold watcher", error)
+        await asyncio.sleep(GPU_ORC_HOLD_POLL_S)

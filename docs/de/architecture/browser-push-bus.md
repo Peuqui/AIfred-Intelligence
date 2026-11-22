@@ -56,7 +56,7 @@ der Puffer nach der letzten ID des Clients geleert, beginnt der Strom mit `resyn
 
 Ein Ereignis, das einen Zustand statt eines Vorfalls meldet, ersetzt im Puffer seine Vorgänger: wer
 sich neu verbindet, braucht den letzten Stand, nicht die Geschichte. Das sind `LATEST_WINS_KINDS`
-(`browser_push.py`): `service_status` und je Listenart `<name>_changed`. Auch `turn_phase`,
+(`browser_push.py`): `service_status`, `local_hold` und je Listenart `<name>_changed`. Auch `turn_phase`,
 `tool_status` und `speech_regenerating` ersetzen sich über `replaces`.
 
 ---
@@ -73,6 +73,7 @@ sich neu verbindet, braucht den letzten Stand, nicht die Geschichte. Das sind `L
 | `seek` | `position_sec, relative` | Sprung im Titel |
 | `speed` | `factor` | `playbackRate` (0,25 bis 4,0) |
 | `service_status` | Schnappschuss (`ServiceSnapshot.as_json`) | Statusleiste (Modell, Bildbeschreiber, STT, TTS), siehe [service-status.md](service-status.md) |
+| `local_hold` | `LocalHoldStatus` (Felder) | Halter der Karten dieses Rechners in der Statuszeile, vom Server bei jeder Änderung geschoben, siehe [service-status.md](service-status.md) |
 | `<name>_changed` | – | die Liste `<name>` hat sich geändert (`notify_changed`) |
 
 Die Seite liest sie in `stores/chat.ts` (`handle`), `lib/speech.ts` (`tts*`) und `lib/media.ts`

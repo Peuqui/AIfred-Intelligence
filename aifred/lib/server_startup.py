@@ -1,7 +1,7 @@
 """What AIfred starts once per process, with or without a browser: the debug log and the platform line, the background
 tasks (cleanups of audio state, lookup caches, vision, the audit log and the vLLM compile cache; the audio index), the
 vision pre-warm in live mode, the GPU detection and an empty Ollama; and the lifespans of the server: the event loop's
-watchdog, the session events' loop, the Message Hub with the plugins' background parts and Vigilantia's background watchers, the service status.
+watchdog, the session events' loop, the Message Hub with the plugins' background parts and Vigilantia's background watchers, the service status, the local hold.
 
 The server (aifred/server.py) runs them all from its lifespan (``SERVER_LIFESPANS``).
 """
@@ -183,6 +183,18 @@ async def service_status_lifespan() -> AsyncIterator[None]:
 
 
 @contextlib.asynccontextmanager
+async def local_hold_lifespan() -> AsyncIterator[None]:
+    """Watch the hold of this machine's cards and push every change to the connected pages (status line)."""
+    from .gpu_hold import watch_local_hold
+
+    task = asyncio.create_task(watch_local_hold())
+    try:
+        yield
+    finally:
+        task.cancel()
+
+
+@contextlib.asynccontextmanager
 async def gpu_orc_work_lifespan() -> AsyncIterator[None]:
     """Report running turns to GPU-Orc (lib/gpu_orc_work), so the machine's reboot leaves a running job alone."""
     from .gpu_orc_work import make_work_reporter
@@ -233,5 +245,5 @@ async def process_tasks_lifespan() -> AsyncIterator[None]:
 
 
 # The server's lifespan, in this order: the loop's watchdog first (a freeze while starting shows too), the session
-# events' loop (the hub publishes into it), then the process tasks, the Message Hub, the service status, the work report to GPU-Orc.
-SERVER_LIFESPANS = (loop_watchdog_lifespan, session_events_lifespan, process_tasks_lifespan, message_hub_lifespan, service_status_lifespan, gpu_orc_work_lifespan)
+# events' loop (the hub publishes into it), then the process tasks, the Message Hub, the service status, the local hold, the work report to GPU-Orc.
+SERVER_LIFESPANS = (loop_watchdog_lifespan, session_events_lifespan, process_tasks_lifespan, message_hub_lifespan, service_status_lifespan, local_hold_lifespan, gpu_orc_work_lifespan)

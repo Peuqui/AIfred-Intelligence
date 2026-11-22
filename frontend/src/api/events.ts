@@ -11,7 +11,7 @@ export type Resource = (typeof RESOURCES)[number];
 export const changedKind = (resource: Resource): string => `${resource}_changed`;
 
 // Every kind the server sends (lib/turn_service.py, lib/reply_speech.py, lib/dictation.py,
-// lib/api/sessions.py, lib/debug_bus.py (debug, turn_phase), lib/api/service_status.py, lib/message_processor.py). The browser only hears the kinds listed here.
+// lib/api/sessions.py, lib/debug_bus.py (debug, turn_phase), lib/api/service_status.py, lib/gpu_hold.py (local_hold), lib/message_processor.py). The browser only hears the kinds listed here.
 export const SESSION_EVENT_KINDS = [
   "turn_started",
   "turn_rejected",
@@ -46,6 +46,7 @@ export const SESSION_EVENT_KINDS = [
   "dictation_text",
   "dictation_finished",
   "service_status",
+  "local_hold",
   "hub_notification",
   "resync",
   ...RESOURCES.map(changedKind),
