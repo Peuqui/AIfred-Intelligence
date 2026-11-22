@@ -148,31 +148,67 @@ class TestFilmAlbum:
         limit = big.stat().st_size // 3
         assert small.stat().st_size < limit
         sent_parts: list[Path] = []
+        part_sizes: list[int] = []
 
         def recording_split(*args):
             parts = split_video(*args)
             sent_parts.extend(parts)
+            part_sizes.extend(part.stat().st_size for part in parts)
             return parts
 
-        with patch.object(tg, "_VIDEO_MAX_BYTES", limit), patch.object(tg, "split_video", side_effect=recording_split):
+        with patch.object(tg, "_UPLOAD_MAX_BYTES", limit), patch.object(tg, "split_video", side_effect=recording_split):
             ids = _deliver(tmp_path, bot, "Zusammenfassung", media_album=[str(big), str(small)])
-        assert len(bot.groups) == 1
-        assert [item.media.filename for item in bot.groups[0]] == [
-            "Hauseingang_081500_wide_part000.mp4", "Hauseingang_081500_zoom.mp4",
+        assert part_sizes[0] + small.stat().st_size > limit                # together they would be over the limit
+        # The first part takes the film's place in the album; with the zoom film it would be over the request limit,
+        # so both go out on their own, in the album's order, the caption at the first.
+        assert bot.groups == []
+        assert [(v["filename"], v["caption"]) for v in bot.videos[:2]] == [
+            ("Hauseingang_081500_wide_part000.mp4", "Zusammenfassung"), ("Hauseingang_081500_zoom.mp4", None),
         ]
-        assert bot.groups[0][0].caption == "Zusammenfassung"
-        follow_ups = bot.videos
+        follow_ups = bot.videos[2:]
         assert len(follow_ups) >= 2
         total = len(follow_ups) + 1
         assert [v["caption"] for v in follow_ups] == [f"Weitwinkel – Teil {n}/{total}" for n in range(2, total + 1)]
-        assert ids == [101, 102] + [103 + n for n in range(len(follow_ups))]  # alle IDs, in Sendereihenfolge
+        assert ids == [101 + n for n in range(len(bot.videos))]  # alle IDs, in Sendereihenfolge
         assert sent_parts and not any(part.exists() for part in sent_parts if part != big)  # Temp-Teile weg
         assert big.exists()
+
+    def test_films_that_fit_alone_but_not_together_go_out_in_requests_within_the_limit(self, tmp_path):
+        """22.11.2026: wide film 44.5 MB + zoom film 13.0 MB, each under the limit, went out as one album, one request
+        of 57.5 MB, and Telegram answered "413 Request Entity Too Large". The limit is per request."""
+        bot = _FakeBot()
+        sizes = {"wide": 445, "zoom": 130}
+        films = []
+        for lens, size in sizes.items():
+            path = tmp_path / f"Hauseingang_155938_{lens}.mp4"
+            path.write_bytes(b"\0" * size)
+            films.append(str(path))
+        with patch.object(tg, "_UPLOAD_MAX_BYTES", 500):
+            ids = _deliver(tmp_path, bot, "Zusammenfassung", media_album=films)
+        assert bot.groups == []                                           # no album over the limit
+        assert bot.videos == [
+            {"caption": "Zusammenfassung", "streaming": True, "filename": "Hauseingang_155938_wide.mp4"},
+            {"caption": None, "streaming": True, "filename": "Hauseingang_155938_zoom.mp4"},
+        ]
+        assert ids == [101, 102]
+
+    def test_an_album_over_the_limit_keeps_together_what_fits_and_its_order(self, tmp_path):
+        bot = _FakeBot()
+        films = []
+        for index, size in enumerate([200, 250, 300]):
+            path = tmp_path / f"film{index}.mp4"
+            path.write_bytes(b"\0" * size)
+            films.append(str(path))
+        with patch.object(tg, "_UPLOAD_MAX_BYTES", 500):
+            _deliver(tmp_path, bot, "Zusammenfassung", media_album=films)
+        assert [[item.media.filename for item in group] for group in bot.groups] == [["film0.mp4", "film1.mp4"]]
+        assert bot.groups[0][0].caption == "Zusammenfassung"
+        assert bot.videos == [{"caption": None, "streaming": True, "filename": "film2.mp4"}]
 
     def test_a_film_that_cannot_be_split_is_not_sent_and_logged(self, tmp_path):
         bot = _FakeBot()
         films = _films(tmp_path, 2)  # keine echten Videos: ffprobe scheitert
-        with patch.object(tg, "_VIDEO_MAX_BYTES", 5), patch.object(tg.TelegramChannel, "channel_log") as log:
+        with patch.object(tg, "_UPLOAD_MAX_BYTES", 5), patch.object(tg.TelegramChannel, "channel_log") as log:
             _deliver(tmp_path, bot, "Zusammenfassung", media_album=films)
         assert bot.groups == [] and bot.videos == []
         assert bot.texts == ["Zusammenfassung"]
@@ -192,7 +228,7 @@ class TestSingleFilm:
     def test_a_single_film_over_the_bot_limit_is_sent_in_parts(self, tmp_path):
         bot = _FakeBot()
         film = make_video(tmp_path / "Garten_090000_zoom.mp4", seconds=30, keyframe_every=20)
-        with patch.object(tg, "_VIDEO_MAX_BYTES", film.stat().st_size // 3):
+        with patch.object(tg, "_UPLOAD_MAX_BYTES", film.stat().st_size // 3):
             ids = _deliver(tmp_path, bot, "Aufnahme", media=str(film))
         assert bot.groups == []
         assert bot.videos[0]["caption"] == "Aufnahme"
