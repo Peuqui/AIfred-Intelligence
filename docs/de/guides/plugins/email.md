@@ -203,9 +203,11 @@ Der From-Header ist trivial fälschbar, deshalb liest der Listener zusätzlich
 das Urteil, das dein Mail-Provider beim Empfang in den obersten
 `Authentication-Results`-Header (RFC 8601) stempelt:
 
-- **`fail`** (Provider sagt SPF/DKIM/DMARC fehlgeschlagen → vermutlich
-  gespooft): Die Mail wird verworfen, bevor sie die Pipeline erreicht, mit
-  Log-Warnung
+- **`fail`** (vermutlich gespooft): Die Mail wird verworfen, bevor sie die
+  Pipeline erreicht, mit Log-Warnung. Das gilt bei `dmarc=fail`, egal was SPF
+  oder DKIM sagen (der Server eines Angreifers besteht SPF für seine eigene
+  Absender-Domain, während er den From-Header fälscht), und ohne DMARC-Urteil,
+  wenn kein SPF- oder DKIM-Pass für die From-Domain (oder eine Subdomain) gilt
 - **`pass`**: Voraussetzung für die **Owner-Elevation** — nur dann bekommt der
   erste Allowlist-Eintrag `OWNER_TIER` (siehe Security-Architektur-Doku)
 - **`none`** (Provider stempelt keine solchen Header): Die Mail wird normal

@@ -440,6 +440,11 @@ class EmailChannel(BaseChannel):
         # provider's own SPF/DKIM/DMARC check FAILED, drop the mail before
         # it reaches the pipeline. "none" (provider without AR headers)
         # passes through, but never grants owner elevation (security.py).
+        # Which provider stamped the verdict shows whether the topmost header is really the own provider's.
+        self.channel_log(
+            f"Email Plugin: sender verdict {inbound.metadata.get('auth_results')} "
+            f"(stamped by {inbound.metadata.get('auth_stamp') or 'nobody'})"
+        )
         if inbound.metadata.get("auth_results") == "fail":
             self.channel_log(
                 f"Email Plugin: dropped mail from {inbound.sender} — "
@@ -614,16 +619,20 @@ def _is_sender_allowed(sender: str) -> bool:
 
 
 def _parse_auth_results(msg) -> str:
-    """Verdict from the receiving provider's Authentication-Results header.
+    """Verdict from the receiving provider's Authentication-Results header about the From address.
 
     Returns ``"pass"`` / ``"fail"`` / ``"none"`` (A9):
 
     - Only the TOPMOST Authentication-Results header counts — per RFC 8601
       the local MX prepends its own header, anything below it may have been
       supplied by the sender (an attacker can attach fake AR headers).
-    - ``dmarc=pass`` wins: DMARC binds the verdict to the From-header
-      domain, which is exactly what the owner/allowlist checks compare.
-      Without a dmarc result, ``dkim=pass`` or ``spf=pass`` counts.
+    - DMARC binds the verdict to the From-header domain, which is exactly what
+      the owner/allowlist checks compare: ``dmarc=pass`` is ``"pass"``,
+      ``dmarc=fail`` is ``"fail"`` whatever SPF or DKIM say (an attacker's own
+      server passes SPF for its own envelope domain while forging From).
+    - Without a DMARC verdict, ``dkim=pass`` or ``spf=pass`` counts only for
+      the From domain (or a subdomain of it): ``header.d`` / ``smtp.mailfrom``;
+      passes for other domains only are ``"fail"``.
     - ``none``: provider does not stamp AR headers at all — callers must
       not treat this as failure (channel would break on such providers),
       but owner elevation requires an explicit ``pass``.
@@ -632,11 +641,25 @@ def _parse_auth_results(msg) -> str:
     if not headers:
         return "none"
     top = " ".join(str(headers[0]).split()).lower()
-    if re.search(r"\bdmarc=pass\b", top):
-        return "pass"
-    if re.search(r"\b(dkim|spf)=pass\b", top):
-        return "pass"
+    dmarc = re.search(r"\bdmarc=(\w+)", top)
+    if dmarc and dmarc.group(1) in ("pass", "fail"):
+        return dmarc.group(1)
+    from_domain = email.utils.parseaddr(str(msg.get("From", "")))[1].rpartition("@")[2].lower()
+    if not from_domain:
+        return "fail"
+    for method, key in (("dkim", "header.d"), ("spf", "smtp.mailfrom")):
+        for result in re.finditer(rf"\b{method}=pass\b([^;]*)", top):
+            match = re.search(rf"\b{re.escape(key)}=([^\s;]+)", result.group(1))
+            domain = match.group(1).rpartition("@")[2] if match else ""
+            if domain == from_domain or domain.endswith(f".{from_domain}"):
+                return "pass"
     return "fail"
+
+
+def _auth_stamp(msg) -> str:
+    """Who stamped the topmost Authentication-Results header (its authserv-id), empty without one."""
+    headers = msg.get_all("Authentication-Results") or []
+    return str(headers[0]).split(";", 1)[0].strip() if headers else ""
 
 
 # ── IMAP helpers (moved from imap_listener.py) ───────────────
@@ -746,6 +769,7 @@ def _fetch_email_as_inbound(imap: imaplib.IMAP4_SSL, uid: bytes) -> InboundMessa
             # A9: provider-stamped SPF/DKIM/DMARC verdict — consumed by the
             # allowlist gate (fail → drop) and _is_owner (pass required).
             "auth_results": _parse_auth_results(msg),
+            "auth_stamp": _auth_stamp(msg),
         },
     )
 

@@ -203,8 +203,11 @@ The From header is trivially forgeable, so the listener additionally reads the
 verdict your mail provider stamps into the topmost `Authentication-Results`
 header (RFC 8601) when the mail arrives:
 
-- **`fail`** (provider says SPF/DKIM/DMARC failed → likely spoofed): the mail
-  is dropped before it reaches the pipeline, with a log warning
+- **`fail`** (likely spoofed): the mail is dropped before it reaches the
+  pipeline, with a log warning. This holds for `dmarc=fail` whatever SPF or
+  DKIM say (an attacker's own server passes SPF for its own envelope domain
+  while forging the From header), and without a DMARC verdict when no SPF or
+  DKIM pass holds for the From domain (or a subdomain)
 - **`pass`**: required for **owner elevation** — only then does the first
   allowlist entry get `OWNER_TIER` (see the security architecture doc)
 - **`none`** (provider does not stamp such headers): the mail is processed
