@@ -6,5 +6,9 @@
   "plugin_description": {
     "de": "Recherchiert im Web: Für aktuelle Fragen sucht AIfred mit mehreren Suchanfragen, bewertet die Treffer, liest die besten Seiten und fasst die Inhalte zusammen. Eine bekannte Adresse kann er auch direkt abrufen. Gesucht wird über eine eigene SearXNG-Instanz sowie Tavily und Brave, sofern deren Zugangsschlüssel in der .env stehen.",
     "en": "Researches the web: for current questions AIfred searches with several queries, ranks the hits, reads the best pages and summarises their content. AIfred can also fetch a known address directly. Searching goes through a self-hosted SearXNG instance plus Tavily and Brave, provided their API keys are in the .env file."
+  },
+  "web_fetch_watch_notice": {
+    "de": "Wachhund: Ein Agent ruft {host} mit einem auffällig langen Adressteil ({chars} Zeichen) auf, der vorher weder in deiner Nachricht noch in Suchergebnissen oder abgerufenen Seiten stand. Darin könnten mitgeschickte Daten stecken. Abgerufen wird trotzdem; prüf bitte, ob das zu deinem Auftrag passt.",
+    "en": "Watchdog: an agent is fetching {host} with an unusually long address part ({chars} characters) that appeared neither in your message nor in search results or fetched pages. It could carry data out. The page is fetched anyway; please check whether this fits your request."
   }
 }

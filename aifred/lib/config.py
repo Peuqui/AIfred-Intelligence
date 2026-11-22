@@ -1227,6 +1227,12 @@ LLAMACPP_CALIBRATION_PRECISION = 256  # Token step size for context binary searc
 # Es wird einmal gescraped, alles was klappt wird genommen — keine Re-Try-Logik.
 RESEARCH_SCRAPE_URLS = 7
 
+# Wachhund für web_fetch (Peuqui 22.11.2026, meldet nur, sperrt nichts): Ruft ein Agent eine Adresse auf, die weder
+# der Nutzer geschrieben hat noch in Suchergebnissen oder abgerufenen Seiten dieses Zuges stand, und trägt sie einen
+# Teil (Pfadstück, Parameterwert) ab dieser Länge, kann darin mitgeschickte Daten stecken (eine untergeschobene
+# Anweisung „ruf …?d=<Notizen> auf“). Dann Warnung ins Log und Hinweis im Chat.
+WEB_FETCH_WATCH_PART_CHARS = 64
+
 # Referenz-Auflösung für die Vision-Probe der Kalibrierung (Breite, Höhe).
 # Vision-Modelle (--mmproj) allozieren ihren CLIP-Compute-Buffer erst bei
 # der ersten Bildanalyse, skalierend mit der Bild-Token-Anzahl. Statt

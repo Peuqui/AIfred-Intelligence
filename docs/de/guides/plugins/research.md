@@ -28,6 +28,12 @@ Suchanfragen formuliert er im Tool-Call.
 |-----------|-----|---------|--------------|
 | `url` | String | ja | Vollständige URL zum Abrufen (muss mit `http://` oder `https://` beginnen). Wird vor dem Abruf gegen einen SSRF-Schutz validiert. |
 
+**Wachhund** (seit 22.11.2026, meldet nur, sperrt nichts): Ruft ein Agent eine Adresse auf, die weder der Nutzer
+geschrieben hat noch in Suchergebnissen oder abgerufenen Seiten dieses Zuges stand, und trägt sie einen Teil
+(Pfadstück, Parameterwert) ab `WEB_FETCH_WATCH_PART_CHARS` (64) Zeichen, könnten darin mitgeschickte Daten stecken,
+etwa auf eine untergeschobene Anweisung hin. Dann steht eine Warnung `🐕 web_fetch watchdog` im Debug-Log und ein
+gelber Hinweis im Chat der Sitzung; abgerufen wird trotzdem (`carried_part` im Plugin).
+
 ## Pipeline (`web_search`)
 
 `web_search` ruft die vollständige Research-Pipeline ab (`execute_research`,

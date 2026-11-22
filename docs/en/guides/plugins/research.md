@@ -28,6 +28,12 @@ queries in the tool call.
 |-----------|------|----------|-------------|
 | `url` | string | yes | Full URL to fetch (must start with `http://` or `https://`). Validated against an SSRF guard before fetching. |
 
+**Watchdog** (since 2026-11-22, reports only, never blocks): when an agent fetches an address that neither the user
+wrote nor a search result or fetched page of this turn showed, and one part of it (path piece, parameter value) is at
+least `WEB_FETCH_WATCH_PART_CHARS` (64) characters long, it could carry data out, for instance on an injected
+instruction. Then a `🐕 web_fetch watchdog` warning goes to the debug log and a yellow notice to the session's chat;
+the page is fetched all the same (`carried_part` in the plugin).
+
 ## Pipeline (`web_search`)
 
 `web_search` runs the full research pipeline (`execute_research`, 7 scraped URLs):
