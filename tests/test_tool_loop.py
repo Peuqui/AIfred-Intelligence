@@ -439,17 +439,16 @@ def test_a_refused_call_is_a_failed_one_in_the_round() -> None:
     assert results[2].startswith(load_prompt("shared/tool_result_failed", error="Refused: 'writing' was already called 2×"))
 
 
-def test_the_arguments_stay_complete_with_secrets_masked_and_broken_ones_become_an_empty_object() -> None:
+def test_the_arguments_stay_complete_and_broken_ones_become_an_empty_object() -> None:
     long_value = "a" * 5000
-    secret = {"data": {"title": "x", "password": "streng-geheim"}, "content": long_value}
+    arguments = {"data": {"title": "x", "tags": ["a", "b"]}, "content": long_value}
     backend = FakeBackend([
-        [end(_calls(("writing", json.dumps(secret)), ("writing", "{kaputt"), ("writing", "[1, 2]")), finish="tool_calls")],
+        [end(_calls(("writing", json.dumps(arguments)), ("writing", "{kaputt"), ("writing", "[1, 2]")), finish="tool_calls")],
         [TextDelta("ok"), end()],
     ])
     (round_item,) = _rounds(play(backend, _writing_kit()))
     first, broken, not_an_object = (call["arguments"] for call in round_item["calls"])
-    assert json.loads(first) == {"data": {"title": "x", "password": "***"}, "content": long_value}
-    assert "streng-geheim" not in first
+    assert json.loads(first) == arguments
     assert broken == "{}" and not_an_object == "{}"                               # valid JSON, as llama.cpp and Ollama need
     assert all(call["result"].startswith("Fehlgeschlagen") or call["result"].startswith("Failed")
                for call in round_item["calls"][1:])                                 # the call failed, the result says so

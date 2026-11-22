@@ -27,6 +27,10 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
   Router (`api/app.py`: `vision_api`, `audio_player_api`) und antworten bei aus mit 409. Was mehrere nutzen, ist
   Kern und bleibt (Bildbeschreiber im Chat, Dokumentablage, Löschen nach Aufbewahrungsfrist). Ein Kanal hat keine
   `.disabled`-Markierung.
+- **Plugins pflegen sich selbst** (Peuqui 22.11.2026: „sonst kommt man in ein Rabbit Hole“): Was nur ein Plugin
+  wissen kann (welche Felder geheim sind, welche Hintergrundteile es hat, wie es heißt …), meldet das Plugin selbst;
+  der Kern fragt nur ab. Keine zentralen Listen über Plugin-Eigenschaften, die bei jedem neuen Plugin nachgezogen
+  werden müssen (so fiel am 22.11. die Namensliste geheimer Argumente `_SENSITIVE_ARG_KEY_RE` weg).
 - **Plugin → aifred/lib: ERLAUBT und erwünscht** — lib ist Kern-Infrastruktur
   und immer da. Gemeinsame Logik zweier Plugins wird als lib-Helper
   konsolidiert, niemals per Plugin-Import geteilt.

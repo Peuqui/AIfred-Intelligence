@@ -25,32 +25,6 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Arg keys whose values are secrets and must not reach the audit log verbatim
-# (e.g. EPIM password entries: data={"fields": {"Passwort": "..."}}).
-_SENSITIVE_ARG_KEY_RE = re.compile(
-    r"passwor|passwort|kennwort|secret|token|api[_-]?key|credential", re.IGNORECASE
-)
-
-
-def _redact_args(value: Any) -> Any:
-    """Tool args with the values of keys that look like secrets replaced by '***',
-    so credentials passed through generic tools (epim_create/update password
-    fields, etc.) don't land in the audit log or the history."""
-    if isinstance(value, dict):
-        return {
-            k: ("***" if isinstance(k, str) and _SENSITIVE_ARG_KEY_RE.search(k) else _redact_args(val))
-            for k, val in value.items()
-        }
-    if isinstance(value, list):
-        return [_redact_args(x) for x in value]
-    return value
-
-
-def _redact_args_preview(value: Any) -> str:
-    """Log-safe preview of tool args."""
-    return str(_redact_args(value))
-
-
 def _error_of(result: str) -> str | None:
     """The error text of a result: tools report an expected failure as a result with an ``error``
     field, not as an exception (None when the result reports none)."""
@@ -62,14 +36,15 @@ def _error_of(result: str) -> str | None:
 
 
 def history_arguments(arguments: str) -> str:
-    """The arguments of a call as the llm_history keeps them: complete, values of secret keys masked,
-    always a JSON object (llama.cpp and Ollama reject a history with other arguments). A call whose
-    arguments are no JSON object failed anyway, its result says so (``history_result_text``)."""
+    """The arguments of a call as the llm_history keeps them: complete, always a JSON object (llama.cpp
+    and Ollama reject a history with other arguments). A call whose arguments are no JSON object failed
+    anyway, its result says so (``history_result_text``). Nothing is masked: no tool takes a secret as an
+    argument, plugins read their credentials themselves; one that ever needs to declares it itself."""
     try:
         parsed = json.loads(arguments) if arguments else {}
     except json.JSONDecodeError:
         return "{}"
-    return json.dumps(_redact_args(parsed), ensure_ascii=False) if isinstance(parsed, dict) else "{}"
+    return json.dumps(parsed, ensure_ascii=False) if isinstance(parsed, dict) else "{}"
 
 
 def history_result_text(result: str, notes: Sequence[str]) -> str:
@@ -408,7 +383,7 @@ class ToolKit:
                     source=self._source,
                     tool_name=name,
                     tool_tier=tool.tier,
-                    tool_args_preview=_redact_args_preview(args)[:200],
+                    tool_args_preview=str(args)[:200],
                     result_preview=result_str[:200],
                     success=success,
                     duration_ms=(time.perf_counter() - t0) * 1000,
