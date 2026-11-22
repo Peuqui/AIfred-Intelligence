@@ -2,7 +2,8 @@
 ways to react. GPU-Orc enforces nothing, every path of AIfred that puts work on the cards asks here.
 
 * :func:`wait_until_free` / :func:`wait_until_free_blocking`: work inside a turn waits visibly (phase ``gpu_hold``) and
-  goes on when the hold ends.
+  goes on when the hold ends. AIfred goes first on this machine: the wait asks the holder of its cards to end the hold
+  (``POST /hold/end``), whatever started the turn (a page, a channel, a job); a hold on another machine is only waited for.
 * :func:`hold_refusal`: work outside a turn must not block for hours; the caller gets the refusal and ends the work.
 
 A GPU-Orc that does not answer is logged loudly and the work goes on (the same rule as the clearing before a load, there
@@ -113,40 +114,71 @@ def _mark_waiting(token: object) -> None:
         _waiting[token] = session_id
 
 
-def _hold_detail(client: GpuOrcClient, hold: Hold, state: str) -> dict[str, str | bool]:
+@dataclass(frozen=True)
+class HoldSeen:
+    """What one look at the hold showed: ``state`` (``active`` | ``granted``) and who asked its owner to end it."""
+
+    state: str
+    end_requested_by: str | None
+
+
+def _hold_detail(client: GpuOrcClient, hold: Hold, state: str) -> dict[str, str | bool | None]:
     """What the page shows of the hold a turn waits for: the machine, who holds it and why, since when, whether it is
     ``active`` or ``granted`` (a person let go, GPU-Orc clears when the running work ends) and whether it is this machine's
-    own GPU-Orc (only there may the page end it, ``/service-status/end-hold``)."""
+    own GPU-Orc (only there may the page end it, ``/service-status/end-hold``) and who asked the owner to end it
+    (``end_requested_by``, ``None`` if nobody)."""
     is_local = client is get_gpu_orc_client()
     machine = machine_name() if is_local else client.machine
     assert machine is not None, "a client of another machine carries its name (remote_describers.gpu_orc)"
-    return {"machine": machine, "owner": hold.owner, "reason": hold.reason, "since": hold.since, "state": state, "local": is_local}
+    return {"machine": machine, "owner": hold.owner, "reason": hold.reason, "since": hold.since, "state": state, "local": is_local,
+            "end_requested_by": hold.end_requested_by}
 
 
-def _still_held(client: GpuOrcClient, what: str, last_state: str | None) -> str | None:
-    """One look at the hold for ``what``: its state (``active`` or ``granted``) while the cards are held, ``None`` when
-    they are free or GPU-Orc does not answer (logged: the work goes on). ``last_state`` is what the previous look said
-    (``None``: it did not wait yet); the log line comes with the first look, the phase ``gpu_hold`` with every new state
-    (the page shows who holds, so it follows ``granted`` to ``active``). Blocking."""
+def _ask_holder_to_end(client: GpuOrcClient, hold: Hold, what: str) -> Hold | None:
+    """AIfred goes first on this machine's cards (Peuqui 22.11.2026: an alarm, an appointment, a message or a job of the
+    night must not wait for somebody's measurements): ask the owner of ``hold`` to end it, once (the request stays on the
+    hold). A requested hold is withdrawn at once (``None``: the cards are free); an active one stays until its owner lets
+    go, and is returned as GPU-Orc answered, with who asked. Not answered: the wait goes on with ``hold`` as it was and
+    asks again at the next look. Blocking."""
+    try:
+        answer = client.request_hold_end(hold.owner, f"AIfred: {what}")
+    except GpuOrcError as error:
+        log_message(f"⚠️ AIfred could not ask {hold.owner} to end its hold, {what} waits: {error}", "warning")
+        return hold
+    if answer is None:
+        log_message(f"🙋 The requested hold of {hold.owner} ({hold.reason}) is withdrawn for {what}")
+    return answer
+
+
+def _still_held(client: GpuOrcClient, what: str, last_seen: HoldSeen | None) -> HoldSeen | None:
+    """One look at the hold for ``what``: what it shows (``state`` ``active`` or ``granted`` and who asked its owner to
+    end it) while the cards are held, ``None`` when they are free or GPU-Orc does not answer (logged: the work goes on).
+    ``last_seen`` is what the previous look said (``None``: it did not wait yet); the log line comes with the first
+    look and once more when an end request appears, the phase ``gpu_hold`` with every change (the page shows who holds
+    and who asked for the end, so it follows ``granted`` to ``active`` and the request). Blocking."""
     try:
         hold = held(client)
     except GpuOrcError as error:
         log_message(f"⚠️ GPU-Orc did not say whether the cards are held, {what} goes on: {error}", "warning")
         return None
+    if hold is not None and hold.end_requested_by is None and client is get_gpu_orc_client():
+        hold = _ask_holder_to_end(client, hold, what)
     if hold is None:
-        if last_state is not None:
+        if last_seen is not None:
             log_message(f"▶️ The hold of the cards has ended, {what} goes on")
         return None
-    state = "granted" if hold.state == "requested" else "active"
-    if last_state is None:
-        granted = f"granted by {hold.granted_by}" if state == "granted" else "active"
+    seen = HoldSeen("granted" if hold.state == "requested" else "active", hold.end_requested_by)
+    if last_seen is None:
+        granted = f"granted by {hold.granted_by}" if seen.state == "granted" else "active"
         log_message(
             f"⏸️ The cards are held by {hold.owner} since {hold.since} ({hold.reason}, {granted}): "
             f"{what} waits until they are free", "warning",
         )
-    if state != last_state:
-        report_phase("gpu_hold", detail=_hold_detail(client, hold, state))
-    return state
+    if seen.end_requested_by is not None and (last_seen is None or last_seen.end_requested_by != seen.end_requested_by):
+        log_message(f"🙋 {seen.end_requested_by} asked {hold.owner} to end its hold, {what} waits until it lets go", "warning")
+    if seen != last_seen:
+        report_phase("gpu_hold", detail=_hold_detail(client, hold, seen.state))
+    return seen
 
 
 async def wait_until_free(client: GpuOrcClient | None, what: str) -> None:
@@ -155,16 +187,16 @@ async def wait_until_free(client: GpuOrcClient | None, what: str) -> None:
     if client is None:
         return
     token = object()
-    state: str | None = None
+    seen: HoldSeen | None = None
     try:
         # to_thread carries the context: the phase reaches the session's pages.
-        while (now := await asyncio.to_thread(_still_held, client, what, state)) is not None:
-            state = now
+        while (now := await asyncio.to_thread(_still_held, client, what, seen)) is not None:
+            seen = now
             _mark_waiting(token)
             await asyncio.sleep(GPU_ORC_HOLD_POLL_S)
     finally:
         _waiting.pop(token, None)
-        if state is not None:
+        if seen is not None:
             report_phase("")
 
 
@@ -174,15 +206,15 @@ def wait_until_free_blocking(client: GpuOrcClient | None, what: str) -> None:
     if client is None:
         return
     token = object()
-    state: str | None = None
+    seen: HoldSeen | None = None
     try:
-        while (now := _still_held(client, what, state)) is not None:
-            state = now
+        while (now := _still_held(client, what, seen)) is not None:
+            seen = now
             _mark_waiting(token)
             time.sleep(GPU_ORC_HOLD_POLL_S)
     finally:
         _waiting.pop(token, None)
-        if state is not None:
+        if seen is not None:
             report_phase("")
 
 
@@ -200,6 +232,7 @@ class LocalHoldStatus:
     since: str | None
     model: str | None
     granted_by: str | None
+    end_requested_by: str | None  # who asked the owner to end its active hold (the owner lets go itself); None if nobody
     error: str
     used_mib: int | None  # memory in use over every card, as GPU-Orc's /status reports it; None while it does not answer
     total_mib: int | None
@@ -216,21 +249,21 @@ def local_hold_status() -> LocalHoldStatus:
     machine = machine_name()
     client = get_gpu_orc_client()
     if client is None:
-        return LocalHoldStatus("off", machine, None, None, None, None, None, "", None, None)
+        return LocalHoldStatus("off", machine, None, None, None, None, None, None, "", None, None)
     try:
         light = client.traffic_light()
         cards = client.card_status()
     except GpuOrcError as error:
-        return LocalHoldStatus("unreachable", machine, None, None, None, None, None, str(error), None, None)
+        return LocalHoldStatus("unreachable", machine, None, None, None, None, None, None, str(error), None, None)
     used, total = sum(card.used_mib for card in cards), sum(card.total_mib for card in cards)
     hold = light.held or light.hold_requested
     if hold is None:
-        return LocalHoldStatus("free", machine, None, None, None, None, None, "", used, total)
+        return LocalHoldStatus("free", machine, None, None, None, None, None, None, "", used, total)
     if light.held is not None:
         state: Literal["requested", "granted", "active"] = "active"
     else:
         state = "granted" if hold.granted_by is not None else "requested"
-    return LocalHoldStatus(state, machine, hold.owner, hold.reason, hold.since, hold.model, hold.granted_by, "", used, total)
+    return LocalHoldStatus(state, machine, hold.owner, hold.reason, hold.since, hold.model, hold.granted_by, hold.end_requested_by, "", used, total)
 
 
 LOCAL_HOLD_KIND = "local_hold"

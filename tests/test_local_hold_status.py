@@ -97,23 +97,59 @@ def test_grant_of_another_owners_hold_is_a_conflict(orc: FakeGpuOrc, client: Tes
     assert answer.status_code == 409
 
 
-def test_end_hold_releases_the_hold_of_the_owner_shown(orc: FakeGpuOrc, client: TestClient) -> None:
+def test_end_hold_asks_the_owner_with_the_logged_in_user_and_does_not_release(orc: FakeGpuOrc, client: TestClient) -> None:
     orc.held = dict(HOLD)
     answer = client.post("/service-status/end-hold", json={"owner": "vllm-research"})
     assert answer.status_code == 200
-    assert orc.released_owners == ["vllm-research"] and orc.forced_releases == []
-    assert answer.json()["state"] == "free"
+    assert orc.end_requests == [{"owner": "vllm-research", "by": "ki"}]
+    assert orc.released_owners == []  # the hold stays until its owner lets go
+    assert (answer.json()["state"], answer.json()["end_requested_by"]) == ("active", "ki")
 
 
-def test_end_hold_never_ends_the_hold_of_somebody_else(orc: FakeGpuOrc, client: TestClient) -> None:
-    # Between showing the page and the click another program took the cards: the button must not end its hold
-    # (with force GPU-Orc ends any hold, whoever is named).
+def test_end_hold_withdraws_a_requested_hold_at_once(orc: FakeGpuOrc, client: TestClient) -> None:
+    orc.hold_requested = dict(HOLD)
+    answer = client.post("/service-status/end-hold", json={"owner": "vllm-research"})
+    assert (answer.status_code, answer.json()["state"]) == (200, "free")
+
+
+def test_end_hold_never_touches_the_hold_of_somebody_else(orc: FakeGpuOrc, client: TestClient) -> None:
+    # Between showing the page and the click another program took the cards: its hold must stay.
     orc.held = {**HOLD, "owner": "agent-orc"}
     answer = client.post("/service-status/end-hold", json={"owner": "vllm-research"})
     assert answer.status_code == 409
-    assert orc.held is not None and orc.held["owner"] == "agent-orc"
+    assert orc.held is not None and orc.held["owner"] == "agent-orc" and orc.held.get("end_requested_by") is None
 
 
 def test_end_hold_with_gpu_orc_off_is_a_conflict(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(gpu_orc_client, "GPU_ORC_URL", "")
     assert client.post("/service-status/end-hold", json={"owner": "x"}).status_code == 409
+
+
+def test_release_hold_releases_the_hold_of_the_owner_shown_without_force(orc: FakeGpuOrc, client: TestClient) -> None:
+    orc.held = {**HOLD, "end_requested_by": "ki"}
+    answer = client.post("/service-status/release-hold", json={"owner": "vllm-research"})
+    assert answer.status_code == 200
+    assert orc.released_owners == ["vllm-research"] and orc.forced_releases == [] and orc.end_requests == []
+    assert answer.json()["state"] == "free"
+
+
+def test_release_hold_never_ends_the_hold_of_somebody_else(orc: FakeGpuOrc, client: TestClient) -> None:
+    # With force GPU-Orc ends any hold, whoever is named.
+    orc.held = {**HOLD, "owner": "agent-orc"}
+    answer = client.post("/service-status/release-hold", json={"owner": "vllm-research"})
+    assert answer.status_code == 409
+    assert orc.held is not None and orc.held["owner"] == "agent-orc"
+
+
+def test_release_hold_with_gpu_orc_off_is_a_conflict(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(gpu_orc_client, "GPU_ORC_URL", "")
+    assert client.post("/service-status/release-hold", json={"owner": "x"}).status_code == 409
+
+
+def test_local_hold_status_carries_who_asked_for_the_end(orc: FakeGpuOrc) -> None:
+    orc.held = {**HOLD, "end_requested_by": "ki"}
+    assert local_hold_status().end_requested_by == "ki"
+    orc.held = dict(HOLD)
+    assert local_hold_status().end_requested_by is None
+    orc.held = None
+    assert local_hold_status().end_requested_by is None

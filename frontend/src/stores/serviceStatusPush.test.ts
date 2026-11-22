@@ -30,7 +30,7 @@ test("a pushed local_hold event replaces the hold the status line shows", async 
   await useChat().open("s1");
   const status: LocalHoldStatus = {
     state: "active", machine: "mini", owner: "vllm-research", reason: "v13", since: "2026-11-22T08:00:00+01:00",
-    model: null, granted_by: null, error: "", used_mib: 100, total_mib: 200,
+    model: null, granted_by: null, end_requested_by: null, error: "", used_mib: 100, total_mib: 200,
   };
   followed[0]?.handle("local_hold", { ...status });
   expect(useServiceStatus().localHold).toEqual(status);

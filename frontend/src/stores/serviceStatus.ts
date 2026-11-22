@@ -10,6 +10,8 @@ import type { Action } from "../lib/serviceStatus";
 
 // What the server answered to a click (a refusal, an error) stays under the list this long.
 const NOTICE_MS = 10000;
+// The endpoints of the local hold's two ways to end it: ask the owner, or end it at once.
+const LOCAL_PATHS: Partial<Record<Action["verb"], string>> = { end: "end-hold", release_now: "release-hold" };
 
 export const useServiceStatus = defineStore("serviceStatus", () => {
   const snapshot = ref<ServiceSnapshot | null>(null);
@@ -64,12 +66,12 @@ export const useServiceStatus = defineStore("serviceStatus", () => {
   // A load answers at once and goes on in the background; the line follows over the push.
   async function act(action: Action): Promise<void> {
     const hold = action.verb === "hold" || action.verb === "release";
-    const local = action.verb === "grant" || action.verb === "end";
+    const local = action.verb === "grant" || action.verb === "end" || action.verb === "release_now";
     const body = hold
       ? { host: action.item, hold: action.verb === "hold" }
       : local ? { owner: action.item }
       : action.verb === "load" ? { service: action.service } : { service: action.service, item: action.item };
-    const path = hold ? "hold" : action.verb === "end" ? "end-hold" : action.verb;
+    const path = hold ? "hold" : LOCAL_PATHS[action.verb] ?? action.verb;
     acting.value = true;
     try {
       await api(`service-status/${path}`, { method: "POST", body: JSON.stringify(body) });
@@ -82,13 +84,20 @@ export const useServiceStatus = defineStore("serviceStatus", () => {
     }
   }
 
-  // Ending a hold takes work away from somebody: ask first, with who holds the cards and why. The one place for the
-  // status line and the waiting turn.
+  // Asking the holder to end its hold (a requested one is withdrawn at once): ask first, with who holds the cards and
+  // why. The one place for the status line, the banner and the waiting turn.
   async function endHold(owner: string, reason: string): Promise<void> {
     if (window.confirm(t("service_status_local_end_confirm", { owner, reason }))) {
       await act({ verb: "end", service: "host", item: owner });
     }
   }
 
-  return { snapshot, receivedAt, hosts, localHold, notice, acting, receive, fetch, act, endHold, receiveLocalHold };
+  // Ending the hold at once takes the work of its owner away: a stronger question.
+  async function releaseHoldNow(owner: string): Promise<void> {
+    if (window.confirm(t("service_status_local_release_now_confirm", { owner }))) {
+      await act({ verb: "release_now", service: "host", item: owner });
+    }
+  }
+
+  return { snapshot, receivedAt, hosts, localHold, notice, acting, receive, fetch, act, endHold, releaseHoldNow, receiveLocalHold };
 });

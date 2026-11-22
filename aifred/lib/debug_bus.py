@@ -90,7 +90,7 @@ def show_in_session(msg: str) -> None:
 
 
 def report_phase(
-    phase: str, *, current: int = 0, total: int = 0, failed: int = 0, detail: dict[str, str | bool] | None = None,
+    phase: str, *, current: int = 0, total: int = 0, failed: int = 0, detail: dict[str, str | bool | None] | None = None,
 ) -> None:
     """Tell the pages of the current session what the turn is doing: ``intent`` (the Automatik call),
     ``images`` (their description), ``compress`` (the history), ``model_wait`` (another turn's models run),

@@ -78,6 +78,35 @@ verbunden ist, und schiebt jede Änderung sofort als Art `local_hold` an alle ve
 letzte Stand bleibt in der Warteschlange). Ohne Seite fragt der Server GPU-Orc nicht. Die Seite behält
 `GET /api/service-status/local-hold` beim Öffnen, im 30-s-Takt und nach ihren Knöpfen.
 
+## Hold beenden: Ende anfordern oder sofort freigeben
+
+Zwei Wege, einen fremden Hold auf den Karten dieses Rechners zu beenden (beide nur für die Karten dieses Rechners,
+beide fragen vorher nach):
+
+- **Ende anfordern** (`POST /api/service-status/end-hold`, GPU-Orc `POST /hold/end`): Ein angefragter Hold, auf dem
+  noch nichts liegt, wird sofort zurückgezogen. Ein aktiver Hold bleibt, die Karten bleiben gesperrt, und er trägt
+  `end_requested_by` (die angemeldete Person), bis sein Halter selbst loslässt. Die Zeile zeigt „Ende angefordert von …“,
+  der Knopf ist ausgegraut, mit dem Grund „wartet, bis {Halter} aufhört“ als Text daneben.
+- **Sofort freigeben** (`POST /api/service-status/release-hold`, GPU-Orc `DELETE /hold` ohne Force): beendet den Hold
+  auf der Stelle, für einen Halter, der auf die Anforderung nicht mehr reagiert; seine laufende Arbeit kann dabei
+  abbrechen. Der Knopf ist erst nach einer Anforderung frei, sonst ausgegraut mit „erst Ende anfordern“.
+
+Der wartende Zug (Phase `gpu_hold`, Detail `end_requested_by`) zeigt dieselbe Anforderung samt beiden Knöpfen und
+meldet die Phase neu, sobald sie hinzukommt.
+
+**AIfred hat Vorrang** (Peuqui 22.11.2026): Wartet ein Zug auf die Karten dieses Rechners, fordert AIfred das Ende
+selbst an, einmal, mit `by` = „AIfred: <was wartet>“ (`gpu_hold._ask_holder_to_end`). Das gilt für jeden Auslöser:
+Browser, Kanal (Telegram, Mail …), geplanter Auftrag, Ansage. Ein angefragter oder überlassener Hold verschwindet
+damit sofort, und der Zug läuft weiter. Bei einem aktiven Hold wartet der Zug sichtbar, bis der Halter losgelassen hat
+(vllm-research fragt zwischen seinen Schritten nach, der Wächter von Agent-Orc weckt eine haltende Sitzung). Gegen das
+Pingpong sorgt GPU-Orc: Nach einem so beendeten Hold wird ein neuer erst aktiv, wenn AIfreds Modell geladen ist, oder
+nach einer Frist. Danach wartet ein neuer Hold, bis llama-swap das Modell nach seiner TTL entlädt; eine eigene Ruhezeit
+hat AIfred nicht. Holds anderer Rechner (Aragon: meist Peuqui selbst) fordert AIfred nicht ab, dort wartet der Zug nur.
+Arbeit außerhalb eines Zuges (Kamera-Wächter, Vorwärmen, llama-swap-Start, Kalibrierung) lehnt unter einem Hold
+weiter ab, statt das Ende anzufordern: Sonst käme der Halter nie zum Zug. Hält AIfred selbst die Karten eines anderen Rechners (Statusleisten-Hold,
+`GPU_ORC_STATUSBAR_HOLD_OWNER`) und bittet jemand dort um das Ende, steht in dessen Zeile „– Ende angefordert von …“
+(`HostStatus.hold_end_requested_by`). AIfred lässt nie von selbst los: die Person entscheidet mit dem Knopf der Zeile.
+
 Das Plugin `system_monitor` liest dieselbe SSOT (`system_status` mit `model`, `stt`, `tts`), es
 pusht nichts. Den einen `/running`-Zugriff (`running_models`) nutzen auch
 `tts_llm_coordination`, `backends/base.py` und der Chat-Mixin.

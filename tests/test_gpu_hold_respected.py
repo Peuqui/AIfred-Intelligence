@@ -98,20 +98,48 @@ def test_a_gpu_orc_that_does_not_answer_lets_the_request_go_on_and_says_so(
     assert any("did not say whether the cards are held" in line for line in seen["log"])
 
 
-def test_a_requested_hold_a_person_granted_makes_the_request_wait(
+def test_a_requested_hold_a_person_granted_is_withdrawn_and_the_request_goes_on(
     orc: FakeGpuOrc, seen: dict[str, list[Any]], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Granted: GPU-Orc clears the cards as soon as no work of others runs, a model loaded now would be cleared again.
+    # Granted, GPU-Orc would clear the cards; AIfred goes first and asks for the end, which withdraws a requested hold.
     orc.hold_requested = {**HOLD, "owner": "vllm-research", "granted_by": "Peuqui"}
 
     async def sleep(seconds: float) -> None:
-        seen["sleeps"].append(seconds)
-        orc.hold_requested = None
+        raise AssertionError("the request waited for a hold that was withdrawn")
 
     monkeypatch.setattr(base.asyncio, "sleep", sleep)
     asyncio.run(_backend()._wait_while_held(MODEL))
-    assert len(seen["sleeps"]) == 1 and seen["phases"] == ["gpu_hold", ""]
-    assert any("vllm-research" in line and "granted by Peuqui" in line for line in seen["log"])
+    assert orc.end_requests == [{"owner": "vllm-research", "by": f"AIfred: '{MODEL}'"}]
+    assert orc.hold_requested is None and seen["phases"] == []
+    assert any("withdrawn" in line and "vllm-research" in line for line in seen["log"])
+
+
+def test_an_active_hold_on_this_machine_is_asked_to_end_once_and_the_request_waits_for_it(
+    orc: FakeGpuOrc, seen: dict[str, list[Any]], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AIfred goes first (Peuqui 22.11.2026): whatever started the turn, it asks the holder to let go and waits until
+    it has; the request stays on the hold, so it is made once."""
+    orc.held = {**HOLD, "owner": "vllm-research"}
+    _release_after(orc, seen, 3, monkeypatch)
+    asyncio.run(_backend()._wait_while_held(MODEL))
+    assert orc.end_requests == [{"owner": "vllm-research", "by": f"AIfred: '{MODEL}'"}]
+    assert len(seen["sleeps"]) == 3                                   # it waited until the owner let go
+    assert orc.released_owners == []                                  # AIfred never ends the hold itself
+
+
+def test_a_hold_of_another_machine_is_only_waited_for(monkeypatch: pytest.MonkeyPatch) -> None:
+    # On Aragon the hold is mostly Peuqui's own (a game): AIfred does not ask for its end.
+    aragon = FakeGpuOrc()
+    aragon.held = {**HOLD, "owner": "somebody"}
+    client = gpu_orc_client.GpuOrcClient(aragon.serve(), machine="Aragon")
+
+    async def sleep(_seconds: float) -> None:
+        aragon.held = None
+
+    monkeypatch.setattr(gpu_hold.asyncio, "sleep", sleep)
+    monkeypatch.setattr(gpu_hold, "report_phase", lambda *_a, **_k: None)
+    asyncio.run(gpu_hold.wait_until_free(client, "a test"))
+    assert aragon.end_requests == []
 
 
 def test_a_requested_hold_nobody_granted_holds_nothing_back(
@@ -138,26 +166,17 @@ def _phases_with_detail(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, Any]
     return reported
 
 
-def test_the_phase_names_the_machine_the_holder_and_the_state_and_follows_a_change(
+def test_the_phase_names_the_machine_the_holder_and_who_asked_for_the_end(
     orc: FakeGpuOrc, seen: dict[str, list[Any]], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     reported = _phases_with_detail(monkeypatch)
-    orc.hold_requested = {**HOLD, "owner": "vllm-research", "granted_by": "Peuqui"}
-
-    async def sleep(_seconds: float) -> None:
-        seen["sleeps"].append(_seconds)
-        if len(seen["sleeps"]) == 1:          # GPU-Orc cleared: the granted hold became active
-            orc.hold_requested, orc.held = None, {**HOLD, "owner": "vllm-research"}
-        else:
-            orc.held = None
-
-    monkeypatch.setattr(base.asyncio, "sleep", sleep)
+    orc.held = {**HOLD, "owner": "vllm-research"}
+    _release_after(orc, seen, 2, monkeypatch)
     asyncio.run(_backend()._wait_while_held(MODEL))
-    common = {"machine": "Mini", "owner": "vllm-research", "reason": HOLD["reason"], "since": HOLD["since"], "local": True}
     assert reported == [
-        ("gpu_hold", {**common, "state": "granted"}),
-        ("gpu_hold", {**common, "state": "active"}),
-        ("", None),
+        ("gpu_hold", {"machine": "Mini", "owner": "vllm-research", "reason": HOLD["reason"], "since": HOLD["since"],
+                      "local": True, "state": "active", "end_requested_by": f"AIfred: '{MODEL}'"}),
+        ("", None),                                                   # one report: nothing changed in between
     ]
 
 
@@ -176,3 +195,29 @@ def test_a_hold_on_another_machine_is_named_by_that_machine_and_not_local(
     asyncio.run(gpu_hold.wait_until_free(client, "a test"))
     detail = reported[0][1]
     assert detail["machine"] == "Aragon" and detail["local"] is False and detail["state"] == "active"
+
+
+def test_the_phase_is_reported_again_when_an_end_is_requested(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The waiting turn shows who asked the holder to end its hold: the phase comes again when the request appears
+    (on another machine, where AIfred only waits, a person asks there)."""
+    reported = _phases_with_detail(monkeypatch)
+    aragon = FakeGpuOrc()
+    aragon.held = {**HOLD, "owner": "vllm-research"}
+    client = gpu_orc_client.GpuOrcClient(aragon.serve(), machine="Aragon")
+    polls = 0
+
+    async def sleep(_seconds: float) -> None:
+        nonlocal polls
+        polls += 1
+        if polls == 1:
+            aragon.held = {**HOLD, "owner": "vllm-research", "end_requested_by": "ki"}  # the second look sees the request
+        elif polls == 2:
+            pass  # a third look, nothing new: no new report
+        else:
+            aragon.held = None
+
+    monkeypatch.setattr(gpu_hold.asyncio, "sleep", sleep)
+    asyncio.run(gpu_hold.wait_until_free(client, "a test"))
+    assert [(phase, detail and detail["end_requested_by"]) for phase, detail in reported] == [
+        ("gpu_hold", None), ("gpu_hold", "ki"), ("", None),
+    ]

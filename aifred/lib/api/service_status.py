@@ -116,12 +116,23 @@ async def service_status_grant(request: LocalHoldRequest, http: Request) -> Loca
 
 @api_app.post("/service-status/end-hold", response_model=LocalHoldStatus, tags=["System"])
 async def service_status_end_hold(request: LocalHoldRequest, http: Request) -> LocalHoldStatus:
-    """The logged-in person ends the hold of ``owner`` (the owner does not have to let go). Without force: GPU-Orc
-    ends only the hold of ``owner`` and refuses (409) when somebody else holds the cards by now; force would end
-    whatever hold there is, also one taken between showing the page and the click."""
+    """The logged-in person asks ``owner`` to end its hold. A requested hold is withdrawn at once; an active hold stays,
+    the cards stay locked, and it carries who asked (``end_requested_by``) until its owner lets go itself."""
     user = current_user(http)
-    status = await _change_local_hold(request, "ending", lambda client: client.release_hold(request.owner))
-    log_message(f"⛔ Status line: {user} ended the hold of {request.owner} on the cards", "warning")
+    status = await _change_local_hold(request, "ending", lambda client: client.request_hold_end(request.owner, user))
+    log_message(f"🙋 Status line: {user} asked {request.owner} to end its hold on the cards")
+    return status
+
+
+@api_app.post("/service-status/release-hold", response_model=LocalHoldStatus, tags=["System"])
+async def service_status_release_hold(request: LocalHoldRequest, http: Request) -> LocalHoldStatus:
+    """The logged-in person ends the hold of ``owner`` at once, for a holder that no longer reacts to the end request
+    (:func:`service_status_end_hold`). Without force: GPU-Orc ends only the hold of ``owner`` and refuses (409) when
+    somebody else holds the cards by now; force would end whatever hold there is, also one taken between showing the
+    page and the click."""
+    user = current_user(http)
+    status = await _change_local_hold(request, "releasing", lambda client: client.release_hold(request.owner))
+    log_message(f"⛔ Status line: {user} released the hold of {request.owner} at once", "warning")
     return status
 
 

@@ -14,7 +14,7 @@ const { default: GpuHoldBanner } = await import("./GpuHoldBanner.vue");
 const { useServiceStatus } = await import("../stores/serviceStatus");
 
 const hold = (state: LocalHoldStatus["state"]): LocalHoldStatus => ({
-  state, machine: "Mini", owner: "vllm-research", reason: "v13", since: null, model: null, granted_by: null, error: "", used_mib: null, total_mib: null,
+  state, machine: "Mini", owner: "vllm-research", reason: "v13", since: null, model: null, granted_by: null, end_requested_by: null, error: "", used_mib: null, total_mib: null,
 });
 
 beforeEach(() => {

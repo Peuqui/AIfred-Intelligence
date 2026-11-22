@@ -445,6 +445,15 @@ def test_the_status_bar_shows_a_requested_hold_too(box):
     assert (row.held, row.hold_state, row.hold_owner, row.hold_is_ours) == ("gaming", "requested", "game", False)
 
 
+def test_the_status_bar_shows_who_asked_the_holder_to_end_its_hold(box):
+    box["gpu_orc"].held = {"since": "2026-11-05T09:00:00+01:00", "reason": "gaming", "owner": "vllm-research"}
+    [row] = remote_describers.host_status()
+    assert row.hold_end_requested_by is None
+    box["gpu_orc"].held["end_requested_by"] = "ki"
+    [row] = remote_describers.host_status()
+    assert row.hold_end_requested_by == "ki"
+
+
 def test_the_status_bars_own_hold_is_its_to_release(box):
     remote_describers.set_hold("Box", True, "held from AIfred's status bar")
     [row] = remote_describers.host_status()

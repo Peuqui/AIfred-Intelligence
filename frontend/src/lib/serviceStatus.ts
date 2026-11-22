@@ -11,7 +11,7 @@ export type Color = "green" | "yellow" | "amber" | "grey" | "red";
 export const SERVICES: readonly Service[] = ["llm", "describer", "stt", "tts"];
 
 export interface Action {
-  verb: "load" | "unload" | "hold" | "release" | "grant" | "end";
+  verb: "load" | "unload" | "hold" | "release" | "grant" | "end" | "release_now";
   service: Service | "host";
   item: string;
   blocked?: string; // why the button cannot act (greyed out with this as its title), e.g. another owner's hold
@@ -38,6 +38,7 @@ export interface Labels {
   hostRequested: string; // the hold is asked for, work still runs on the cards
   hostHeldByOther: string; // "held by {owner}; only the owner can release it"
   hostUsed: string; // "{used} of {total} MiB in use"
+  hostEndRequested: string; // "end requested by {by}": somebody asked the holder of the machine's cards to let go
 }
 
 export function serviceRows(snapshot: ServiceSnapshot, labels: Labels): Record<Service, Row[]> {
@@ -106,7 +107,8 @@ export function hostRows(hosts: HostStatus[], labels: Labels): (Row & { label: s
     const text = labels.hostUsed.replace("{used}", mib(host.used_mib)).replace("{total}", mib(host.total_mib));
     // Who holds the cards is a line of its own, always visible: a phone has no hover for the title.
     const holdLine = host.held
-      ? `${labels.hostHeld.replace("{owner}", host.hold_owner ?? "")}${host.hold_state === "requested" ? ` (${labels.hostRequested})` : ""}: ${host.held}`
+      ? `${labels.hostHeld.replace("{owner}", host.hold_owner ?? "")}${host.hold_state === "requested" ? ` (${labels.hostRequested})` : ""}: ${host.held}${
+        host.hold_end_requested_by ? ` – ${labels.hostEndRequested.replace("{by}", host.hold_end_requested_by)}` : ""}`
       : null;
     const lines = [...(holdLine ? [holdLine] : []), ...host.holders.map((holder) => `${holder.consumer}: ${holder.item}`)];
     return {
@@ -140,7 +142,9 @@ export interface LocalHoldLabels {
   off: string;
   unreachable: string; // "GPU-Orc does not answer: {error}"
   notRequested: string; // title of "grant" while greyed out
-  noHold: string; // title of "end" while greyed out
+  noHold: string; // title of "end" and "release now" while no hold exists
+  endWaiting: string; // "end requested by {by}, waits until {owner} stops": the reason "end" is greyed out
+  releaseNeedsRequest: string; // "request the end first": the reason "release now" is greyed out
 }
 
 export interface LocalHoldRow {
@@ -151,7 +155,9 @@ export interface LocalHoldRow {
   title: string; // always visible: the state in words, also the reason the buttons are greyed out
   detail: string | null; // under the title: the reason, the model that waits, since when
   grant: Action; // enabled only while a hold is requested and nobody granted it
-  end: Action; // enabled only while the hold is requested, granted or active
+  end: Action; // "request end": enabled while the hold is requested, granted or active, until the end is requested of an active one
+  release: Action; // "release now": enabled only once the end of an active hold is requested (for a holder that does not react)
+  notes: string[]; // the reasons the buttons are greyed out, as text in the card (a phone has no hover)
 }
 
 // Hour and minute of an ISO time in the page's language.
@@ -186,6 +192,12 @@ export function localHoldRow(status: LocalHoldStatus, labels: LocalHoldLabels): 
     active: ["amber", fill(labels.active), detail],
   };
   const [color, title, shownDetail] = states[status.state];
+  // A requested or granted hold is withdrawn at once by the request (nothing is on the cards yet); an active one stays
+  // until its owner lets go, and only then does a person who sees it does not react release it by force.
+  const endRequested = status.state === "active" && status.end_requested_by !== null;
+  const endBlocked = !HELD_STATES.has(status.state) ? labels.noHold
+    : endRequested ? labels.endWaiting.replace("{by}", status.end_requested_by ?? "").replace("{owner}", owner) : undefined;
+  const releaseBlocked = !HELD_STATES.has(status.state) ? labels.noHold : endRequested ? undefined : labels.releaseNeedsRequest;
   return {
     label: status.machine,
     color,
@@ -194,8 +206,9 @@ export function localHoldRow(status: LocalHoldStatus, labels: LocalHoldLabels): 
     title,
     detail: shownDetail,
     grant: { verb: "grant", service: "host", item: owner, ...(status.state === "requested" ? {} : { blocked: labels.notRequested }) },
-    // Ending works on every hold, also a requested one: the way out of a request whose asker has crashed.
-    end: { verb: "end", service: "host", item: owner, ...(HELD_STATES.has(status.state) ? {} : { blocked: labels.noHold }) },
+    end: { verb: "end", service: "host", item: owner, ...(endBlocked !== undefined ? { blocked: endBlocked } : {}) },
+    release: { verb: "release_now", service: "host", item: owner, ...(releaseBlocked !== undefined ? { blocked: releaseBlocked } : {}) },
+    notes: HELD_STATES.has(status.state) ? [endBlocked, releaseBlocked].filter((note) => note !== undefined) : [],
   };
 }
 

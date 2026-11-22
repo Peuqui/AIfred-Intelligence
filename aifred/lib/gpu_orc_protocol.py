@@ -2,7 +2,8 @@
 
 This file is copied to the programs that call GPU-Orc by GPU-Orc/scripts/sync_clients.py.
 Edit it only in GPU-Orc/clients/python/, never in a copy. Async callers wrap the calls in
-``asyncio.to_thread``.
+``asyncio.to_thread``. Shell scripts that hold the cards run it as a command:
+``python3 gpu_orc_client.py --url http://localhost:5070 hold-continues <owner>`` (see ``main``).
 
 The client knows the protocol and nothing else: it has no "off" state (a caller that runs without
 GPU-Orc does not create a client) and it decides nothing about what a problem means for the caller.
@@ -10,14 +11,17 @@ GPU-Orc does not create a client) and it decides nothing about what a problem me
 
 from __future__ import annotations
 
+import argparse
 import http.client
 import json
+import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 QUICK_TIMEOUT_S = 5  # GPU-Orc answers /health, /work and /hold at once
@@ -29,6 +33,10 @@ LOADING_TIMEOUT_S = QUICK_TIMEOUT_S
 STATUS_TIMEOUT_S = 25
 # Outcomes after which the cards are as the caller wanted them; any other outcome is a problem.
 FINE_OUTCOMES = frozenset({"released", "released_forced", "kept"})
+# Exit codes of the command hold-continues: the owner's hold goes on, the owner is to stop (the end
+# is requested, or the hold is gone or another owner's), or GPU-Orc could not be asked (also a
+# wrong call), which says nothing about the hold.
+EXIT_CONTINUE, EXIT_STOP, EXIT_NOT_ASKED = 0, 1, 2
 
 
 class GpuOrcError(RuntimeError):
@@ -76,6 +84,7 @@ class Hold:
     state: str
     free: FreeResult | None  # how clearing the cards ended; None while requested
     granted_by: str | None  # who granted the requested hold by hand (grant_hold); None if nobody
+    end_requested_by: str | None  # who asked the owner to end the active hold; None if nobody
 
     def problems(self) -> list[str]:
         """What is wrong with an active hold's clearing (see FreeResult.problems)."""
@@ -163,6 +172,17 @@ class GpuOrc:
         except (KeyError, TypeError) as error:
             raise GpuOrcError(f"GPU-Orc /hold/grant has an unknown form: {error!r}") from error
 
+    def request_hold_end(self, owner: str, by: str) -> Hold | None:
+        """``by`` (a person) asks ``owner`` to end its hold. A requested hold has nothing on the
+        cards and is withdrawn at once (None); an active hold stays, marked ``end_requested_by``,
+        and is returned. GPU-Orc tells nobody: the owner asks ``hold_continues`` between its steps.
+        No hold (HTTP 404) or the hold of another owner (HTTP 409) raises GpuOrcError."""
+        answer = self._call("POST", "/hold/end", QUICK_TIMEOUT_S, {"owner": owner, "by": by})
+        try:
+            return _hold(answer["hold"])
+        except (KeyError, TypeError) as error:
+            raise GpuOrcError(f"GPU-Orc /hold/end has an unknown form: {error!r}") from error
+
     def hold_and_wait(
         self,
         owner: str,
@@ -199,6 +219,16 @@ class GpuOrc:
         if hold.problems():
             raise GpuOrcError(f"the hold of {owner!r} is active, but: {'; '.join(hold.problems())}")
         return hold
+
+    def hold_continues(self, owner: str) -> bool:
+        """Whether ``owner`` goes on with its hold (requested or active): it is its own and nobody
+        asked for the end. Whoever holds the cards for long asks this between its steps. On False
+        it stops its work cleanly, clears its cards and, when the end was requested, lets go of the
+        hold with ``release_hold``; otherwise the hold is gone or another owner's already.
+        GpuOrcError when GPU-Orc cannot be asked: that says nothing about the hold."""
+        light = self.loading()
+        hold = light.held or light.hold_requested
+        return hold is not None and hold.owner == owner and hold.end_requested_by is None
 
     def release_hold(self, owner: str, force: bool = False) -> None:
         """``owner`` lets go of its hold (active or requested). ``force`` lets go of the hold of
@@ -276,6 +306,7 @@ def _hold(hold: Any) -> Hold | None:
         str(hold["state"]),
         None if hold["free"] is None else _free_result(hold["free"], "hold"),
         hold["granted_by"],
+        hold["end_requested_by"],
     )
 
 
@@ -297,3 +328,36 @@ def _free_result(answer: Any, path: str) -> FreeResult:
         )
     except (KeyError, TypeError) as error:
         raise GpuOrcError(f"GPU-Orc {path} has an unknown form: {error!r}") from error
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """The client as a command, for shell scripts. ``hold-continues OWNER`` exits EXIT_CONTINUE,
+    EXIT_STOP or EXIT_NOT_ASKED (the error on stderr)."""
+    parser = argparse.ArgumentParser(
+        prog="gpu_orc_client.py", description="GPU-Orc from the shell."
+    )
+    parser.add_argument("--url", required=True, help="GPU-Orc of one machine")
+    parser.add_argument(
+        "--token-file", type=Path, help="file with the token, for a GPU-Orc on another machine"
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+    continues = commands.add_parser(
+        "hold-continues",
+        help=f"exit {EXIT_CONTINUE} while the hold (requested or active) is OWNER's and nobody "
+        f"asked for its end, {EXIT_STOP} when OWNER is to stop (end requested, or the hold is "
+        f"gone), {EXIT_NOT_ASKED} when GPU-Orc cannot be asked",
+    )
+    continues.add_argument("owner")
+    # A wrong call exits 2 in argparse, which is EXIT_NOT_ASKED.
+    arguments = parser.parse_args(argv)
+    try:
+        token = None if arguments.token_file is None else arguments.token_file.read_text().strip()
+        goes_on = GpuOrc(arguments.url, token).hold_continues(arguments.owner)
+    except (GpuOrcError, OSError) as error:
+        print(error, file=sys.stderr)
+        return EXIT_NOT_ASKED
+    return EXIT_CONTINUE if goes_on else EXIT_STOP
+
+
+if __name__ == "__main__":
+    sys.exit(main())

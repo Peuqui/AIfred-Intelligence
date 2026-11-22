@@ -77,6 +77,33 @@ connected and pushes every change at once as kind `local_hold` to all connected 
 state stays in the queue). Without a page the server does not ask GPU-Orc. The page keeps
 `GET /api/service-status/local-hold` on opening, every 30 s and after its buttons.
 
+## Ending a hold: request the end or release now
+
+Two ways to end somebody else's hold on this machine's cards (both only for this machine's cards, both ask first):
+
+- **Request end** (`POST /api/service-status/end-hold`, GPU-Orc `POST /hold/end`): a requested hold with nothing on
+  the cards is withdrawn at once. An active hold stays, the cards stay locked, and it carries `end_requested_by` (the
+  logged-in person) until its owner lets go itself. The row shows "End requested by ...", the button is greyed out,
+  with the reason "waits until {owner} stops" as text beside it.
+- **Release now** (`POST /api/service-status/release-hold`, GPU-Orc `DELETE /hold` without force): ends the hold on
+  the spot, for a holder that no longer reacts to the request; its running work may be cut off. The button is free
+  only after a request, else greyed out with "request the end first".
+
+The waiting turn (phase `gpu_hold`, detail `end_requested_by`) shows the same request with both buttons and reports
+the phase again when it appears.
+
+**AIfred goes first** (Peuqui 22.11.2026): when a turn waits for this machine's cards, AIfred asks for the end
+itself, once, with `by` = "AIfred: <what waits>" (`gpu_hold._ask_holder_to_end`). That holds for every trigger: page,
+channel (Telegram, mail ...), scheduled job, announcement. A requested or granted hold is gone at once and the turn goes
+on. For an active hold the turn waits visibly until the holder has let go (vllm-research asks between its steps,
+Agent-Orc's watcher wakes a holding session). GPU-Orc prevents a ping-pong: after a hold ended this way a new one turns
+active only once AIfred's model is loaded, or after a time limit. From then on a new hold waits until llama-swap unloads
+the model after its TTL; AIfred has no idle time of its own. Holds of other machines (on Aragon mostly Peuqui's own)
+are not asked to end, there the turn only waits. Work outside a turn (camera watcher, prewarming, starting llama-swap,
+calibration) still refuses under a hold instead of asking for its end: otherwise the holder would never get a turn. When AIfred itself holds the cards of another machine (status line hold,
+`GPU_ORC_STATUSBAR_HOLD_OWNER`) and somebody there asks for the end, that row shows "– End requested by ..."
+(`HostStatus.hold_end_requested_by`). AIfred never lets go by itself: the person decides with the row's button.
+
 The `system_monitor` plugin reads the same SSOT (`system_status` with `model`, `stt`, `tts`); it
 pushes nothing. The one `/running` access (`running_models`) is also used by
 `tts_llm_coordination`, `backends/base.py` and the chat mixin.

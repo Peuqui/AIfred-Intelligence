@@ -322,6 +322,7 @@ class HostStatus:
     held: str | None  # the reason somebody holds the cards (requested or active), None = free
     hold_state: str | None  # "requested" (work still runs, nothing cleared yet) | "active", None = free
     hold_owner: str | None  # who holds them (only the owner lets go, so the status bar says who it is), None = free
+    hold_end_requested_by: str | None  # who asked the holder to end its hold (it lets go itself); None otherwise
     hold_is_ours: bool  # the hold is the status bar's own (GPU_ORC_STATUSBAR_HOLD_OWNER): only then may it let go
     used_mib: int
     total_mib: int
@@ -335,19 +336,19 @@ def host_status() -> list[HostStatus]:
     for host in remote_hosts():
         if not reachable(host):
             # No second line: the status bar says "not reachable" itself, in the page's language.
-            rows.append(HostStatus(host.name, False, None, None, None, False, 0, 0, [], ""))
+            rows.append(HostStatus(host.name, False, None, None, None, None, False, 0, 0, [], ""))
             continue
         try:
             client = gpu_orc(host)
             light = client.traffic_light()
             cards = client.card_status()
         except GpuOrcError as error:
-            rows.append(HostStatus(host.name, False, None, None, None, False, 0, 0, [], t("service_status_gpu_orc_unreachable", error=error)))
+            rows.append(HostStatus(host.name, False, None, None, None, None, False, 0, 0, [], t("service_status_gpu_orc_unreachable", error=error)))
             continue
         hold = light.held or light.hold_requested
         rows.append(HostStatus(
             host.name, True, hold.reason if hold else None, hold.state if hold else None, hold.owner if hold else None,
-            hold is not None and hold.owner == GPU_ORC_STATUSBAR_HOLD_OWNER,
+            hold.end_requested_by if hold else None, hold is not None and hold.owner == GPU_ORC_STATUSBAR_HOLD_OWNER,
             sum(c.used_mib for c in cards), sum(c.total_mib for c in cards),
             sorted({HostHolder(h.consumer, h.item) for c in cards for h in c.holders}, key=lambda h: (h.consumer, h.item)), "",
         ))

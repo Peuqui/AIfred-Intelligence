@@ -3,7 +3,7 @@
 // dot (green loaded and breathing, yellow loading and faster, grey nothing loaded, red not reachable); open, a line
 // per loaded thing with the time until it unloads and its button (unload, load, hold a machine's card free). The
 // refresh button reads STT and TTS anew. The page counts down from the moment the snapshot arrived.
-import { CircuitBoard, Hand, Power, RefreshCw, TriangleAlert, X } from "lucide-vue-next";
+import { CircuitBoard, Hand, Power, RefreshCw, TriangleAlert, X, Zap } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { language, t } from "../i18n";
 import { type Action, type Color, type Row, SERVICES, type Service, formatRemaining, hostRows, localHoldRow, serviceRows, summaryColor } from "../lib/serviceStatus";
@@ -37,6 +37,7 @@ const labels = computed(() => ({
   hostRequested: t("service_status_host_requested"),
   hostHeldByOther: t("service_status_host_held_by_other"),
   hostUsed: t("service_status_host_used"),
+  hostEndRequested: t("service_status_host_end_requested"),
 }));
 const rows = computed(() => (status.snapshot ? serviceRows(status.snapshot, labels.value) : null));
 const machines = computed(() => hostRows(status.hosts, labels.value));
@@ -54,6 +55,8 @@ const localLabels = computed(() => ({
   unreachable: t("service_status_gpu_orc_unreachable"),
   notRequested: t("service_status_local_not_requested"),
   noHold: t("service_status_local_no_hold"),
+  endWaiting: t("service_status_local_end_waiting"),
+  releaseNeedsRequest: t("service_status_local_release_needs_request"),
 }));
 const localHold = computed(() => (status.localHold ? localHoldRow(status.localHold, localLabels.value) : null));
 const now = ref(performance.now());
@@ -74,7 +77,7 @@ function endLocalHold(): void {
 
 const ACTION_TITLES: Record<Action["verb"], string> = {
   load: "service_status_load", unload: "service_status_unload", hold: "service_status_host_hold", release: "service_status_host_release",
-  grant: "service_status_local_grant", end: "service_status_local_end",
+  grant: "service_status_local_grant", end: "service_status_local_end", release_now: "service_status_local_release_now",
 };
 
 let timer = 0;
@@ -145,7 +148,11 @@ onBeforeUnmount(() => {
           <button :disabled="status.acting || !!localHold.end.blocked" :title="localHold.end.blocked" @click="endLocalHold">
             <X :size="14" />{{ t("service_status_local_end") }}
           </button>
+          <button :disabled="status.acting || !!localHold.release.blocked" :title="localHold.release.blocked" @click="status.releaseHoldNow(localHold.release.item)">
+            <Zap :size="14" />{{ t("service_status_local_release_now") }}
+          </button>
         </span>
+        <span v-for="note in localHold.notes" :key="note" class="detail">{{ note }}</span>
       </div>
       <div v-for="host in machines" :key="host.label" class="line">
         <span class="badge" :class="host.color"><CircuitBoard :size="20" /><span class="dot" /></span>

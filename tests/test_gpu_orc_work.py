@@ -18,6 +18,10 @@ from aifred.lib.gpu_orc_work import WorkReporter
 @pytest.fixture
 def fake(monkeypatch) -> FakeGpuOrc:
     service = FakeGpuOrc()
+    # AIfred asks the holder of a granted hold to end it, which withdraws it at once (gpu_hold._ask_holder_to_end). The
+    # waits here are the case where that request fails: the turn then waits under the granted hold, and its waiting must
+    # not count as work, or GPU-Orc never clears and the turn waits forever.
+    service.end_refusal = (500, "the end cannot be asked for now")
     install_fake_gpu_orc(monkeypatch, service)
     return service
 

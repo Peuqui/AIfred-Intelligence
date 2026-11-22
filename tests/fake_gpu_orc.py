@@ -1,5 +1,5 @@
 """A GPU-Orc stand-in for tests: a small real HTTP server in a thread that answers /health, /status, /loading,
-/free, /hold, /hold/grant and /work as set up and records every /free, /hold and /work. The protocol itself (which
+/free, /hold, /hold/grant, /hold/end and /work as set up and records every /free, /hold and /work. The protocol itself (which
 timeout, which body) is tested against the real GPU-Orc in its own repo; here the client of AIfred is the
 caller, so the stand-in only has to speak HTTP."""
 
@@ -27,11 +27,13 @@ class FakeGpuOrc:
         self.already_running = False
         self.cards: list[dict[str, Any]] = []  # the "gpus" of GET /status
         self.loading: list[str] = []  # what GET /loading names
-        # A hold is {"since", "reason"} plus optional "owner", "model", "model_server", "granted_by".
+        # A hold is {"since", "reason"} plus optional "owner", "model", "model_server", "granted_by", "end_requested_by".
         self.held: dict[str, str | None] | None = None  # the active hold GET /loading names (POST /hold sets it)
         self.hold_requested: dict[str, str | None] | None = None  # the requested hold GET /loading names
         self.hold_bodies: list[dict[str, Any]] = []  # the whole body of each POST /hold
         self.grants: list[dict[str, Any]] = []  # the body of each POST /hold/grant
+        self.end_requests: list[dict[str, Any]] = []  # the body of each POST /hold/end
+        self.end_refusal: tuple[int, str] | None = None  # (HTTP status, error) every POST /hold/end answers instead
         self.forced_releases: list[str] = []  # the owner of each DELETE /hold with force
         self.holds: list[str] = []  # the reason of each POST /hold
         self.hold_owners: list[str] = []  # the owner of each POST /hold
@@ -103,6 +105,20 @@ class FakeGpuOrc:
                 return 409, {"error": "the hold belongs to another owner"}
             hold["granted_by"] = body["by"]
             return 200, {"hold": self._wire_hold(hold, "active" if hold is self.held else "requested")}
+        if path == "/hold/end" and method == "POST":
+            self.end_requests.append(body)
+            if self.end_refusal is not None:
+                return self.end_refusal[0], {"error": self.end_refusal[1]}
+            hold = self.held or self.hold_requested
+            if hold is None:
+                return 404, {"error": "no hold"}
+            if hold.get("owner", "somebody") != body["owner"]:
+                return 409, {"error": "the hold belongs to another owner"}
+            if hold is self.hold_requested:  # nothing on the cards: withdrawn at once
+                self.hold_requested = None
+                return 200, {"hold": None}
+            hold["end_requested_by"] = hold.get("end_requested_by") or body["by"]  # the first request stays
+            return 200, {"hold": self._wire_hold(hold, "active")}
         if path == "/hold" and method == "DELETE":
             hold = self.held or self.hold_requested
             if hold is not None and hold.get("owner", "somebody") != body["owner"] and not body["force"]:
@@ -129,7 +145,7 @@ class FakeGpuOrc:
         return 404, {"error": f"no such path: {path}"}
 
     def _wire_hold(self, hold: dict[str, str | None] | None, state: str) -> dict[str, Any] | None:
-        """A hold as GPU-Orc writes it: ``{owner, reason, model, model_server, since, state, free, granted_by}``;
+        """A hold as GPU-Orc writes it: ``{owner, reason, model, model_server, since, state, free, granted_by, end_requested_by}``;
         ``free`` only once active."""
         if hold is None:
             return None
@@ -137,6 +153,7 @@ class FakeGpuOrc:
             "owner": hold.get("owner", "somebody"), "reason": hold["reason"], "model": hold.get("model"),
             "model_server": hold.get("model_server"), "since": hold["since"], "state": state,
             "free": self._freed() if state == "active" else None, "granted_by": hold.get("granted_by"),
+            "end_requested_by": hold.get("end_requested_by"),
         }
 
     def _freed(self) -> dict[str, Any]:

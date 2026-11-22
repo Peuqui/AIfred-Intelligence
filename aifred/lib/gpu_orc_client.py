@@ -81,6 +81,12 @@ class GpuOrcClient:
         runs, GPU-Orc clears the cards although a main model is loaded (``Hold.granted_by`` is set meanwhile)."""
         return self._orc.grant_hold(owner, by)
 
+    def request_hold_end(self, owner: str, by: str) -> Hold | None:
+        """``by`` (a person) asks ``owner`` to end its hold (``POST /hold/end``). A requested hold is withdrawn at once
+        (``None``); an active hold stays, the cards stay locked, and carries ``Hold.end_requested_by`` until its owner
+        lets go itself."""
+        return self._orc.request_hold_end(owner, by)
+
     def release_hold(self, owner: str, force: bool = False) -> None:
         """``owner`` lets go of its hold, requested or active (``DELETE /hold``); ``force`` lets go of anybody's."""
         self._orc.release_hold(owner, force)

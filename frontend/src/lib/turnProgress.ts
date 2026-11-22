@@ -13,6 +13,7 @@ export interface GpuHoldDetail {
   since: string;
   state: "active" | "granted";
   local: boolean;
+  end_requested_by: string | null; // who asked the owner to end the hold, null if nobody
 }
 
 export interface TurnPhase {
@@ -29,8 +30,9 @@ export interface ProgressLine {
   done: number;      // share of the pages done, 0 to 1 (the bar, shown with a count)
   count: string;     // "3/7", empty when the phase has no count
   failed: string;    // "1 website unreachable", empty when none failed
-  // Only the wait for the cards: the button that ends the hold, greyed out (``blocked``, shown as text) when it may not.
-  end?: { action: Action; reason: string };
+  // Only the wait for the cards: the buttons that ask the holder to end the hold and that end it at once, greyed out
+  // (``blocked``, shown as text) when they may not; ``reason`` is why the hold exists.
+  end?: { action: Action; release: Action; reason: string };
 }
 
 const PHASES: Record<string, { icon: string; text: (phase: TurnPhase) => string }> = {
@@ -53,10 +55,20 @@ function holdText(hold: GpuHoldDetail): string {
   });
 }
 
-// The button that ends the hold is for the own machine's GPU-Orc (active or granted alike); otherwise it says why not.
-function holdEnd(hold: GpuHoldDetail): { action: Action; reason: string } {
-  const blocked = hold.local ? undefined : t("waiting_for_gpu_hold_only_local", { machine: hold.machine });
-  return { action: { verb: "end", service: "host", item: hold.owner, ...(blocked ? { blocked } : {}) }, reason: hold.reason };
+// The buttons are for the own machine's GPU-Orc (active or granted alike); otherwise they say why not. The request
+// is open until it is made; "release now" is for a holder that does not react to it.
+function holdEnd(hold: GpuHoldDetail): { action: Action; release: Action; reason: string } {
+  const notLocal = hold.local ? undefined : t("waiting_for_gpu_hold_only_local", { machine: hold.machine });
+  const waiting = hold.end_requested_by !== null && hold.state === "active"
+    ? t("service_status_local_end_waiting", { by: hold.end_requested_by, owner: hold.owner }) : undefined;
+  const needsRequest = waiting === undefined ? t("service_status_local_release_needs_request") : undefined;
+  const blockedEnd = notLocal ?? waiting;
+  const blockedRelease = notLocal ?? needsRequest;
+  return {
+    action: { verb: "end", service: "host", item: hold.owner, ...(blockedEnd ? { blocked: blockedEnd } : {}) },
+    release: { verb: "release_now", service: "host", item: hold.owner, ...(blockedRelease ? { blocked: blockedRelease } : {}) },
+    reason: hold.reason,
+  };
 }
 
 // waitingForText: the turn shows nothing of its own yet (no streaming bubble, or one without text and tool line).

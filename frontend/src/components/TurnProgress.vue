@@ -7,6 +7,11 @@ import { useServiceStatus } from "../stores/serviceStatus";
 
 defineProps<{ line: ProgressLine }>();
 const status = useServiceStatus();
+
+// The reasons the buttons are greyed out, as text (a phone has no hover); one reason shared by both buttons shows once.
+function hints(end: NonNullable<ProgressLine["end"]>): string[] {
+  return [...new Set([end.action.blocked, end.release.blocked].filter((hint) => hint !== undefined))];
+}
 </script>
 
 <template>
@@ -22,7 +27,10 @@ const status = useServiceStatus();
       <button class="end-hold" :disabled="status.acting || !!line.end.action.blocked" @click="status.endHold(line.end.action.item, line.end.reason)">
         {{ t("service_status_local_end") }}
       </button>
-      <span v-if="line.end.action.blocked" class="hint">{{ line.end.action.blocked }}</span>
+      <button class="release-hold" :disabled="status.acting || !!line.end.release.blocked" @click="status.releaseHoldNow(line.end.release.item)">
+        {{ t("service_status_local_release_now") }}
+      </button>
+      <span v-for="hint in hints(line.end)" :key="hint" class="hint">{{ hint }}</span>
     </template>
   </p>
 </template>
@@ -36,6 +44,6 @@ const status = useServiceStatus();
 .count { font-weight: 600; color: var(--aifred-primary); }
 .failed { color: var(--aifred-accent-amber); }
 .hint { color: var(--aifred-accent-amber); }
-.end-hold:disabled { opacity: 0.5; cursor: not-allowed; }
+.end-hold:disabled, .release-hold:disabled { opacity: 0.5; cursor: not-allowed; }
 @keyframes pulse { 50% { opacity: 0.5; } }
 </style>
