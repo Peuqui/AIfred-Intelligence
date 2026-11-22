@@ -33,8 +33,12 @@ Code runs in a subprocess wrapped by **bubblewrap (`bwrap`)** with
 `--unshare-all` and `--new-session`:
 
 - **No network access** — the network namespace is unshared
-- **No filesystem access** beyond `/usr`, `/etc` (read-only), a private `/tmp`,
-  the venv interpreter + site-packages (read-only), and the per-run work dir
+- **No filesystem access** beyond `/usr`, single files from `/etc` (time zone, fonts,
+  certificates …, read-only), a private `/tmp`, the venv interpreter + site-packages
+  (read-only), and the per-run work dir
+- **Empty environment** (`--clearenv`): the code sees only the variables `lib/sandbox.py` sets
+  itself (`HOME`, `PATH`, `PYTHONPATH`, thread limits …). AIfred's own environment holds the
+  secrets of `.env`; bubblewrap would hand it on otherwise (it did until 2026-11-22)
 - **Resource limits:** RAM via `RLIMIT_AS` (default 2048 MB) and a wall-clock limit of
   **120 seconds** (`asyncio.wait_for`, `SANDBOX_TIMEOUT_SECONDS`, adjustable in `.env`).
   When it is up, bubblewrap ends and everything in the sandbox with it, child processes
