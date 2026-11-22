@@ -116,10 +116,12 @@ async def service_status_grant(request: LocalHoldRequest, http: Request) -> Loca
 
 @api_app.post("/service-status/end-hold", response_model=LocalHoldStatus, tags=["System"])
 async def service_status_end_hold(request: LocalHoldRequest, http: Request) -> LocalHoldStatus:
-    """The logged-in person ends the hold of ``owner`` by force (the owner does not have to let go)."""
+    """The logged-in person ends the hold of ``owner`` (the owner does not have to let go). Without force: GPU-Orc
+    ends only the hold of ``owner`` and refuses (409) when somebody else holds the cards by now; force would end
+    whatever hold there is, also one taken between showing the page and the click."""
     user = current_user(http)
-    status = await _change_local_hold(request, "ending", lambda client: client.release_hold(request.owner, force=True))
-    log_message(f"⛔ Status line: {user} ended the hold of {request.owner} on the cards by force", "warning")
+    status = await _change_local_hold(request, "ending", lambda client: client.release_hold(request.owner))
+    log_message(f"⛔ Status line: {user} ended the hold of {request.owner} on the cards", "warning")
     return status
 
 

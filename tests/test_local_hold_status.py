@@ -97,12 +97,21 @@ def test_grant_of_another_owners_hold_is_a_conflict(orc: FakeGpuOrc, client: Tes
     assert answer.status_code == 409
 
 
-def test_end_hold_forces_the_release_of_the_owner(orc: FakeGpuOrc, client: TestClient) -> None:
+def test_end_hold_releases_the_hold_of_the_owner_shown(orc: FakeGpuOrc, client: TestClient) -> None:
     orc.held = dict(HOLD)
     answer = client.post("/service-status/end-hold", json={"owner": "vllm-research"})
     assert answer.status_code == 200
-    assert orc.forced_releases == ["vllm-research"]
+    assert orc.released_owners == ["vllm-research"] and orc.forced_releases == []
     assert answer.json()["state"] == "free"
+
+
+def test_end_hold_never_ends_the_hold_of_somebody_else(orc: FakeGpuOrc, client: TestClient) -> None:
+    # Between showing the page and the click another program took the cards: the button must not end its hold
+    # (with force GPU-Orc ends any hold, whoever is named).
+    orc.held = {**HOLD, "owner": "agent-orc"}
+    answer = client.post("/service-status/end-hold", json={"owner": "vllm-research"})
+    assert answer.status_code == 409
+    assert orc.held is not None and orc.held["owner"] == "agent-orc"
 
 
 def test_end_hold_with_gpu_orc_off_is_a_conflict(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
