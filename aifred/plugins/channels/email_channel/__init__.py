@@ -558,7 +558,7 @@ class EmailChannel(BaseChannel):
         from .tools import get_email_tools, get_readonly_mailbox_tools
         return [
             *get_email_tools(session_id=ctx.session_id, source=ctx.source, lang=ctx.lang, trust=ctx.trust,
-                             delivery_channel=ctx.metadata.get(DELIVERY_CHANNEL_KEY, "")),
+                             delivery_channel=ctx.metadata.get(DELIVERY_CHANNEL_KEY, ""), ctx=ctx),
             *get_readonly_mailbox_tools(lang=ctx.lang, session_id=ctx.session_id),
         ]
 

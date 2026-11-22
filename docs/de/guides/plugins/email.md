@@ -188,8 +188,19 @@ für einen anderen Anbieter werden sie einfach überschrieben.
 
 ### Allowlist-Semantik (`EMAIL_ALLOWED_SENDERS`)
 
-Die Allowlist kontrolliert nur **eingehende** E-Mails — wer darf AIfred anschreiben.
-Ausgehende E-Mails können an jede Adresse gesendet werden.
+Die Allowlist kontrolliert **eingehende** E-Mails — wer darf AIfred anschreiben.
+
+**Ausgehende E-Mails** (Aktion `send`, auch Aufträge mit Zustellung per Mail) gehen nur an einen Empfänger,
+den der Eigentümer gewählt hat, in jedem Kanal einschließlich Browser (seit 22.11.2026):
+
+- er steht in der Allowlist, oder
+- er steht in einem Adressbuch, das ein Plugin anbietet (`lib/address_books.py`; heute die Nextcloud-Kontakte), oder
+- der Eigentümer hat die Adresse in diesem Gespräch selbst geschrieben (`security.named_by_owner`: seine
+  Nachricht dieses Zuges, bei einem Auftrag dessen Text, oder eine frühere Nachricht von ihm).
+
+Eine Adresse, die nur in fremdem Text steht (Webseite, Mail, Dokument, Werkzeug-Ergebnis), zählt nicht: So
+würde eine untergeschobene Anweisung Daten hinausschicken. Das Werkzeug lehnt dann ab, und das Modell bittet
+den Eigentümer, die Adresse selbst zu schreiben. Dasselbe gilt für die `webhook_url` eines Auftrags.
 
 - **Leer** → niemand erlaubt (sicherer Default)
 - **`*`** → alle erlaubt

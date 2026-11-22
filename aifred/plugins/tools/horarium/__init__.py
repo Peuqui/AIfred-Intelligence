@@ -17,6 +17,26 @@ from ....lib.plugin_base import BackgroundPart, PluginContext, load_tool_descrip
 from ....lib.scheduler import DELIVERY_MODES, SCHEDULE_TYPES
 
 
+async def _not_chosen_by_owner(recipient: str, webhook_url: str, ctx: PluginContext) -> str:
+    """The error for a mail address or webhook the owner did not choose, empty when both are theirs. A job delivers
+    later with nobody watching, so an instruction injected into what the model read (a web page, a mail) must not
+    set where its results go: an address counts when the owner wrote it in this conversation
+    (security.named_by_owner) or keeps it in an address book (lib.address_books); a webhook only when written."""
+    import asyncio
+
+    from ....lib.address_books import known_mail_address
+    from ....lib.security import extract_sender_email, named_by_owner
+
+    address = extract_sender_email(recipient) if "@" in recipient else ""
+    if address and not named_by_owner(address, ctx) and not await asyncio.to_thread(known_mail_address, address):
+        return json.dumps({"error": f"recipient {address} was not chosen by the user: it is not in their contacts and "
+                                    "they did not write it in this conversation. Ask the user to write the address."})
+    if webhook_url and not named_by_owner(webhook_url, ctx):
+        return json.dumps({"error": "webhook_url was not written by the user in this conversation. Ask the user "
+                                    "to write the URL."})
+    return ""
+
+
 @dataclass
 class HorariumPlugin:
     # MUST equal the folder name (see plugin_registry) — otherwise the plugin
@@ -102,7 +122,9 @@ class HorariumPlugin:
                     payload["fixed_text"] = True
             except InvalidValue as exc:
                 return json.dumps({"error": str(exc)})
-            error = self._problem(schedule_type, payload, end_date)
+            error = self._problem(schedule_type, payload, end_date) or await _not_chosen_by_owner(
+                recipient, webhook_url, ctx,
+            )
             if error:
                 return error
 
@@ -203,7 +225,9 @@ class HorariumPlugin:
             new_tier = self._job_tier(max_tier, ctx.max_tier, default=job.max_tier)
             if isinstance(new_tier, str):
                 return new_tier
-            error = self._problem(new_type, payload, new_end)
+            error = self._problem(new_type, payload, new_end) or await _not_chosen_by_owner(
+                recipient, webhook_url, ctx,
+            )
             if error:
                 return error
             try:

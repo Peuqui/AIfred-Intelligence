@@ -188,8 +188,19 @@ for another provider simply overwrite them.
 
 ### Allowlist Semantics (`EMAIL_ALLOWED_SENDERS`)
 
-The allowlist controls only **incoming** emails — who may contact AIfred.
-Outgoing emails can be sent to any address.
+The allowlist controls **incoming** emails — who may contact AIfred.
+
+**Outgoing emails** (action `send`, also jobs delivered by mail) go only to a recipient the owner chose, on
+every channel including the browser (since 2026-11-22):
+
+- it is on the allowlist, or
+- it is in an address book a plugin offers (`lib/address_books.py`; today the Nextcloud contacts), or
+- the owner wrote the address in this conversation (`security.named_by_owner`: their message of this turn,
+  a job's own text, or an earlier message of theirs).
+
+An address that stands only in foreign text (a web page, a mail, a document, a tool result) does not count:
+that is how an injected instruction would send data out. The tool refuses, and the model asks the owner to
+write the address themselves. The same holds for a job's `webhook_url`.
 
 - **Empty** → nobody allowed (safe default)
 - **`*`** → everyone allowed

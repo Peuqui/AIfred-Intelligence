@@ -27,7 +27,11 @@ from ....lib.formatting import format_number
 from ....lib.function_calling import Tool
 from ....lib.line_window import LineWindow
 from ....lib.pdf_pages import page_selection, render_scanned_pages
-from ....lib.plugin_base import load_tool_description, load_tool_parameters
+from ....lib.plugin_base import (
+    PluginContext,
+    load_tool_description,
+    load_tool_parameters,
+)
 from ....lib.sandbox import SANDBOX_IMAGE_URL_MARKER, SANDBOX_VISION_FOCUS_MARKER
 from ....lib.security import (
     TIER_COMMUNICATE,
@@ -35,6 +39,7 @@ from ....lib.security import (
     TIER_WRITE_SYSTEM,
     extract_sender_email,
     may_send_outbound,
+    named_by_owner,
     resolve_trust_label,
     sanitize_outbound,
     wrap_untrusted_data,
@@ -229,14 +234,32 @@ async def _search(account: ImapAccount, kwargs: dict[str, Any]) -> str:
     return answer
 
 
+async def _chosen_by_owner(to: str, ctx: PluginContext | None) -> bool:
+    """Whether the owner chose this recipient: on the allowlist, in an address book a plugin offers (Nextcloud
+    contacts), or written by the owner in this conversation (security.named_by_owner). An address that stands only
+    in foreign text is none of these; sending there is how an injected instruction gets data out."""
+    from ....lib.address_books import known_mail_address
+    from . import _is_sender_allowed
+
+    if _is_sender_allowed(to):
+        return True
+    address = extract_sender_email(to)
+    if not address:
+        return False
+    if ctx is not None and named_by_owner(address, ctx):
+        return True
+    return await asyncio.to_thread(known_mail_address, address)
+
+
 def get_email_tools(
-    session_id: str = "", source: str = "browser", lang: str = "de", trust: str = "external", delivery_channel: str = "") -> list[Tool]:
+    session_id: str = "", source: str = "browser", lang: str = "de", trust: str = "external", delivery_channel: str = "",
+    ctx: PluginContext | None = None,
+) -> list[Tool]:
     """Create email tools for LLM function calling.
 
-    ``source`` is the origin of the current pipeline (browser/email/…). It gates
-    the send-recipient allowlist check: only the browser may send to a recipient
-    that is not on the allowlist (see the ``send`` action). A scheduled job that
-    is delivered by mail itself is not offered ``send`` (see may_send_outbound).
+    The ``send`` action mails only a recipient the owner chose (``_chosen_by_owner``; ``ctx`` carries the owner's
+    words), from every source. A scheduled job that is delivered by mail itself is not offered ``send`` (see
+    may_send_outbound).
     """
     safe_actions = (
         _SAFE_ACTIONS if may_send_outbound(source, _CHANNEL, delivery_channel) else _SAFE_ACTIONS - {"send"}
@@ -277,25 +300,20 @@ def get_email_tools(
             body = kwargs.get("body", "")
             if not to or not subject or not body:
                 return "Error: to, subject, body required"
-            # Recipient allowlist gate: an injected instruction in an inbound
-            # mail must not exfiltrate data to an arbitrary address. Only the
-            # browser (user present, driving) may send to a non-allowlisted
-            # recipient; from any external channel this is refused.
-            if source != "browser":
-                from . import _is_sender_allowed
-                if not _is_sender_allowed(to):
-                    return (
-                        "Error: refused to send to a recipient that is not on the "
-                        "allowlist from an external channel (exfiltration guard). "
-                        "Ask the user to send this from the web UI, or add the "
-                        "recipient to EMAIL_ALLOWED_SENDERS."
-                    )
+            # Recipient gate: an injected instruction (a web page, a mail, a document) must not get data out to
+            # an address of its own choosing — in the browser as on any channel.
+            if not await _chosen_by_owner(to, ctx):
+                return (
+                    "Error: refused to send to a recipient the user has not chosen (exfiltration guard): the address "
+                    "is not on the allowlist, not in the user's contacts and not written by the user in this "
+                    "conversation. Tell the user and ask them to write the address themselves."
+                )
             # Redact secrets / block image-exfil URLs on the outbound path —
             # the send tool is exactly the vector an injected prompt would use.
             subject = sanitize_outbound(subject)
             body = sanitize_outbound(body)
             # Optional attachment via the cross-channel SSOT (session-isolated,
-            # path-traversal safe, size-capped); the allowlist gate above is the
+            # path-traversal safe, size-capped); the recipient gate above is the
             # exfiltration guard.
             explicit: list[Path] = []
             attachment = kwargs.get("attachment", "")

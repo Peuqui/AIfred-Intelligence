@@ -42,6 +42,20 @@ _WRITE_TOOLS = frozenset({*_TOOLS[2:], *_FILE_TOOLS[3:]})
 
 
 @dataclass
+class NextcloudAddressBook:
+    """The Nextcloud contacts, asked whether an address belongs to one of them."""
+
+    def __init__(self, store: Any) -> None:
+        self._store = store
+
+    def knows_mail_address(self, address: str) -> bool:
+        wanted = address.strip().casefold()
+        return any(
+            str(mail).strip().casefold() == wanted
+            for contact in self._store.contacts(None) for mail in contact["emails"].values()
+        )
+
+
 class NextcloudPlugin:
     name: str = "nextcloud"
     document_source_key: ClassVar[str] = DOCUMENT_SOURCE_KEY
@@ -81,6 +95,15 @@ class NextcloudPlugin:
         from .tools import get_nextcloud_tools
         store = get_store()
         return [] if store is None else get_nextcloud_tools(store)
+
+    @property
+    def address_book(self) -> Any:
+        """The contacts as an address book of the core (lib.address_books), while the module is readable."""
+        from .store import get_store
+        store = get_store()
+        if store is None or not store.modules.can_read("contacts"):
+            return None
+        return NextcloudAddressBook(store)
 
     @property
     def document_source(self) -> Any:

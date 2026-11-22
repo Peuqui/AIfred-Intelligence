@@ -24,6 +24,7 @@ from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from .function_calling import Tool
+    from .plugin_base import PluginContext
 
 logger = logging.getLogger(__name__)
 
@@ -269,6 +270,20 @@ def in_owner_context(source: str, trust: str) -> bool:
     if source == "webhook":
         return False
     return trust == "owner"
+
+
+def named_by_owner(value: str, ctx: PluginContext) -> bool:
+    """Whether the owner wrote ``value`` in this conversation: in the message of this turn (in a scheduled run the
+    job's own text) or in an earlier message of theirs (compared without case). An address or URL that stands only
+    in foreign text (a web page, a mail, a document the model read) is none of these: sending there is how an
+    injected instruction gets data out. Only an owner context has owner words."""
+    from .context_manager import message_text
+
+    if not value.strip() or not in_owner_context(ctx.source, ctx.trust):
+        return False
+    needle = value.strip().casefold()
+    own = [ctx.user_query, *(message_text(msg) for msg in ctx.llm_history if msg.get("role") == "user")]
+    return any(needle in text.casefold() for text in own)
 
 
 def may_send_outbound(source: str, channel: str, delivery_channel: str) -> bool:
