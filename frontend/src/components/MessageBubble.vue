@@ -67,7 +67,12 @@ const spaceBelow = ref(0);
 function measure(): void {
   const element = content.value;
   const bubbleElement = root.value;
-  if (!element || !bubbleElement || !props.pinned) return;
+  if (!element || !bubbleElement) return;
+  // Pinning switched off while folded: the space the fold left goes with it.
+  if (!props.pinned) {
+    spaceBelow.value = 0;
+    return;
+  }
   if (!props.stuck) fullHeight.value = bubbleElement.offsetHeight;
   spaceBelow.value = folded.value ? Math.max(0, fullHeight.value - bubbleElement.offsetHeight) : 0;
   // Unfolded nothing is cut off; the link stays, to fold again.

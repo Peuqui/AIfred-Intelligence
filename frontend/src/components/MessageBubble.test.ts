@@ -1,7 +1,7 @@
 // A picture of a bubble that is gone from the server (its event deleted) says so instead of showing the
 // broken-image icon; a picture from elsewhere is left alone.
 
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { describe, expect, it, vi } from "vitest";
 import MessageBubble from "./MessageBubble.vue";
@@ -100,5 +100,32 @@ describe("MessageBubble reading button", () => {
     expect(button.attributes("disabled")).toBeDefined();
     await button.trigger("click");
     expect(wrapper.emitted("readAgain")).toBeUndefined();
+  });
+});
+
+describe("MessageBubble pinned question", () => {
+  it("drops the space the fold left when pinning is switched off while the question sticks", async () => {
+    // jsdom has no layout: the bubble is 300 high in full, 80 when folded.
+    let height = 300;
+    const offset = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => height });
+    try {
+      setActivePinia(createPinia());
+      const entry = {
+        role: "user", content: "Eine lange Frage", agent: "", agent_display_name: "", agent_emoji: "", mode: "", timestamp: "",
+        time_display: "12:43", has_audio: false, tts_note: "", metadata: { images: [] },
+      };
+      const wrapper = mount(MessageBubble, { props: { entry, speechOn: false, pinned: true, stuck: false } });
+      await flushPromises();
+      height = 80;
+      await wrapper.setProps({ stuck: true });
+      await flushPromises();
+      expect((wrapper.element as HTMLElement).style.marginBottom).toBe("220px");
+      await wrapper.setProps({ pinned: false });
+      await flushPromises();
+      expect((wrapper.element as HTMLElement).style.marginBottom).toBe("");
+    } finally {
+      if (offset) Object.defineProperty(HTMLElement.prototype, "offsetHeight", offset);
+    }
   });
 });
