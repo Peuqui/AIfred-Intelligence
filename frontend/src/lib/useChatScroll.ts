@@ -28,7 +28,7 @@ export function useChatScroll(box: Ref<HTMLElement | null>, sessionId: () => str
   // Rectangles on screen and the box's scroll position count the same pixels because the box is never zoomed (only
   // its content is, ChatView.vue); under a zoom of its own they would differ by it.
   // The room a question that sticks at the upper edge takes: what is read from its top stops below it. Only a question
-  // above the element sticks over it; the line at the start of a turn stands above its question.
+  // above the element sticks over it, so also over the line above a turn's first answer.
   const pinnedRoom = (element: HTMLElement): number => {
     const pinned = element.closest("section")?.querySelector<HTMLElement>("[data-pinned]");
     const above = pinned && !pinned.contains(element) && pinned.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING;
@@ -149,8 +149,7 @@ export function useChatScroll(box: Ref<HTMLElement | null>, sessionId: () => str
   }
 
   /** The button "N new ↓": down to the first unread bubble below the view, at the upper edge. For the oldest unread one
-   * the "read up to here" line goes there instead: it stands above that bubble and above the question that came before
-   * it (only an answer is ever unread), which would otherwise be passed over (Peuqui 21.11.2026). */
+   * the "read up to here" line goes there instead: it stands directly above that bubble. */
   function showNewBelow(): void {
     const key = unreadBelowView()[0];
     const scroller = box.value;

@@ -125,11 +125,13 @@ const grow = async (): Promise<void> => {
 
 // --- opening ---
 
-test("opening with unread: the line stands at the upper edge, nothing sticks over it", async () => {
+// The line after entry 5 stands directly above the answer of entry 7 (position 770), not above its question: a job's
+// question can be long. That question (entry 6) sticks over it, so the line stands at the upper edge below the question.
+const LINE_AFTER_5 = at(7) - 12 - BUBBLE;
+
+test("opening with unread: the line above the first unread answer stands at the upper edge, below the question that sticks", async () => {
   const { box } = await shown("t05");
-  // The line stands above the question of entry 6 (position 660), at the start of its turn: the question of the turn
-  // before (entry 4) no longer sticks there, the one of entry 6 comes below the line.
-  expect(box.scrollTop).toBe(at(6) - 12);
+  expect(box.scrollTop).toBe(LINE_AFTER_5);
 });
 
 test("opening with unread never goes beyond the end: what follows the line fits the screen, so the end", async () => {
@@ -163,7 +165,7 @@ test("a remembered bubble that is gone: the end", async () => {
 test("unread beats the remembered place", async () => {
   savePlace("s1", { key: keyOf(2), offset: 0 });
   const { box } = await shown("t05");
-  expect(box.scrollTop).toBe(at(6) - 12);
+  expect(box.scrollTop).toBe(LINE_AFTER_5);
 });
 
 test("the place of another session is not taken", async () => {
@@ -179,7 +181,7 @@ test("switching to another session places it by the rules of opening, whatever t
   chat.history = entries(12) as never;
   chat.readUntil = "t05";
   await flushPromises();
-  expect(box.scrollTop).toBe(at(6) - 12);
+  expect(box.scrollTop).toBe(LINE_AFTER_5);
 });
 
 // --- holding while the content grows ---
@@ -188,7 +190,7 @@ test("pictures that load after opening: the line stays where it was put (the gap
   const { box } = await shown("t05");
   heights[keyOf(2)] = 400; // a picture above the line loads: everything after it moves down by 300
   await grow();
-  expect(box.scrollTop).toBe(at(6) - 12 + 300);
+  expect(box.scrollTop).toBe(LINE_AFTER_5 + 300);
 });
 
 test("pictures that load after opening at the end: the box stays at the end", async () => {
@@ -279,7 +281,7 @@ test("the button takes the box to the line above the oldest unread bubble, at th
   expect(wrapper.find("button.new-below").text()).toBe("unread_below 1");
 });
 
-test("a new question with its answer below the view: the button shows the line above the question, not the answer", async () => {
+test("a new question with its answer below the view: the button shows the line above the answer, below the question", async () => {
   heights[keyOf(13)] = 400; // a long answer: room below, so the end does not stop the box before the line
   const { chat, wrapper, box } = await shown("t11");
   await readerScrollsTo(wrapper, 200);
@@ -287,11 +289,10 @@ test("a new question with its answer below the view: the button shows the line a
   await flushPromises();
   expect(wrapper.find("button.new-below").text()).toBe("unread_below 1");
   await wrapper.find("button.new-below").trigger("click");
-  // Only the answer is unread, but the line stands above the question (entry 12): the line at the upper edge, nothing
-  // sticks over it.
-  expect(box.scrollTop).toBe(at(12) - 12);
-  const question = box.querySelector<HTMLElement>(`[data-entry="${keyOf(12)}"]`)!.getBoundingClientRect();
-  expect(question.top).toBeGreaterThan(0);
+  // The line stands above the answer (entry 13, at at(13)); the question of entry 12 sticks over it.
+  expect(box.scrollTop).toBe(at(13) - 12 - BUBBLE);
+  const line = box.querySelector<HTMLElement>("[data-read-mark]")!.getBoundingClientRect();
+  expect(line.top).toBe(BUBBLE + 12);
 });
 
 test("a later unread bubble below the view: the line lies behind the reader, the button goes to that bubble", async () => {
@@ -359,7 +360,7 @@ test("the reader's own message takes the box to the end although they read above
   // Following again: the next answer, unread, moves the box on to its line.
   chat.history = [...chat.history, entry("assistant", "t13"), entry("assistant", "t14"), entry("assistant", "t15")] as never;
   await flushPromises();
-  expect(box.scrollTop).toBe(at(12) - 12); // the line above the reader's question (entry 12), at the start of its turn
+  expect(box.scrollTop).toBe(at(13) - 12 - BUBBLE); // the line above the answer, below the reader's question (entry 12)
 });
 
 test("a refused message: what was typed comes back, the refusal shows, and the next user bubble is not taken for it", async () => {

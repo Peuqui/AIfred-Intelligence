@@ -1,4 +1,4 @@
-// The unread marks in the chat: the line under the last bubble read, the click on a bubble below it, "mark all read".
+// The unread marks in the chat: the line above the first unread answer, the click on a bubble below it, "mark all read".
 import { flushPromises, shallowMount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, expect, test, vi } from "vitest";
@@ -49,14 +49,14 @@ const sequence = (wrapper: Awaited<ReturnType<typeof shown>>["wrapper"]): string
   [...wrapper.element.querySelectorAll(".bubbles article, .bubbles .read-mark")].map((node) =>
     node.classList.contains("read-mark") ? "---" : (node.querySelector(".content")?.textContent?.trim() ?? ""));
 
-test("the line stands directly under the last bubble read, the new ones below it", async () => {
+test("the line stands directly above the first unread answer, below its question", async () => {
   const { wrapper } = await shown("t1");
-  expect(sequence(wrapper)).toEqual(["Frage eins", "Antwort eins", "---", "Frage zwei", "Antwort zwei", "Antwort drei"]);
+  expect(sequence(wrapper)).toEqual(["Frage eins", "Antwort eins", "Frage zwei", "---", "Antwort zwei", "Antwort drei"]);
 });
 
-test("nothing read yet: the line stands above the first bubble", async () => {
+test("nothing read yet: the line stands above the first answer", async () => {
   const { wrapper } = await shown("");
-  expect(sequence(wrapper)[0]).toBe("---");
+  expect(sequence(wrapper).slice(0, 2)).toEqual(["Frage eins", "---"]);
   expect(sequence(wrapper).filter((item) => item === "---")).toHaveLength(1);
 });
 

@@ -18,19 +18,19 @@ test("only an answer after the mark is unread, the user's own message never", ()
   expect(unreadCount(history, "2026-11-21T10:01:09")).toBe(0);
 });
 
-test("the line stands under the last bubble read, above the first one when nothing is read, nowhere without unread", () => {
-  expect(lineBeforeIndex(history, "")).toBe(0);
-  expect(lineBeforeIndex(history, "2026-11-21T10:00:05")).toBe(2);
+test("the line stands directly above the first unread answer, nowhere without unread", () => {
+  expect(lineBeforeIndex(history, "")).toBe(1);
+  expect(lineBeforeIndex(history, "2026-11-21T10:00:05")).toBe(3);
   expect(lineBeforeIndex(history, "2026-11-21T10:01:09")).toBeNull();
   expect(lineBeforeIndex([entry("user", "2026-11-21T10:00:00")], "")).toBeNull();
 });
 
-test("never between a question and its first answer: the line stands above the question, also when the question was read", () => {
+test("between a question and its first answer: a long question of a job is passed over", () => {
   // The mark at the question itself (e.g. a job's text, read in the list before its answer came).
-  expect(lineBeforeIndex(history, "2026-11-21T10:01:00")).toBe(2);
+  expect(lineBeforeIndex(history, "2026-11-21T10:01:00")).toBe(3);
 });
 
-test("within a turn (a debate), after an answer read: the line stands between the answers, under the question", () => {
+test("within a turn (a debate), after an answer read: the line stands between the answers", () => {
   const debate = [entry("user", "2026-11-21T10:00:00"), entry("assistant", "2026-11-21T10:00:05"), entry("assistant", "2026-11-21T10:00:09")];
   expect(lineBeforeIndex(debate, "2026-11-21T10:00:05")).toBe(2);
 });
