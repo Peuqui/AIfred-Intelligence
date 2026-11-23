@@ -718,12 +718,15 @@ def _notes_text(job: Job, lang: str) -> str:
     from . import job_notes
     from .prompt_loader import load_prompt
     from .security import TIER_WRITE_DATA
+    from .upload_files import DOCUMENTS_URL
 
     if job.max_tier < TIER_WRITE_DATA or not job_notes.agent_can_keep_notes(job.agent):
         return ""
     folder, notes_file = job_notes.sync(job.job_id, job.name)
     key = "scheduler/notes" if job_notes.has_notes(notes_file) else "scheduler/notes_new"
-    return load_prompt(key, lang=lang, folder=folder, file=notes_file).strip()
+    # The folder's web address: without it the model guessed it, and a chart linked as /_upload/jobs/… did not
+    # resolve, so the job's mail was refused (23.11.2026).
+    return load_prompt(key, lang=lang, folder=folder, file=notes_file, url=f"{DOCUMENTS_URL}/{folder}").strip()
 
 
 # ============================================================

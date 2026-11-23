@@ -104,6 +104,22 @@ class TestJobPrompt:
         (file_manager.DOCUMENTS_DIR / folder / f"black-week_job-{job.job_id}.md").write_text("alt")
         assert "Lies sie zuerst" in sched.build_job_prompt(job, store)
 
+    def test_the_run_is_told_the_address_of_its_folder_and_a_mail_takes_a_chart_from_it(self, monkeypatch):
+        """Told only the folder, the model guessed its address and wrote /_upload/jobs/…, which no mail could
+        resolve, so the job's mail was refused (23.11.2026). The address the prompt names must be one the mail takes."""
+        from aifred.lib.vision_utils import resolve_outbound_attachment
+
+        monkeypatch.setattr("aifred.lib.config.DOCUMENTS_DIR", file_manager.DOCUMENTS_DIR)   # what the mail resolves against
+        store = sched.get_job_store()
+        job = store.add("Black Week", "interval", "60", {"message": "x"})
+        prompt = sched.build_job_prompt(job, store)
+        url = f"/_upload/documents/jobs/black-week_job-{job.job_id}"
+        assert f"`{url}/<Dateiname>`" in prompt
+        folder = job_notes.sync(job.job_id, job.name)[0]
+        (file_manager.DOCUMENTS_DIR / folder / "preise.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        path, error = resolve_outbound_attachment(f"{url}/preise.png", "s" * 32, "scheduler", "owner")
+        assert error is None and path is not None and path.name == "preise.png"
+
     def test_an_agent_without_the_file_tools_gets_no_notes(self, monkeypatch):
         from aifred.lib.agent_config import AgentConfig
 
