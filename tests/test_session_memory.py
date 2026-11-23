@@ -113,3 +113,14 @@ def test_the_api_refuses_a_chat_without_a_reply_and_a_memory_that_does_not_answe
     assert client.post(f"/sessions/{SESSION}/remember").status_code == 503
     session_storage.update_chat_data(SESSION, [{"role": "user", "content": "Hallo"}], llm_history=[])
     assert client.post(f"/sessions/{SESSION}/remember").status_code == 422
+
+
+def test_a_request_of_someone_else_is_said_by_its_sender_not_by_the_user() -> None:
+    """A job's task or a peer's message is a request (role "user", 23.11.2026) but not the user's words."""
+    history = [
+        {"role": "user", "agent": "scheduler", "agent_display_name": "Horarium · Deal-Check", "content": "Prüfe die Preise."},
+        {"role": "user", "content": "Und?"},
+    ]
+    lines = session_memory._conversation(history, 10_000, "Peuqui")
+    assert "Horarium · Deal-Check: Prüfe die Preise." in lines
+    assert "Peuqui: Und?" in lines and "Peuqui: Prüfe" not in lines

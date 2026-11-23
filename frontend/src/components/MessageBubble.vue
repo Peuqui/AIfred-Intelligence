@@ -17,16 +17,19 @@ import ImageLightbox from "./ImageLightbox.vue";
 const props = defineProps<{ entry: ChatEntry; speechOn: boolean; color?: string; pinned?: boolean; stuck?: boolean; readingRequested?: boolean }>();
 const settings = useSettings();
 const emit = defineEmits<{ readAgain: [timestamp: string] }>();
-const isUser = computed(() => props.entry.role === "user");
+// A request to the model (role "user", as the model sees it): the user's own, or one of someone else (a job, a peer,
+// someone's mail), which carries its sender in `agent` and stands on the left under it.
+const isRequest = computed(() => props.entry.role === "user");
+const isOwn = computed(() => isRequest.value && !props.entry.agent);
 // The user's text is shown as typed, plain (tags in it are text, not markup); the images of their message above it,
 // from the entry's metadata. A long text shows its beginning, "more" the rest. An answer is Markdown with the
 // server's own HTML parts.
 const USER_PREVIEW_CHARS = 600;
 const USER_PREVIEW_LINES = 8;
-const html = computed(() => (isUser.value ? "" : renderMarkdown(props.entry.content)));
+const html = computed(() => (isRequest.value ? "" : renderMarkdown(props.entry.content)));
 const images = computed(() => props.entry.metadata?.images ?? []);
 const preview = computed(() => clip(props.entry.content, USER_PREVIEW_CHARS, USER_PREVIEW_LINES));
-const tooLong = computed(() => isUser.value && preview.value !== props.entry.content.trim());
+const tooLong = computed(() => isRequest.value && preview.value !== props.entry.content.trim());
 // Shown in full: opened by its link in the history, or by the link of the question that sticks (which keeps it open
 // there, so that it does not shrink the moment it leaves the top edge).
 const expanded = ref(false);
@@ -121,14 +124,14 @@ function pictureGone(event: Event): void {
   <article
     ref="root"
     class="bubble"
-    :class="isUser ? 'user' : 'assistant'"
-    :style="[!isUser && color ? { '--agent-color': color } : {}, spaceBelow ? { marginBottom: `${spaceBelow}px` } : {}]"
+    :class="isOwn ? 'user' : 'assistant'"
+    :style="[!isOwn && color ? { '--agent-color': color } : {}, spaceBelow ? { marginBottom: `${spaceBelow}px` } : {}]"
   >
     <!-- The user's name over their bubble and their sign beside it, as on the Reflex page. -->
-    <header v-if="isUser" class="user-head">
+    <header v-if="isOwn" class="user-head">
       {{ settings.current?.user_name || "User" }} <span class="sign">{{ settings.current?.user_emoji }}</span>
     </header>
-    <header v-if="!isUser && entry.agent_display_name">
+    <header v-if="!isOwn && entry.agent_display_name">
       {{ entry.agent_emoji }} {{ entry.agent_display_name }}
       <span class="time">{{ entry.time_display }}</span>
       <button v-if="canReplay" class="replay" :title="t('audio_play_tooltip')" @click="play"><TtsIcon :playing="isSpeaking(metadata.audio_urls ?? [], metadata.browser_speech ?? [])" /></button>
@@ -144,10 +147,10 @@ function pictureGone(event: Event): void {
       </button>
       <span v-if="entry.tts_note" class="note">{{ entry.tts_note }}</span>
     </header>
-    <div v-if="isUser && images.length" class="thumbs" @click="enlarge" @error.capture="pictureGone">
+    <div v-if="isRequest && images.length" class="thumbs" @click="enlarge" @error.capture="pictureGone">
       <img v-for="image in images" :key="image.url" :src="image.url" :alt="image.name" :title="image.name" />
     </div>
-    <p v-if="isUser" ref="content" class="content plain" :class="{ folded }">{{ userText }}</p>
+    <p v-if="isRequest" ref="content" class="content plain" :class="{ folded }">{{ userText }}</p>
     <!-- eslint-disable-next-line vue/no-v-html -- sanitized by renderMarkdown (DOMPurify) -->
     <div v-else ref="content" class="content markdown" :class="{ folded }" @click="enlarge" @error.capture="pictureGone" v-html="html" />
     <button v-if="linkShown" type="button" class="more" @click="toggleMore">

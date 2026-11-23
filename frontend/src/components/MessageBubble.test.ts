@@ -129,3 +129,19 @@ describe("MessageBubble pinned question", () => {
     }
   });
 });
+
+describe("MessageBubble request of someone else", () => {
+  it("stands on the left under its sender, as plain text, and not under the user's name", () => {
+    setActivePinia(createPinia());
+    const wrapper = mount(MessageBubble, {
+      props: { entry: {
+        role: "user", content: "Prüfe **die** Preise.", agent: "scheduler", agent_display_name: "Horarium · Deal-Check", agent_emoji: "⏰",
+        mode: "", timestamp: "", time_display: "19:00", has_audio: false, tts_note: "", metadata: { images: [] },
+      }, speechOn: false },
+    });
+    expect(wrapper.classes()).toContain("assistant");
+    expect(wrapper.find(".user-head").exists()).toBe(false);
+    expect(wrapper.find("header").text()).toContain("⏰ Horarium · Deal-Check");
+    expect(wrapper.find(".content.plain").text()).toBe("Prüfe **die** Preise.");
+  });
+});

@@ -64,3 +64,10 @@ test("a click into text that is already selected counts; the end of dragging to 
   expect(isPlainClick(at(160, 50), { x: 100, y: 50 })).toBe(false);
   window.getSelection()!.removeAllRanges();
 });
+
+test("a request of someone else (a job's task) is never unread: the line stands above its answer", () => {
+  const job = { ...entry("user", "2026-11-23T19:00:56"), agent: "scheduler", agent_display_name: "Horarium · Deal-Check" };
+  const answer = entry("assistant", "2026-11-23T19:17:01");
+  expect(isUnread(job, "")).toBe(false);
+  expect(lineBeforeIndex([job, answer], "")).toBe(1);
+});

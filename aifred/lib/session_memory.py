@@ -103,6 +103,7 @@ def _conversation(history: list[dict[str, Any]], room: int, user: str) -> str:
     """The chat as "speaker: text" lines (``user`` names the user), each with what its bubble shows (no thinking,
     sources or footer; tts_text_filter, as for reading it aloud) and without HTML, newest first until ``room`` tokens
     are full, then in the order it was said."""
+    from .formatting import foreign_sender
     from .tts_text_filter import strip_ui_only_content
 
     kept: list[str] = []
@@ -111,7 +112,10 @@ def _conversation(history: list[dict[str, Any]], room: int, user: str) -> str:
         text = re.sub(r"<[^>]+>", "", strip_ui_only_content(str(entry.get("content", "")))).strip()
         if not text:
             continue
-        speaker = user if entry.get("role") == "user" else str(entry.get("agent_display_name") or entry.get("agent", ""))
+        if entry.get("role") == "user":
+            speaker = foreign_sender(entry) or user
+        else:
+            speaker = str(entry.get("agent_display_name") or entry.get("agent", ""))
         line = f"{speaker}: {text}"
         cost = _tokens(line)
         if used + cost > room:

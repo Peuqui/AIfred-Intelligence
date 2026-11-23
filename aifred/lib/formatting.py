@@ -8,7 +8,7 @@ and thinking processes in the chat.
 import re
 import secrets
 import threading
-from typing import Any
+from typing import Any, Literal
 from .logging_utils import log_message
 from .config import get_xml_tag_config, DATA_DIR, PROJECT_ROOT, HTML_PREVIEW_MAX_FILES
 from .perf_metrics import InferenceWork
@@ -425,6 +425,14 @@ def build_user_chat_entry(content: str, images: list[dict[str, str]] | None = No
     }
 
 
+def foreign_sender(entry: dict) -> str | None:
+    """Who sent a request to the model that is not the user's own (a job, a peer, someone's mail): the
+    "Channel · Sender" of its bubble. None for the user's own words and for everything that is no request."""
+    if entry.get("role") != "user" or not entry.get("agent"):
+        return None
+    return str(entry.get("agent_display_name") or entry["agent"])
+
+
 def build_assistant_chat_entry(
     content: str,
     agent: str = "aifred",
@@ -517,16 +525,17 @@ def assistant_history_entry(agent: str, content: str) -> dict | None:
     return {"role": "assistant", "content": labelled(agent, clean)} if clean else None
 
 
-def build_channel_chat_entry(content: str, channel: str, sender: str) -> dict:
+def build_channel_chat_entry(content: str, channel: str, sender: str, role: Literal["user", "assistant"]) -> dict:
     """Build a chat_history dict for a message from someone who is not the user
-    (peer, scheduler job, alert, ...). Same shape as build_assistant_chat_entry,
-    so the bubble renders on the left: channel emoji, then "Channel · Sender".
+    (peer, scheduler job, alert, ...): on the left, channel emoji, then "Channel · Sender".
     ``agent`` carries the channel id — it is no agent, get_agent_config() yields None.
+    ``role`` is the one the model sees: "user" for a request it answers (a job's task, a peer's
+    or a stranger's message), "assistant" for an event it is only told of (an announcement, an alert).
     """
     from .message_processor import channel_display_label, channel_emoji
 
     return {
-        "role": "assistant",
+        "role": role,
         "content": content,
         "agent": channel,
         "agent_display_name": f"{channel_display_label(channel)} \u00b7 {sender}",

@@ -112,8 +112,9 @@ def _message(entry: dict[str, Any], session_id: str, user_name: str, lang: str, 
 
 
 def _user_message(entry: dict[str, Any], content: str, session_id: str, user_name: str, lang: str) -> str:
-    """The user's bubble as the page shows it: the images of the message above its text, which stays plain text."""
-    from .formatting import build_thumbnail_row
+    """A request's bubble as the page shows it: the images of the message above its text, which stays plain text.
+    One that is not the user's own (a job, a peer, someone's mail) is headed by its sender."""
+    from .formatting import build_thumbnail_row, foreign_sender
     from .i18n import t
     from .vision_utils import load_image_url_as_base64
 
@@ -123,8 +124,12 @@ def _user_message(entry: dict[str, Any], content: str, session_id: str, user_nam
         if embedded:
             thumbnails = thumbnails.replace(f'src="{url}"', f'src="{embedded}"')
     body = f'{thumbnails}<div class="user-text">{html_module.escape(content)}</div>'
-    name = html_module.escape(user_name or t("chat_export_user", lang=lang))
-    return (f'<div class="message user-message"><div class="message-header">{name} 🙋</div>'
+    sender = foreign_sender(entry)
+    if sender is not None:
+        name = html_module.escape(f"{entry.get('agent_emoji', '')} {sender}".strip())
+    else:
+        name = html_module.escape(user_name or t("chat_export_user", lang=lang)) + " 🙋"
+    return (f'<div class="message user-message"><div class="message-header">{name}</div>'
             f'<div class="message-content">{body}</div></div>')
 
 

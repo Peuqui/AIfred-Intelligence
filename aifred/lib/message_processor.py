@@ -446,15 +446,17 @@ def build_user_chat_content(message: InboundMessage) -> str:
 
 
 def build_inbound_chat_entry(message: InboundMessage, from_user: bool) -> dict:
-    """chat_history entry of an inbound message: the user's own words on the right
-    ("[Channel] Sender" header), everyone else on the left under their own name."""
+    """chat_history entry of an inbound message, a request to the model (role "user", as in llm_history):
+    the user's own words on the right ("[Channel] Sender" header), everyone else's on the left under
+    their own name."""
     if from_user:
         # The same bubble as a message typed in the browser (timestamp, time, fields): a bubble without a timestamp
         # cannot be told apart in the chat and broke the read mark (21.11.2026, the puck's questions).
         return build_user_chat_entry(build_user_chat_content(message))
     subject = message.metadata.get("subject", "")
-    content = f"**{subject}**\n\n{message.text}" if subject else message.text
-    return build_channel_chat_entry(content, message.channel, message.sender)
+    # Shown as plain text, like every request: the subject as its own first line.
+    content = f"{subject}\n\n{message.text}" if subject else message.text
+    return build_channel_chat_entry(content, message.channel, message.sender, "user")
 
 
 def save_inbound_to_session(session_id: str, message: InboundMessage, from_user: bool) -> None:
@@ -806,7 +808,7 @@ def record_autonomous_turn(
         session = load_session(session_id)
         data = (session or {}).get("data", {})
         chat_history = list(data.get("chat_history", []))
-        entry = build_channel_chat_entry(content, channel, title)
+        entry = build_channel_chat_entry(content, channel, title, "assistant")
         chat_history.append(entry)
         llm_history = [*data.get("llm_history", []), llm_entry]
         update_chat_data(session_id, chat_history, llm_history=llm_history, owner=owner)

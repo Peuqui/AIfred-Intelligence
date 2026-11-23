@@ -65,7 +65,10 @@ class TestM3WrappedHistory:
         assert set(entry) == set(typed)
         assert datetime.fromisoformat(entry["timestamp"])
 
-    def test_inbound_from_non_user_renders_left_under_own_name(self, session_dir):
+    def test_inbound_from_non_user_is_a_request_under_its_own_name(self, session_dir):
+        """Someone else's message the model answers is a request (role "user", as the model sees it), so the chat
+        pins and folds it and never counts it unread; its sender keeps it on the left (23.11.2026: a job's long task
+        stood as an answer, and the read line stood above it)."""
         sid = "d" * 32
         session_storage.create_empty_session(sid, owner="mp")
 
@@ -76,7 +79,8 @@ class TestM3WrappedHistory:
         save_inbound_to_session(sid, peer, from_user=False)
 
         entry = _session_data(sid)["chat_history"][0]
-        assert entry["role"] == "assistant"
+        assert entry["role"] == "user"
+        assert entry["agent"] == "ai_connect"
         assert entry["agent_display_name"] == "AI-Connect \u00b7 Mini:Peer"
         assert entry["agent_emoji"] == "\U0001f50c"
         assert entry["content"] == "Verbindungstest"

@@ -122,3 +122,16 @@ def test_the_api_exports_only_the_users_own_session_with_a_chat(world: Path) -> 
     assert client.post(f"/sessions/{OTHER}/export").status_code == 404
     session_storage.update_chat_data(SESSION, [], llm_history=[])
     assert client.post(f"/sessions/{SESSION}/export").status_code == 422
+
+
+def test_a_request_of_someone_else_is_headed_by_its_sender() -> None:
+    """A job's task is a request (role "user", 23.11.2026): plain text under its sender, not under the user's name."""
+    from aifred.lib.chat_export import _message
+
+    job = {"role": "user", "agent": "scheduler", "agent_emoji": "⏰", "agent_display_name": "Horarium · Deal-Check",
+           "content": "Prüfe **die** Preise.", "metadata": {}}
+    page = _message(job, SESSION, "Peuqui", "de", lambda text: f"<md>{text}</md>")
+    assert "⏰ Horarium · Deal-Check</div>" in page
+    assert "Peuqui" not in page and "🙋" not in page and "<md>" not in page
+    own = _message({"role": "user", "content": "Und?", "metadata": {}}, SESSION, "Peuqui", "de", lambda text: text)
+    assert "Peuqui 🙋</div>" in own
