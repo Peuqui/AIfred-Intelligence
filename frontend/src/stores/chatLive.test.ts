@@ -68,3 +68,15 @@ test("a message the working agent took in between two tool rounds leaves the que
   expect(chat.history.map((entry) => entry.content)).toEqual(["Nimm auch Bonn"]);
   expect(chat.streaming?.text).toBe("Ich suche");
 });
+
+test("a bubble from outside the turn (alert, job part) joins the history at once and the running answer goes on", async () => {
+  detail.live_events = [
+    { kind: "agent_started", data: { agent: "codine", display_name: "Codine", emoji: "🛠️" } },
+    { kind: "token", data: { text: "Ein brauner Hund" } },
+  ];
+  const chat = useChat();
+  await chat.open("s1");
+  followed[0]?.handle("message_added", { entry: { role: "assistant", content: "Kamera: Bewegung", timestamp: "t1" }, ends_turn: false });
+  expect(chat.history.at(-1)?.content).toBe("Kamera: Bewegung");
+  expect(chat.streaming?.text).toBe("Ein brauner Hund");
+});

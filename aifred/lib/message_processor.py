@@ -821,6 +821,10 @@ def _append_assistant_bubble(
         if llm_entry is not None:
             llm_history.append(llm_entry)
         update_chat_data(session_id, chat_history, llm_history=llm_history, owner=owner)
+    # The open pages of the session get the bubble at once, not only on a reload (24.11.2026: alerts and a job's
+    # parts showed only after one). ends_turn False: it is no answer of a running turn, whose stream goes on.
+    from . import session_events
+    session_events.publish(session_id, "message_added", {"entry": entry, "ends_turn": False})
     return entry
 
 
@@ -828,13 +832,9 @@ def record_chat_only_bubble(
     session_id: str, channel: str, title: str, content: str, owner: str = MESSAGE_HUB_OWNER,
 ) -> None:
     """A bubble in a session's chat history that the model never sees (``llm_history`` stays as it is): what a
-    person may read, but must not fill the model's context, e.g. the transcripts of sub-agents. The open pages of the
-    session get it at once (``message_added``, like every bubble the turn service posts): a job's parts show while
-    they run."""
-    from . import session_events
-
-    entry = _append_assistant_bubble(session_id, content, channel, title, None, owner)
-    session_events.publish(session_id, "message_added", {"entry": entry})
+    person may read, but must not fill the model's context, e.g. the transcripts of sub-agents. Open pages get it at
+    once (_append_assistant_bubble): a job's parts show while they run."""
+    _append_assistant_bubble(session_id, content, channel, title, None, owner)
 
 
 async def announce_into_rooms(
