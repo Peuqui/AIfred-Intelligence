@@ -150,3 +150,13 @@ class TestExecutor:
         monkeypatch.setattr(engine, "run_plan", fake_run_plan)
         asyncio.run(_collect(_tool(plugin, ctx).executor(**PLAN)))
         assert depths == [1]
+
+
+def test_aifred_has_run_task_plan_in_his_tool_list_and_the_other_whitelisted_agents_do_not() -> None:
+    """The main agent splits a big chat order into parts (Peuqui 24.11.2026); a whitelist without the tool hides it."""
+    from pathlib import Path
+
+    agents = json.loads((Path(__file__).parents[1] / "data" / "agents.json").read_text(encoding="utf-8"))["agents"]
+    whitelisted = {name: config["tools"] for name, config in agents.items() if config.get("tools") is not None}
+    assert "run_task_plan" in whitelisted["aifred"]
+    assert [name for name, tools in whitelisted.items() if "run_task_plan" in tools] == ["aifred"]
