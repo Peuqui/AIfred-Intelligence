@@ -202,7 +202,8 @@ ohne dass Codine ein neuer Agententyp wird.
 
 | Datei | Neu oder Änderung |
 |---|---|
-| `aifred/plugins/tools/subagent/__init__.py` | neu, Plugin und Executor |
+| `aifred/plugins/tools/subagent/__init__.py` | neu, Plugin (Einstellungen, Werkzeug, Delegationsregeln); der Lauf selbst ist `SubagentSession` in der lib |
+| `aifred/lib/subagent_run.py` | der Kern: Toolkit bauen, Nachrichten, Modelllauf, Transkript, Bericht. `SubagentSession.run()` für die erste Anfrage, `follow_up(text)` für eine weitere Nutzernachricht im selben Lauf (gleiches Toolkit, Bericht als Assistenten-Zug), `extra_tools` für Werkzeuge des Aufrufers, `toolkit` für den Zugriff danach. Die Beschriftungen des Transkripts stehen in `lib/i18n` (`subagent_transcript_*`). Aufrufer: das Plugin und die Plan-Engine |
 | `aifred/plugins/tools/subagent/prompts/tools/delegate_task.txt` | neu, Werkzeugbeschreibung für das Modell |
 | `aifred/plugins/tools/subagent/prompts/de/delegate_task.txt`, `en/delegate_task.txt` | neu, Anleitung an den Aufrufer: wann delegieren, was in `task` gehört (Fragment, nur wenn `delegate_task` freigeschaltet) |
 | `prompts/de/shared/subagent_frame.txt`, `prompts/en/shared/subagent_frame.txt` | neu, Rahmen für den Sub-Agenten |

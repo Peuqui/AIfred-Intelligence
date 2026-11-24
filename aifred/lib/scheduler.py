@@ -32,6 +32,7 @@ from .cron import next_cron_run
 from .i18n import t
 from .logging_utils import log_exception, log_message
 from .security import JOB_DEFAULT_TIER
+from .task_plan import PLAN_KEYS, plan_problem
 from .user_error import Invalid
 
 # What a job can be: one truth for the agents' scheduler tool (its JSON-schema enums), the jobs page
@@ -89,6 +90,8 @@ def job_problem(schedule_type: str, payload: dict[str, Any], ends_at: str = "") 
         return Invalid("fixed_text_needs_announce")
     if payload.get("audio_type", "notification") not in AUDIO_TYPES:
         return Invalid("unknown_audio_type", value=payload["audio_type"], allowed=", ".join(AUDIO_TYPES))
+    if any(key in payload for key in PLAN_KEYS):
+        return plan_problem(payload)
     return None
 
 

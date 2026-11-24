@@ -58,37 +58,5 @@
   "subagent_opt_tiers_0_2_3": {
     "de": "0+2+3 — zusätzlich löschen",
     "en": "0+2+3 — plus delete"
-  },
-  "subagent_transcript_title": {
-    "de": "Sub-Agent",
-    "en": "Sub-agent"
-  },
-  "subagent_transcript_task": {
-    "de": "AUFGABE",
-    "en": "TASK"
-  },
-  "subagent_transcript_thinking": {
-    "de": "DENKEN",
-    "en": "THINKING"
-  },
-  "subagent_transcript_call": {
-    "de": "WERKZEUG",
-    "en": "TOOL"
-  },
-  "subagent_transcript_result": {
-    "de": "ERGEBNIS",
-    "en": "RESULT"
-  },
-  "subagent_transcript_expected": {
-    "de": "ERWARTETES ERGEBNIS",
-    "en": "EXPECTED RESULT"
-  },
-  "subagent_transcript_report": {
-    "de": "BERICHT",
-    "en": "REPORT"
-  },
-  "subagent_transcript_no_report": {
-    "de": "Der Sub-Agent hat keinen Bericht geliefert.",
-    "en": "The sub-agent delivered no report."
   }
 }

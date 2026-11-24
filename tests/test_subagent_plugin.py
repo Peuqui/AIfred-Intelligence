@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+import aifred.lib.subagent_run as run
 import aifred.plugins.tools.subagent as sub
 from aifred.lib.bubble import (
     KIND_COLLAPSIBLE,
@@ -75,7 +76,7 @@ class TestPluginShape:
 
     def test_no_tool_at_max_depth(self, plugin, ctx):
         # Default depth 1: a sub-agent (depth 1) must not see delegate_task.
-        ctx.metadata[sub.DEPTH_METADATA_KEY] = 1
+        ctx.metadata[run.DEPTH_METADATA_KEY] = 1
         assert plugin.get_tools(ctx) == []
 
     def test_agent_parameter_only_with_setting_and_candidates(self, plugin, ctx, monkeypatch):
@@ -117,7 +118,7 @@ class TestDelegationLegend:
         seen_depth = []
 
         def fake_collect(sub_ctx):
-            seen_depth.append(sub_ctx.metadata[sub.DEPTH_METADATA_KEY])
+            seen_depth.append(sub_ctx.metadata[run.DEPTH_METADATA_KEY])
             return [
                 (workspace, [_tool("read_file", TIER_READONLY), _tool("delete_file", TIER_WRITE_SYSTEM)]),
                 (channel, [_tool("telegram_send", TIER_COMMUNICATE)]),
@@ -171,22 +172,22 @@ class TestToolkit:
                 _tool("delete_file", TIER_WRITE_SYSTEM),
             ])
 
-        monkeypatch.setattr(sub, "prepare_agent_toolkit", fake_prepare)
+        monkeypatch.setattr(run, "prepare_agent_toolkit", fake_prepare)
         settings = sub._parse_settings({})
-        kit = _run(sub.build_subagent_toolkit(ctx, settings, 0, "aifred", "tue etwas"))
+        kit = _run(run.build_subagent_toolkit(ctx, settings.allowed_tiers, 0, "aifred", "tue etwas"))
         assert [t.name for t in kit.tools] == ["read_file", "write_file"]
         assert kit._source == "telegram" and kit._max_tier == TIER_WRITE_DATA
         assert seen["memory_enabled"] is False
         assert seen["source"] == "telegram" and seen["max_tier"] == TIER_WRITE_DATA
-        assert seen["metadata"] == {"chat_id": 7, sub.DEPTH_METADATA_KEY: 1}
+        assert seen["metadata"] == {"chat_id": 7, run.DEPTH_METADATA_KEY: 1}
         assert seen["llm_history"] == []
 
     def test_no_tools_left_means_no_toolkit(self, ctx, monkeypatch):
         async def fake_prepare(agent_id, user_query, **kwargs):
             return "", ToolKit(tools=[_tool("telegram_send", TIER_COMMUNICATE)])
 
-        monkeypatch.setattr(sub, "prepare_agent_toolkit", fake_prepare)
-        assert _run(sub.build_subagent_toolkit(ctx, sub._parse_settings({}), 0, "aifred", "x")) is None
+        monkeypatch.setattr(run, "prepare_agent_toolkit", fake_prepare)
+        assert _run(run.build_subagent_toolkit(ctx, sub._parse_settings({}).allowed_tiers, 0, "aifred", "x")) is None
 
 
 class TestRun:
@@ -195,13 +196,13 @@ class TestRun:
         async def fake_prepare(agent_id, user_query, **kwargs):
             return "", ToolKit(tools=[_tool("read_file", TIER_READONLY)])
 
-        monkeypatch.setattr(sub, "prepare_agent_toolkit", fake_prepare)
+        monkeypatch.setattr(run, "prepare_agent_toolkit", fake_prepare)
         monkeypatch.setattr(
-            sub, "resolve_run_params",
-            lambda agent_id: sub.RunParams("llamacpp", "http://x", "test-model", 8192, 0.5),
+            run, "resolve_run_params",
+            lambda agent_id: run.RunParams("llamacpp", "http://x", "test-model", 8192, 0.5),
         )
         from aifred.backends.base import LLMOptions
-        monkeypatch.setattr(sub, "build_llm_options", lambda state, agent, model, t, n: LLMOptions(temperature=t, num_ctx=n))
+        monkeypatch.setattr(run, "build_llm_options", lambda state, agent, model, t, n: LLMOptions(temperature=t, num_ctx=n))
 
         class FakeClient:
             def __init__(self, **kwargs):
@@ -210,7 +211,7 @@ class TestRun:
             async def close(self):
                 self.closed = True
 
-        monkeypatch.setattr(sub, "LLMClient", FakeClient)
+        monkeypatch.setattr(run, "LLMClient", FakeClient)
 
         captured: dict[str, Any] = {}
 
@@ -233,7 +234,7 @@ class TestRun:
             metadata_dict={"ttft": 1.5, "tokens_per_sec": 51.3, "inference_time": 12.0,
                            "source": "Codine (Sub-Agent) (test-model)", "backend_type": "llamacpp"},
         )
-        monkeypatch.setattr(sub, "run_llm_stream", fake_stream)
+        monkeypatch.setattr(run, "run_llm_stream", fake_stream)
         self.captured = captured
 
     def test_report_is_result_and_transcript_is_an_artifact(self, plugin, ctx):
@@ -253,7 +254,7 @@ class TestRun:
         (transcript,) = next(e for e in events if "artifacts" in e)["artifacts"]
         assert transcript["kind"] == KIND_COLLAPSIBLE
         assert "Lies a.txt" in transcript["data"]["title"]
-        assert transcript["data"]["icon"] == sub.SUBAGENT_ICON
+        assert transcript["data"]["icon"] == run.SUBAGENT_ICON
         pieces = ("erst lesen", "read_file", 'path: "a.txt"', "INHALT VON A", "Der Bericht: alles gut.")
         positions = [transcript["data"]["content"].index(piece) for piece in pieces]
         assert positions == sorted(positions)  # in the order the run happened
@@ -367,11 +368,11 @@ class TestToolLoopIntegration:
 
     def test_transcript_shows_code_arguments_in_full(self):
         code = "html = open('fibonacci.html', 'w')\n" + "x = 1\n" * 100
-        line = sub.format_transcript_call("TOOL", "execute_code", json.dumps({"code": code, "description": "d"}))
+        line = run.format_transcript_call("TOOL", "execute_code", json.dumps({"code": code, "description": "d"}))
         assert line.startswith("[TOOL] execute_code\ncode:\n")
         assert code in line and 'description: "d"' in line
         # Arguments that are not JSON are shown as they came.
-        assert sub.format_transcript_call("TOOL", "t", "{kaputt") == "[TOOL] t({kaputt)"
+        assert run.format_transcript_call("TOOL", "t", "{kaputt") == "[TOOL] t({kaputt)"
 
     def test_collapsible_html_escapes(self):
         from aifred.lib.formatting import build_tool_collapsible
@@ -435,7 +436,7 @@ def test_subagent_inherits_reasoning_from_its_caller() -> None:
     from aifred.backends.base import LLMOptions
     own = LLMOptions(temperature=0.3, enable_thinking=False, reasoning_effort=None, top_k=10)
     caller = LLMOptions(temperature=1.0, enable_thinking=True, reasoning_effort="medium", top_k=40)
-    merged = sub.inherit_reasoning(own, caller)
+    merged = run.inherit_reasoning(own, caller)
     # Thinking depth from the main agent, sampling from the target agent
     assert (merged.enable_thinking, merged.reasoning_effort) == (True, "medium")
     assert (merged.temperature, merged.top_k) == (0.3, 10)

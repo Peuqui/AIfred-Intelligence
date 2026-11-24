@@ -18,20 +18,11 @@ Settings (settings.json next to this module, gear icon in the plugin modal):
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass, replace
-from typing import Any, Optional
+from typing import Any
 from collections.abc import AsyncGenerator
 
-from ....lib.bubble import KIND_COLLAPSIBLE, KIND_SANDBOX_HTML, KIND_SANDBOX_IMAGE, BubbleArtifact
-from ....lib.formatting import performance_footer_text
-from ....lib.function_calling import Tool, ToolKit
-from ....backends.base import LLMOptions
-from ....lib.llm_client import LLMClient, build_llm_options
-from ....lib.llm_pipeline import run_llm_stream
-from ....lib.perf_metrics import InferenceWork
-from ....theme import DELEGATION_ICON
-from ....lib.agent_memory import prepare_agent_toolkit
+from ....lib.function_calling import Tool
 from ....lib.plugin_base import (
     CredentialField,
     PluginContext,
@@ -41,13 +32,13 @@ from ....lib.plugin_base import (
     load_tool_parameters,
     save_plugin_settings,
 )
-from ....lib.sandbox import SANDBOX_HTML_URL_MARKER, SANDBOX_IMAGE_URL_MARKER
 from ....lib.security import (
     TIER_COMMUNICATE,
     TIER_READONLY,
     TIER_WRITE_DATA,
     TIER_WRITE_SYSTEM,
 )
+from ....lib.subagent_run import DEPTH_METADATA_KEY, SubagentSession, transcript_labels, within_tiers
 
 TOOL_NAME = "delegate_task"
 
@@ -64,11 +55,6 @@ TIER_SEPARATOR = "+"
 DEFAULT_ALLOWED_TIERS = f"{TIER_READONLY}{TIER_SEPARATOR}{TIER_WRITE_DATA}"
 DEFAULT_MAX_DEPTH = "1"
 DEFAULT_DELEGATE_OTHERS = "0"
-
-# PluginContext.metadata key carrying the nesting depth of the current run.
-# A sub-agent's toolkit is built with depth+1; at max depth the plugin offers
-# no tool at all, so recursion is bounded structurally, without a counter.
-DEPTH_METADATA_KEY = "subagent_depth"
 
 def _tiers(*tiers: int) -> str:
     return TIER_SEPARATOR.join(str(t) for t in tiers)
@@ -94,18 +80,6 @@ class SubAgentSettings:
     delegate_to_other_agents: bool
 
 
-@dataclass(frozen=True)
-class RunParams:
-    """Everything one inference needs, resolved through the same helpers the
-    browser path (multi_agent) and the hub path (message_processor) use."""
-
-    backend_type: str
-    backend_url: str | None
-    model: str
-    num_ctx: int
-    temperature: float
-
-
 def _parse_settings(raw: dict[str, str]) -> SubAgentSettings:
     tiers = raw.get(ALLOWED_TIERS_KEY, DEFAULT_ALLOWED_TIERS)
     return SubAgentSettings(
@@ -124,11 +98,6 @@ def delegation_candidates(ctx: PluginContext) -> list[str]:
     return [agent_id for agent_id in selectable_agents() if agent_id != ctx.agent_id]
 
 
-def within_allowed_tiers(tools: list[Tool], settings: SubAgentSettings) -> list[Tool]:
-    """The plugin setting "allowed tiers" applied to a tool list."""
-    return [t for t in tools if t.tier in settings.allowed_tiers]
-
-
 def delegation_legend(
     ctx: PluginContext, settings: SubAgentSettings, depth: int, candidates: list[str],
 ) -> str:
@@ -145,7 +114,7 @@ def delegation_legend(
     # this plugin too), the caller's tier ceiling, the allowed tiers.
     sub_ctx = replace(ctx, metadata={**ctx.metadata, DEPTH_METADATA_KEY: depth + 1})
     offered = [
-        (owner, within_allowed_tiers(filter_tools_by_tier(tools, ctx.max_tier), settings))
+        (owner, within_tiers(filter_tools_by_tier(tools, ctx.max_tier), settings.allowed_tiers))
         for owner, tools in collect_plugin_tools(sub_ctx)
     ]
 
@@ -168,85 +137,6 @@ def delegation_legend(
         "Tools per agent:", *agent_lines,
         "Tool groups:", *plugin_lines,
     ])
-
-
-def inherit_reasoning(own: LLMOptions, caller: LLMOptions) -> LLMOptions:
-    """The sub-agent thinks as deeply as the main agent that delegated: thinking
-    switch and reasoning level come from the caller; temperature and sampling
-    stay the target agent's. Before, a target agent with no level of its own
-    sent none, and the chat template fell back to its default (xhigh on
-    Qwen3.8) — deeper than the caller had chosen."""
-    return replace(own, enable_thinking=caller.enable_thinking, reasoning_effort=caller.reasoning_effort)
-
-
-def resolve_run_params(agent_id: str) -> RunParams:
-    """Model, context and temperature for the sub-agent's inference, from settings.json."""
-    from ....lib.agent_settings import get_persisted_tuning
-    from ....lib.config import (
-        BACKEND_URLS,
-        DEFAULT_SETTINGS,
-        DEFAULT_TEMPERATURE,
-        get_effective_model_from_settings,
-    )
-    from ....lib.research.context_utils import get_stateless_num_ctx
-    from ....lib.settings import load_settings
-    settings = load_settings() or {}
-    backend_type = settings.get("backend_type", DEFAULT_SETTINGS["backend_type"])
-    model = get_effective_model_from_settings(agent_id)
-    if not model:
-        raise RuntimeError(f"no model configured for agent '{agent_id}' on {backend_type}")
-    num_ctx, _ = get_stateless_num_ctx(model, backend_type)
-    return RunParams(
-        backend_type=backend_type,
-        backend_url=BACKEND_URLS.get(backend_type, ""),
-        model=model,
-        num_ctx=num_ctx,
-        temperature=get_persisted_tuning(settings, agent_id, "temperature", DEFAULT_TEMPERATURE),
-    )
-
-
-_THINK_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL)
-_TITLE_LEN = 60
-
-
-def _short(text: str) -> str:
-    flat = " ".join(text.split())
-    return flat if len(flat) <= _TITLE_LEN else flat[:_TITLE_LEN].rstrip() + "…"
-
-
-def format_transcript_call(label: str, name: str, arguments: str) -> str:
-    """A tool call for the transcript, readable in full: short arguments on
-    one line, multi-line strings (code, file contents) as their own block."""
-    try:
-        parsed = json.loads(arguments) if arguments else {}
-    except json.JSONDecodeError:
-        # The model sent arguments that are not JSON; show them as they came.
-        return f"[{label}] {name}({arguments})"
-    if not isinstance(parsed, dict):
-        return f"[{label}] {name}({arguments})"
-    lines = [f"[{label}] {name}"]
-    for key, value in parsed.items():
-        if isinstance(value, str) and "\n" in value:
-            lines.append(f"{key}:\n{value}")
-        else:
-            lines.append(f"{key}: {json.dumps(value, ensure_ascii=False)}")
-    return "\n".join(lines)
-
-
-SUBAGENT_ICON = DELEGATION_ICON
-
-
-# Keys of the transcript labels in this plugin's i18n.json (the plugin ships
-# its own texts; plugin_i18n_text fails loud on a missing key or language).
-_TRANSCRIPT_LABEL_KEYS = ("title", "task", "thinking", "call", "result", "expected", "report", "no_report")
-
-
-def _transcript_labels(lang: str) -> dict[str, str]:
-    from pathlib import Path
-
-    from ....lib.plugin_base import plugin_i18n_text
-    plugin_dir = Path(__file__).resolve().parent
-    return {key: plugin_i18n_text(plugin_dir, f"subagent_transcript_{key}", lang) for key in _TRANSCRIPT_LABEL_KEYS}
 
 
 @dataclass
@@ -345,62 +235,7 @@ class SubAgentPlugin:
         if tool_name != TOOL_NAME:
             return ""
         task = str(tool_args.get("task", "")).strip().replace("\n", " ")
-        return f"{_transcript_labels(lang)['title']}: {task[:70]}"
-
-
-async def build_subagent_toolkit(
-    ctx: PluginContext, settings: SubAgentSettings, depth: int, target_agent: str, task: str,
-) -> ToolKit | None:
-    """The sub-agent's toolkit: the target agent's normal kit (same source and
-    tier ceiling as the caller, memory off, depth+1 so the recursion bound
-    applies), reduced to the tiers the plugin setting allows."""
-    _, toolkit = await prepare_agent_toolkit(
-        target_agent,
-        task,
-        lang=ctx.lang,
-        memory_enabled=False,
-        research_tools_enabled=True,
-        session_id=ctx.session_id,
-        llm_history=[],
-        max_tier=ctx.max_tier,
-        source=ctx.source,
-        metadata={**ctx.metadata, DEPTH_METADATA_KEY: depth + 1},
-    )
-    if toolkit is None:
-        return None
-    tools = within_allowed_tiers(toolkit.tools, settings)
-    if not tools:
-        return None
-    return ToolKit(
-        tools=tools,
-        _session_id=ctx.session_id,
-        _agent_id=target_agent,
-        _source=ctx.source,
-        _max_tier=ctx.max_tier,
-    )
-
-
-def subagent_messages(
-    ctx: PluginContext, agent: str | None, toolkit: ToolKit | None, task: str, expected_result: str,
-) -> list[dict[str, Any]]:
-    """The sub-agent's request: a worker for its caller. The persona of the agent delegated to (its value may sit in
-    the prompt, e.g. a review method), none when the caller delegates to itself; instructions for exactly the tools
-    it holds; no memory. The task is stamped like every user turn (the disciplines promise date and time from it)."""
-    from ....lib.message_builder import stamp_user_turn, user_turn_stamp
-    from ....lib.prompt_loader import agent_system_prompt, load_prompt
-    from ....lib.security import in_owner_context
-
-    granted = {tool.name for tool in toolkit.tools} if toolkit else set()
-    system_prompt = agent_system_prompt(
-        agent, load_prompt("shared/subagent_frame", lang=ctx.lang), ctx.lang,
-        answer_channel=ctx.source, external=not in_owner_context(ctx.source, ctx.trust), tools=granted, memory=False,
-        answers_user=False,
-    )
-    user_text = stamp_user_turn(
-        load_prompt("shared/subagent_task", lang=ctx.lang, task=task, expected_result=expected_result),
-        user_turn_stamp(),
-    )
-    return [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_text}]
+        return f"{transcript_labels(lang)['title']}: {task[:70]}"
 
 
 async def run_subagent(
@@ -412,137 +247,22 @@ async def run_subagent(
     agent: str | None,
     candidates: list[str],
 ) -> AsyncGenerator[dict[str, Any], None]:
-    """Executor body: yields ``progress`` events while the sub-agent works,
-    one ``collapsible`` with the full transcript, and the ``result``."""
-    from ....lib.agent_config import get_agent_config
-    from ....lib.context_manager import LoopCompression, estimate_tokens, estimate_toolkit_tokens
-    from ....lib.tool_output_cap import budget_var, compute_budget
-
-    labels = _transcript_labels(ctx.lang)
-    target_agent = agent or ctx.agent_id
+    """Executor body of ``delegate_task``: the delegation rules (is the agent a candidate) and the plugin's
+    settings, then the run itself in the lib."""
     if agent is not None and agent not in candidates:
         yield {"result": json.dumps({"error": f"agent '{agent}' is not available for delegation"})}
         return
-    cfg = get_agent_config(target_agent)
-    if cfg is None:
-        yield {"result": json.dumps({"error": f"unknown agent '{target_agent}'"})}
-        return
-    agent_label = f"{cfg.display_name} ({labels['title']})"
-
-    toolkit = await build_subagent_toolkit(ctx, settings, depth, target_agent, task)
-    messages = subagent_messages(ctx, agent, toolkit, task, expected_result)
-    system_prompt, user_text = messages[0]["content"], messages[1]["content"]
-
-    params = resolve_run_params(target_agent)
-    caller_model = resolve_run_params(ctx.agent_id).model
-    options = inherit_reasoning(
-        build_llm_options(None, target_agent, params.model, params.temperature, params.num_ctx),
-        build_llm_options(None, ctx.agent_id, caller_model, params.temperature, params.num_ctx),
+    session = SubagentSession(
+        ctx,
+        allowed_tiers=settings.allowed_tiers,
+        depth=depth,
+        target_agent=agent or ctx.agent_id,
+        task=task,
+        expected_result=expected_result,
+        with_persona=agent is not None,
     )
-
-    transcript: list[str] = [f"{labels['task']}:\n{task}\n\n{labels['expected']}:\n{expected_result}"]
-    # Text of the current model round; flushed into the transcript before
-    # each tool call, so thinking, text and tools read in the order they ran.
-    round_text: list[str] = []
-    report = ""
-    pipeline_result: Any = None
-
-    def flush_round(final: bool) -> None:
-        text = "".join(round_text)
-        round_text.clear()
-        # Backends deliver reasoning inline as <think>…</think>.
-        for block in _THINK_RE.findall(text):
-            if block.strip():
-                transcript.append(f"[{labels['thinking']}]\n{block.strip()}")
-        plain = _THINK_RE.sub("", text).strip()
-        # The last round's text is the report, shown once below.
-        if plain and not final:
-            transcript.append(f"[{cfg.display_name}]\n{plain}")
-
-    yield {"progress": f"{SUBAGENT_ICON} {labels['title']} {cfg.display_name}: {params.model}"}
-
-    # Own tool-output budget for the inner loop (ContextVar is task-local;
-    # reset afterwards so the caller's budget is untouched).
-    sys_tok = estimate_tokens([{"content": system_prompt}], model_name=params.model)
-    task_tok = estimate_tokens([{"content": user_text}], model_name=params.model)
-    tools_tok = estimate_toolkit_tokens(toolkit, model_name=params.model)
-    budget_token = budget_var.set(compute_budget(params.num_ctx, sys_tok, task_tok, 0, tools_tok))
-    llm_client = LLMClient(backend_type=params.backend_type, base_url=params.backend_url)
-    try:
-        # Its own loop compresses with its own model and client: the sub-agent's backend can be
-        # another one than the caller's, and the caller's turn is not known here.
-        async for event in run_llm_stream(
-            llm_client, params.model, messages, options, agent_label,
-            source=ctx.source, toolkit=toolkit,
-            compression=LoopCompression(llm_client, params.model, ctx.lang),
-        ):
-            kind = event.get("type")
-            if kind == "content":
-                round_text.append(event.get("text", ""))
-            elif kind == "thinking":
-                round_text.append(f"<think>{event.get('text', '')}</think>")
-            elif kind == "tool_call":
-                flush_round(final=False)
-                name = event.get("name", "")
-                transcript.append(format_transcript_call(labels["call"], name, event.get("arguments", "")))
-                yield {"progress": f"{SUBAGENT_ICON} {labels['title']} {cfg.display_name}: {name}"}
-            elif kind == "tool_progress":
-                yield {"progress": f"{SUBAGENT_ICON} {labels['title']} {cfg.display_name}: {event.get('message', '')}"}
-            elif kind == "tool_result":
-                transcript.append(f"[{labels['result']}]\n{event.get('result', '')}")
-            elif kind == "pipeline_result":
-                pipeline_result = event["result"]
-                report = pipeline_result.text_clean.strip()
-    except Exception:
-        # The requests that did run are unknown now: the caller's turn
-        # metrics must not look complete without them.
-        yield {"work": InferenceWork.unmeasured().to_dict()}
-        raise
-    finally:
-        budget_var.reset(budget_token)
-        await llm_client.close()
-
-    # The sub-agent's own "done" line (tokens, rates, PP, thinking) in the
-    # debug console and log, like a main agent's; before, only its tool calls
-    # showed up there.
-    if pipeline_result is not None:
-        yield {"progress": pipeline_result.debug_msg}
-    # The sub-agent's inference is part of the caller's turn: its footer sums
-    # this work into its own rates (the transcript footer below shows only the
-    # sub-agent's).
-    yield {"work": pipeline_result.metrics["work"] if pipeline_result is not None
-           else InferenceWork.unmeasured().to_dict()}
-    flush_round(final=True)
-    transcript.append(f"[{labels['report']}]\n{report or labels['no_report']}")
-    # Same performance line as below a main agent's answer (one builder);
-    # shown below the transcript text.
-    footer = performance_footer_text(pipeline_result.metadata_dict) if pipeline_result is not None else ""
-
-    # The transcript, then everything the sub-agent's own tools produced for
-    # the bubble (nested transcripts, sources, sandbox pages, camera images,
-    # VLM descriptions): one artifact list for the caller's turn, shown where
-    # the caller delegated, exactly as if the caller's tools had produced it.
-    transcript_artifact = BubbleArtifact(KIND_COLLAPSIBLE, {
-        "icon": SUBAGENT_ICON,
-        "title": f"{labels['title']} {cfg.display_name}: {_short(task)}",
-        "content": "\n\n".join(transcript),
-        "footer": footer,
-    })
-    inner = pipeline_result.artifacts if pipeline_result is not None else []
-    yield {"artifacts": [a.to_dict() for a in (transcript_artifact, *inner)]}
-    if not report:
-        yield {"result": json.dumps({"error": labels["no_report"]})}
-        return
-    # The caller's model needs the sandbox URLs too (render_html takes them):
-    # marker lines lead the report so a capped result cannot cut them off. The
-    # caller's pipeline already has these pages as artifacts and does not show
-    # them twice.
-    markers = [
-        f"{SANDBOX_HTML_URL_MARKER}{a.data['url']}" for a in inner if a.kind == KIND_SANDBOX_HTML
-    ] + [
-        f"{SANDBOX_IMAGE_URL_MARKER}{a.data['url']}" for a in inner if a.kind == KIND_SANDBOX_IMAGE
-    ]
-    yield {"result": "\n".join([*markers, report]) if markers else report}
+    async for event in session.run():
+        yield event
 
 
 plugin = SubAgentPlugin()
