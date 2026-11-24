@@ -12,7 +12,7 @@ import pytest
 import aifred.lib.plan_engine as engine
 import aifred.lib.subagent_run as run
 import aifred.plugins.tools.subagent as sub
-from aifred.lib.plan_engine import PartOutcome, PlanResult, coverage_line, render_results
+from aifred.lib.plan_engine import PartDone, PartOutcome, PlanResult, coverage_line, render_results
 from aifred.lib.plan_record import PartRecords, PlanEntry
 from aifred.lib.plugin_base import PluginContext
 from aifred.lib.security import TIER_READONLY, TIER_WRITE_DATA
@@ -107,6 +107,7 @@ class TestExecutor:
             yield {"progress": "Teil 1: läuft"}
             yield {"work": "arbeit"}
             yield {"artifacts": [{"kind": "x"}]}
+            yield {"part_done": PartDone(_result_for(plan).outcomes[0], [{"kind": "x"}], 1.0)}   # not for the chat tool
             yield {"plan_result": _result_for(plan)}
 
         monkeypatch.setattr(engine, "run_plan", fake_run_plan)

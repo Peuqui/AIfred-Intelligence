@@ -273,9 +273,16 @@ Positionen, die Positions-ID `zusatz` ist reserviert (Funde außerhalb der Liste
 5. **Teilfehler.** Wirft ein Teil eine Ausnahme, steht er mit seinem Grund im Ergebnis, und die nächsten Teile laufen
    weiter. Eine Ausnahme außerhalb der Teile (Notizen) lässt den ganzen Lauf scheitern; endet die Engine ohne
    Ergebnis, ist das ebenfalls ein Fehler.
-6. **Transkripte.** Die Transkripte aller Teile erscheinen als eine Bubble nur im Chatverlauf der Sitzung
-   (`record_chat_only_bubble`, Titel aus `scheduler/plan_transcripts_title`); das Modell sieht sie nie, `llm_history`
-   bleibt unberührt.
+6. **Bubbles während des Laufs.** Gleich beim Start steht eine Bubble: eine Zeile „Job … gestartet: N Teilaufträge“ und
+   ein zugeklappter Block mit den Teilen und ihren Positionen (`_plan_started_bubble`). Nach jedem Teil folgt dessen
+   eigene Bubble (`PartDone`-Ereignis der Engine, `_part_bubble_artifacts`): genau ein aufklappbarer Block ohne Text
+   drumherum. Seine Titelzeile, auch zugeklappt (Handy) sichtbar, trägt Teil und Stand („Teil 1/4 · Titel: N von M
+   Positionen, K Einträge, Dauer“, bei Lücken „, nicht geprüft: …“, bei einem gescheiterten Teil „gescheitert:
+   Grund“); aufgeklappt stehen die Transkripte des Teils (ein Collapsible enthält nur Text, die Transkripte stehen
+   deshalb als Abschnitte darin; Seiten und Bilder, die ein Sub-Agent erzeugt hat, folgen als eigene Artefakte unter
+   dem Block). Alle Bubbles gehen über `record_chat_only_bubble` nur in den Chatverlauf (das Modell sieht sie nie,
+   `llm_history` bleibt unberührt) und erreichen offene Tabs sofort als `message_added`. Die Dauer ab 60 s als
+   Minuten:Sekunden. Reihenfolge im Verlauf: Start, Teil 1 … Teil N, Anfrage des Abschlusses, Antwort.
 7. **Notizen.** Neue Quellen, die die Teile gemeldet haben (`neue_quellen`), hängt der Code als Abschnitt mit Datum an die
    Job-Notizen an (nur wenn der Job Notizen führt, `_keeps_notes`).
 8. **Abschluss.** Der Abschluss ist der gewohnte Lauf über `process_inbound`. Sein Prompt ist der Job-Prompt

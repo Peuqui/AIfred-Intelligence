@@ -4,13 +4,15 @@ Every part gets its own ``SubagentSession`` with the ``plan_record`` tool; what 
 that tool into ``PartRecords``. Positions without an entry after the run get exactly one reminder, then count as not
 checked. A part that fails (exception) is a part failure with its reason; the next parts run on.
 
-``run_plan`` yields ``progress``, ``work`` and ``artifacts`` like a tool executor (so one can pass them on) and
-at last ``{"plan_result": PlanResult}``. ``render_results`` is the one place for the text a model gets,
+``run_plan`` yields ``progress``, ``work`` and ``artifacts`` like a tool executor (so one can pass them on), after
+every part ``{"part_done": PartDone}`` (the caller that shows a part when it is done) and at last
+``{"plan_result": PlanResult}``. ``render_results`` is the one place for the text a model gets,
 ``coverage_line`` the fixed line the code appends to a message. Every text is a prompt (prompts/<lang>/task_plan).
 """
 
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from decimal import Decimal
@@ -32,6 +34,15 @@ class PartOutcome:
     report: str
     failure: str | None
     not_checked: list[str]
+
+
+@dataclass
+class PartDone:
+    """A part that ended (done or failed): its outcome, the raw artifacts it produced (its transcripts) and how long it ran."""
+
+    outcome: PartOutcome
+    artifacts: list[dict[str, Any]]
+    seconds: float
 
 
 @dataclass
@@ -128,13 +139,17 @@ async def run_plan(
         outcome = PartOutcome(part=part, records=PartRecords(), report="", failure=None, not_checked=[])
         outcomes.append(outcome)
         task = part_task(plan, part, notes_hint, ctx.lang)
+        artifacts: list[dict[str, Any]] = []
+        started = time.monotonic()
         try:
             async for event in _run_part(plan, part, ctx, allowed_tiers, depth, task, outcome):
+                artifacts += event.get("artifacts", [])
                 yield event
         except Exception as exc:  # noqa: BLE001 — a failed part must not stop the others; reported in the result
             log_exception(f"Plan part '{part.id}' failed", exc)
             outcome.failure = str(exc) or type(exc).__name__
         outcome.not_checked = outcome.records.open_positions(part)
+        yield {"part_done": PartDone(outcome=outcome, artifacts=artifacts, seconds=time.monotonic() - started)}
     yield {"plan_result": PlanResult(plan=plan, outcomes=outcomes)}
 
 

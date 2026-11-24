@@ -8,6 +8,7 @@ den ``prompts/<de|en>/``-Fragmenten (granted_tools-gated). Die Pipeline
 ``lib/research_tools.py``.
 """
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass
@@ -97,7 +98,10 @@ def get_research_tools(
                 text = load_plugin_i18n(Path(__file__).parent)["web_fetch_watch_notice"][lang if lang == "en" else "de"]
                 session_events.publish(session_id, "notice", {"level": "warning",
                                                               "text": text.format(host=host, chars=len(carried))})
-        result = scrape_webpage(url)
+        # In a thread like the parallel scraping of web_search (scraper_orchestrator): a slow page (trafilatura, then
+        # Playwright, 30 s) must not stop the event loop — in the hub thread it also carries the pucks' WebSockets, which
+        # dropped every slow fetch of a job run (24.11.2026).
+        result = await asyncio.to_thread(scrape_webpage, url)
 
         if result.get("success") and result.get("content"):
             content = result["content"]

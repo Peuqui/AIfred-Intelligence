@@ -14,7 +14,7 @@ import pytest
 import aifred.lib.subagent_run as run
 from aifred.backends.base import LLMOptions
 from aifred.lib.function_calling import Tool, ToolKit
-from aifred.lib.plan_engine import PartOutcome, PlanResult, coverage_line, render_results, run_plan
+from aifred.lib.plan_engine import PartDone, PartOutcome, PlanResult, coverage_line, render_results, run_plan
 from aifred.lib.plan_record import PartRecords, PlanEntry
 from aifred.lib.plugin_base import PluginContext
 from aifred.lib.security import TIER_READONLY, TIER_WRITE_DATA
@@ -280,3 +280,39 @@ def test_counts_ignore_extra_finds() -> None:
     records = PartRecords(entries=[PlanEntry("zusatz", "gefunden", "x", PAGE, {})])
     result = PlanResult(TaskPlan(parts=[part]), [PartOutcome(part, records, "", None, ["p1"])])
     assert (result.checked_count, result.position_count) == (0, 1)
+
+
+def test_j_every_part_ends_with_its_own_event_before_the_next_part_starts(ctx: PluginContext, model: Model) -> None:
+    events = _drive(_plan(), ctx)
+    kinds = [next(iter(event)) for event in events]
+    assert kinds.count("part_done") == 3 and kinds[-1] == "plan_result"
+    dones: list[PartDone] = [event["part_done"] for event in events if "part_done" in event]
+    assert [done.outcome.part.id for done in dones] == ["t1", "t2", "t3"]
+    assert all(isinstance(done.seconds, float) and done.seconds >= 0 for done in dones)
+    # the part's event follows its own artifacts and precedes the next part's progress
+    first_done = kinds.index("part_done")
+    assert "artifacts" in kinds[:first_done] and "Teil 2" not in str([e for e in events[:first_done] if "progress" in e])
+    assert events[first_done + 1].get("progress", "Teil 2: ").startswith("Teil 2: ")
+    # each part's transcripts are exactly the artifacts events of that part
+    own = [event["artifacts"] for event in events[:first_done] if "artifacts" in event]
+    assert dones[0].artifacts == [artifact for batch in own for artifact in batch] and len(dones[0].artifacts) == 1
+    assert _result(events).outcomes == [done.outcome for done in dones]
+
+
+def test_j_the_reminder_adds_its_transcript_to_the_part(ctx: PluginContext, model: Model) -> None:
+    model.script = lambda title, is_follow_up: [_read(), _record("p1a")] if title == "Teil 1" else _complete(title, is_follow_up)
+    events = _drive(_plan(1), ctx)
+    (done,) = [event["part_done"] for event in events if "part_done" in event]
+    assert len(done.artifacts) == 2 and done.outcome.not_checked == ["p1b"]
+
+
+def test_j_a_failed_part_has_its_event_too(ctx: PluginContext, model: Model) -> None:
+    def script(title: str, is_follow_up: bool) -> list[Action]:
+        if title == "Teil 2":
+            raise RuntimeError("Modell weg")
+        return _complete(title, is_follow_up)
+
+    model.script = script
+    dones: list[PartDone] = [event["part_done"] for event in _drive(_plan(), ctx) if "part_done" in event]
+    assert [done.outcome.failure for done in dones] == [None, "Modell weg", None]
+    assert dones[1].outcome.not_checked == ["p2a", "p2b"]

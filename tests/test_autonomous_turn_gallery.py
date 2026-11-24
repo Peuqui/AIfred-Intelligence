@@ -108,3 +108,16 @@ def test_llm_history_without_images_has_no_marker(llm_recorded):
     content = llm_recorded[0][-1]["content"]
     assert "Neues Kapitel" in content
     assert "vision_analyze" not in content
+
+
+def test_an_open_page_gets_the_alert_bubble_at_once(recorded, monkeypatch):
+    """24.11.2026: an autonomous bubble reached an open page only on a reload. It is published as message_added,
+    marked as no end of a turn (a running answer in the same session goes on)."""
+    from aifred.lib import session_events
+
+    published: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(session_events, "publish", lambda sid, kind, data: published.append((sid, kind, data)))
+    ref = mp.record_autonomous_turn("vision", "cam-1", "Kamera", "Bewegung im Hof")
+    assert [(sid, kind) for sid, kind, _ in published] == [(ref.session_id, "message_added")]
+    data = published[0][2]
+    assert data["ends_turn"] is False and data["entry"]["content"] == "Bewegung im Hof"

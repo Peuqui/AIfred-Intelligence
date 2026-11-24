@@ -1,0 +1,1 @@
+Part {index}/{count} · {title}: {checked} of {total} positions, {entries} entries, {duration}

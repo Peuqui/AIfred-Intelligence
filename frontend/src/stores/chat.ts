@@ -189,8 +189,11 @@ export const useChat = defineStore("chat", () => {
         break;
       case "message_added":
         history.value = [...history.value, data.entry as ChatEntry];
-        streaming.value = null;
-        toolStatus.value = "";
+        // A bubble from outside the turn (an alert, a job's part) leaves a running answer as it is.
+        if (data.ends_turn !== false) {
+          streaming.value = null;
+          toolStatus.value = "";
+        }
         break;
       case "message_updated": {
         // The bubble with what was spoken of it, once its reading is over.
