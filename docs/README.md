@@ -31,9 +31,10 @@ one, update the other.
 | LLM call | [EN](en/architecture/llm-call.md) · [DE](de/architecture/llm-call.md) | The path of a single LLM call through the stack |
 | Codebase overview | [EN](en/architecture/codebase.md) · [DE](de/architecture/codebase.md) | Directory map (the TTS engines live in the [TTS-Suite](https://github.com/Peuqui/TTS-Suite) repo), conventions, checks |
 | Message Hub | [EN](en/architecture/message-hub.md) · [DE](de/architecture/message-hub.md) | Headless channel processing: listeners, envelopes, routing table |
-| Scheduler | [EN](en/architecture/scheduler.md) · [DE](de/architecture/scheduler.md) | Job store, cron, webhook API |
+| Scheduler | [EN](en/architecture/scheduler.md) · [DE](de/architecture/scheduler.md) | Job store, cron, webhook API, jobs with sub-tasks |
 | Security | [EN](en/architecture/security.md) · [DE](de/architecture/security.md) | Tiers, owner elevation, auth |
-| Sub-agents | [EN](en/architecture/subagent-plugin.md) · [DE](de/architecture/subagent-plugin.md) | Delegation design |
+| Sub-agents | [EN](en/architecture/subagent-plugin.md) · [DE](de/architecture/subagent-plugin.md) | Delegation design, `run_task_plan` |
+| Task plans | [EN](en/architecture/task-plan.md) · [DE](de/architecture/task-plan.md) | Plan engine: split large tasks into parts, recording tool with read check, archive, count line |
 | Calibration strategy (SSOT) | [EN](en/architecture/calibration-strategy.md) · [DE](de/architecture/calibration-strategy.md) | Greedy cascade, burn-in, capacity guard — authoritative reference |
 | vLLM calibration | [EN](en/architecture/calibration-vllm.md) · [DE](de/architecture/calibration-vllm.md) | vLLM calibration algorithm |
 | Calibration challenge: LLM vs. algorithm | [EN](en/architecture/calibration-llm-challenge.md) · [DE](de/architecture/calibration-llm-challenge.md) | Experiment design: AI-agent vs. algorithmic calibration (open) |

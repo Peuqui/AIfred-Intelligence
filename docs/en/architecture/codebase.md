@@ -24,7 +24,10 @@ AIfred-Intelligence/
 │   │   ├── document_sources.py    # Further document sources (protocol; plugins offer them, e.g. Google Drive)
 │   │   ├── agent_memory.py        # Per-agent long-term memory
 │   │   ├── message_hub.py · message_processor.py · routing_table.py · envelope.py   # Message Hub
-│   │   ├── scheduler.py           # Cron / interval / one-shot jobs
+│   │   ├── scheduler.py           # Cron / interval / one-shot jobs, also jobs with sub-tasks
+│   │   ├── task_plan.py           # Task plan (frame, parts, positions, columns, trend) and the one check
+│   │   ├── plan_engine.py · plan_record.py · plan_archive.py   # Plan engine (parts as sub-agents), recording tool with read check, CSV archive and trend table
+│   │   ├── subagent_run.py        # SubagentSession: one sub-agent run (delegate_task and the plan engine)
 │   │   ├── security.py · credential_broker.py · auth.py · oauth/   # Tiers, secrets, login, OAuth broker
 │   │   ├── calibration/           # Context calibration (llama.cpp flow, vLLM flow)
 │   │   ├── vision_*.py · frame_sources/ · frame_hub.py   # Vision + Vigilantia
