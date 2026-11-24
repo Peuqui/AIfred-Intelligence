@@ -78,6 +78,11 @@ verbunden ist, und schiebt jede Änderung sofort als Art `local_hold` an alle ve
 letzte Stand bleibt in der Warteschlange). Ohne Seite fragt der Server GPU-Orc nicht. Die Seite behält
 `GET /api/service-status/local-hold` beim Öffnen, im 30-s-Takt und nach ihren Knöpfen.
 
+Im Chat steht ein Hold (angefragt, überlassen oder aktiv) zuerst als kleine bernsteinfarbene Pille in der Titelzeile,
+auch eine Anfrage (Peuqui 24.11.2026, wie in Agent-Orc): Halter und Zustandswort, der Punkt pulsiert, solange eine
+Anfrage auf eine Entscheidung wartet. Ein Tipp öffnet darunter das Band mit Zustand, Grund und den Knöpfen der
+Statuszeile (`GpuHoldPill.vue`, `GpuHoldBanner.vue`); „Einklappen“ und jede Änderung des Holds machen es wieder zur Pille.
+
 ## Hold beenden: Ende anfordern oder sofort freigeben
 
 Zwei Wege, einen fremden Hold auf den Karten dieses Rechners zu beenden (beide nur für die Karten dieses Rechners,

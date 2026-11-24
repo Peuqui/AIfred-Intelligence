@@ -77,6 +77,11 @@ connected and pushes every change at once as kind `local_hold` to all connected 
 state stays in the queue). Without a page the server does not ask GPU-Orc. The page keeps
 `GET /api/service-status/local-hold` on opening, every 30 s and after its buttons.
 
+In the chat a hold (requested, granted or active) shows first as a small amber pill in the title row, a request too
+(Peuqui 24.11.2026, as in Agent-Orc): owner and state word, the dot pulses while a request waits for a decision. A tap
+opens the band beneath with state, reason and the status line's buttons (`GpuHoldPill.vue`, `GpuHoldBanner.vue`);
+"Fold" and every change of the hold turn it back into the pill.
+
 ## Ending a hold: request the end or release now
 
 Two ways to end somebody else's hold on this machine's cards (both only for this machine's cards, both ask first):

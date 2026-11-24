@@ -10,6 +10,7 @@ import DebateControls from "../components/DebateControls.vue";
 import VisionBadge from "../components/VisionBadge.vue";
 import ChatInput from "../components/ChatInput.vue";
 import GpuHoldBanner from "../components/GpuHoldBanner.vue";
+import GpuHoldPill from "../components/GpuHoldPill.vue";
 import DebugConsole from "../components/DebugConsole.vue";
 import ResizeGrip from "../components/ResizeGrip.vue";
 import ImageEditor from "../components/ImageEditor.vue";
@@ -236,6 +237,7 @@ onMounted(() => void start());
            Agent-Orc, who answers and how below it (Peuqui 09.11.2026). -->
       <div class="toolbar">
         <h2>{{ chat.title || t("untitled_chat") }}</h2>
+        <GpuHoldPill />
         <div class="tools">
           <button class="all-read" :disabled="!chat.unread" @click="chat.markAllRead">{{ tCount("mark_all_read", chat.unread) }}</button>
           <button class="zoom" :disabled="chatZoom <= ZOOM.min" :title="t('chat_font_smaller')" @click="zoomBy('chat', -1)">A−</button>

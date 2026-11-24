@@ -2,11 +2,11 @@
 // service_status over the session stream) with the moment it arrived, and the machines with describers (asked when
 // the bar asks for a snapshot, on refresh and after their button) and the hold of this machine's own cards. The bar counts down from that moment itself.
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { ApiError, api } from "../api/client";
 import type { HostStatus, LocalHoldStatus, ServiceSnapshot } from "../api/types";
-import { t } from "../i18n";
-import type { Action } from "../lib/serviceStatus";
+import { language, t } from "../i18n";
+import { type Action, localHoldRow } from "../lib/serviceStatus";
 
 // What the server answered to a click (a refusal, an error) stays under the list this long.
 const NOTICE_MS = 10000;
@@ -21,6 +21,35 @@ export const useServiceStatus = defineStore("serviceStatus", () => {
   const notice = ref("");
   const acting = ref(false);
   let noticeTimer = 0;
+  // The hold as the status line and the band over the chat show it: state, detail and the buttons with their reasons.
+  const localHoldView = computed(() => (localHold.value ? localHoldRow(localHold.value, {
+    lang: language.value,
+    hostUsed: t("service_status_host_used"),
+    free: t("service_status_local_free"),
+    requested: t("service_status_local_requested"),
+    granted: t("service_status_local_granted"),
+    active: t("service_status_local_active"),
+    reason: t("service_status_local_reason"),
+    model: t("service_status_local_model"),
+    since: t("service_status_local_since"),
+    off: t("service_status_local_off"),
+    unreachable: t("service_status_gpu_orc_unreachable"),
+    notRequested: t("service_status_local_not_requested"),
+    noHold: t("service_status_local_no_hold"),
+    endWaiting: t("service_status_local_end_waiting"),
+    releaseNeedsRequest: t("service_status_local_release_needs_request"),
+  }) : null));
+  // The band over the chat starts folded to a pill, also for a request (Peuqui 24.11.2026: not big at once, as in
+  // Agent-Orc); a tap opens it for this state of this hold. Any change of the hold folds it again.
+  const openedHold = ref<string | null>(null);
+  const holdIdentity = computed(() => {
+    const hold = localHold.value;
+    return hold ? [hold.owner, hold.since, hold.state, hold.end_requested_by].join("|") : null;
+  });
+  const holdOpen = computed(() => holdIdentity.value !== null && openedHold.value === holdIdentity.value);
+  function setHoldOpen(open: boolean): void {
+    openedHold.value = open ? holdIdentity.value : null;
+  }
 
   function receive(next: ServiceSnapshot): void {
     snapshot.value = next;
@@ -99,5 +128,5 @@ export const useServiceStatus = defineStore("serviceStatus", () => {
     }
   }
 
-  return { snapshot, receivedAt, hosts, localHold, notice, acting, receive, fetch, act, endHold, releaseHoldNow, receiveLocalHold };
+  return { snapshot, receivedAt, hosts, localHold, localHoldView, holdOpen, setHoldOpen, notice, acting, receive, fetch, act, endHold, releaseHoldNow, receiveLocalHold };
 });

@@ -6,7 +6,7 @@
 import { CircuitBoard, Hand, Power, RefreshCw, TriangleAlert, X, Zap } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { language, t } from "../i18n";
-import { type Action, type Color, type Row, SERVICES, type Service, formatRemaining, hostRows, localHoldRow, serviceRows, summaryColor } from "../lib/serviceStatus";
+import { type Action, type Color, type Row, SERVICES, type Service, formatRemaining, hostRows, serviceRows, summaryColor } from "../lib/serviceStatus";
 import { useServiceStatus } from "../stores/serviceStatus";
 import HelpButton from "./help/HelpButton.vue";
 import hatIcon from "../../../assets/AIfred-Zylinder.png";
@@ -41,24 +41,7 @@ const labels = computed(() => ({
 }));
 const rows = computed(() => (status.snapshot ? serviceRows(status.snapshot, labels.value) : null));
 const machines = computed(() => hostRows(status.hosts, labels.value));
-const localLabels = computed(() => ({
-  lang: language.value,
-  hostUsed: t("service_status_host_used"),
-  free: t("service_status_local_free"),
-  requested: t("service_status_local_requested"),
-  granted: t("service_status_local_granted"),
-  active: t("service_status_local_active"),
-  reason: t("service_status_local_reason"),
-  model: t("service_status_local_model"),
-  since: t("service_status_local_since"),
-  off: t("service_status_local_off"),
-  unreachable: t("service_status_gpu_orc_unreachable"),
-  notRequested: t("service_status_local_not_requested"),
-  noHold: t("service_status_local_no_hold"),
-  endWaiting: t("service_status_local_end_waiting"),
-  releaseNeedsRequest: t("service_status_local_release_needs_request"),
-}));
-const localHold = computed(() => (status.localHold ? localHoldRow(status.localHold, localLabels.value) : null));
+const localHold = computed(() => status.localHoldView);
 const now = ref(performance.now());
 const elapsed = computed(() => (now.value - status.receivedAt) / 1000);
 
