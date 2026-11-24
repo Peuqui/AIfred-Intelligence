@@ -9,7 +9,7 @@ WANN ZERLEGEN:
 SO BAUST DU DEN PLAN:
 - "frame": der Rahmen für alle Teile; die Agenten sehen weder das Gespräch noch die anderen Teile. Genannte Quellen sind Startpunkte, keine Grenze: die Agenten suchen selbst weiter.
 - "parts": je Teil id, Titel, vollständige Aufgabe und die Positionen (id und Name).
-- "columns" nur für Werte, die verglichen werden (Preise, Mengen), sonst weglassen. "trend" nur, wenn der Verlauf einer Zahl über mehrere Läufe gezeigt werden soll.
+- "columns" nur für Werte, die verglichen werden (Preise, Mengen), sonst weglassen.
 - Gib in deiner Antwort das Ergebnis zusammengefasst wieder; die Transkripte der Teile sieht der Benutzer in der Chat-Bubble.
-- Soll derselbe Plan danach regelmäßig laufen, speichere ihn unverändert (frame, parts, columns, trend) mit horarium_create als Job, sofern dieses Werkzeug vorhanden ist.
+- Soll derselbe Plan danach regelmäßig laufen, speichere ihn unverändert (frame, parts, columns) mit horarium_create als Job, sofern dieses Werkzeug vorhanden ist.
 - Ein langer Auftrag über Sprache (FreeEcho): sage kurz an, dass es dauert, und lass das Ergebnis per horarium_create (einmalig, jetzt) an einen Kanal zustellen.

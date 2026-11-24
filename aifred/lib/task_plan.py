@@ -1,6 +1,6 @@
-"""The plan of a split task: a frame, parts with their positions, and the columns of the archive.
+"""The plan of a split task: a frame, parts with their positions, and the typed fields of the entries (columns).
 
-One structure for the Horarium job payload and the chat tool (``frame``, ``parts``, ``columns``, ``trend``).
+One structure for the Horarium job payload and the chat tool (``frame``, ``parts``, ``columns``).
 ``plan_problem`` is the one check; ``job_problem`` (scheduler) and the tools use it, none words the rules a second time.
 """
 
@@ -13,13 +13,12 @@ from .config import PROJECT_ROOT
 from .user_error import Invalid
 
 COLUMN_TYPES = ("text", "zahl", "link")
-TREND_TYPE = "zahl"
 # Fields every entry carries itself; a job column of the same name would collide with them.
 MANDATORY_FIELDS = ("position_id", "status", "befund", "quelle", "neue_quellen")
 # Position id of the entry for something found besides the listed positions.
 EXTRA_POSITION_ID = "zusatz"
 # Payload keys that make a payload a plan.
-PLAN_KEYS = ("frame", "parts", "columns", "trend")
+PLAN_KEYS = ("frame", "parts", "columns")
 
 
 @dataclass(frozen=True)
@@ -47,12 +46,10 @@ class TaskPlan:
     frame: str = ""
     parts: list[PlanPart] = field(default_factory=list)
     columns: list[PlanColumn] = field(default_factory=list)
-    trend_value: str | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> TaskPlan:
         """The plan of a payload; expects a payload ``plan_problem`` accepted."""
-        trend = payload.get("trend")
         return cls(
             frame=payload.get("frame", ""),
             parts=[
@@ -63,11 +60,10 @@ class TaskPlan:
                 for part in payload.get("parts", [])
             ],
             columns=[PlanColumn(name=column["name"], type=column["type"]) for column in payload.get("columns", [])],
-            trend_value=trend["value"] if trend is not None else None,
         )
 
     def to_payload(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
+        return {
             "frame": self.frame,
             "parts": [
                 {
@@ -78,9 +74,6 @@ class TaskPlan:
             ],
             "columns": [{"name": column.name, "type": column.type} for column in self.columns],
         }
-        if self.trend_value is not None:
-            payload["trend"] = {"value": self.trend_value}
-        return payload
 
 
 def _malformed(where: str) -> Invalid:
@@ -95,7 +88,7 @@ def _shape_problem(payload: dict[str, Any]) -> Invalid | None:
     """Whether the payload has the form ``from_payload`` reads: lists of objects with text fields."""
     if not isinstance(payload.get("frame", ""), str):
         return _malformed("frame")
-    parts, columns, trend = payload.get("parts", []), payload.get("columns", []), payload.get("trend")
+    parts, columns = payload.get("parts", []), payload.get("columns", [])
     if not isinstance(parts, list):
         return _malformed("parts")
     for part in parts:
@@ -111,8 +104,6 @@ def _shape_problem(payload: dict[str, Any]) -> Invalid | None:
     if not all(isinstance(column, dict) and _is_text(column.get("name")) and isinstance(column.get("type"), str)
                for column in columns):
         return _malformed("columns (name, type)")
-    if trend is not None and not (isinstance(trend, dict) and _is_text(trend.get("value"))):
-        return _malformed("trend (value)")
     return None
 
 
@@ -149,15 +140,11 @@ def plan_problem(payload: dict[str, Any]) -> Invalid | None:
         if column.type not in COLUMN_TYPES:
             return Invalid("plan_unknown_column_type", column=column.name, value=column.type,
                            allowed=", ".join(COLUMN_TYPES))
-    if plan.trend_value is not None and not any(
-        column.name == plan.trend_value and column.type == TREND_TYPE for column in plan.columns
-    ):
-        return Invalid("plan_trend_not_a_number_column", value=plan.trend_value, type=TREND_TYPE)
     return None
 
 
 def plan_parameters_schema() -> dict[str, Any]:
-    """The parameters of a plan (``frame``, ``parts``, ``columns``, ``trend``) as JSON-Schema properties: the one
+    """The parameters of a plan (``frame``, ``parts``, ``columns``) as JSON-Schema properties: the one
     description for every tool that takes a plan (the chat tool ``run_task_plan``, ``horarium_create``). It lives in
     ``prompts/tools/task_plan.params.json`` (prompt material, English), the allowed column types come from here."""
     from .plugin_base import load_tool_parameters

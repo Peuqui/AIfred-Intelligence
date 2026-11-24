@@ -110,7 +110,7 @@ CREATE TABLE jobs (
 }
 ```
 
-Optionally the plan fields `frame`, `parts`, `columns` and `trend` (see "Jobs with sub-tasks").
+Optionally the plan fields `frame`, `parts`, `columns` (see "Jobs with sub-tasks").
 
 ### API
 
@@ -242,14 +242,13 @@ Besides `message` (for a plan, the closing task) the payload has four optional f
   there are starting points, not limits.
 - `parts`: list of sub-tasks with `id`, `title`, `task` (complete, the part does not see the conversation) and
   `positions`, a list of `id` and `name`. Every position gets at least one entry during the run.
-- `columns`: this job's archive columns, each with `name` and `type` (`text`, `zahl` or `link`), for values compared
-  across runs (e.g. shop, price, availability).
-- `trend`: `{"value": "<name of a column of type zahl>"}` for the trend table.
+- `columns`: the typed fields of this job's entries, each with `name` and `type` (`text`, `zahl` or `link`), for values
+  every entry records (e.g. shop, price, availability).
 
 `job_problem` checks the payload before it is stored and calls `plan_problem` for any of these fields, the one check for
 the Horarium and the chat tool: shape of the fields, unique part, position and column names, no part without positions,
 the position id `zusatz` is reserved (finds outside the list), column names must not be `position_id`, `status`,
-`befund`, `quelle` or `neue_quellen`, known column types, `trend.value` must be a `zahl` column, and parts exclude
+`befund`, `quelle` or `neue_quellen`, known column types, and parts exclude
 `fixed_text`. The plan only runs when `parts` is not empty.
 
 ### Flow of a run
@@ -260,7 +259,7 @@ For a job with parts, `_execute_job` first starts `_run_plan_parts`, then the cl
    through `message_processor.session_for_channel("scheduler", channel_id)`, so the parts work in the same session the
    closing turn later finds through its route.
 2. **Parts one after the other.** For each part the plan engine starts a sub-agent with fresh context (frame and part,
-   plus the history from the archive and, if the job keeps notes, the pointer to the notes file). It runs as the job's
+   plus, if the job keeps notes, the pointer to the notes file). It runs as the job's
    agent, without persona, with the job's tiers but without sending: all tiers up to the job's `max_tier` except
    `TIER_COMMUNICATE` are allowed. The sub-agent plugin's setting "allowed tiers" does not apply here. Only the Horarium
    delivers.
@@ -269,46 +268,31 @@ For a job with parts, `_execute_job` first starts `_run_plan_parts`, then the cl
 4. **Exactly one reminder.** If positions remain without an entry, the same sub-agent gets the list of those still open
    once. What is missing after that counts as "not checked".
 5. **Part failure.** If a part throws an exception, it appears in the result with its reason and the next parts run on.
-   An exception outside the parts (archive, notes) fails the whole run; an engine that ends without a result is an error
+   An exception outside the parts (notes) fails the whole run; an engine that ends without a result is an error
    too.
 6. **Transcripts.** The transcripts of all parts appear as one bubble in the session's chat history only
    (`record_chat_only_bubble`, title from `scheduler/plan_transcripts_title`); the model never sees it, `llm_history` is
    untouched.
-7. **Archive.** The code appends all entries of the run to `plan_archiv.csv` in the job's folder (see below). The model
-   never touches the file.
-8. **Notes.** New sources the parts reported (`neue_quellen`) are appended by the code as a dated section to the job's
+7. **Notes.** New sources the parts reported (`neue_quellen`) are appended by the code as a dated section to the job's
    notes (only if the job keeps notes, `_keeps_notes`).
-9. **Closing turn.** The closing turn is the usual run through `process_inbound`. Its prompt is the job prompt
+8. **Closing turn.** The closing turn is the usual run through `process_inbound`. Its prompt is the job prompt
    (`build_job_prompt`) plus the block from `scheduler/plan_results.txt`: the results of all parts (`render_results`,
-   including failed parts, positions not checked, extra finds and reports) and the trend table. The model is to name
+   including failed parts, positions not checked, extra finds and reports). The model is to name
    failed parts and unchecked positions and invent nothing.
-10. **Count line.** What is delivered and logged is the model's answer, followed by the fixed line from `coverage_line`
+9. **Count line.** What is delivered and logged is the model's answer, followed by the fixed line from `coverage_line`
     ("N of M positions checked", with a list for gaps and with the reason for failed parts). The code appends the
     line, not the model. Extra finds do not count towards completeness.
 
 A part can only delegate further where the recursion depth of the sub-agent plugin allows it (see
 [sub-agents](subagent-plugin.md)).
 
-### Archive and history
+### Every run stands for itself
 
-`plan_archiv.csv` lies in the job's folder (`job_notes.sync`) and is written only by the code and only appended
-(`lib/plan_archive.py`). One row per entry with the fixed columns `zeitpunkt`, `teil`, `position`, `status`, `befund`,
-`quelle` followed by the job's columns in the plan's order; for each position without an entry a row with status
-`nicht_geprueft` (its finding is the reason of the part's failure, if there was one). The `csv` module does all writing
-and reading, so commas, quotes and line breaks in a finding survive. When the plan gains a column, the file is rewritten
-once with a widened header and old rows stay empty there; a dropped column stays in the header.
-
-The history comes from the archive: `last_entries` gives per position the entries of the last run in which it had any
-(`nicht_geprueft` does not count). Each part gets them as a pointer, not as values to copy. Within a run, parts do not
-see each other.
-
-### Trend table instead of charts
-
-If the job has `trend`, the code computes a Markdown table from the archive after appending the run (`trend_table`) and
-hands it to the closing turn. Per position: the best value of the last run (smallest value of the trend column among the
-`gefunden` entries) with its source, the best value of the run before, the best value of all runs with time and source,
-and an arrow (↓ smaller, → equal, ↑ larger than in the previous run). There are no charts and no images. Without
-`trend`, or without archive rows, the table is empty and left out of the prompt.
+The Horarium keeps no archive, no trend table and no history: a part sees only frame, task, positions, columns and the
+notes pointer, never the findings of earlier runs, and within a run parts do not see each other. Knowledge needed across
+runs (sources that proved good) lives in the job's notes; the Horarium enters the parts' new sources there (step 7). Whoever
+wants to collect values across runs (prices, say) says so in the job's task: the closing turn then keeps the table
+itself in a file in the job's folder.
 
 ### Lock against self-modification
 
@@ -318,13 +302,12 @@ proposals into its report; the user approves them in the chat. Other jobs are no
 
 ### Editing in the chat
 
-`horarium_create` takes `frame`, `parts`, `columns` and `trend`, fields from the same schema as the chat tool
-(`plan_parameters_schema`). `horarium_update` replaces `frame` and `columns` wholly, sets `trend` (an empty `value`
-removes it) and changes parts precisely: `part_add` appends a part, `part_update` replaces the part with the same `id`
+`horarium_create` takes `frame`, `parts`, `columns`, fields from the same schema as the chat tool
+(`plan_parameters_schema`). `horarium_update` replaces `frame` and `columns` wholly and changes parts precisely: `part_add` appends a part, `part_update` replaces the part with the same `id`
 (the model sends it back with just the wanted change), `part_remove` removes a part by `id`. The operations run in a
-fixed order (frame, columns, trend, remove, update, add); the finished payload is checked as a whole only afterwards,
+fixed order (frame, columns, remove, update, add); the finished payload is checked as a whole only afterwards,
 and with an invalid payload or an unknown or duplicate part id the job stays unchanged. `horarium_list` shows a job's
-plan completely (frame, parts with task and positions, columns, trend).
+plan completely (frame, parts with task and positions, columns).
 
 ---
 
@@ -411,8 +394,8 @@ All workers (channel listeners, scheduler) auto-restart on crash:
 |------|---------|
 | `aifred/lib/scheduler.py` | Job store, scheduler loop, delivery modes, flow of a job with parts (`_run_plan_parts`) |
 | `aifred/lib/task_plan.py` | Plan data model and the one check (`plan_problem`) |
-| `aifred/lib/plan_engine.py`, `plan_record.py`, `plan_archive.py` | Plan engine, recording tool, archive and trend table: [task plans](task-plan.md) |
-| `prompts/<lang>/scheduler/plan_*.txt` | Texts of the plan flow (result block, trend, notes pointer, new sources) |
+| `aifred/lib/plan_engine.py`, `plan_record.py` | Plan engine, recording tool: [task plans](task-plan.md) |
+| `prompts/<lang>/scheduler/plan_*.txt` | Texts of the plan flow (result block, notes pointer, new sources) |
 | `aifred/lib/message_hub.py` | Worker management with auto-restart |
 | `aifred/lib/api/agents.py` | Webhook API endpoint (`/api/agent/trigger`) |
 | `aifred/lib/credential_broker.py` | WEBHOOK_API_TOKEN mapping |

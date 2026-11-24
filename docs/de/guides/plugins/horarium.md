@@ -33,8 +33,7 @@ das Ergebnis an den konfigurierten Delivery-Modus übergeben.
 | `end_date` | nein | Ende eines `cron`-/`interval`-Jobs: `JJJJ-MM-TT` (der Tag läuft noch mit) oder `JJJJ-MM-TTTHH:MM`; ohne Angabe läuft der Job unbegrenzt. `horarium_update` setzt oder entfernt es (leerer Wert) |
 | `frame` | nein | Nur bei Jobs mit Teilaufträgen: der Rahmen, der für alle Teile gilt |
 | `parts` | nein | Die Teilaufträge, je `id`, `title`, `task` und `positions` (je `id`, `name`) |
-| `columns` | nein | Archivspalten des Jobs, je `name` und `type` (`text`, `zahl`, `link`) |
-| `trend` | nein | `{value: <Name einer Zahl-Spalte>}` für die Verlaufstabelle |
+| `columns` | nein | Typisierte Felder der Einträge, je `name` und `type` (`text`, `zahl`, `link`) |
 
 ## Features
 
@@ -51,7 +50,7 @@ das Ergebnis an den konfigurierten Delivery-Modus übergeben.
 Ein großer Auftrag (viele Positionen, mehrere unabhängige Gruppen, z. B. Preise vieler Produkte in mehreren Shops, jede
 Woche neu) wird in einem einzigen Prompt unzuverlässig: Positionen fallen still weg, Werte werden aus früheren Läufen
 kopiert. Deshalb zerlegt AIfred so einen Auftrag schon beim Anlegen selbst. Du sagst nur, was du willst; AIfred baut daraus
-einen Rahmen, die Teile mit ihren Positionen, bei Bedarf Archivspalten und einen Verlaufswert. Kleine Aufträge bleiben
+einen Rahmen, die Teile mit ihren Positionen, bei Bedarf Spalten für Werte, die jeder Eintrag festhält. Kleine Aufträge bleiben
 ein einzelner Auftrag ohne Teile. Hat AIfred den Plan vorher im Gespräch mit `run_task_plan` ausgeführt, übernimmt er ihn
 unverändert als Job. Mit festem Text (`fixed_text`) lassen sich Teile nicht kombinieren.
 
@@ -66,16 +65,13 @@ unverändert als Job. Mit festem Text (`fixed_text`) lassen sich Teile nicht kom
   „11 von 12 Positionen geprüft“, bei Lücken mit den fehlenden Positionen. Diese Zeile schreibt nicht das Modell.
 - Die Transkripte der Teile stehen aufklappbar im Verlauf der Sitzung des Laufs, nicht in dem, was das Modell liest.
 
-**Archiv:** Bei Jobs mit Archivspalten hängt das Horarium alle Einträge jedes Laufs an die Datei `plan_archiv.csv` im
-Ordner des Jobs an (Zeitpunkt, Teil, Position, Status, Befund, Quelle, dazu deine Spalten). Nur das Horarium schreibt sie.
-Ein Teil bekommt beim nächsten Lauf die letzten Einträge seiner Positionen als Wegweiser, nicht als Werte zum Übernehmen.
-
-**Verlauf statt Diagramme:** Mit einem Verlaufswert (`trend`, eine Zahl-Spalte, z. B. der Preis) rechnet das Horarium
-aus dem Archiv eine Tabelle: je Position der beste Wert dieses Laufs mit Quelle, der des vorigen Laufs, der bisher beste
-mit Zeitpunkt und ein Pfeil (↓ billiger, → gleich, ↑ teurer). Diagramme gibt es nicht.
+**Jeder Lauf steht für sich:** Das Horarium führt kein Archiv und keine Verlaufstabelle; die Teile sehen nie die Funde
+früherer Läufe. Wissen über Quellen liegt in den Notizen des Jobs (neue Quellen trägt das Horarium dort ein). Wer Werte
+über Läufe sammeln will (z. B. Preise), schreibt das in den Auftrag: Der Abschluss führt die Tabelle dann selbst in einer
+Datei im Ordner des Jobs.
 
 **Bearbeiten im Chat:** Sag AIfred, was sich ändern soll; er ändert einzelne Teile, ohne den Rest zu berühren (Teil
-anfügen, ändern oder entfernen, außerdem Rahmen, Spalten und Verlaufswert ersetzen). „Zeig mir meine Jobs“ listet den
+anfügen, ändern oder entfernen, außerdem Rahmen, und Spalten ersetzen). „Zeig mir meine Jobs“ listet den
 Plan vollständig. Wird die Änderung abgelehnt (z. B. doppelte Teil-ID), bleibt der Job unverändert.
 
 **Ein Job ändert sich nicht selbst:** Ein laufender Job darf seinen eigenen Job weder ändern noch löschen. Ihm

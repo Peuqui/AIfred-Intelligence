@@ -1,6 +1,4 @@
-Die Teilaufträge sind abgearbeitet; unten steht, was die Teile gefunden haben. Das Archiv hat das Horarium schon geschrieben, fasse es nicht an. Die Zeile mit der Zahl der geprüften Positionen hängt das Horarium selbst an deine Nachricht, schreibe sie nicht. Ein gescheiterter Teil und jede nicht geprüfte Position stehen im Ergebnis: Nenne sie in deiner Nachricht und erfinde keine Werte dazu.
+Die Teilaufträge sind abgearbeitet; unten steht, was die Teile gefunden haben. Die Zeile mit der Zahl der geprüften Positionen hängt das Horarium selbst an deine Nachricht, schreibe sie nicht. Ein gescheiterter Teil und jede nicht geprüfte Position stehen im Ergebnis: Nenne sie in deiner Nachricht und erfinde keine Werte dazu.
 
 ERGEBNIS DER TEILE:
 {results}
-
-{trend}

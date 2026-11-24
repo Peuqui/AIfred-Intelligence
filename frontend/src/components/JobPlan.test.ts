@@ -15,7 +15,7 @@ const { default: JobForm } = await import("./JobForm.vue");
 const options = {
   schedule_types: ["cron"], delivery_modes: ["review", "announce"], audio_types: [], tiers: [1], default_tier: 1, cron_presets: [],
   agents: [{ id: "aifred", label: "AIfred" }], channels: [{ id: "mail", label: "Mail" }], rooms_channels: [],
-  column_types: ["text", "zahl", "link"], trend_column_type: "zahl",
+  column_types: ["text", "zahl", "link"],
 } as unknown as JobOptions;
 
 const PLAN = {
@@ -25,12 +25,11 @@ const PLAN = {
     { id: "gun", title: "Pistole", task: "Shops prüfen", positions: [{ id: "g1", name: "Pistole" }] },
   ],
   columns: [{ name: "preis", type: "zahl" }, { name: "shop", type: "text" }],
-  trend: { value: "preis" },
 };
 const job = (extra: Partial<JobRow> = {}): JobRow =>
   ({ job_id: 7, name: "Suche", agent: "aifred", message: "Fasse zusammen", delivery: "review", channel: "", recipient: "", webhook_url: "",
     fixed_text: false, audio_type: "notification", max_tier: 1, schedule_type: "cron", schedule_expr: "0 8 * * *", ends_at: "",
-    frame: "", parts: [], columns: [], trend: null, ...extra }) as unknown as JobRow;
+    frame: "", parts: [], columns: [], ...extra }) as unknown as JobRow;
 const withPlan = (): JobRow => job(PLAN as unknown as Partial<JobRow>);
 
 beforeEach(() => {
@@ -57,7 +56,6 @@ test("a job with a plan shows it, calls the message the closing, and sends the p
   expect(wrapper.findAll("[data-test=part]")).toHaveLength(2);
   expect(wrapper.findAll("[data-test=position]")).toHaveLength(3);
   expect(wrapper.findAll("[data-test=column]")).toHaveLength(2);
-  expect((wrapper.get("[data-test=trend]").element as HTMLSelectElement).value).toBe("preis");
   expect(wrapper.text()).toContain("jobs_plan_closing_hint");
   await wrapper.get("form").trigger("submit");
   await flushPromises();
@@ -79,10 +77,12 @@ test("parts and positions are added and removed", async () => {
   expect(wrapper.findAll("[data-test=part]")).toHaveLength(2);
 });
 
-test("removing the number column of the trend clears the trend", async () => {
+test("columns are added and removed", async () => {
   const wrapper = await open(withPlan());
+  await wrapper.get("[data-test=add-column]").trigger("click");
+  expect(wrapper.findAll("[data-test=column]")).toHaveLength(3);
   await wrapper.findAll("[data-test=remove-column]")[0]?.trigger("click");
-  expect((wrapper.get("[data-test=trend]").element as HTMLSelectElement).value).toBe("");
+  expect(wrapper.findAll("[data-test=column]")).toHaveLength(2);
 });
 
 test("removing the sub-tasks sends a job without a plan", async () => {
@@ -92,7 +92,7 @@ test("removing the sub-tasks sends a job without a plan", async () => {
   await wrapper.get("form").trigger("submit");
   await flushPromises();
   const sent = JSON.parse(api.mock.calls.find(([path]) => path === "jobs/7")?.[1]?.body ?? "{}");
-  expect(sent).toMatchObject({ frame: "", parts: [], columns: [], trend: null });
+  expect(sent).toMatchObject({ frame: "", parts: [], columns: [] });
 });
 
 test("a job with parts cannot be a fixed text, and the page says why; a fixed text cannot get parts", async () => {

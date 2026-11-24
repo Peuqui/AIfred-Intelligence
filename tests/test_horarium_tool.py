@@ -418,7 +418,6 @@ PLAN: dict[str, Any] = {
     "frame": "Preise beobachten",
     "parts": [PLAN_PART_A, PLAN_PART_B],
     "columns": [{"name": "preis", "type": "zahl"}],
-    "trend": {"value": "preis"},
 }
 
 
@@ -449,10 +448,10 @@ class TestPlanCreate:
     def test_a_job_without_plan_has_no_plan_fields(self, plugin, ctx):
         data = _call(_tools_of(plugin, ctx)["horarium_create"], name="x", schedule_type="interval",
                      schedule_expr="3600", message="m")
-        assert not {"frame", "parts", "columns", "trend"} & set(_stored_payload(data["job_id"]))
+        assert not {"frame", "parts", "columns"} & set(_stored_payload(data["job_id"]))
 
     @pytest.mark.parametrize("broken", [
-        {"trend": {"value": "gibt_es_nicht"}},
+        {"columns": [{"name": "status", "type": "text"}]},
         {"parts": [PLAN_PART_A, PLAN_PART_A]},
         {"parts": [{**PLAN_PART_A, "positions": []}]},
         {"columns": [{"name": "preis", "type": "kommazahl"}]},
@@ -497,23 +496,10 @@ class TestPlanUpdate:
         assert _call(update, job_id=job_id, columns=columns)["success"] is True
         assert _stored_payload(job_id)["columns"] == columns
 
-    def test_columns_that_break_the_trend_are_refused(self, plugin, ctx):
+    def test_columns_with_an_unknown_type_are_refused(self, plugin, ctx):
         job_id, update = self._job(plugin, ctx)
-        assert "error" in _call(update, job_id=job_id, columns=[{"name": "shop", "type": "text"}])
+        assert "error" in _call(update, job_id=job_id, columns=[{"name": "shop", "type": "datum"}])
         assert _stored_payload(job_id)["columns"] == PLAN["columns"]
-
-    def test_trend_is_replaced_and_removed(self, plugin, ctx):
-        job_id, update = self._job(plugin, ctx)
-        columns = [{"name": "preis", "type": "zahl"}, {"name": "menge", "type": "zahl"}]
-        assert _call(update, job_id=job_id, columns=columns, trend={"value": "menge"})["success"] is True
-        assert _stored_payload(job_id)["trend"] == {"value": "menge"}
-        assert _call(update, job_id=job_id, trend={"value": ""})["success"] is True
-        assert "trend" not in _stored_payload(job_id)
-
-    def test_a_trend_without_such_column_is_refused(self, plugin, ctx):
-        job_id, update = self._job(plugin, ctx)
-        assert "error" in _call(update, job_id=job_id, trend={"value": "gibt_es_nicht"})
-        assert _stored_payload(job_id)["trend"] == PLAN["trend"]
 
     def test_part_add(self, plugin, ctx):
         job_id, update = self._job(plugin, ctx)
@@ -568,7 +554,7 @@ class TestPlanUpdate:
 
     def test_the_update_schema_offers_the_operations(self, plugin, ctx):
         properties = _tools_of(plugin, ctx)["horarium_update"].parameters["properties"]
-        for key in ("frame", "columns", "trend", "part_add", "part_update", "part_remove"):
+        for key in ("frame", "columns", "part_add", "part_update", "part_remove"):
             assert key in properties
         assert properties["part_add"]["required"] == ["id", "title", "task", "positions"]
         assert properties["part_add"]["description"] != properties["part_update"]["description"]
@@ -582,13 +568,12 @@ class TestPlanList:
         assert job["frame"] == "Preise beobachten"
         assert job["parts"] == [PLAN_PART_A, PLAN_PART_B]
         assert job["columns"] == [{"name": "preis", "type": "zahl"}]
-        assert job["trend"] == {"value": "preis"}
 
     def test_a_job_without_plan_shows_none(self, plugin, ctx):
         _call(_tools_of(plugin, ctx)["horarium_create"], name="x", schedule_type="interval", schedule_expr="3600",
               message="m")
         job = _call(_tools_of(plugin, ctx)["horarium_list"])["jobs"][0]
-        assert not {"frame", "parts", "columns", "trend"} & set(job)
+        assert not {"frame", "parts", "columns"} & set(job)
 
 
 class TestOwnJobLock:

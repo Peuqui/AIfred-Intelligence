@@ -71,7 +71,7 @@
       "description": "Add one part to the job's plan. Its id must not exist yet."
     },
     "part_update": {
-      "description": "Replace the part of the same id completely (id, title, task, positions); the id must exist. Positions that stay keep their history only if they keep their ids."
+      "description": "Replace the part of the same id completely (id, title, task, positions); the id must exist."
     },
     "part_remove": {
       "type": "string",

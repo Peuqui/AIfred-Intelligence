@@ -32,7 +32,7 @@ _FIELD_SCHEMA_TYPES = {"zahl": "number", "text": "string", "link": "string"}
 
 @dataclass(frozen=True)
 class PlanEntry:
-    """One accepted entry; ``values`` holds the archive columns the entry gave."""
+    """One accepted entry; ``values`` holds the column values the entry gave."""
 
     position_id: str
     status: str

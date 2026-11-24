@@ -1,10 +1,10 @@
-"""A Horarium job with parts: session first, then the parts, transcripts only in the chat history, archive, closing
-turn with the results, delivery with the coverage line."""
+"""A Horarium job with parts: session first, then the parts, transcripts only in the chat history, closing
+turn with the results, delivery with the coverage line. Every run stands for itself: no archive, no history."""
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator, Mapping, Sequence
+from collections.abc import AsyncGenerator
 from types import SimpleNamespace
 from typing import Any
 
@@ -14,7 +14,7 @@ import aifred.lib.scheduler as sched
 from aifred.lib import file_manager, job_notes
 from aifred.lib.agent_config import AgentConfig
 from aifred.lib.message_processor import record_chat_only_bubble, session_for_channel
-from aifred.lib.plan_engine import HistoryKey, PartOutcome, PlanResult
+from aifred.lib.plan_engine import PartOutcome, PlanResult
 from aifred.lib.plan_record import PartRecords, PlanEntry
 from aifred.lib.plugin_base import PluginContext
 from aifred.lib.security import TIER_COMMUNICATE, TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
@@ -28,7 +28,6 @@ PAYLOAD: dict[str, Any] = {
     "parts": [{"id": "t1", "title": "Teil 1", "task": "Suche",
                "positions": [{"id": "p1", "name": "Pistole"}, {"id": "p2", "name": "Magazin"}]}],
     "columns": [{"name": "preis", "type": "zahl"}],
-    "trend": {"value": "preis"},
 }
 
 
@@ -65,11 +64,10 @@ class Run:
 
     async def run_plan(
         self, plan: TaskPlan, ctx: PluginContext, *, allowed_tiers: frozenset[int], depth: int,
-        history: Mapping[HistoryKey, Sequence[PlanEntry]] | None = None, notes_hint: str = "",
+        notes_hint: str = "",
     ) -> AsyncGenerator[dict[str, Any], None]:
         self.order.append("parts")
-        self.seen |= {"ctx": ctx, "allowed_tiers": allowed_tiers, "depth": depth, "history": dict(history or {}),
-                      "notes_hint": notes_hint}
+        self.seen |= {"ctx": ctx, "allowed_tiers": allowed_tiers, "depth": depth, "notes_hint": notes_hint}
         yield {"progress": "Teil 1: sucht"}
         yield {"artifacts": [{"kind": "collapsible", "data": {"title": "Protokoll", "content": "Zeilen"}}]}
         records = PartRecords(
@@ -87,7 +85,7 @@ class Run:
     async def process_inbound(self, msg: Any) -> Any:
         self.order.append("closing")
         self.seen["msg"] = msg
-        self.seen["archive_before_closing"] = list(self._archives())
+        self.seen["archives_before_closing"] = self._archives()
         return SimpleNamespace(text="Bericht.", metadata={"session_id": "sess"})
 
     async def deliver(self, job: sched.Job, text: str, session_id: str) -> None:
@@ -113,14 +111,11 @@ def test_the_run_goes_session_parts_bubble_closing_and_delivers_with_the_coverag
     session_id, channel, _title, content = run.seen["bubble"]
     assert (session_id, channel) == ("sess", "scheduler")
     assert "Arbeitsprotokolle der Teilaufträge" in content and "Protokoll" in content
-    # the archive is written before the closing turn
-    assert len(run.seen["archive_before_closing"]) == 1
-    assert "ok, billig" in run.seen["archive_before_closing"][0]
-    # the closing prompt: the job prompt, the results, the trend, the note on the archive
+    # the closing prompt: the job prompt and the results
     prompt = run.seen["msg"].text
     assert prompt.startswith("[Geplanter Job: Preise]") and "Fasse zusammen." in prompt
-    assert "ok, billig" in prompt and "VERLAUF" in prompt and "| Pistole |" in prompt
-    assert "Das Archiv hat das Horarium schon geschrieben" in prompt
+    assert "ok, billig" in prompt and "VERLAUF" not in prompt and "plan_archiv" not in prompt
+    assert run.seen["archives_before_closing"] == []   # a plan run writes no plan_archiv.csv
     # nothing but the code appends the line
     coverage = "1 von 2 Positionen geprüft\nNicht geprüft: Teil 1 / Magazin"
     assert run.delivered == [(f"Bericht.\n\n{coverage}", "sess")]
@@ -147,11 +142,10 @@ def test_the_allowed_tiers_stay_within_the_job_without_communicate(monkeypatch, 
     assert run.seen["allowed_tiers"] == frozenset(expected)
 
 
-def test_the_history_of_the_archive_reaches_the_parts_and_new_sources_land_in_the_notes(monkeypatch) -> None:
+def test_new_sources_land_in_the_notes_and_the_next_run_starts_without_history(monkeypatch) -> None:
     job = _job()
     first = Run(monkeypatch, price=10.0, new_sources={"https://neu.example", "https://alt.example"})
     asyncio.run(sched._execute_job(job))
-    assert first.seen["history"] == {}
     assert "NOTIZEN DES JOBS" in first.seen["notes_hint"]
     _, notes_file = job_notes.sync(job.job_id, job.name)
     notes = (file_manager.DOCUMENTS_DIR / notes_file).read_text(encoding="utf-8")
@@ -159,9 +153,8 @@ def test_the_history_of_the_archive_reaches_the_parts_and_new_sources_land_in_th
 
     second = Run(monkeypatch, price=8.0)
     asyncio.run(sched._execute_job(job))
-    assert second.seen["history"] == {("t1", "p1"): [PlanEntry("p1", "gefunden", "ok, billig", SHOP, {"preis": 10})]}
-    assert "↓" in second.seen["msg"].text
-    assert len(second.seen["archive_before_closing"][0].splitlines()) == 1 + 2 + 2   # header, run 1 (p1, p2), run 2 (p1, p2)
+    assert "VERLAUF" not in second.seen["msg"].text
+    assert first.seen["archives_before_closing"] == second.seen["archives_before_closing"] == []   # no plan_archiv.csv
 
 
 def test_a_job_without_notes_gets_no_hint_and_no_notes_file(monkeypatch) -> None:
@@ -180,7 +173,6 @@ def test_a_job_without_parts_runs_as_before(monkeypatch) -> None:
     assert run.order == ["closing"]
     assert run.delivered == [("Bericht.", "sess")]
     assert "VERLAUF" not in run.seen["msg"].text
-    assert run.seen["archive_before_closing"] == []
 
 
 def test_the_chat_only_bubble_does_not_touch_the_llm_history() -> None:

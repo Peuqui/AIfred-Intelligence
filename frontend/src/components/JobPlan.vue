@@ -1,8 +1,7 @@
 <script setup lang="ts">
-// The sub-tasks of a job: a frame, the parts (each with its task and positions), the columns of the archive and
-// the trend. Edits the plan of the job form in place; the server checks it when the job is saved.
+// The sub-tasks of a job: a frame, the parts (each with its task and positions), the columns of the entries.
+// Edits the plan of the job form in place; the server checks it when the job is saved.
 import { Plus, Trash2 } from "lucide-vue-next";
-import { computed } from "vue";
 import type { JobOptions } from "../api/types";
 import { t } from "../i18n";
 import type { PlanForm } from "../lib/taskPlan";
@@ -10,14 +9,8 @@ import type { PlanForm } from "../lib/taskPlan";
 const props = defineProps<{ plan: PlanForm; options: JobOptions }>();
 defineEmits<{ remove: [] }>();
 
-const numberColumns = computed(() => props.plan.columns.filter((column) => column.type === props.options.trend_column_type && column.name));
-
 function addPart(): void {
   props.plan.parts.push({ id: "", title: "", task: "", positions: [{ id: "", name: "" }] });
-}
-function removeColumn(index: number): void {
-  const [removed] = props.plan.columns.splice(index, 1);
-  if (removed && removed.name === props.plan.trend) props.plan.trend = "";
 }
 </script>
 
@@ -57,16 +50,9 @@ function removeColumn(index: number): void {
             <option v-for="type in options.column_types" :key="type" :value="type">{{ t(`jobs_plan_type_${type}`) }}</option>
           </select>
         </label>
-        <button type="button" class="remove" data-test="remove-column" :aria-label="t('jobs_plan_remove_column')" @click="removeColumn(columnIndex)"><Trash2 :size="16" /></button>
+        <button type="button" class="remove" data-test="remove-column" :aria-label="t('jobs_plan_remove_column')" @click="plan.columns.splice(columnIndex, 1)"><Trash2 :size="16" /></button>
       </div>
       <button type="button" class="add" data-test="add-column" @click="plan.columns.push({ name: '', type: options.column_types[0] ?? '' })"><Plus :size="16" /> {{ t("jobs_plan_add_column") }}</button>
-      <label>{{ t("jobs_plan_trend") }}
-        <select v-model="plan.trend" data-test="trend">
-          <option value="">{{ t("jobs_plan_trend_none") }}</option>
-          <option v-for="column in numberColumns" :key="column.name" :value="column.name">{{ column.name }}</option>
-        </select>
-      </label>
-      <p class="hint">{{ t("jobs_plan_trend_hint") }}</p>
     </fieldset>
 
     <button type="button" class="remove-all" data-test="remove-plan" @click="$emit('remove')"><Trash2 :size="16" /> {{ t("jobs_plan_remove") }}</button>

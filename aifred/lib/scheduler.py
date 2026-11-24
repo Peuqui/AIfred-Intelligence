@@ -688,7 +688,7 @@ async def _execute_job(job: Job) -> None:
 class _PlanRun:
     """What the parts of a plan job leave for the closing turn and the message."""
 
-    prompt_block: str   # results and trend for the closing prompt
+    prompt_block: str   # results for the closing prompt
     coverage: str       # the fixed line appended to the message
 
 
@@ -699,10 +699,10 @@ def _ui_language() -> str:
 
 
 async def _run_plan_parts(job: Job, plan: TaskPlan, channel_id: str, metadata: dict[str, Any]) -> _PlanRun:
-    """The parts of a plan job (lib/plan_engine.py), the transcripts as a bubble that only the chat history gets, the
-    archive, the trend table and the new sources in the notes. Parts never send: the Horarium delivers. An exception
-    outside the parts (the archive, the notes) fails the run; a failing part is in the result."""
-    from . import job_notes, message_processor, plan_archive
+    """The parts of a plan job (lib/plan_engine.py), the transcripts as a bubble that only the chat history gets and the
+    new sources in the notes. Every run stands for itself. Parts never send: the Horarium delivers. An exception
+    outside the parts (the notes) fails the run; a failing part is in the result."""
+    from . import job_notes, message_processor
     from .bubble import BubbleArtifact, render_bubble
     from .debug_bus import debug, session_scope
     from .plan_engine import PlanResult, coverage_line, render_results, run_plan
@@ -713,8 +713,7 @@ async def _run_plan_parts(job: Job, plan: TaskPlan, channel_id: str, metadata: d
     lang = _ui_language()
     # The route of the session exists before the parts run: the closing turn finds the same session by it.
     session_id = message_processor.session_for_channel("scheduler", channel_id)
-    folder, notes_file = job_notes.sync(job.job_id, job.name)
-    archive = plan_archive.archive_path(folder)
+    _folder, notes_file = job_notes.sync(job.job_id, job.name)
     keeps_notes = _keeps_notes(job)
     ctx = PluginContext(
         agent_id=job.agent, lang=lang, session_id=session_id, user_query=job.payload.get("message", ""),
@@ -728,7 +727,7 @@ async def _run_plan_parts(job: Job, plan: TaskPlan, channel_id: str, metadata: d
     result: PlanResult | None = None
     with session_scope(session_id):
         async for event in run_plan(
-            plan, ctx, allowed_tiers=allowed_tiers, depth=0, history=plan_archive.last_entries(archive, plan),
+            plan, ctx, allowed_tiers=allowed_tiers, depth=0,
             notes_hint=load_prompt("scheduler/plan_notes_hint", lang=lang, file=notes_file).strip() if keeps_notes else "",
         ):
             if "progress" in event:
@@ -744,14 +743,10 @@ async def _run_plan_parts(job: Job, plan: TaskPlan, channel_id: str, metadata: d
         title = load_prompt("scheduler/plan_transcripts_title", lang=lang).strip()
         message_processor.record_chat_only_bubble(session_id, "scheduler", job.name, render_bubble(title, artifacts))
     now = datetime.now()
-    plan_archive.append_run(archive, plan, result, now)
-    table = plan_archive.trend_table(archive, plan, lang)
     if keeps_notes and result.new_sources:
         _append_new_sources(file_manager.DOCUMENTS_DIR / notes_file, result.new_sources, now, lang)
-    trend = load_prompt("scheduler/plan_trend", lang=lang, table=table).strip() if table else ""
     return _PlanRun(
-        prompt_block=load_prompt("scheduler/plan_results", lang=lang, results=render_results(result, lang),
-                                 trend=trend).strip(),
+        prompt_block=load_prompt("scheduler/plan_results", lang=lang, results=render_results(result, lang)).strip(),
         coverage=coverage_line(result, lang),
     )
 

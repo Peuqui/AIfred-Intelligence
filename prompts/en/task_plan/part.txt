@@ -6,11 +6,9 @@ PART: {part_title}
 POSITIONS (id: name):
 {positions}
 
-ARCHIVE COLUMNS (type in brackets; give these values in the entry as far as you find them):
+COLUMNS (type in brackets; give these values in the entry as far as you find them):
 {columns}
 
-HISTORY (a guide, not values to copy; check every value anew):
-{history}
 {notes_hint}
 
 WORKING RULES:

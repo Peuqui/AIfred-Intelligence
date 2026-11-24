@@ -25,8 +25,8 @@ AIfred-Intelligence/
 │   │   ├── agent_memory.py        # Per-agent long-term memory
 │   │   ├── message_hub.py · message_processor.py · routing_table.py · envelope.py   # Message Hub
 │   │   ├── scheduler.py           # Cron / interval / one-shot jobs, also jobs with sub-tasks
-│   │   ├── task_plan.py           # Task plan (frame, parts, positions, columns, trend) and the one check
-│   │   ├── plan_engine.py · plan_record.py · plan_archive.py   # Plan engine (parts as sub-agents), recording tool with read check, CSV archive and trend table
+│   │   ├── task_plan.py           # Task plan (frame, parts, positions, columns) and the one check
+│   │   ├── plan_engine.py · plan_record.py   # Plan engine (parts as sub-agents), recording tool with read check
 │   │   ├── subagent_run.py        # SubagentSession: one sub-agent run (delegate_task and the plan engine)
 │   │   ├── security.py · credential_broker.py · auth.py · oauth/   # Tiers, secrets, login, OAuth broker
 │   │   ├── calibration/           # Context calibration (llama.cpp flow, vLLM flow)

@@ -1,1 +1,1 @@
-(no archive columns)
+(no columns)

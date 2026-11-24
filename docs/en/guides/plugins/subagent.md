@@ -73,8 +73,7 @@ AIfred uses `run_task_plan` instead of `delegate_task`. You do not have to name 
 AIfred decides whether it is large enough to split. Small tasks he answers himself or hands to `delegate_task`.
 
 AIfred builds a plan for it: a frame (applies to all parts; sources named there are starting points, not limits), the
-parts with a task and their positions each, optionally archive columns for values that are compared (e.g. price), and
-optionally a trend value. Each part runs one after the other as its own sub-agent and enters a status with a finding and
+parts with a task and their positions each, optionally columns for values every entry records (e.g. price). Each part runs one after the other as its own sub-agent and enters a status with a finding and
 a source for every position. A value counts only if the sub-agent really retrieved the source in this run. A long run
 can take minutes; afterwards the transcripts of the parts are in the bubble as collapsible blocks.
 

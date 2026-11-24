@@ -222,15 +222,12 @@ def test_e_found_without_a_fetch_is_rejected_and_does_not_count(ctx: PluginConte
     assert outcome.not_checked == ["p1a"] and result.checked_count == 1
 
 
-def test_f_the_history_is_in_the_part_prompt(ctx: PluginContext, model: Model) -> None:
-    history = {("t1", "p1a"): [PlanEntry("p1a", "gefunden", "Vormals 9,90 Euro", "https://alt.example/x", {"preis": 9.9})]}
-    _drive(_plan(2), ctx, history=history, notes_hint="Notizen: Ordner xyz")
-    first, second = (call["messages"][1]["content"] for call in model.calls[:2])
-    assert "Wegweiser, keine Werte zum Übernehmen" in first
-    assert "Name 1a (p1a):\n- gefunden: Vormals 9,90 Euro (Quelle: https://alt.example/x; preis: 9,9)" in first
+def test_f_the_part_prompt_has_frame_task_positions_columns_and_notes_hint_but_no_history(ctx: PluginContext, model: Model) -> None:
+    _drive(_plan(2), ctx, notes_hint="Notizen: Ordner xyz")
+    first = model.calls[0]["messages"][1]["content"]
     assert "Notizen: Ordner xyz" in first and "- preis (zahl)" in first and "- p1a: Name 1a" in first
     assert "Preise beobachten" in first and "Suche 1" in first
-    assert "Vormals" not in second and "(keine frühere Messung)" in second
+    assert "VORGESCHICHTE" not in first and "Vormals" not in first
 
 
 def test_g_progress_work_and_artifacts_are_passed_on_but_not_the_session_result(ctx: PluginContext, model: Model) -> None:

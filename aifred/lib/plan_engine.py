@@ -11,7 +11,7 @@ at last ``{"plan_result": PlanResult}``. ``render_results`` is the one place for
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Mapping, Sequence
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
@@ -23,9 +23,6 @@ from .plugin_base import PluginContext
 from .prompt_loader import load_prompt
 from .subagent_run import SubagentSession
 from .task_plan import EXTRA_POSITION_ID, PlanPart, TaskPlan
-
-# Key of the history mapping: (part id, position id).
-HistoryKey = tuple[str, str]
 
 
 @dataclass
@@ -60,7 +57,7 @@ def _text(prompt: str, lang: str, **placeholders: str) -> str:
     return load_prompt(f"task_plan/{prompt}", lang=lang, **placeholders).strip()
 
 
-def value_text(value: Any, lang: str) -> str:
+def _value_text(value: Any, lang: str) -> str:
     """A column value for a person or a model: numbers in the language's notation."""
     if isinstance(value, int | float) and not isinstance(value, bool):
         exponent = Decimal(repr(value)).as_tuple().exponent
@@ -71,29 +68,17 @@ def value_text(value: Any, lang: str) -> str:
 def _entry_text(entry: PlanEntry, lang: str) -> str:
     """One entry as a list line: status, finding, source and column values."""
     details = [_text("render_detail_source", lang, source=entry.quelle)] if entry.quelle else []
-    details += [f"{name}: {value_text(value, lang)}" for name, value in entry.values.items()]
+    details += [f"{name}: {_value_text(value, lang)}" for name, value in entry.values.items()]
     return _text("render_entry", lang, status=entry.status, befund=entry.befund,
                  details=f" ({'; '.join(details)})" if details else "")
 
 
-def _history_text(part: PlanPart, history: Mapping[HistoryKey, Sequence[PlanEntry]], lang: str) -> str:
-    blocks = []
-    for position in part.positions:
-        entries = history.get((part.id, position.id), ())
-        if entries:
-            blocks.append("\n".join([_text("part_history_position", lang, name=position.name, id=position.id),
-                                     *(_entry_text(entry, lang) for entry in entries)]))
-    return "\n".join(blocks) if blocks else _text("part_history_none", lang)
-
-
-def part_task(plan: TaskPlan, part: PlanPart, history: Mapping[HistoryKey, Sequence[PlanEntry]], notes_hint: str,
-              lang: str) -> str:
+def part_task(plan: TaskPlan, part: PlanPart, notes_hint: str, lang: str) -> str:
     columns = "\n".join(f"- {column.name} ({column.type})" for column in plan.columns)
     return _text(
         "part", lang, frame=plan.frame, part_title=part.title, task=part.task,
         positions="\n".join(f"- {position.id}: {position.name}" for position in part.positions),
-        columns=columns or _text("part_columns_none", lang), history=_history_text(part, history, lang),
-        notes_hint=notes_hint,
+        columns=columns or _text("part_columns_none", lang), notes_hint=notes_hint,
     )
 
 
@@ -135,14 +120,14 @@ async def _run_part(
 
 async def run_plan(
     plan: TaskPlan, ctx: PluginContext, *, allowed_tiers: frozenset[int], depth: int,
-    history: Mapping[HistoryKey, Sequence[PlanEntry]] | None = None, notes_hint: str = "",
+    notes_hint: str = "",
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Run the plan's parts one after the other; ends with ``{"plan_result": PlanResult}``."""
     outcomes: list[PartOutcome] = []
     for part in plan.parts:
         outcome = PartOutcome(part=part, records=PartRecords(), report="", failure=None, not_checked=[])
         outcomes.append(outcome)
-        task = part_task(plan, part, history or {}, notes_hint, ctx.lang)
+        task = part_task(plan, part, notes_hint, ctx.lang)
         try:
             async for event in _run_part(plan, part, ctx, allowed_tiers, depth, task, outcome):
                 yield event

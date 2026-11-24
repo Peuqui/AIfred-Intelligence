@@ -93,36 +93,31 @@ class HorariumPlugin:
         if tool_name == "horarium_create":
             properties |= plan
         else:
-            properties |= {key: plan[key] for key in ("frame", "columns", "trend")}
+            properties |= {key: plan[key] for key in ("frame", "columns")}
             for operation in ("part_add", "part_update"):
                 properties[operation] = {**plan["parts"]["items"], "description": properties[operation]["description"]}
         return schema
 
     @staticmethod
     def _plan_summary(payload: dict[str, Any]) -> dict[str, Any]:
-        """What list shows of a job's plan: all of it (frame, the parts with task and positions, columns, trend), so a
+        """What list shows of a job's plan: all of it (frame, the parts with task and positions, columns), so a
         part_update can send the part back with only the wanted change. Only what the job has."""
         plan = TaskPlan.from_payload(payload).to_payload()
-        return {key: plan[key] for key in ("frame", "parts", "columns", "trend") if plan.get(key)}
+        return {key: plan[key] for key in ("frame", "parts", "columns") if plan.get(key)}
 
     @staticmethod
     def _with_plan_changes(
-        payload: dict[str, Any], frame: str | None, columns: list[Any] | None, trend: dict[str, Any] | None,
+        payload: dict[str, Any], frame: str | None, columns: list[Any] | None,
         part_add: dict[str, Any] | None, part_update: dict[str, Any] | None, part_remove: str,
     ) -> dict[str, Any]:
-        """The payload with the plan operations of an update applied in a fixed order (frame, columns, trend, remove,
-        update, add); ``Invalid`` for a part id that exists or is unknown. The result is checked as a whole afterwards
+        """The payload with the plan operations of an update applied in a fixed order (frame, columns, remove, update,
+        add); ``Invalid`` for a part id that exists or is unknown. The result is checked as a whole afterwards
         (``_problem``): no operation checks half of it."""
         changed = dict(payload)
         if frame is not None:
             changed["frame"] = frame
         if columns is not None:
             changed["columns"] = columns
-        if trend is not None:
-            if trend.get("value") == "":    # an empty value removes the trend
-                changed.pop("trend", None)
-            else:
-                changed["trend"] = trend
         if part_remove:
             changed["parts"] = parts_without(changed, part_remove)
         if part_update is not None:
@@ -166,7 +161,6 @@ class HorariumPlugin:
             frame: str = "",
             parts: list[Any] | None = None,
             columns: list[Any] | None = None,
-            trend: dict[str, Any] | None = None,
         ) -> str:
             """Create a new scheduled job."""
             from ....lib.scheduler import get_job_store
@@ -186,7 +180,7 @@ class HorariumPlugin:
             if audio_type:
                 payload["audio_type"] = audio_type
             payload |= {key: value for key, value in
-                        {"frame": frame, "parts": parts, "columns": columns, "trend": trend}.items() if value}
+                        {"frame": frame, "parts": parts, "columns": columns}.items() if value}
             try:
                 if parse_bool(fixed_text, "fixed_text"):
                     payload["fixed_text"] = True
@@ -273,7 +267,6 @@ class HorariumPlugin:
             max_tier: int | None = None,
             frame: str | None = None,
             columns: list[Any] | None = None,
-            trend: dict[str, Any] | None = None,
             part_add: dict[str, Any] | None = None,
             part_update: dict[str, Any] | None = None,
             part_remove: str = "",
@@ -296,7 +289,7 @@ class HorariumPlugin:
             }
             payload = {**job.payload, **{k: v for k, v in changes.items() if v}}
             try:
-                payload = self._with_plan_changes(payload, frame, columns, trend, part_add, part_update, part_remove)
+                payload = self._with_plan_changes(payload, frame, columns, part_add, part_update, part_remove)
             except Invalid as exc:
                 return json.dumps({"error": f"{exc} — job {job_id} unchanged"})
             try:

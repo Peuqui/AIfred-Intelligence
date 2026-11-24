@@ -1,2 +1,0 @@
-VERLAUF (vom Code aus dem Archiv gerechnet; ↓ kleiner, ↑ größer als im vorigen Lauf):
-{table}

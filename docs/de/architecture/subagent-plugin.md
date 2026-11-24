@@ -195,7 +195,7 @@ Aufrufer (`transcript_labels`).
 
 Das Plugin bietet neben `delegate_task` ein zweites Werkzeug, `run_task_plan` (Tier `TIER_READONLY`). Es ist für große
 Aufträge, die in mehrere unabhängige Gruppen zerfallen (etwa Preise vieler Produkte in mehreren Shops); für kleine
-Aufgaben bleibt `delegate_task` oder die Antwort aus eigener Kraft. Die Felder `frame`, `parts`, `columns` und `trend`
+Aufgaben bleibt `delegate_task` oder die Antwort aus eigener Kraft. Die Felder `frame`, `parts`, und `columns`
 haben ein einziges Schema, `plan_parameters_schema()` in `aifred/lib/task_plan.py` (Quelle
 `prompts/tools/task_plan.params.json`); im Werkzeug sind `frame` und `parts` Pflicht. Der Executor `run_task_plan`
 prüft den Plan mit `plan_problem` (und dass es mindestens einen Teil gibt) und gibt sonst einen Fehler als Ergebnis
@@ -249,7 +249,7 @@ ohne dass Codine ein neuer Agententyp wird.
 | `aifred/lib/subagent_run.py` | der Kern: Toolkit bauen, Nachrichten, Modelllauf, Transkript, Bericht. `SubagentSession.run()` für die erste Anfrage, `follow_up(text)` für eine weitere Nutzernachricht im selben Lauf (gleiches Toolkit, Bericht als Assistenten-Zug), `extra_tools` für Werkzeuge des Aufrufers, `toolkit` für den Zugriff danach. Die Beschriftungen des Transkripts stehen in `lib/i18n` (`subagent_transcript_*`). Aufrufer: das Plugin und die Plan-Engine |
 | `aifred/plugins/tools/subagent/prompts/tools/delegate_task.txt` | neu, Werkzeugbeschreibung für das Modell |
 | `aifred/plugins/tools/subagent/prompts/de/delegate_task.txt`, `en/delegate_task.txt` | neu, Anleitung an den Aufrufer: wann delegieren, was in `task` gehört (Fragment, nur wenn `delegate_task` freigeschaltet) |
-| `aifred/plugins/tools/subagent/prompts/tools/run_task_plan.*`, `prompts/de/run_task_plan.txt`, `en/run_task_plan.txt` | zweites Werkzeug `run_task_plan`: führt einen Aufgabenplan (frame, parts, columns, trend) über `lib/plan_engine.run_plan` aus; Schema der Felder aus `lib/task_plan.plan_parameters_schema()` (`prompts/tools/task_plan.params.json`), gleiche Rekursionsgrenze wie `delegate_task` |
+| `aifred/plugins/tools/subagent/prompts/tools/run_task_plan.*`, `prompts/de/run_task_plan.txt`, `en/run_task_plan.txt` | zweites Werkzeug `run_task_plan`: führt einen Aufgabenplan (frame, parts, columns) über `lib/plan_engine.run_plan` aus; Schema der Felder aus `lib/task_plan.plan_parameters_schema()` (`prompts/tools/task_plan.params.json`), gleiche Rekursionsgrenze wie `delegate_task` |
 | `prompts/de/shared/subagent_frame.txt`, `prompts/en/shared/subagent_frame.txt` | neu, Rahmen für den Sub-Agenten |
 | `aifred/plugins/tools/subagent/settings.json` | entsteht beim ersten Speichern über das Zahnrad: erlaubte Tiers, Rekursionstiefe, Sub-Agent als anderer Hauptagent (`credential_fields`, nicht geheim) |
 | `aifred/lib/bubble.py` | Bubble-Artefakte und `render_bubble`, die eine Stelle für den Aufbau der Bubble |

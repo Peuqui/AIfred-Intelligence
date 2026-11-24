@@ -3,7 +3,7 @@
 > **Deutsche Version:** [task-plan.md](../../de/architecture/task-plan.md)
 
 As of 2026-11-24. The plan engine splits a large task into parts, has each part worked on by its own sub-agent and makes
-sure no position is lost silently. It lives in `aifred/lib/` and knows neither the Horarium nor a channel nor an archive
+sure no position is lost silently. It lives in `aifred/lib/` and knows neither the Horarium nor a channel
 file; two callers use it (see below).
 
 ## Purpose
@@ -20,22 +20,20 @@ missing appears as "not checked" in the result.
 | `lib/task_plan.py` | data model (`TaskPlan`, `PlanPart`, `PlanPosition`, `PlanColumn`), the one check `plan_problem`, the schema of the plan fields for tools (`plan_parameters_schema`, source `prompts/tools/task_plan.params.json`) and the part operations (`parts_with_added`, `parts_with_replaced`, `parts_without`) |
 | `lib/plan_record.py` | the recording tool `plan_record` (`make_record_tool`), the collected entries (`PartRecords`, `PlanEntry`) |
 | `lib/plan_engine.py` | `run_plan` (parts one after the other), `render_results` (the text for a model), `coverage_line` (the fixed count line) |
-| `lib/plan_archive.py` | the archive `plan_archiv.csv`, the history (`last_entries`) and the trend table (`trend_table`); only for the Horarium path |
 | `lib/subagent_run.py` | `SubagentSession`, the run of a sub-agent, see [sub-agents](subagent-plugin.md) |
-| `prompts/<lang>/task_plan/` | every text the model sees: part prompt, reminder, tool description and rejections of `plan_record`, result rendering, count line, trend table |
+| `prompts/<lang>/task_plan/` | every text the model sees: part prompt, reminder, tool description and rejections of `plan_record`, result rendering, count line |
 
-A plan has four fields: `frame` (frame for all parts), `parts` (each with `id`, `title`, `task` and the positions with
-`id` and `name`), `columns` (archive columns of type `text`, `zahl` or `link`) and `trend` (the name of a `zahl`
+A plan has three fields: `frame` (frame for all parts), `parts` (each with `id`, `title`, `task` and the positions with
+`id` and `name`) and `columns` (the typed fields of the entries, of type `text`, `zahl` or `link`).
 column). The same structure is the payload of a Horarium job ([scheduler](scheduler.md#jobs-with-sub-tasks)) and the
 parameters of the chat tool, so a plan from the chat can be stored unchanged as a job.
 
 ## Flow
 
-`run_plan(plan, ctx, allowed_tiers=…, depth=…, history=…, notes_hint=…)` is an async generator. It runs the parts one
+`run_plan(plan, ctx, allowed_tiers=…, depth=…, notes_hint=…)` is an async generator. It runs the parts one
 after the other, not in parallel. For each part:
 
-1. `part_task` builds the task from `task_plan/part.txt`: frame, part, positions, archive columns with type, the history
-   per position (or the note that there is none), the notes pointer and the working rules (search broadly, sources are
+1. `part_task` builds the task from `task_plan/part.txt`: frame, part, positions, columns with type, the notes pointer and the working rules (search broadly, sources are
    starting points, enter only freshly retrieved values, enter every position at least once, extra finds allowed, close
    with a short report).
 2. A `SubagentSession` with the caller's agent, without persona and with `plan_record` as an extra tool runs the part.
@@ -53,7 +51,7 @@ transcripts) as with any tool executor, and last `{"plan_result": PlanResult}`.
 
 `plan_record` (tier `TIER_READONLY`) exists only in the toolkit of a part's sub-agent. Its schema is built per part:
 `position_id` is an enumeration of the part's positions plus `zusatz` (a find outside the list), `status` is `gefunden`,
-`nicht_gefunden` or `fehler`, plus `befund` (text), `quelle`, one field per archive column (`zahl` as a number) and
+`nicht_gefunden` or `fehler`, plus `befund` (text), `quelle`, one field per column (`zahl` as a number) and
 `neue_quellen` (list of addresses the part discovered beyond the given ones). Several entries per position are allowed.
 Rejections come with a reason, as prompt text in the tool result, so that the sub-agent corrects itself: unknown
 position or status, a value of the wrong type (also text in a number column), an unknown column, an empty finding for
@@ -84,18 +82,18 @@ caller appends the line, the model does not write it.
 ## Two callers
 
 **Horarium.** `_run_plan_parts` in `lib/scheduler.py` calls `run_plan` for a job with `parts`: with the job's tiers
-without sending, the history from the archive and the notes pointer, writes the archive, computes the trend table and
+without sending and the notes pointer, enters new sources in the job's notes and
 then lets the closing turn run with the results. Details: [scheduler](scheduler.md#jobs-with-sub-tasks).
 
 **Chat tool `run_task_plan`.** It belongs to the sub-agent plugin, is available on every channel that uses the plugin
 (browser, Telegram, email, Discord, FreeEcho, anything that runs through `process_inbound`) and uses the plugin's tier
 and depth settings. As with `delegate_task`, the model decides whether a task is large enough; the criteria are in the
-tool description. The chat call has no archive, no history, no notes: the result is `render_results` plus
+tool description. The chat call has no notes: the result is `render_results` plus
 `coverage_line` as the tool result, which the model answers in the running turn. See [sub-agents](subagent-plugin.md).
 
 ## Deliberate limits
 
-- **Parts do not see each other.** Within a run every part knows only the frame, its own task and the history; there
+- **Parts do not see each other.** Within a run every part knows only the frame, its own task and the notes pointer; there
   are no agreements between parts. What is needed in common goes in the frame.
 - **The check proves the retrieval, not the value.** `plan_record` knows that the sub-agent read the source, not that
   the entered value is there. An invented or misread value for a real source goes unnoticed.

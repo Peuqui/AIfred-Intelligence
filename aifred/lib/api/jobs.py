@@ -35,8 +35,7 @@ class JobOptions(BaseModel):
     agents: list[ChoiceOption] = Field(description="The selectable agents (none switched off)")
     channels: list[ChoiceOption] = Field(description="The channel plugins an announcement can go through")
     rooms_channels: list[str] = Field(description="Channels that announce in rooms: they take an audio type")
-    column_types: list[str] = Field(description="The types an archive column of a task plan can have")
-    trend_column_type: str = Field(description="The column type a task plan's progress value must have")
+    column_types: list[str] = Field(description="The types a column of a task plan can have")
 
 
 class PlanPositionModel(BaseModel):
@@ -54,10 +53,6 @@ class PlanPartModel(BaseModel):
 class PlanColumnModel(BaseModel):
     name: str
     type: str = Field(description="text, zahl or link (lib/task_plan.COLUMN_TYPES); task_plan.plan_problem names a wrong one")
-
-
-class PlanTrendModel(BaseModel):
-    value: str = Field(description="The name of a zahl column")
 
 
 class JobRow(BaseModel):
@@ -81,8 +76,7 @@ class JobRow(BaseModel):
     ends_at: str = Field(description="End of a cron or interval job: YYYY-MM-DD (that day still runs) or YYYY-MM-DDTHH:MM; empty = no end")
     frame: str = Field(description="Task plan: what holds for every part (empty = none)")
     parts: list[PlanPartModel] = Field(description="Task plan: the parts with their positions (empty = a job without a plan)")
-    columns: list[PlanColumnModel] = Field(description="Task plan: the columns of the archive")
-    trend: PlanTrendModel | None = Field(description="Task plan: the zahl column the progress table is made of")
+    columns: list[PlanColumnModel] = Field(description="Task plan: the typed fields of the entries")
 
 
 class JobWrite(BaseModel):
@@ -103,7 +97,6 @@ class JobWrite(BaseModel):
     frame: str = ""
     parts: list[PlanPartModel] = []
     columns: list[PlanColumnModel] = []
-    trend: PlanTrendModel | None = None
 
 
 class JobSwitch(BaseModel):
@@ -140,7 +133,7 @@ def _row(job: Job) -> JobRow:
         fixed_text=bool(payload.get("fixed_text")), audio_type=payload.get("audio_type", "notification"),
         max_tier=job.max_tier, enabled=job.enabled, last_run=job.last_run or "", next_run=job.next_run or None,
         retry_count=job.retry_count, ends_at=job.ends_at,
-        frame=payload.get("frame", ""), parts=payload.get("parts", []), columns=payload.get("columns", []), trend=payload.get("trend"),
+        frame=payload.get("frame", ""), parts=payload.get("parts", []), columns=payload.get("columns", []),
     )
 
 
@@ -158,8 +151,7 @@ def _payload(job: JobWrite) -> dict[str, object]:
     # The plan as the store keeps it: only what is set (a job without parts runs as before).
     payload |= {key: value for key, value in (
         ("frame", job.frame), ("parts", [part.model_dump() for part in job.parts]),
-        ("columns", [column.model_dump() for column in job.columns]),
-        ("trend", job.trend.model_dump() if job.trend else None)) if value}
+        ("columns", [column.model_dump() for column in job.columns])) if value}
     if job.delivery == "announce":
         payload |= {key: value for key, value in (("channel", job.channel), ("recipient", job.recipient)) if value}
         if announces_in_rooms(job.channel):
@@ -190,7 +182,7 @@ async def jobs_options() -> JobOptions:
     from ..plugin_registry import on_channels
     from ..prompt_loader import get_language
     from ..scheduler import AUDIO_TYPES, CRON_PRESETS, DELIVERY_MODES, SCHEDULE_TYPES
-    from ..task_plan import COLUMN_TYPES, TREND_TYPE
+    from ..task_plan import COLUMN_TYPES
 
     lang = get_language()
     channels = sorted(on_channels().items())
@@ -202,7 +194,7 @@ async def jobs_options() -> JobOptions:
         agents=[ChoiceOption(id=agent_id, label=f"{config.emoji} {config.display_name}") for agent_id, config in selectable_agents().items()],
         channels=[ChoiceOption(id=name, label=plugin_display_name(channel, lang)) for name, channel in channels],
         rooms_channels=[name for name, _channel in channels if announces_in_rooms(name)],
-        column_types=list(COLUMN_TYPES), trend_column_type=TREND_TYPE,
+        column_types=list(COLUMN_TYPES),
     )
 
 

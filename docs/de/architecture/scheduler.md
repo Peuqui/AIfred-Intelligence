@@ -110,7 +110,7 @@ CREATE TABLE jobs (
 }
 ```
 
-Optional dazu die Plan-Felder `frame`, `parts`, `columns` und `trend` (siehe „Jobs mit Teilaufträgen“).
+Optional dazu die Plan-Felder `frame`, `parts`, `columns` (siehe „Jobs mit Teilaufträgen“).
 
 ### API
 
@@ -246,15 +246,13 @@ Zusätzlich zu `message` (bei einem Plan der Abschlussauftrag) kennt die Payload
   sind Startpunkte, keine Grenze.
 - `parts`: Liste von Teilaufträgen mit `id`, `title`, `task` (vollständig, der Teil sieht das Gespräch nicht) und
   `positions`, einer Liste aus `id` und `name`. Jede Position bekommt im Lauf mindestens einen Eintrag.
-- `columns`: Archivspalten dieses Jobs, je `name` und `type` (`text`, `zahl` oder `link`), für Werte, die über die
-  Läufe verglichen werden (z. B. Shop, Preis, Verfügbarkeit).
-- `trend`: `{"value": "<Name einer Spalte vom Typ zahl>"}` für die Verlaufstabelle.
+- `columns`: die typisierten Felder der Einträge dieses Jobs, je `name` und `type` (`text`, `zahl` oder `link`), für
+  Werte, die jeder Eintrag festhält (z. B. Shop, Preis, Verfügbarkeit).
 
 `job_problem` prüft die Payload vor dem Speichern und ruft bei jedem dieser Felder `plan_problem` auf, die eine Prüfung
 für Horarium und Chat-Werkzeug: Form der Felder, eindeutige Teil-, Positions- und Spaltennamen, kein Teil ohne
 Positionen, die Positions-ID `zusatz` ist reserviert (Funde außerhalb der Liste), Spaltennamen dürfen nicht
-`position_id`, `status`, `befund`, `quelle` oder `neue_quellen` heißen, bekannte Spaltentypen, `trend.value` muss eine
-`zahl`-Spalte sein, und Teile schließen sich mit `fixed_text` aus. Gelaufen wird der Plan nur, wenn `parts` nicht leer ist.
+`position_id`, `status`, `befund`, `quelle` oder `neue_quellen` heißen, bekannte Spaltentypen, und Teile schließen sich mit `fixed_text` aus. Gelaufen wird der Plan nur, wenn `parts` nicht leer ist.
 
 ### Ablauf eines Laufs
 
@@ -263,8 +261,8 @@ Positionen, die Positions-ID `zusatz` ist reserviert (Funde außerhalb der Liste
 1. **Sitzung vorab.** Der Lauf bekommt wie jeder andere eine frische `channel_id`; `_run_plan_parts` legt die Sitzung
    sofort über `message_processor.session_for_channel("scheduler", channel_id)` an, damit die Teile in derselben
    Sitzung arbeiten, die der Abschluss später über seine Route findet.
-2. **Teile nacheinander.** Die Plan-Engine startet je Teil einen Sub-Agenten mit frischem Kontext (Rahmen und Teil, dazu
-   die Vorgeschichte aus dem Archiv und, wenn der Job Notizen führt, der Hinweis auf die Notizdatei). Er läuft als
+2. **Teile nacheinander.** Die Plan-Engine startet je Teil einen Sub-Agenten mit frischem Kontext (Rahmen und Teil, dazu,
+   wenn der Job Notizen führt, der Hinweis auf die Notizdatei). Er läuft als
    Agent des Jobs, ohne Persona, mit den Stufen des Jobs, aber ohne Senden: erlaubt sind alle Stufen bis `max_tier` des
    Jobs außer `TIER_COMMUNICATE`. Die Plugin-Einstellung „Erlaubte Tiers“ des Sub-Agent-Plugins gilt hier nicht.
    Zugestellt wird allein vom Horarium.
@@ -273,47 +271,30 @@ Positionen, die Positions-ID `zusatz` ist reserviert (Funde außerhalb der Liste
 4. **Genau eine Nachforderung.** Bleiben Positionen ohne Eintrag, bekommt derselbe Sub-Agent einmal die Liste der noch
    offenen. Was danach fehlt, gilt als „nicht geprüft“.
 5. **Teilfehler.** Wirft ein Teil eine Ausnahme, steht er mit seinem Grund im Ergebnis, und die nächsten Teile laufen
-   weiter. Eine Ausnahme außerhalb der Teile (Archiv, Notizen) lässt den ganzen Lauf scheitern; endet die Engine ohne
+   weiter. Eine Ausnahme außerhalb der Teile (Notizen) lässt den ganzen Lauf scheitern; endet die Engine ohne
    Ergebnis, ist das ebenfalls ein Fehler.
 6. **Transkripte.** Die Transkripte aller Teile erscheinen als eine Bubble nur im Chatverlauf der Sitzung
    (`record_chat_only_bubble`, Titel aus `scheduler/plan_transcripts_title`); das Modell sieht sie nie, `llm_history`
    bleibt unberührt.
-7. **Archiv.** Der Code hängt alle Einträge des Laufs an `plan_archiv.csv` im Job-Ordner (siehe unten). Das Modell
-   fasst die Datei nie an.
-8. **Notizen.** Neue Quellen, die die Teile gemeldet haben (`neue_quellen`), hängt der Code als Abschnitt mit Datum an die
+7. **Notizen.** Neue Quellen, die die Teile gemeldet haben (`neue_quellen`), hängt der Code als Abschnitt mit Datum an die
    Job-Notizen an (nur wenn der Job Notizen führt, `_keeps_notes`).
-9. **Abschluss.** Der Abschluss ist der gewohnte Lauf über `process_inbound`. Sein Prompt ist der Job-Prompt
+8. **Abschluss.** Der Abschluss ist der gewohnte Lauf über `process_inbound`. Sein Prompt ist der Job-Prompt
    (`build_job_prompt`) plus der Block aus `scheduler/plan_results.txt`: die Ergebnisse aller Teile
-   (`render_results`, einschließlich gescheiterter Teile, nicht geprüfter Positionen, Zusatzfunden und Berichten) und die
-   Verlaufstabelle. Das Modell soll gescheiterte Teile und nicht geprüfte Positionen nennen und nichts dazuerfinden.
-10. **Zählzeile.** Zugestellt und im Protokoll abgelegt wird die Antwort des Modells, darunter die feste Zeile aus
+   (`render_results`, einschließlich gescheiterter Teile, nicht geprüfter Positionen, Zusatzfunden und Berichten). Das Modell soll gescheiterte Teile und nicht geprüfte Positionen nennen und nichts dazuerfinden.
+9. **Zählzeile.** Zugestellt und im Protokoll abgelegt wird die Antwort des Modells, darunter die feste Zeile aus
     `coverage_line` („N von M Positionen geprüft“, bei Lücken mit Liste, bei gescheiterten Teilen mit Grund). Die Zeile
     hängt der Code an, nicht das Modell. Zusatzfunde zählen nicht zur Vollständigkeit.
 
 Ein Teil kann nur weiter delegieren, wo die Rekursionstiefe des Sub-Agent-Plugins es erlaubt (siehe
 [Sub-Agenten](subagent-plugin.md)).
 
-### Archiv und Vorgeschichte
+### Jeder Lauf steht für sich
 
-`plan_archiv.csv` liegt im Ordner des Jobs (`job_notes.sync`) und wird nur vom Code geschrieben und nur angehängt
-(`lib/plan_archive.py`). Pro Eintrag eine Zeile mit den festen Spalten `zeitpunkt`, `teil`, `position`, `status`,
-`befund`, `quelle` und danach den Spalten des Jobs in der Reihenfolge des Plans; für jede Position ohne Eintrag eine Zeile
-mit Status `nicht_geprueft` (als Befund der Grund des Teilfehlers, falls es einen gab). Das `csv`-Modul schreibt und
-liest, Kommas, Anführungszeichen und Zeilenumbrüche im Befund bleiben erhalten. Bekommt der Plan eine neue Spalte,
-wird die Datei einmal mit erweitertem Kopf neu geschrieben, alte Zeilen bleiben dort leer; eine entfernte Spalte bleibt
-im Kopf stehen.
-
-Aus dem Archiv kommt die Vorgeschichte: `last_entries` liefert je Position die Einträge des letzten Laufs, in dem sie
-welche hatte (`nicht_geprueft` zählt nicht). Jeder Teil bekommt sie als Wegweiser, nicht als Werte zum Übernehmen.
-Teile sehen einander innerhalb eines Laufs nicht.
-
-### Verlaufstabelle statt Diagramme
-
-Hat der Job `trend`, rechnet der Code nach dem Anhängen des Laufs aus dem Archiv eine Markdown-Tabelle
-(`trend_table`) und gibt sie dem Abschluss mit. Je Position: der beste Wert des letzten Laufs (kleinster Wert der
-Trend-Spalte unter den `gefunden`-Einträgen) mit Quelle, der beste Wert des Laufs davor, der beste Wert aller Läufe mit
-Zeitpunkt und Quelle, und ein Pfeil (↓ kleiner, → gleich, ↑ größer als im vorigen Lauf). Es gibt keine Diagramme und
-keine Bilder. Ohne `trend` oder ohne Archivzeilen ist die Tabelle leer und fehlt im Prompt.
+Das Horarium führt weder ein Archiv noch eine Verlaufstabelle noch eine Vorgeschichte: Ein Teil sieht nur Rahmen, Aufgabe,
+Positionen, Spalten und den Notizen-Hinweis, nie die Funde früherer Läufe, und Teile sehen einander auch innerhalb eines
+Laufs nicht. Wissen, das über Läufe hinweg gebraucht wird (Quellen, die sich bewährt haben), steht in den Job-Notizen;
+neue Quellen der Teile trägt das Horarium dort ein (Schritt 7). Wer Werte über Läufe sammeln will (z. B. Preise), sagt
+das im Auftrag: Der Abschluss führt die Tabelle dann selbst in einer Datei im Job-Ordner.
 
 ### Sperre gegen Selbständerung
 
@@ -323,14 +304,13 @@ schreibt der Lauf in seinen Bericht, der Benutzer gibt sie im Chat frei. Andere 
 
 ### Bearbeiten im Chat
 
-`horarium_create` nimmt `frame`, `parts`, `columns` und `trend`, Felder aus demselben Schema wie das
-Chat-Werkzeug (`plan_parameters_schema`). `horarium_update` ersetzt `frame` und `columns` ganz, setzt `trend` (ein
-leerer `value` entfernt ihn) und ändert Teile teilgenau: `part_add` fügt einen Teil an, `part_update` ersetzt den Teil
+`horarium_create` nimmt `frame`, `parts`, `columns`, Felder aus demselben Schema wie das
+Chat-Werkzeug (`plan_parameters_schema`). `horarium_update` ersetzt `frame` und `columns` ganz und ändert Teile teilgenau: `part_add` fügt einen Teil an, `part_update` ersetzt den Teil
 mit derselben `id` (das Modell schickt ihn mit nur der gewünschten Änderung zurück), `part_remove` entfernt einen Teil
-nach `id`. Die Operationen laufen in fester Reihenfolge (Rahmen, Spalten, Trend, entfernen, ändern, anfügen); die
+nach `id`. Die Operationen laufen in fester Reihenfolge (Rahmen, Spalten, entfernen, ändern, anfügen); die
 fertige Payload wird erst danach als Ganzes geprüft, bei einer ungültigen Payload oder einer unbekannten bzw. doppelten
 Teil-ID bleibt der Job unverändert. `horarium_list` zeigt den Plan eines Jobs vollständig (Rahmen, Teile mit Aufgabe und
-Positionen, Spalten, Trend).
+Positionen, Spalten).
 
 ---
 
@@ -417,8 +397,8 @@ Alle Worker (Channel-Listener, Scheduler) haben automatischen Restart bei Crashe
 |-------|----------|
 | `aifred/lib/scheduler.py` | Job Store, Scheduler Loop, Delivery Modes, Ablauf eines Jobs mit Teilen (`_run_plan_parts`) |
 | `aifred/lib/task_plan.py` | Plan-Datenmodell und die eine Prüfung (`plan_problem`) |
-| `aifred/lib/plan_engine.py`, `plan_record.py`, `plan_archive.py` | Plan-Engine, Eintragswerkzeug, Archiv und Verlaufstabelle: [Aufgabenpläne](task-plan.md) |
-| `prompts/<lang>/scheduler/plan_*.txt` | Texte des Plan-Ablaufs (Ergebnisblock, Verlauf, Notizen-Hinweis, neue Quellen) |
+| `aifred/lib/plan_engine.py`, `plan_record.py` | Plan-Engine, Eintragswerkzeug: [Aufgabenpläne](task-plan.md) |
+| `prompts/<lang>/scheduler/plan_*.txt` | Texte des Plan-Ablaufs (Ergebnisblock, Notizen-Hinweis, neue Quellen) |
 | `aifred/lib/message_hub.py` | Worker-Management mit Auto-Restart |
 | `aifred/lib/api/agents.py` | Webhook-API Endpoint (`/api/agent/trigger`) |
 | `aifred/lib/credential_broker.py` | WEBHOOK_API_TOKEN Mapping |

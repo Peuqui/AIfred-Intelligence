@@ -22,7 +22,6 @@ PLAN: dict[str, Any] = {
     "frame": "Preise beobachten",
     "parts": [{"id": "t1", "title": "Teil 1", "task": "Suche", "positions": [{"id": "a", "name": "Alpha"}]}],
     "columns": [{"name": "preis", "type": "zahl"}],
-    "trend": {"value": "preis"},
 }
 
 
@@ -60,7 +59,7 @@ class TestTool:
 
     def test_the_schema_is_the_shared_plan_schema(self, plugin, ctx):
         parameters = _tool(plugin, ctx).parameters
-        assert set(parameters["properties"]) == {"frame", "parts", "columns", "trend"}
+        assert set(parameters["properties"]) == {"frame", "parts", "columns"}
         assert parameters["required"] == ["frame", "parts"]
         column_type = parameters["properties"]["columns"]["items"]["properties"]["type"]
         assert column_type["enum"] == ["text", "zahl", "link"]
@@ -90,7 +89,7 @@ class TestExecutor:
             yield {}
 
         monkeypatch.setattr(engine, "run_plan", fake_run_plan)
-        bad = {**PLAN, "trend": {"value": "gibt_es_nicht"}}
+        bad = {**PLAN, "columns": [{"name": "preis", "type": "datum"}]}
         events = asyncio.run(_collect(_tool(plugin, ctx).executor(**bad)))
         assert len(events) == 1 and "error" in json.loads(events[0]["result"])
         assert not called

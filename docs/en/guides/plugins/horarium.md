@@ -33,8 +33,7 @@ result is handed to the configured delivery mode.
 | `end_date` | no | End of a `cron`/`interval` job: `YYYY-MM-DD` (that day still runs) or `YYYY-MM-DDTHH:MM`; left out, the job runs without limit. `horarium_update` sets or removes it (empty value) |
 | `frame` | no | Only for jobs with sub-tasks: the frame that applies to all parts |
 | `parts` | no | The sub-tasks, each with `id`, `title`, `task` and `positions` (each `id`, `name`) |
-| `columns` | no | The job's archive columns, each with `name` and `type` (`text`, `zahl`, `link`) |
-| `trend` | no | `{value: <name of a number column>}` for the trend table |
+| `columns` | no | Typed fields of the entries, each with `name` and `type` (`text`, `zahl`, `link`) |
 
 ## Features
 
@@ -51,7 +50,7 @@ result is handed to the configured delivery mode.
 A large task (many positions, several independent groups, e.g. prices of many products in several shops, anew every
 week) is unreliable in a single prompt: positions drop silently, values are copied from earlier runs. So AIfred splits
 such a task himself when creating it. You only say what you want; AIfred builds a frame, the parts with their positions
-and, if needed, archive columns and a trend value from it. Small tasks stay a single task without parts. If AIfred ran the
+and, if needed, columns for values every entry records from it. Small tasks stay a single task without parts. If AIfred ran the
 plan earlier in the conversation with `run_task_plan`, he takes it over unchanged as the job. Parts cannot be combined
 with fixed text (`fixed_text`).
 
@@ -66,16 +65,13 @@ with fixed text (`fixed_text`).
   positions checked", with the missing positions for gaps. The model does not write this line.
 - The transcripts of the parts are in the history of the run's session as collapsible blocks, not in what the model reads.
 
-**Archive:** For jobs with archive columns the Horarium appends all entries of every run to the file `plan_archiv.csv` in
-the job's folder (time, part, position, status, finding, source, plus your columns). Only the Horarium writes it. On the
-next run a part gets the latest entries of its positions as a pointer, not as values to copy.
-
-**Trend instead of charts:** With a trend value (`trend`, a number column, e.g. the price) the Horarium computes a table
-from the archive: per position the best value of this run with its source, that of the previous run, the best so far with
-its time, and an arrow (↓ cheaper, → equal, ↑ dearer). There are no charts.
+**Every run stands for itself:** The Horarium keeps no archive and no trend table; the parts never see the findings of
+earlier runs. Knowledge about sources lives in the job's notes (the Horarium enters new sources there). Whoever wants to
+collect values across runs (e.g. prices) says so in the task: the closing turn then keeps the table itself in a file in the
+job's folder.
 
 **Editing in the chat:** Tell AIfred what should change; he changes single parts without touching the rest (add, change or
-remove a part, and replace frame, columns and trend value). "Show me my jobs" lists the plan completely. If a change is
+remove a part, and replace frame and columns). "Show me my jobs" lists the plan completely. If a change is
 refused (e.g. a duplicate part id), the job stays unchanged.
 
 **A job does not change itself:** A running job may neither change nor delete its own job. Improvements it notices go into

@@ -63,17 +63,6 @@
         },
         "required": ["name", "type"]
       }
-    },
-    "trend": {
-      "type": "object",
-      "description": "Optional: the course of one number over the runs of a recurring job (a table in the closing report). Needs a column of type zahl.",
-      "properties": {
-        "value": {
-          "type": "string",
-          "description": "Name of the zahl column whose course is shown"
-        }
-      },
-      "required": ["value"]
     }
   }
 }

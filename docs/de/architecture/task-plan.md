@@ -4,7 +4,7 @@
 
 Stand 2026-11-24. Die Plan-Engine zerlegt einen großen Auftrag in Teile, lässt jeden Teil von einem eigenen Sub-Agenten
 bearbeiten und sorgt dafür, dass keine Position still verloren geht. Sie liegt in `aifred/lib/` und kennt weder das
-Horarium noch einen Kanal noch eine Archivdatei; zwei Aufrufer nutzen sie (siehe unten).
+Horarium noch einen Kanal; zwei Aufrufer nutzen sie (siehe unten).
 
 ## Zweck
 
@@ -20,22 +20,20 @@ Sub-Agent in diesem Lauf tatsächlich gelesen hat, und was fehlt, steht als „n
 | `lib/task_plan.py` | Datenmodell (`TaskPlan`, `PlanPart`, `PlanPosition`, `PlanColumn`), die eine Prüfung `plan_problem`, das Schema der Plan-Felder für Werkzeuge (`plan_parameters_schema`, Quelle `prompts/tools/task_plan.params.json`) und die Teil-Operationen (`parts_with_added`, `parts_with_replaced`, `parts_without`) |
 | `lib/plan_record.py` | das Eintragswerkzeug `plan_record` (`make_record_tool`), die gesammelten Einträge (`PartRecords`, `PlanEntry`) |
 | `lib/plan_engine.py` | `run_plan` (Teile nacheinander), `render_results` (der Text für ein Modell), `coverage_line` (die feste Zählzeile) |
-| `lib/plan_archive.py` | das Archiv `plan_archiv.csv`, die Vorgeschichte (`last_entries`) und die Verlaufstabelle (`trend_table`); nur für den Horarium-Weg |
 | `lib/subagent_run.py` | `SubagentSession`, der Lauf eines Sub-Agenten, siehe [Sub-Agenten](subagent-plugin.md) |
-| `prompts/<lang>/task_plan/` | jeder Text, den das Modell sieht: Teil-Prompt, Nachforderung, Werkzeugbeschreibung und Ablehnungen von `plan_record`, Ergebnisdarstellung, Zählzeile, Verlaufstabelle |
+| `prompts/<lang>/task_plan/` | jeder Text, den das Modell sieht: Teil-Prompt, Nachforderung, Werkzeugbeschreibung und Ablehnungen von `plan_record`, Ergebnisdarstellung, Zählzeile |
 
-Der Plan hat vier Felder: `frame` (Rahmen für alle Teile), `parts` (je `id`, `title`, `task` und die Positionen mit `id` und
-`name`), `columns` (Archivspalten mit Typ `text`, `zahl` oder `link`) und `trend` (der Name einer `zahl`-Spalte).
+Der Plan hat drei Felder: `frame` (Rahmen für alle Teile), `parts` (je `id`, `title`, `task` und die Positionen mit `id` und
+`name`) und `columns` (die typisierten Felder der Einträge mit Typ `text`, `zahl` oder `link`).
 Dieselbe Struktur ist die Payload eines Horarium-Jobs ([Scheduler](scheduler.md#jobs-mit-teilaufträgen)) und die
 Parameter des Chat-Werkzeugs, ein Plan aus dem Chat lässt sich deshalb unverändert als Job speichern.
 
 ## Ablauf
 
-`run_plan(plan, ctx, allowed_tiers=…, depth=…, history=…, notes_hint=…)` ist ein asynchroner Generator. Er läuft die Teile
+`run_plan(plan, ctx, allowed_tiers=…, depth=…, notes_hint=…)` ist ein asynchroner Generator. Er läuft die Teile
 nacheinander ab, nicht parallel. Für jeden Teil:
 
-1. `part_task` baut den Auftrag aus `task_plan/part.txt`: Rahmen, Teil, Positionen, Archivspalten mit Typ, die
-   Vorgeschichte je Position (oder der Hinweis, dass es keine gibt), der Notizen-Hinweis und die Arbeitsregeln (breit
+1. `part_task` baut den Auftrag aus `task_plan/part.txt`: Rahmen, Teil, Positionen, Spalten mit Typ, der Notizen-Hinweis und die Arbeitsregeln (breit
    suchen, Quellen sind Startpunkte, nur frisch abgerufene Werte eintragen, jede Position mindestens einmal eintragen,
    Zusatzfunde erlaubt, mit einem kurzen Bericht schließen).
 2. Eine `SubagentSession` mit dem Agenten des Aufrufers, ohne Persona und mit `plan_record` als Zusatzwerkzeug führt den
@@ -53,7 +51,7 @@ Transkripte der Sub-Agenten) wie bei jedem Werkzeug-Executor, zuletzt `{"plan_re
 
 `plan_record` (Stufe `TIER_READONLY`) gibt es nur im Werkzeugkasten eines Teil-Sub-Agenten. Sein Schema entsteht je Teil: `position_id` ist
 eine Aufzählung der Positionen des Teils plus `zusatz` (ein Fund außerhalb der Liste), `status` ist `gefunden`,
-`nicht_gefunden` oder `fehler`, dazu `befund` (Text), `quelle`, je Archivspalte ein Feld (`zahl` als Zahl) und
+`nicht_gefunden` oder `fehler`, dazu `befund` (Text), `quelle`, je Spalte ein Feld (`zahl` als Zahl) und
 `neue_quellen` (Liste von Adressen, die der Teil über die genannten hinaus entdeckt hat). Mehrere Einträge je Position
 sind erlaubt. Abgelehnt wird mit einem Grund, der als Prompt-Text im Werkzeugergebnis steht, damit der Sub-Agent
 nachbessert: unbekannte Position oder Status, ein Wert vom falschen Typ (auch Text in einer Zahlspalte), eine unbekannte
@@ -89,20 +87,18 @@ sie nicht.
 ## Zwei Aufrufer
 
 **Horarium.** `_run_plan_parts` in `lib/scheduler.py` ruft `run_plan` für einen Job mit `parts` auf: mit den Stufen des
-Jobs ohne Senden, der Vorgeschichte aus dem Archiv und dem Notizen-Hinweis, legt das Archiv an, rechnet die
-Verlaufstabelle und lässt anschließend den Abschluss mit den Ergebnissen laufen. Einzelheiten: [Scheduler](scheduler.md#jobs-mit-teilaufträgen).
+Jobs ohne Senden und dem Notizen-Hinweis, trägt neue Quellen in die Job-Notizen ein und lässt anschließend den Abschluss mit den Ergebnissen laufen. Einzelheiten: [Scheduler](scheduler.md#jobs-mit-teilaufträgen).
 
 **Chat-Werkzeug `run_task_plan`.** Es gehört dem Sub-Agent-Plugin, steht auf jedem Kanal zur Verfügung, der das Plugin
 nutzt (Browser, Telegram, E-Mail, Discord, FreeEcho, alles, was durch `process_inbound` läuft), und nutzt die Stufen-
 und Tiefen-Einstellungen des Plugins. Das Modell entscheidet wie bei `delegate_task`, ob ein Auftrag groß genug ist; die
-Kriterien stehen in der Werkzeugbeschreibung. Der Chat-Aufruf hat weder Archiv noch Vorgeschichte noch Notizen: Das
+Kriterien stehen in der Werkzeugbeschreibung. Der Chat-Aufruf hat keine Notizen: Das
 Ergebnis ist `render_results` plus `coverage_line` als Werkzeugergebnis, auf das das Modell im laufenden Zug antwortet.
 Siehe [Sub-Agenten](subagent-plugin.md).
 
 ## Bewusste Grenzen
 
-- **Teile sehen einander nicht.** Innerhalb eines Laufs kennt jeder Teil nur Rahmen, seinen Auftrag und die
-  Vorgeschichte; Absprachen zwischen Teilen gibt es nicht. Wer etwas gemeinsam braucht, schreibt es in den Rahmen.
+- **Teile sehen einander nicht.** Innerhalb eines Laufs kennt jeder Teil nur Rahmen, seinen Auftrag und den Notizen-Hinweis; Absprachen zwischen Teilen gibt es nicht. Wer etwas gemeinsam braucht, schreibt es in den Rahmen.
 - **Die Prüfung belegt den Abruf, nicht den Wert.** `plan_record` weiß, dass der Sub-Agent die Quelle gelesen hat, nicht,
   dass der eingetragene Wert dort steht. Ein erfundener oder falsch gelesener Wert zu einer echten Quelle fällt nicht auf.
 - **Umleitungen werden nicht verfolgt.** Die Menge enthält die angegebene Adresse, nicht das Ziel einer Weiterleitung;

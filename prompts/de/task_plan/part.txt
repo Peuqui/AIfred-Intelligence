@@ -6,11 +6,9 @@ TEIL: {part_title}
 POSITIONEN (id: Name):
 {positions}
 
-ARCHIVSPALTEN (Typ in Klammern; gib diese Werte im Eintrag an, soweit du sie findest):
+SPALTEN (Typ in Klammern; gib diese Werte im Eintrag an, soweit du sie findest):
 {columns}
 
-VORGESCHICHTE (Wegweiser, keine Werte zum Übernehmen; prüfe jeden Wert neu):
-{history}
 {notes_hint}
 
 ARBEITSREGELN:

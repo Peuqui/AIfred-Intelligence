@@ -26,7 +26,7 @@ import JobsView from "./JobsView.vue";
 
 const job = {
   job_id: 1, name: "Morgengruß", enabled: true, delivery: "review", schedule_type: "cron",
-  schedule_expr: "0 8 * * *", next_run: "2026-11-15T08:00:00", last_run: "", frame: "", parts: [], columns: [], trend: null,
+  schedule_expr: "0 8 * * *", next_run: "2026-11-15T08:00:00", last_run: "", frame: "", parts: [], columns: [],
 };
 
 let listed: unknown[] = [job];

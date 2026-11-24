@@ -183,7 +183,7 @@ The labels of the transcript (task, thinking, tool, result, expected result, rep
 
 Besides `delegate_task` the plugin offers a second tool, `run_task_plan` (tier `TIER_READONLY`). It is for large tasks
 that fall into several independent groups (for example prices of many products in several shops); small tasks stay
-with `delegate_task` or the caller's own answer. The fields `frame`, `parts`, `columns` and `trend` have one schema,
+with `delegate_task` or the caller's own answer. The fields `frame`, `parts`, and `columns` have one schema,
 `plan_parameters_schema()` in `aifred/lib/task_plan.py` (source `prompts/tools/task_plan.params.json`); in the tool
 `frame` and `parts` are required. The executor `run_task_plan` checks the plan with `plan_problem` (and that there is
 at least one part) and otherwise returns an error as the result. Then it calls `run_plan` of the plan engine with the
@@ -231,7 +231,7 @@ pattern from the paper without Codine becoming a new agent type.
 |---|---|
 | `aifred/plugins/tools/subagent/__init__.py` | new, plugin (settings, tools, delegation rules); the run itself is `SubagentSession` in the lib |
 | `aifred/lib/subagent_run.py` | the core: build the toolkit, messages, model run, transcript, report. `SubagentSession.run()` for the first request, `follow_up(text)` for one more user message in the same run, `extra_tools` for tools of the caller, `toolkit` for access afterwards. Transcript labels are in `lib/i18n` (`subagent_transcript_*`). Callers: the plugin and the plan engine |
-| `aifred/plugins/tools/subagent/prompts/tools/run_task_plan.*`, `prompts/de/run_task_plan.txt`, `en/run_task_plan.txt` | second tool `run_task_plan`: runs a task plan (frame, parts, columns, trend) through `lib/plan_engine.run_plan`; field schema from `lib/task_plan.plan_parameters_schema()` (`prompts/tools/task_plan.params.json`), same recursion bound as `delegate_task` |
+| `aifred/plugins/tools/subagent/prompts/tools/run_task_plan.*`, `prompts/de/run_task_plan.txt`, `en/run_task_plan.txt` | second tool `run_task_plan`: runs a task plan (frame, parts, columns) through `lib/plan_engine.run_plan`; field schema from `lib/task_plan.plan_parameters_schema()` (`prompts/tools/task_plan.params.json`), same recursion bound as `delegate_task` |
 | `aifred/plugins/tools/subagent/prompts/tools/delegate_task.txt` | new, tool description for the model |
 | `aifred/plugins/tools/subagent/prompts/de/delegate_task.txt`, `en/delegate_task.txt` | new, instructions to the caller: when to delegate, what belongs in `task` (fragment, only when `delegate_task` is granted) |
 | `prompts/de/shared/subagent_frame.txt`, `prompts/en/shared/subagent_frame.txt` | new, frame for the sub-agent |

@@ -1,1 +1,0 @@
-| Position | Dieser Lauf | Vorheriger Lauf | Bisher bester Wert | Trend |

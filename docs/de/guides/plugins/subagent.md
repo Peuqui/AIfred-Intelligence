@@ -76,8 +76,8 @@ vollständig, AIfred entscheidet selbst, ob er groß genug zum Zerlegen ist. Kle
 gibt sie mit `delegate_task` ab.
 
 AIfred baut dafür einen Plan aus einem Rahmen (gilt für alle Teile; genannte Quellen sind Startpunkte, keine Grenze), den
-Teilen mit je einer Aufgabe und ihren Positionen, optional Archivspalten für Werte, die verglichen werden (z. B. Preis),
-und optional einem Verlaufswert. Jeder Teil läuft nacheinander als eigener Sub-Agent und trägt für jede Position einen
+Teilen mit je einer Aufgabe und ihren Positionen, optional Spalten für Werte, die jeder Eintrag festhält (z. B. Preis).
+Jeder Teil läuft nacheinander als eigener Sub-Agent und trägt für jede Position einen
 Status mit Befund und Quelle ein. Ein Wert gilt nur, wenn der Sub-Agent die Quelle in diesem Lauf wirklich abgerufen hat.
 Ein langer Lauf kann Minuten dauern; die Transkripte der Teile stehen danach aufklappbar in der Bubble.
 

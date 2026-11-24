@@ -17,7 +17,6 @@ VALID: dict[str, Any] = {
         {"id": "b", "title": "Teil B", "task": "Suche B", "positions": [{"id": "p1", "name": "Eins"}]},
     ],
     "columns": [{"name": "preis", "type": "zahl"}, {"name": "seite", "type": "link"}, {"name": "notiz", "type": "text"}],
-    "trend": {"value": "preis"},
 }
 
 
@@ -38,15 +37,9 @@ class TestRoundTrip:
         assert plan_problem(VALID) is None
         assert TaskPlan.from_payload(VALID).to_payload() == VALID
 
-    def test_without_trend_the_key_is_absent(self):
-        payload = {k: v for k, v in VALID.items() if k != "trend"}
-        plan = TaskPlan.from_payload(payload)
-        assert plan.trend_value is None
-        assert plan.to_payload() == payload
-
     def test_fields_are_read(self):
         plan = TaskPlan.from_payload(VALID)
-        assert plan.frame == "Preise prüfen" and plan.trend_value == "preis"
+        assert plan.frame == "Preise prüfen"
         assert [p.id for p in plan.parts] == ["a", "b"]
         assert plan.parts[0].positions[1].name == "Zwei"
         assert (plan.columns[0].name, plan.columns[0].type) == ("preis", "zahl")
@@ -96,10 +89,6 @@ class TestInvalid:
         payload["columns"][2]["type"] = "datum"
         assert _problem_key(payload) == "plan_unknown_column_type"
 
-    def test_trend_value_must_be_a_number_column(self):
-        assert _problem_key(_changed(trend={"value": "notiz"})) == "plan_trend_not_a_number_column"
-        assert _problem_key(_changed(trend={"value": "gibtsnicht"})) == "plan_trend_not_a_number_column"
-
     def test_parts_and_fixed_text_exclude_each_other(self):
         assert _problem_key(_changed(fixed_text="Hallo")) == "plan_parts_with_fixed_text"
 
@@ -111,26 +100,27 @@ class TestInvalid:
         {"parts": [{"id": "a", "title": "t", "task": "k", "positions": [{"id": "p"}]}]},
         {"columns": [{"name": "a"}]},
         {"columns": "x"},
-        {"trend": {}},
         {"frame": 3},
     ])
     def test_malformed_shapes(self, payload):
         assert _problem_key(payload) == "plan_malformed"
 
     def test_every_refusal_has_a_text_in_both_languages(self):
-        payload = _changed(trend={"value": "notiz"})
+        payload = _changed()
+        payload["columns"][2]["name"] = "preis"
         problem = plan_problem(payload)
         assert problem is not None
-        assert "notiz" in problem.message("de") and "notiz" in problem.message("en")
+        assert "preis" in problem.message("de") and "preis" in problem.message("en")
         assert not problem.message("de").startswith("error_")
 
 
 class TestJobProblem:
     def test_plan_in_a_job_is_checked(self):
         assert job_problem("cron", copy.deepcopy(VALID)) is None
-        bad = _changed(trend={"value": "notiz"})
+        bad = _changed()
+        bad["columns"][2]["type"] = "datum"
         problem = job_problem("cron", bad)
-        assert problem is not None and problem.key == "plan_trend_not_a_number_column"
+        assert problem is not None and problem.key == "plan_unknown_column_type"
 
     def test_fixed_text_with_parts_is_refused(self):
         payload = _changed(fixed_text="Hallo", delivery="announce", channel="x")

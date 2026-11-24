@@ -22,7 +22,7 @@ const withChannels = (ids: string[]): JobOptions =>
   }) as unknown as JobOptions;
 const job = (channel: string): JobRow =>
   ({ job_id: 1, name: "n", agent: "a", message: "", delivery: "announce", channel, recipient: "", webhook_url: "", fixed_text: false,
-    audio_type: "notification", max_tier: "", schedule_type: "interval", schedule_expr: "1h", ends_at: null, frame: "", parts: [], columns: [], trend: null }) as unknown as JobRow;
+    audio_type: "notification", max_tier: "", schedule_type: "interval", schedule_expr: "1h", ends_at: null, frame: "", parts: [], columns: [] }) as unknown as JobRow;
 
 beforeEach(() => {
   setActivePinia(createPinia());
