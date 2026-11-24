@@ -158,7 +158,7 @@ Foreign senders see no memories:
 |---------|--------------|
 | Browser | yes |
 | Owner via a channel (Telegram ID, email with SPF/DKIM/DMARC pass) | yes |
-| The owner's own scheduler jobs | yes, although their tier is `TIER_COMMUNICATE` |
+| The owner's own scheduler jobs | yes, whatever the job's tier (default `TIER_WRITE_DATA`) |
 | Foreign or unverified senders | no, even if the channel is set higher |
 | Webhook | no |
 

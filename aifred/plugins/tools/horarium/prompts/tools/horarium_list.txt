@@ -1,1 +1,1 @@
-List all scheduled jobs with their status, next run time, delivery mode, and what each one does (message = the stored prompt, plus agent, channel, recipient, webhook_url where set). For a job with a plan also the frame, its parts (id, title, number of positions), and its columns.
+List all scheduled jobs with their status, next run time, delivery mode, and what each one does (message = the stored prompt, plus agent, channel, recipient, webhook_url where set). For a job with a plan also the frame, its parts (id, title, task and all positions with id and name), and its columns.

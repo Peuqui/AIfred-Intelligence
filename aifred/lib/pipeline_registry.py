@@ -83,6 +83,13 @@ def is_pipeline_running(session_id: str) -> bool:
     return task is not None and not task.done()
 
 
+def is_registered(session_id: str, task: asyncio.Task) -> bool:
+    """Whether ``task`` is the registered pipeline of the session: a caller that finds its own task registered runs
+    inside an outer owner (a job's run), which then also unregisters it."""
+    with _lock:
+        return _active_pipelines.get(session_id) is task
+
+
 def running_pipeline_sessions() -> frozenset[str]:
     """The sessions whose turn runs right now, over every channel."""
     with _lock:

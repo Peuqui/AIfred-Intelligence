@@ -141,6 +141,7 @@ Main agents delegate self-contained tasks to sub-agents: a fresh model run with 
 | Tool | Description | Tier |
 |------|------------|------|
 | `delegate_task` | Hand a sub-task with a complete handover to a sub-agent; the result is its report | READONLY |
+| `run_task_plan` | Run a large task as a plan of several parts (frame, parts with positions, optional columns), one sub-agent per part with a time limit; the result is the count line "N of M positions checked" and all entries. Only in AIfred's whitelist | READONLY |
 
 > **Details:** [Sub-Agents Plugin](plugins/subagent.md), architecture: [Sub-Agents as a Plugin](../architecture/subagent-plugin.md)
 
@@ -193,6 +194,7 @@ Scheduled tasks for AIfred.
 - Three schedule types: `cron`, `interval` (seconds), `once` (ISO timestamp)
 - Delivery modes: `review`, `announce`, `webhook`
 - Isolated sessions per job
+- Sub-tasks: a job can carry a plan (frame, parts with positions, columns); `horarium_update` changes single parts (`part_add`, `part_update`, `part_remove`)
 
 > **Details:** [Horarium Plugin](plugins/horarium.md)
 

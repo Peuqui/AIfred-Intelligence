@@ -203,6 +203,18 @@ def test_d_a_failing_part_keeps_the_entries_it_made(ctx: PluginContext, model: M
     assert result.outcomes[0].not_checked == ["p1b"] and result.checked_count == 1
 
 
+def test_d_the_report_of_the_first_run_survives_a_failing_reminder(ctx: PluginContext, model: Model) -> None:
+    def script(title: str, is_follow_up: bool) -> list[Action]:
+        if is_follow_up:
+            raise RuntimeError("zweiter Anlauf kaputt")
+        return [_read(), _record("p1a")]
+
+    model.script = script
+    result = _result(_drive(_plan(1), ctx))
+    assert result.outcomes[0].failure == "zweiter Anlauf kaputt"
+    assert result.outcomes[0].report == "Bericht 1"
+
+
 def test_d_a_part_that_cannot_be_built_fails_too(ctx: PluginContext, model: Model, monkeypatch: pytest.MonkeyPatch) -> None:
     async def broken(agent_id: str, user_query: str, **kwargs: Any) -> tuple[str, ToolKit]:
         raise OSError("kein Werkzeug")
@@ -316,3 +328,67 @@ def test_j_a_failed_part_has_its_event_too(ctx: PluginContext, model: Model) -> 
     dones: list[PartDone] = [event["part_done"] for event in _drive(_plan(), ctx) if "part_done" in event]
     assert [done.outcome.failure for done in dones] == [None, "Modell weg", None]
     assert dones[1].outcome.not_checked == ["p2a", "p2b"]
+
+
+def test_k_the_chain_counter_is_per_part_and_shared_by_its_reminder(
+    ctx: PluginContext, model: Model, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("aifred.lib.config.SECURITY_MAX_TOOL_CHAIN_DEPTH", 4)
+
+    def script(title: str, is_follow_up: bool) -> list[Action]:
+        if title == "Teil 1":  # three fetches, then one record: 4 of 4 calls; the reminder's record is the 5th
+            return [_read(), _read(), _read(), _record("p1a")] if not is_follow_up else [_record("p1b")]
+        return [_read(), _record("p2a"), _record("p2b")]
+
+    model.script = script
+    result = _result(_drive(_plan(2), ctx))
+    first_run, reminder, second_run = (call["toolkit"] for call in model.calls)
+    assert first_run is reminder and second_run is not first_run
+    assert (first_run._call_count, second_run._call_count) == (5, 3)
+    assert any("Tool chain depth limit (4) exceeded" in text for text in model.tool_results)
+    assert result.outcomes[1].not_checked == []  # part 2 started at 0 although part 1 was over the limit
+
+
+def _hanging_toolkit(model: Model, monkeypatch: pytest.MonkeyPatch, stopped: list[str]) -> None:
+    async def hang() -> AsyncGenerator[dict[str, Any], None]:
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            stopped.append("cancelled")
+            raise
+        yield {"result": "never"}
+
+    async def prepare(agent_id: str, user_query: str, **kwargs: Any) -> tuple[str, ToolKit]:
+        return "", ToolKit(tools=[_tool("web_fetch", _web_fetch), _tool("hang", hang)])
+
+    monkeypatch.setattr(run, "prepare_agent_toolkit", prepare)
+
+
+def test_l_a_part_over_the_time_limit_fails_with_the_reason_and_the_next_part_runs(
+    ctx: PluginContext, model: Model, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("aifred.lib.plan_engine.PLAN_PART_TIMEOUT_SECONDS", 0.2)
+    stopped: list[str] = []
+    _hanging_toolkit(model, monkeypatch, stopped)
+    model.script = lambda title, is_follow_up: [("hang", {})] if title == "Teil 2" else _complete(title, is_follow_up)
+    result = _result(_drive(_plan(), ctx))
+    failed = result.outcomes[1]
+    assert failed.failure == "Zeitlimit von 0,2s überschritten" and failed.not_checked == ["p2a", "p2b"]
+    assert result.outcomes[0].failure is None and result.outcomes[2].failure is None
+    assert len(result.outcomes[2].records.entries) == 2
+    assert "Teil fehlgeschlagen: Zeitlimit von 0,2s überschritten" in render_results(result, "de")
+    assert stopped == ["cancelled"]
+
+
+def test_l_a_timed_out_part_leaves_no_task_behind(
+    ctx: PluginContext, model: Model, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("aifred.lib.plan_engine.PLAN_PART_TIMEOUT_SECONDS", 0.2)
+    _hanging_toolkit(model, monkeypatch, [])
+    model.script = lambda title, is_follow_up: [("hang", {})]
+
+    async def drive_and_count() -> int:
+        await _collect(run_plan(_plan(1), ctx, allowed_tiers=frozenset({TIER_READONLY}), depth=0))
+        return len([task for task in asyncio.all_tasks() if task is not asyncio.current_task()])
+
+    assert asyncio.run(drive_and_count()) == 0

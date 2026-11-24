@@ -1,12 +1,14 @@
 """SubagentSession (lib/subagent_run): extra tools, follow-up in the same run, access to the toolkit."""
 
 import asyncio
+import json
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 import aifred.lib.subagent_run as run
+from aifred.lib import tool_output_cap
 from aifred.backends.base import LLMOptions
 from aifred.lib.function_calling import Tool, ToolKit
 from aifred.lib.plugin_base import PluginContext
@@ -139,6 +141,40 @@ class TestFollowUp:
             ("assistant", "Erster Bericht."), ("user", "eins"),
             ("assistant", "Nachgereichter Bericht."), ("user", "zwei"),
         ]
+
+    def test_follow_up_after_an_empty_report_keeps_the_roles_alternating(self, ctx, fake_runtime, monkeypatch):
+        answers = ["", "Nachgereichter Bericht."]
+
+        async def stream(client, model, messages, options, label, *, source, toolkit=None, compression=None):
+            fake_runtime.append({"messages": list(messages), "toolkit": toolkit})
+            yield {"type": "pipeline_result", "result": SimpleNamespace(
+                text_clean=answers[len(fake_runtime) - 1], artifacts=[], debug_msg="done",
+                metrics={"work": {"prefill_tokens": 1, "prefill_s": 1.0, "decode_tokens": 1, "decode_s": 1.0}},
+                metadata_dict={"ttft": 1.0, "tokens_per_sec": 1.0, "inference_time": 1.0, "source": "x", "backend_type": "llamacpp"},
+            )}
+
+        monkeypatch.setattr(run, "run_llm_stream", stream)
+        session = _session(ctx)
+        first = _run(_collect(session.run()))
+        assert "error" in json.loads(next(e for e in first if "result" in e)["result"])
+        _run(_collect(session.follow_up("Es fehlt Position 3.")))
+        assert [m["role"] for m in fake_runtime[1]["messages"]] == ["system", "user", "assistant", "user"]
+
+    def test_the_budget_of_a_follow_up_counts_the_whole_history(self, ctx, fake_runtime, monkeypatch):
+        budgets: list[int] = []
+        real_compute = tool_output_cap.compute_budget
+
+        def spy(effective_ctx, sys_tok, hist_tok, mem_tok=0, tools_tok=0):
+            budgets.append(hist_tok)
+            return real_compute(effective_ctx, sys_tok, hist_tok, mem_tok, tools_tok)
+
+        monkeypatch.setattr(tool_output_cap, "compute_budget", spy)
+        session = _session(ctx)
+        _run(_collect(session.run()))
+        _run(_collect(session.follow_up("kurz")))
+        first_hist, follow_up_hist = budgets
+        # task + earlier report + the new text, not the new text alone
+        assert follow_up_hist > first_hist
 
     def test_follow_up_before_run_is_an_error(self, ctx, fake_runtime):
         with pytest.raises(RuntimeError):

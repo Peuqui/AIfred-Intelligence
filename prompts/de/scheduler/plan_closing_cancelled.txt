@@ -1,0 +1,4 @@
+Der Lauf wurde nach den Teilaufträgen abgebrochen, der Abschluss fehlt und nichts wurde zugestellt. Unten stehen die Ergebnisse der Teile. Du kannst in dieser Sitzung weiterarbeiten.
+
+ERGEBNIS DER TEILE:
+{results}

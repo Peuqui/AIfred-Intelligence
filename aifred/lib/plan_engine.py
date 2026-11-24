@@ -2,7 +2,8 @@
 
 Every part gets its own ``SubagentSession`` with the ``plan_record`` tool; what the sub-agent reports goes through
 that tool into ``PartRecords``. Positions without an entry after the run get exactly one reminder, then count as not
-checked. A part that fails (exception) is a part failure with its reason; the next parts run on.
+checked. A part that fails (exception) or runs longer than ``PLAN_PART_TIMEOUT_SECONDS`` is a part failure with its
+reason; the next parts run on.
 
 ``run_plan`` yields ``progress``, ``work`` and ``artifacts`` like a tool executor (so one can pass them on), after
 every part ``{"part_done": PartDone}`` (the caller that shows a part when it is done) and at last
@@ -12,17 +13,18 @@ every part ``{"part_done": PartDone}`` (the caller that shows a part when it is 
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from .formatting import format_number
-from .logging_utils import log_exception
-from .plan_record import PartRecords, PlanEntry, make_record_tool
+from .config import PLAN_PART_TIMEOUT_SECONDS
+from .formatting import format_duration_s, format_number
+from .logging_utils import log_exception, log_message
+from .plan_record import PartRecords, PlanEntry, make_record_tool, plan_text
 from .plugin_base import PluginContext
-from .prompt_loader import load_prompt
 from .subagent_run import SubagentSession
 from .task_plan import EXTRA_POSITION_ID, PlanPart, TaskPlan
 
@@ -64,10 +66,6 @@ class PlanResult:
         return self.position_count - sum(len(outcome.not_checked) for outcome in self.outcomes)
 
 
-def _text(prompt: str, lang: str, **placeholders: str) -> str:
-    return load_prompt(f"task_plan/{prompt}", lang=lang, **placeholders).strip()
-
-
 def _value_text(value: Any, lang: str) -> str:
     """A column value for a person or a model: numbers in the language's notation."""
     if isinstance(value, int | float) and not isinstance(value, bool):
@@ -78,18 +76,18 @@ def _value_text(value: Any, lang: str) -> str:
 
 def _entry_text(entry: PlanEntry, lang: str) -> str:
     """One entry as a list line: status, finding, source and column values."""
-    details = [_text("render_detail_source", lang, source=entry.quelle)] if entry.quelle else []
+    details = [plan_text("render_detail_source", lang, source=entry.quelle)] if entry.quelle else []
     details += [f"{name}: {_value_text(value, lang)}" for name, value in entry.values.items()]
-    return _text("render_entry", lang, status=entry.status, befund=entry.befund,
+    return plan_text("render_entry", lang, status=entry.status, befund=entry.befund,
                  details=f" ({'; '.join(details)})" if details else "")
 
 
 def part_task(plan: TaskPlan, part: PlanPart, notes_hint: str, lang: str) -> str:
     columns = "\n".join(f"- {column.name} ({column.type})" for column in plan.columns)
-    return _text(
+    return plan_text(
         "part", lang, frame=plan.frame, part_title=part.title, task=part.task,
         positions="\n".join(f"- {position.id}: {position.name}" for position in part.positions),
-        columns=columns or _text("part_columns_none", lang), notes_hint=notes_hint,
+        columns=columns or plan_text("part_columns_none", lang), notes_hint=notes_hint,
     )
 
 
@@ -106,7 +104,7 @@ async def _run_part(
 
     session = SubagentSession(
         ctx, allowed_tiers=allowed_tiers, depth=depth, target_agent=ctx.agent_id, task=task,
-        expected_result=_text("part_expected", ctx.lang), with_persona=False,
+        expected_result=plan_text("part_expected", ctx.lang), with_persona=False,
         extra_tools=[make_record_tool(plan, part, read_urls, outcome.records, ctx.lang)],
     )
     reports: list[str] = []
@@ -123,10 +121,36 @@ async def _run_part(
 
     async for event in pass_on(session.run()):
         yield event
+    outcome.report = "\n\n".join(reports)   # stands even if the reminder fails
     if open_positions := outcome.records.open_positions(part):
-        async for event in pass_on(session.follow_up(_text("missing", ctx.lang, positions=", ".join(open_positions)))):
+        async for event in pass_on(session.follow_up(plan_text("missing", ctx.lang, positions=", ".join(open_positions)))):
             yield event
     outcome.report = "\n\n".join(reports)
+
+
+class _PartTimeout(Exception):
+    """The part used up its time limit."""
+
+
+async def _within(events: AsyncGenerator[dict[str, Any], None], limit_seconds: float) -> AsyncGenerator[dict[str, Any], None]:
+    """``events`` until the deadline; at the deadline the pending step is cancelled (the sub-agent's loop ends
+    through its ``finally`` blocks) and ``_PartTimeout`` is raised. The deadline is checked per step, so a
+    cancel never lands in the consumer."""
+    deadline = asyncio.get_running_loop().time() + limit_seconds
+    try:
+        while True:
+            try:
+                async with asyncio.timeout_at(deadline) as scope:
+                    event = await anext(events)
+            except StopAsyncIteration:
+                return
+            except TimeoutError:
+                if scope.expired():
+                    raise _PartTimeout from None
+                raise
+            yield event
+    finally:
+        await events.aclose()
 
 
 async def run_plan(
@@ -142,9 +166,14 @@ async def run_plan(
         artifacts: list[dict[str, Any]] = []
         started = time.monotonic()
         try:
-            async for event in _run_part(plan, part, ctx, allowed_tiers, depth, task, outcome):
+            async for event in _within(
+                _run_part(plan, part, ctx, allowed_tiers, depth, task, outcome), PLAN_PART_TIMEOUT_SECONDS,
+            ):
                 artifacts += event.get("artifacts", [])
                 yield event
+        except _PartTimeout:
+            outcome.failure = plan_text("part_timeout", ctx.lang, limit=format_duration_s(PLAN_PART_TIMEOUT_SECONDS))
+            log_message(f"Plan part '{part.id}' failed: {outcome.failure}", "warning")
         except Exception as exc:  # noqa: BLE001 — a failed part must not stop the others; reported in the result
             log_exception(f"Plan part '{part.id}' failed", exc)
             outcome.failure = str(exc) or type(exc).__name__
@@ -154,20 +183,20 @@ async def run_plan(
 
 
 def _outcome_text(outcome: PartOutcome, lang: str) -> str:
-    lines = [_text("render_part_head", lang, title=outcome.part.title)]
+    lines = [plan_text("render_part_head", lang, title=outcome.part.title)]
     if outcome.failure is not None:
-        lines.append(_text("render_part_failed", lang, reason=outcome.failure))
+        lines.append(plan_text("render_part_failed", lang, reason=outcome.failure))
     for position in outcome.part.positions:
-        lines.append(_text("render_position", lang, name=position.name, id=position.id))
+        lines.append(plan_text("render_position", lang, name=position.name, id=position.id))
         entries = [entry for entry in outcome.records.entries if entry.position_id == position.id]
         lines += [_entry_text(entry, lang) for entry in entries]
         if position.id in outcome.not_checked:
-            lines.append(_text("render_not_checked", lang))
+            lines.append(plan_text("render_not_checked", lang))
     extras = [entry for entry in outcome.records.entries if entry.position_id == EXTRA_POSITION_ID]
     if extras:
-        lines += [_text("render_extra_heading", lang), *(_entry_text(entry, lang) for entry in extras)]
+        lines += [plan_text("render_extra_heading", lang), *(_entry_text(entry, lang) for entry in extras)]
     if outcome.report:
-        lines += [_text("render_report_heading", lang), outcome.report]
+        lines += [plan_text("render_report_heading", lang), outcome.report]
     return "\n".join(lines)
 
 
@@ -176,21 +205,21 @@ def render_results(result: PlanResult, lang: str) -> str:
     new sources."""
     blocks = [_outcome_text(outcome, lang) for outcome in result.outcomes]
     if result.new_sources:
-        blocks.append("\n".join([_text("render_new_sources", lang), *(f"- {source}" for source in sorted(result.new_sources))]))
+        blocks.append("\n".join([plan_text("render_new_sources", lang), *(f"- {source}" for source in sorted(result.new_sources))]))
     return "\n\n".join(blocks)
 
 
 def coverage_line(result: PlanResult, lang: str) -> str:
     """The fixed line for the message: how many positions were checked, and if not all, which not and which parts failed."""
     total, checked = result.position_count, result.checked_count
-    lines = [_text("coverage", lang, checked=format_number(checked, locale=lang), total=format_number(total, locale=lang))]
+    lines = [plan_text("coverage", lang, checked=format_number(checked, locale=lang), total=format_number(total, locale=lang))]
     if checked < total:
         missing = [
             f"{outcome.part.title} / {position.name}"
             for outcome in result.outcomes for position in outcome.part.positions if position.id in outcome.not_checked
         ]
-        lines.append(_text("coverage_missing", lang, positions=", ".join(missing)))
+        lines.append(plan_text("coverage_missing", lang, positions=", ".join(missing)))
     failed = [f"{outcome.part.title} ({outcome.failure})" for outcome in result.outcomes if outcome.failure is not None]
     if failed:
-        lines.append(_text("coverage_failed", lang, parts=", ".join(failed)))
+        lines.append(plan_text("coverage_failed", lang, parts=", ".join(failed)))
     return "\n".join(lines)

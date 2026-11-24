@@ -80,3 +80,13 @@ test("a bubble from outside the turn (alert, job part) joins the history at once
   expect(chat.history.at(-1)?.content).toBe("Kamera: Bewegung");
   expect(chat.streaming?.text).toBe("Ein brauner Hund");
 });
+
+test("a bubble the page already loaded from the file is not added a second time by its message_added", async () => {
+  detail.live_events = [];
+  detail.chat_history = [{ role: "assistant", content: "Kamera: Bewegung", timestamp: "t1" }] as never;
+  const chat = useChat();
+  await chat.open("s1");
+  followed[0]?.handle("message_added", { entry: { role: "assistant", content: "Kamera: Bewegung", timestamp: "t1" }, ends_turn: false });
+  detail.chat_history = [];
+  expect(chat.history.map((entry) => entry.content)).toEqual(["Kamera: Bewegung"]);
+});

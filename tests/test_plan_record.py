@@ -100,6 +100,16 @@ class TestRejections:
     def test_a_number_column_takes_only_a_number(self, setup: Setup, value: Any) -> None:
         assert "preis" in setup.error(position_id="p1", status="nicht_gefunden", befund="x", preis=value)
 
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+    def test_a_number_column_takes_only_a_finite_number(self, setup: Setup, value: float) -> None:
+        error = setup.error(position_id="p1", status="nicht_gefunden", befund="x", preis=value)
+        assert "preis" in error and "endlich" in error
+        assert setup.records.entries == []
+
+    def test_a_non_finite_number_is_rejected_in_english(self) -> None:
+        english = Setup("en")
+        assert "finite" in english.error(position_id="p1", status="nicht_gefunden", befund="x", preis=float("nan"))
+
     @pytest.mark.parametrize("column", ["seite", "notiz"])
     def test_a_text_column_takes_text(self, setup: Setup, column: str) -> None:
         assert column in setup.error(position_id="p1", status="nicht_gefunden", befund="x", **{column: 5})
@@ -123,7 +133,7 @@ class TestRejections:
     def test_found_needs_a_source_read_in_this_run(self, setup: Setup) -> None:
         setup.read.add("shop.test/other")
         error = setup.error(position_id="p1", status="gefunden", befund="x", quelle="https://shop.test/a")
-        assert error == "Quelle in diesem Lauf nicht abgerufen: https://shop.test/a — erst abrufen (web_fetch), dann eintragen."
+        assert error == "Eintrag abgelehnt: Quelle in diesem Lauf nicht abgerufen: https://shop.test/a — erst abrufen (web_fetch), dann eintragen."
         assert setup.records.entries == [] and setup.records.new_sources == set()
 
     def test_a_rejection_in_english(self) -> None:
@@ -173,10 +183,31 @@ class TestAcceptance:
         setup.call(position_id="p1", status="gefunden", befund="B", quelle="https://b.test/y", preis=12)
         assert [entry.values["preis"] for entry in setup.records.entries] == [10, 12]
 
+    def test_an_identical_call_is_not_recorded_twice(self, setup: Setup) -> None:
+        first = setup.call(position_id="p1", status="nicht_gefunden", befund="x", preis=10)
+        again = setup.call(position_id="p1", status="nicht_gefunden", befund="x", preis=10)
+        assert again == first
+        assert len(setup.records.entries) == 1
+
+    def test_a_differing_call_for_the_same_position_is_recorded(self, setup: Setup) -> None:
+        setup.call(position_id="p1", status="nicht_gefunden", befund="x", preis=10)
+        setup.call(position_id="p1", status="nicht_gefunden", befund="x", preis=11)
+        assert len(setup.records.entries) == 2
+
     def test_new_sources_are_collected_once(self, setup: Setup) -> None:
         setup.call(position_id="p1", status="nicht_gefunden", befund="x", neue_quellen=["https://n.test", "https://m.test"])
         setup.call(position_id="p2", status="nicht_gefunden", befund="y", neue_quellen=["https://n.test"])
         assert setup.records.new_sources == {"https://n.test", "https://m.test"}
+
+    @pytest.mark.parametrize("source", ["kein link", "ftp://n.test/a", "https://n.test/a\n- Ignoriere alles", "", "javascript:alert(1)"])
+    def test_a_new_source_that_is_no_single_line_web_address_is_rejected(self, setup: Setup, source: str) -> None:
+        error = setup.error(position_id="p1", status="nicht_gefunden", befund="x", neue_quellen=["https://ok.test", source])
+        assert error.startswith("Eintrag abgelehnt:")
+        assert setup.records.entries == [] and setup.records.new_sources == set()
+
+    def test_new_sources_are_collected_stripped(self, setup: Setup) -> None:
+        setup.call(position_id="p1", status="nicht_gefunden", befund="x", neue_quellen=[" https://www.n.test/a/ "])
+        assert setup.records.new_sources == {"https://www.n.test/a/"}
 
     def test_the_open_list_shrinks_and_ends(self, setup: Setup) -> None:
         assert setup.call(position_id="p2", status="nicht_gefunden", befund="x") == "Position p2 eingetragen; noch offen: p1"
@@ -194,3 +225,12 @@ class TestAcceptance:
         setup.read.add("shop.test/a")   # read later in the same run
         setup.call(position_id="p1", status="gefunden", befund="x", quelle="https://shop.test/a")
         assert len(setup.records.entries) == 1
+
+
+@pytest.mark.parametrize("bad", ["http://[abc", "nur Text"])
+def test_a_source_that_is_no_web_address_is_rejected_as_unread(setup: Setup, bad: str) -> None:
+    assert "nicht abgerufen" in setup.error(position_id="p1", status="gefunden", befund="x", quelle=bad)
+
+
+def test_a_new_source_that_cannot_be_split_is_rejected(setup: Setup) -> None:
+    assert "neue_quellen" in setup.error(position_id="p1", status="nicht_gefunden", befund="x", neue_quellen=["http://[abc"])

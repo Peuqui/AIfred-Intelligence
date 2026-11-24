@@ -25,7 +25,7 @@ Sub-Agent in diesem Lauf tatsächlich gelesen hat, und was fehlt, steht als „n
 
 Der Plan hat drei Felder: `frame` (Rahmen für alle Teile), `parts` (je `id`, `title`, `task` und die Positionen mit `id` und
 `name`) und `columns` (die typisierten Felder der Einträge mit Typ `text`, `zahl` oder `link`).
-Dieselbe Struktur ist die Payload eines Horarium-Jobs ([Scheduler](scheduler.md#jobs-mit-teilaufträgen)) und die
+Ein Plan mit Rahmen oder Spalten, aber ohne Teile wird abgelehnt (`plan_no_parts`): Beides gilt nur für Teile. Dieselbe Struktur ist die Payload eines Horarium-Jobs ([Scheduler](scheduler.md#jobs-mit-teilaufträgen)) und die
 Parameter des Chat-Werkzeugs, ein Plan aus dem Chat lässt sich deshalb unverändert als Job speichern.
 
 ## Ablauf
@@ -43,6 +43,15 @@ nacheinander ab, nicht parallel. Für jeden Teil:
    fehlt, steht als `not_checked` im Ergebnis des Teils.
 4. Wirft ein Teil eine Ausnahme, wird sie geloggt und als Grund des Teils festgehalten (`failure`); die weiteren Teile
    laufen. Einträge, die der Teil vorher angenommen hat, bleiben gültig.
+5. Jeder Teil hat ein Zeitlimit, `PLAN_PART_TIMEOUT_SECONDS` in `config.py` (Standard 1800 s = 30:00 min, per
+   Umgebungsvariable änderbar), für Lauf und Nachforderung zusammen. Läuft er länger, bricht die Engine ihn ab (`_within`);
+   er scheitert mit dem Grund aus `task_plan/part_timeout.txt` („Zeitlimit von … überschritten“), die schon angenommenen
+   Einträge bleiben, die weiteren Teile laufen. Das gilt für jeden Aufrufer, auch für `run_task_plan` im Chat. Der Bericht
+   des Teils bleibt erhalten, auch wenn die Nachforderung scheitert (`outcome.report` wird nach dem Lauf und nach der
+   Nachforderung gesetzt).
+6. Das Kettenlimit `SECURITY_MAX_TOOL_CHAIN_DEPTH` (Standard 100 Werkzeugaufrufe) zählt je Teil: Jeder Teil hat seinen
+   eigenen Werkzeugkasten und damit seinen eigenen Zähler; Lauf und Nachforderung desselben Teils teilen ihn, jeder
+   `plan_record` zählt mit.
 
 Die Ereignisse für den Aufrufer sind `progress` (mit dem Titel des Teils vorneweg), `work` und `artifacts` (die
 Transkripte der Sub-Agenten) wie bei jedem Werkzeug-Executor, nach jedem Teil `{"part_done": PartDone}` (Ergebnis des Teils,
@@ -54,9 +63,10 @@ seine Transkripte als rohe Artefakte, Laufzeit in Sekunden; auch für einen gesc
 `plan_record` (Stufe `TIER_READONLY`) gibt es nur im Werkzeugkasten eines Teil-Sub-Agenten. Sein Schema entsteht je Teil: `position_id` ist
 eine Aufzählung der Positionen des Teils plus `zusatz` (ein Fund außerhalb der Liste), `status` ist `gefunden`,
 `nicht_gefunden` oder `fehler`, dazu `befund` (Text), `quelle`, je Spalte ein Feld (`zahl` als Zahl) und
-`neue_quellen` (Liste von Adressen, die der Teil über die genannten hinaus entdeckt hat). Mehrere Einträge je Position
-sind erlaubt. Abgelehnt wird mit einem Grund, der als Prompt-Text im Werkzeugergebnis steht, damit der Sub-Agent
-nachbessert: unbekannte Position oder Status, ein Wert vom falschen Typ (auch Text in einer Zahlspalte), eine unbekannte
+`neue_quellen` (Liste von Adressen, die der Teil über die genannten hinaus entdeckt hat; nur einzeilige http(s)-Adressen, sonst
+lehnt `plan_record` den Eintrag ab, denn sie landen in den Job-Notizen). Mehrere Einträge je Position sind erlaubt; ein
+identischer Aufruf (gleiche Position, gleiche Felder) wird nur einmal gespeichert. Abgelehnt wird mit einem Grund, der als Prompt-Text im Werkzeugergebnis steht, damit der Sub-Agent
+nachbessert: unbekannte Position oder Status, ein Wert vom falschen Typ (auch Text in einer Zahlspalte; eine Zahl muss endlich sein, NaN und Unendlich gibt es nicht), eine unbekannte
 Spalte, ein leerer Befund bei `nicht_gefunden` und `fehler`, bei `gefunden` eine fehlende Quelle oder eine Quelle, die in
 diesem Lauf nicht abgerufen wurde.
 
@@ -83,23 +93,32 @@ mit allen Einträgen (Status, Befund, Quelle, Spaltenwerte, Zahlen in der Schrei
 geprüft“ bei einer Lücke, der Grund eines gescheiterten Teils, die Zusatzfunde, der Bericht und zum Schluss die neuen
 Quellen. `coverage_line(result, lang)` ist die feste Zeile „N von M Positionen geprüft“ und bei einer Lücke eine Liste
 „Teil / Position“, bei gescheiterten Teilen eine Liste mit Grund. Zusatzfunde zählen nicht mit; Positionen eines
-gescheiterten Teils zählen als geprüft, soweit sie Einträge haben. Die Zeile hängt der Aufrufer an, das Modell schreibt
-sie nicht.
+gescheiterten Teils zählen als geprüft, soweit sie Einträge haben. Die Zeile fügt der Aufrufer ein, das Modell schreibt
+sie nicht: Das Horarium hängt sie an die Nachricht an, das Chat-Werkzeug stellt sie dem Ergebnis voran (die Kappung eines
+langen Werkzeugergebnisses schneidet den Schwanz ab, und der Hinweis auf nicht Geprüftes muss erhalten bleiben).
 
 ## Zwei Aufrufer
 
 **Horarium.** `_run_plan_parts` in `lib/scheduler.py` ruft `run_plan` für einen Job mit `parts` auf: mit den Stufen des
-Jobs ohne Senden und dem Notizen-Hinweis, trägt neue Quellen in die Job-Notizen ein und lässt anschließend den Abschluss mit den Ergebnissen laufen. Einzelheiten: [Scheduler](scheduler.md#jobs-mit-teilaufträgen).
+Jobs ohne Senden und dem Notizen-Hinweis, trägt neue Quellen in die Job-Notizen ein und lässt anschließend den Abschluss mit den Ergebnissen laufen. Der ganze Lauf ist die Pipeline der Sitzung des Jobs (Warteschlange für Chat-Nachrichten, Stopp, „läuft“); scheitert der Abschluss, werden die Ergebnisse der Teile trotzdem zugestellt. Einzelheiten: [Scheduler](scheduler.md#jobs-mit-teilaufträgen).
 
 **Chat-Werkzeug `run_task_plan`.** Es gehört dem Sub-Agent-Plugin, steht auf jedem Kanal zur Verfügung, der das Plugin
 nutzt (Browser, Telegram, E-Mail, Discord, FreeEcho, alles, was durch `process_inbound` läuft), und nutzt die Stufen-
 und Tiefen-Einstellungen des Plugins. Das Modell entscheidet wie bei `delegate_task`, ob ein Auftrag groß genug ist; die
 Kriterien stehen in der Werkzeugbeschreibung. Der Chat-Aufruf hat keine Notizen: Das
-Ergebnis ist `render_results` plus `coverage_line` als Werkzeugergebnis, auf das das Modell im laufenden Zug antwortet.
-Siehe [Sub-Agenten](subagent-plugin.md).
+Ergebnis ist `coverage_line`, gefolgt von `render_results`, als Werkzeugergebnis, auf das das Modell im laufenden Zug antwortet.
+Das Werkzeug steht nur in der Whitelist (`tools` in `data/agents.json`) von AIfred; wer eine Whitelist hat und `run_task_plan`
+nicht darin, bekommt es nicht (Sokrates, Salomo, Pater, Codine, Hal, Rabbi); Agenten ohne Whitelist sehen alle Werkzeuge,
+die ihre Stufe zulässt (Filter in `agent_memory.py`). Siehe [Sub-Agenten](subagent-plugin.md).
 
 ## Bewusste Grenzen
 
+- **Gebaut für die Web-Recherche.** „Gefunden“ verlangt als `quelle` eine Adresse, die der Teil in diesem Lauf mit `web_fetch`
+  (oder über `web_search`) gelesen hat (`plan_record.py`). Andere Lesewerkzeuge, etwa Dokumente, Nextcloud oder E-Mail,
+  melden keine gelesene Adresse (`read`); ein Fund aus ihnen lässt sich deshalb nicht als `gefunden` eintragen (auch nicht als Zusatzfund);
+  übrig bleiben `nicht_gefunden` und `fehler`, deren Befund nur Text ist. Die Plan-Engine passt zu Aufträgen, deren Belege Webseiten
+  sind (Preise, Verfügbarkeit, Quellenlage); für Aufträge über eigene Dokumente, Kalender oder Postfächer ist sie nicht
+  gebaut. Das ist Design, kein Fehler.
 - **Teile sehen einander nicht.** Innerhalb eines Laufs kennt jeder Teil nur Rahmen, seinen Auftrag und den Notizen-Hinweis; Absprachen zwischen Teilen gibt es nicht. Wer etwas gemeinsam braucht, schreibt es in den Rahmen.
 - **Die Prüfung belegt den Abruf, nicht den Wert.** `plan_record` weiß, dass der Sub-Agent die Quelle gelesen hat, nicht,
   dass der eingetragene Wert dort steht. Ein erfundener oder falsch gelesener Wert zu einer echten Quelle fällt nicht auf.

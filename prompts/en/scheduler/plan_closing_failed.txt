@@ -1,0 +1,4 @@
+The closing step of this job failed: {reason}. Below are the results of the parts that were done. You can carry on in this session, for example write the report from these results.
+
+RESULT OF THE PARTS:
+{results}

@@ -413,4 +413,4 @@ systemctl status llama-swap ollama
 
 **Modell fehlt, Skip-Liste, OOM** — siehe [Einrichtungsanleitung → Fehlerbehebung](deployment.md#12-fehlerbehebung).
 
-**Debug-Log:** `tail -f data/logs/aifred_debug.log`
+**Debug-Log:** `tail -f data/logs/aifred_debug.log` (beim Dienststart neu angelegt, bei über 1 MB wird die alte Datei als `.old` zur Seite gelegt; Skripte, die die lib importieren, hängen höchstens an, mit `AIFRED_CLI_MODE` schreiben sie nichts)

@@ -1,1 +1,1 @@
-Source not fetched in this run: {url} — fetch it first (web_fetch), then record.
+Entry rejected: source not fetched in this run: {url} — fetch it first (web_fetch), then record.

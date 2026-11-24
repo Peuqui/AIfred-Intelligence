@@ -83,6 +83,7 @@
         "horarium_update",
         "horarium_delete",
         "delegate_task",
+        "run_task_plan",
         "vision_list_sources",
         "vision_rescan_sources",
         "vision_capture",

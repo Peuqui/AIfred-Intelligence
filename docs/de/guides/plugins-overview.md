@@ -141,6 +141,7 @@ Hauptagenten delegieren abgegrenzte Aufgaben an Sub-Agenten: frischer Modellaufr
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
 | `delegate_task` | Teilaufgabe mit vollständiger Übergabe an einen Sub-Agenten geben; Ergebnis ist dessen Bericht | READONLY |
+| `run_task_plan` | Großen Auftrag als Plan aus mehreren Teilen ausführen (Rahmen, Teile mit Positionen, optional Spalten), je Teil ein Sub-Agent mit Zeitlimit; Ergebnis sind die Zählzeile „N von M Positionen geprüft“ und alle Einträge. Steht nur in der Whitelist von AIfred | READONLY |
 
 > **Details:** [Sub-Agenten Plugin](plugins/subagent.md), Architektur: [Sub-Agenten als Plugin](../architecture/subagent-plugin.md)
 
@@ -193,6 +194,7 @@ Geplante Aufgaben für AIfred.
 - Drei Schedule-Typen: `cron`, `interval` (Sekunden), `once` (ISO-Timestamp)
 - Delivery-Modi: `review`, `announce`, `webhook`
 - Isolierte Sessions pro Job
+- Teilaufträge: ein Job kann einen Plan tragen (Rahmen, Teile mit Positionen, Spalten); `horarium_update` ändert einzelne Teile (`part_add`, `part_update`, `part_remove`)
 
 > **Details:** [Horarium Plugin](plugins/horarium.md)
 

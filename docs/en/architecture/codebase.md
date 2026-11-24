@@ -21,7 +21,6 @@ AIfred-Intelligence/
 │   │   ├── research_tools.py · research/ · tools/   # Web research pipeline
 │   │   ├── document_store.py · file_manager.py · embeddings.py   # RAG (ChromaDB, bge-m3)
 │   │   ├── document_sources.py    # Further document sources (protocol; plugins offer them, e.g. Google Drive)
-│   │   ├── document_sources.py    # Further document sources (protocol; plugins offer them, e.g. Google Drive)
 │   │   ├── agent_memory.py        # Per-agent long-term memory
 │   │   ├── message_hub.py · message_processor.py · routing_table.py · envelope.py   # Message Hub
 │   │   ├── scheduler.py           # Cron / interval / one-shot jobs, also jobs with sub-tasks

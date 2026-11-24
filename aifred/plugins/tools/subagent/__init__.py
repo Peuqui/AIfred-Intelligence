@@ -23,7 +23,6 @@ from typing import Any
 from collections.abc import AsyncGenerator
 
 from ....lib.function_calling import Tool
-from ....lib.i18n import t
 from ....lib.plugin_base import (
     CredentialField,
     PluginContext,
@@ -31,6 +30,8 @@ from ....lib.plugin_base import (
     load_plugin_settings,
     load_tool_description,
     load_tool_parameters,
+    plugin_dir_of,
+    plugin_i18n_text,
     save_plugin_settings,
 )
 from ....lib.security import (
@@ -254,7 +255,7 @@ class SubAgentPlugin:
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
         if tool_name == PLAN_TOOL_NAME:
             frame = str(tool_args.get("frame", "")).strip().replace("\n", " ")
-            return t("tool_run_task_plan", lang=lang, frame=frame[:70])
+            return plugin_i18n_text(plugin_dir_of(self), "tool_run_task_plan", lang).format(frame=frame[:70])
         if tool_name != TOOL_NAME:
             return ""
         task = str(tool_args.get("task", "")).strip().replace("\n", " ")
@@ -304,7 +305,8 @@ async def run_task_plan(
     ):
         if "plan_result" in event:
             result = event["plan_result"]
-            yield {"result": f"{render_results(result, ctx.lang)}\n\n{coverage_line(result, ctx.lang)}"}
+            # The line leads: a capped result is cut at its tail, and what was not checked must survive.
+            yield {"result": f"{coverage_line(result, ctx.lang)}\n\n{render_results(result, ctx.lang)}"}
         elif "part_done" not in event:   # the tool's bubble gets the artifacts passed on as they come
             yield event
 

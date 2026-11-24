@@ -138,6 +138,12 @@ def submit_turn(request: TurnRequest) -> bool:
     return False
 
 
+def _saves_history(event: session_events.SessionEvent) -> bool:
+    """Whether the event closes what the history holds of the running turn: its start, or a bubble that ends an
+    answer. A bubble from outside the turn (``ends_turn`` False: an alert, a job's part) leaves the answer open."""
+    return event.kind == "turn_started" or (event.kind == "message_added" and event.data.get("ends_turn") is not False)
+
+
 def running_turn_events(session_id: str) -> list[session_events.SessionEvent]:
     """What a page that opens in the middle of a turn needs to show the answer being written, from the replay: the
     phase, and what the speaking agent has produced since the history last grew (``agent_started``, its ``token``
@@ -145,7 +151,7 @@ def running_turn_events(session_id: str) -> list[session_events.SessionEvent]:
     ``turn_started`` / ``message_added``. The page feeds them to the handler of its stream and follows the stream
     from ``last_event_id`` on."""
     events = session_events.replay_after(session_id, 0)
-    saved = max((at for at, event in enumerate(events) if event.kind in ("turn_started", "message_added")), default=-1)
+    saved = max((at for at, event in enumerate(events) if _saves_history(event)), default=-1)
     live = [event for event in events if event.kind == "turn_phase"]
     for event in events[saved + 1:]:
         if event.kind not in ("agent_started", "token", "tool_status"):
@@ -173,12 +179,15 @@ def start_turn(request: TurnRequest) -> asyncio.Task[TurnOutcome]:
 
 
 async def run_turn(request: TurnRequest) -> TurnOutcome:
-    """Run the turn in the current task (it becomes the session's pipeline: a stop cancels it)."""
-    from .pipeline_registry import register_pipeline, unregister_pipeline
+    """Run the turn in the current task (it becomes the session's pipeline: a stop cancels it). A task that is the
+    session's pipeline already (a job's run, whose closing turn runs inline) keeps it: whoever registered the task
+    unregisters it and starts the waiting message when everything is over, not this turn in the middle of it."""
+    from .pipeline_registry import is_registered, register_pipeline, unregister_pipeline
 
     session_id = request.session_id
     task = asyncio.current_task()
     assert task is not None
+    owns_registration = not is_registered(session_id, task)
     register_pipeline(session_id, task)
     turn_id = uuid.uuid4().hex
     status = "done"
@@ -200,13 +209,15 @@ async def run_turn(request: TurnRequest) -> TurnOutcome:
             log_exception("Turn failed", error)
             debug(f"❌ Turn failed: {error}")
         finally:
-            unregister_pipeline(session_id, task)
+            if owns_registration:
+                unregister_pipeline(session_id, task)
             session_events.publish(session_id, "turn_finished", {"turn_id": turn_id, "status": status})
-            _start_next(session_id)
+            if owns_registration:
+                start_next_turn(session_id)
     return TurnOutcome(status, routing.agent, tuple(routing.replies))
 
 
-def _start_next(session_id: str) -> None:
+def start_next_turn(session_id: str) -> None:
     """The next message waiting in the session's queue becomes the next turn, on the server's loop
     (a channel's turn ends on the message hub's). Only the chat queues (``submit_turn``, dictation,
     injection): a waiting message is one written in the chat."""

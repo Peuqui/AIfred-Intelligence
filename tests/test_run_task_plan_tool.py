@@ -115,13 +115,27 @@ class TestExecutor:
 
         assert events[:3] == [{"progress": "Teil 1: läuft"}, {"work": "arbeit"}, {"artifacts": [{"kind": "x"}]}]
         result = _result_for(TaskPlan.from_payload(PLAN))
-        assert events[3] == {"result": f"{render_results(result, 'de')}\n\n{coverage_line(result, 'de')}"}
+        assert events[3] == {"result": f"{coverage_line(result, 'de')}\n\n{render_results(result, 'de')}"}
         assert len(events) == 4
         assert seen["plan"] == TaskPlan.from_payload(PLAN)
         assert seen["ctx"] is ctx
         assert seen["tiers"] == plugin.settings().allowed_tiers
         assert seen["depth"] == 0
         assert not seen["more"]
+
+    def test_the_coverage_line_leads_so_that_capping_the_tail_cannot_cut_it(self, plugin, ctx, monkeypatch):
+        from aifred.lib.tool_output_cap import cap_tool_output
+
+        async def fake_run_plan(plan: TaskPlan, plan_ctx: PluginContext, **more: Any) -> AsyncGenerator[dict[str, Any], None]:
+            yield {"plan_result": _result_for(plan)}
+
+        monkeypatch.setattr(engine, "run_plan", fake_run_plan)
+        events = asyncio.run(_collect(_tool(plugin, ctx).executor(**PLAN)))
+        result = _result_for(TaskPlan.from_payload(PLAN))
+        text = events[0]["result"]
+        assert text.startswith(coverage_line(result, "de"))
+        padded = text + "\n" + "x" * 20000
+        assert coverage_line(result, "de") in cap_tool_output(padded, 200)
 
     def test_the_depth_of_the_context_goes_to_the_engine(self, plugin, ctx, monkeypatch):
         monkeypatch.setattr(plugin, "_load_settings", lambda: {sub.MAX_DEPTH_KEY: "2"})
@@ -136,3 +150,13 @@ class TestExecutor:
         monkeypatch.setattr(engine, "run_plan", fake_run_plan)
         asyncio.run(_collect(_tool(plugin, ctx).executor(**PLAN)))
         assert depths == [1]
+
+
+def test_aifred_has_run_task_plan_in_his_tool_list_and_the_other_whitelisted_agents_do_not() -> None:
+    """The main agent splits a big chat order into parts (Peuqui 24.11.2026); a whitelist without the tool hides it."""
+    from pathlib import Path
+
+    agents = json.loads((Path(__file__).parents[1] / "data" / "agents.json").read_text(encoding="utf-8"))["agents"]
+    whitelisted = {name: config["tools"] for name, config in agents.items() if config.get("tools") is not None}
+    assert "run_task_plan" in whitelisted["aifred"]
+    assert [name for name, tools in whitelisted.items() if "run_task_plan" in tools] == ["aifred"]

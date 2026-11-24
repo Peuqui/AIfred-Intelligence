@@ -2,7 +2,7 @@
 
 The core of the ``delegate_task`` tool (plugin ``subagent``) and of the plan engine (``task_plan``): both start a
 ``SubagentSession``. What is the plugin's own (its settings: allowed tiers, depth) comes in as parameters; the
-transcript labels live in this package's i18n (``subagent_transcript_*``), one text for every caller.
+transcript labels live in ``lib/i18n`` (``subagent_transcript_*``), one text for every caller.
 
 ``run`` yields ``progress``, ``work``, ``artifacts`` and ``result`` events like a tool executor. ``follow_up`` sends one
 more user message into the same run (same toolkit instance, the report as the assistant's turn before it).
@@ -293,7 +293,8 @@ class SubagentSession:
         # Own tool-output budget for the inner loop (ContextVar is task-local;
         # reset afterwards so the caller's budget is untouched).
         sys_tok = estimate_tokens([{"content": messages[0]["content"]}], model_name=params.model)
-        task_tok = estimate_tokens([{"content": messages[-1]["content"]}], model_name=params.model)
+        # Everything but the system prompt: the task, and in a follow-up the earlier reports and the new text.
+        task_tok = estimate_tokens(messages[1:], model_name=params.model)
         tools_tok = estimate_toolkit_tokens(toolkit, model_name=params.model)
         budget_token = budget_var.set(compute_budget(params.num_ctx, sys_tok, task_tok, 0, tools_tok))
         llm_client = LLMClient(backend_type=params.backend_type, base_url=params.backend_url)
@@ -359,11 +360,12 @@ class SubagentSession:
         })
         inner = pipeline_result.artifacts if pipeline_result is not None else []
         yield {"artifacts": [a.to_dict() for a in (transcript_artifact, *inner)]}
+        # What a follow-up continues from: the report is the assistant's turn, even an empty one, so that
+        # user and assistant alternate (some chat templates refuse two user messages in a row).
+        self._messages.append({"role": "assistant", "content": report})
         if not report:
             yield {"result": json.dumps({"error": labels["no_report"]})}
             return
-        # What a follow-up continues from: the report is the assistant's turn.
-        self._messages.append({"role": "assistant", "content": report})
         # The caller's model needs the sandbox URLs too (render_html takes them):
         # marker lines lead the report so a capped result cannot cut them off. The
         # caller's pipeline already has these pages as artifacts and does not show

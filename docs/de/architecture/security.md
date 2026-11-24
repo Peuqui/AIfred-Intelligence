@@ -159,7 +159,7 @@ Fremde Absender sehen keine Erinnerungen:
 |---------|----------------------|
 | Browser | ja |
 | Owner über einen Kanal (Telegram-ID, E-Mail mit SPF/DKIM/DMARC pass) | ja |
-| Eigene Scheduler-Jobs des Owners | ja, obwohl ihr Tier `TIER_COMMUNICATE` ist |
+| Eigene Scheduler-Jobs des Owners | ja, unabhängig vom Tier des Jobs (Standard `TIER_WRITE_DATA`) |
 | Fremde oder ungeprüfte Absender | nein, auch wenn der Kanal höher eingestellt ist |
 | Webhook | nein |
 

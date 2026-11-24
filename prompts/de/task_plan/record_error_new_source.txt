@@ -1,0 +1,1 @@
+Eintrag abgelehnt: neue_quellen darf nur einzeilige Web-Adressen (http oder https) enthalten, nicht {source}.

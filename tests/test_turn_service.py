@@ -967,3 +967,29 @@ def test_a_cancelled_turn_keeps_the_rounds_that_ran(world: dict[str, Any]) -> No
     history = _llm_history()
     assert [entry["role"] for entry in history[:4]] == ["user", "assistant", "tool", "assistant"]    # round 1 with its result stays
     assert history[1]["content"] == "[AIFRED]: Erst."
+
+
+def test_a_turn_inside_an_outer_pipeline_leaves_its_registration_and_the_queue_to_the_owner(monkeypatch) -> None:
+    """A job runs its closing turn inline in its own task, which is already the session's pipeline: the turn neither
+    unregisters it nor starts the waiting message (the owner does that when it is over)."""
+    from aifred.lib import pipeline_registry
+
+    started: list[str] = []
+
+    async def nothing(request, turn_id, routing) -> None:
+        return None
+
+    monkeypatch.setattr(turn_service, "_run", nothing)
+    monkeypatch.setattr(turn_service, "start_next_turn", lambda session_id: started.append(session_id))
+
+    async def owner() -> None:
+        task = asyncio.current_task()
+        assert task is not None
+        pipeline_registry.register_pipeline("sess", task)
+        outcome = await turn_service.run_turn(turn_service.TurnRequest("sess", "Bericht"))
+        assert outcome.status == "done"
+        assert pipeline_registry.is_pipeline_running("sess")   # the owner's registration stands
+        assert started == []
+        pipeline_registry.unregister_pipeline("sess", task)
+
+    asyncio.run(owner())

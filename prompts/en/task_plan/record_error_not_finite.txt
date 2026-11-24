@@ -1,0 +1,1 @@
+Entry rejected: field {column} is a number column, the value {value} is not a finite number (NaN and infinity do not exist). Send an ordinary JSON number, e.g. 48.5, or leave the field out if you found no value.

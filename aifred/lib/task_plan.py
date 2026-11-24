@@ -14,7 +14,8 @@ from .user_error import Invalid
 
 COLUMN_TYPES = ("text", "zahl", "link")
 # Fields every entry carries itself; a job column of the same name would collide with them.
-MANDATORY_FIELDS = ("position_id", "status", "befund", "quelle", "neue_quellen")
+REQUIRED_FIELDS = ("position_id", "status", "befund")
+MANDATORY_FIELDS = (*REQUIRED_FIELDS, "quelle", "neue_quellen")
 # Position id of the entry for something found besides the listed positions.
 EXTRA_POSITION_ID = "zusatz"
 # Payload keys that make a payload a plan.
@@ -121,6 +122,9 @@ def plan_problem(payload: dict[str, Any]) -> Invalid | None:
     if (problem := _shape_problem(payload)) is not None:
         return problem
     plan = TaskPlan.from_payload(payload)
+    # Frame and columns only mean something to the parts: without them the run would ignore them silently.
+    if not plan.parts and (plan.frame or plan.columns):
+        return Invalid("plan_no_parts")
     if plan.parts and payload.get("fixed_text"):
         return Invalid("plan_parts_with_fixed_text")
     if (name := _duplicate([part.id for part in plan.parts])) is not None:

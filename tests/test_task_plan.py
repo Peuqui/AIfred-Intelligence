@@ -44,9 +44,8 @@ class TestRoundTrip:
         assert plan.parts[0].positions[1].name == "Zwei"
         assert (plan.columns[0].name, plan.columns[0].type) == ("preis", "zahl")
 
-    def test_frame_and_columns_alone_are_valid(self):
-        assert plan_problem({"frame": "x"}) is None
-        assert plan_problem({"columns": [{"name": "a", "type": "text"}]}) is None
+    def test_an_empty_plan_has_nothing_to_complain_about(self):
+        assert plan_problem({"frame": "", "parts": [], "columns": []}) is None
 
 
 class TestInvalid:
@@ -131,6 +130,14 @@ class TestJobProblem:
         assert job_problem("cron", {}) is None
         assert job_problem("cron", {"fixed_text": "Hallo", "delivery": "announce", "channel": "x"}) is None
 
+    @pytest.mark.parametrize("payload", [
+        {"frame": "x"}, {"columns": [{"name": "a", "type": "text"}]}, {"frame": "x", "parts": [], "columns": []},
+    ])
+    def test_frame_or_columns_without_parts_are_refused(self, payload):
+        for problem in (plan_problem(payload), job_problem("cron", payload)):
+            assert problem is not None and problem.key == "plan_no_parts"
+
     def test_columns_alone_are_checked(self):
-        problem = job_problem("cron", {"columns": [{"name": "status", "type": "text"}]})
+        problem = job_problem("cron", {"columns": [{"name": "status", "type": "text"}],
+                                         "parts": VALID["parts"]})
         assert problem is not None and problem.key == "plan_reserved_column"

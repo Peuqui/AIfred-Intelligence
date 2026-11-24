@@ -1,0 +1,1 @@
+Eintrag abgelehnt: Feld {column} ist eine Zahlspalte, der Wert {value} ist keine endliche Zahl (NaN und Unendlich gibt es nicht). Schicke eine gewöhnliche JSON-Zahl, z. B. 48.5, oder lasse das Feld weg, wenn du keinen Wert gefunden hast.

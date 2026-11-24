@@ -563,6 +563,12 @@ async def _run_due_job(store: JobStore, job: Job) -> None:
     except Exception as exc:  # noqa: BLE001 — one failing job must not end the loop
         log_exception(f"Horarium: job '{job.name}' failed", exc)
         store.mark_failed(job.job_id)
+    except asyncio.CancelledError:
+        # A stop (or a superseding turn) cancelled the run: it counts as a failure, so the next appointment
+        # moves on and nothing retries at once. The cancellation goes on: it is the task's.
+        log_message(f"Horarium: job '{job.name}' cancelled", "warning")
+        store.mark_failed(job.job_id)
+        raise
     finally:
         release_job(job.job_id)
 
@@ -579,6 +585,9 @@ async def run_job_now(job: Job) -> None:
         log_message(f"Horarium: job '{job.name}' completed (run now)")
     except Exception as exc:  # noqa: BLE001 — the failure shows in the log, nothing to mark
         log_exception(f"Horarium: job '{job.name}' failed (run now)", exc)
+    except asyncio.CancelledError:
+        log_message(f"Horarium: job '{job.name}' cancelled (run now)", "warning")
+        raise
     finally:
         release_job(job.job_id)
 
@@ -601,8 +610,13 @@ async def scheduler_loop() -> None:
                 await asyncio.shield(asyncio.ensure_future(_run_due_job(store, job)))
 
         except asyncio.CancelledError:
-            log_message("Horarium: shutting down")
-            return
+            # The shield passes on the job task's cancellation too (a stop of the run): only a cancellation of
+            # the loop's own task ends the loop.
+            task = asyncio.current_task()
+            if task is None or task.cancelling() > 0:
+                log_message("Horarium: shutting down")
+                return
+            log_message("Horarium: a job was cancelled, the loop goes on")
         except Exception as exc:  # noqa: BLE001 — the loop outlives every error
             log_message(f"Horarium: loop error: {exc}", "error")
 
@@ -618,11 +632,11 @@ async def _execute_job(job: Job) -> None:
     delivery (review / announce / webhook) stays scheduler-specific.
     """
     import secrets
-    from datetime import datetime
 
-    from .envelope import InboundMessage
-    from .message_processor import process_inbound
+    from . import message_processor
+    from .pipeline_registry import register_pipeline, unregister_pipeline
     from .security import DELIVERY_CHANNEL_KEY
+    from .turn_service import start_next_turn
 
     message_text = job.payload.get("message", "")
     agent = job.agent
@@ -655,9 +669,31 @@ async def _execute_job(job: Job) -> None:
         "max_tier": job.max_tier,
         DELIVERY_CHANNEL_KEY: _delivery_channel(job),
     }
-    # A job with parts: the parts run first (each a sub-agent, in the session the closing turn finds by its route),
-    # then the closing turn gets what they found.
-    plan_run = await _run_plan_parts(job, TaskPlan.from_payload(job.payload), channel_id, metadata) \
+    # The route of the session exists before anything runs: the parts and the closing turn find the same session by it.
+    session_id = message_processor.session_for_channel("scheduler", channel_id)
+    # The whole run, from the start bubble to the delivery, is the session's pipeline: a chat message waits in its
+    # queue instead of running beside the parts, and a stop cancels the run. The closing turn runs inline in this
+    # task and leaves the registration to us (turn_service.run_turn).
+    task = asyncio.current_task()
+    assert task is not None
+    register_pipeline(session_id, task)
+    try:
+        await _run_job(job, store, session_id, channel_id, metadata)
+    finally:
+        unregister_pipeline(session_id, task)
+        start_next_turn(session_id)
+
+
+async def _run_job(job: Job, store: JobStore, session_id: str, channel_id: str, metadata: dict[str, Any]) -> None:
+    """The parts (if any), the closing turn and the delivery of one run, in the session's pipeline."""
+    from datetime import datetime
+
+    from . import message_processor
+    from .envelope import InboundMessage
+    from .message_processor import process_inbound
+
+    # A job with parts: the parts run first (each a sub-agent), then the closing turn gets what they found.
+    plan_run = await _run_plan_parts(job, TaskPlan.from_payload(job.payload), session_id, metadata) \
         if job.payload.get("parts") else None
     msg = InboundMessage(
         channel="scheduler",
@@ -666,24 +702,56 @@ async def _execute_job(job: Job) -> None:
         text=build_job_prompt(job, store, plan_run.prompt_block if plan_run else ""),
         timestamp=datetime.now(),
         metadata=metadata,
-        target_agent=agent,
+        target_agent=job.agent,
         task=True,
     )
 
-    outbound = await process_inbound(msg)
-
-    if outbound is None or not outbound.text:
-        raise RuntimeError(f"Engine returned no response for job '{job.name}'")
-
-    session_id = outbound.metadata.get("session_id", "")
-    if not session_id:
-        raise RuntimeError(f"process_inbound returned no session_id for job '{job.name}'")
+    try:
+        outbound = await process_inbound(msg)
+        if outbound is None or not outbound.text:
+            raise RuntimeError(f"Engine returned no response for job '{job.name}'")
+        outbound_session_id = outbound.metadata.get("session_id", "")
+        if not outbound_session_id:
+            raise RuntimeError(f"process_inbound returned no session_id for job '{job.name}'")
+    except Exception as exc:
+        # The parts are done and cost their time: what they found is not lost with the closing turn.
+        if plan_run is not None:
+            await _deliver_unclosed_plan(job, store, plan_run, channel_id, session_id, str(exc))
+        raise
+    except asyncio.CancelledError:
+        if plan_run is not None:
+            _record_plan_results(plan_run, channel_id, job.name, "plan_closing_cancelled")
+        raise
 
     # What goes out is what the model wrote after its last tool call, without thinking — the same text
     # every channel reply gets (PipelineResult.text_clean; 20.10.2026: a message written before the tools
     # and once more after them went out twice). The job prompt asks for the tools first, then the message once.
-    # The coverage line of a plan is appended by the code, not written by the model.
+    # The coverage line of a plan is appended by the code, not written by the model; the session shows it too.
     text = f"{outbound.text}\n\n{plan_run.coverage}" if plan_run else outbound.text
+    if plan_run:
+        message_processor.record_chat_only_bubble(session_id, "scheduler", job.name, plan_run.coverage)
+    store.add_run(job.job_id, outbound_session_id, text)
+    await _deliver_result(job, text, outbound_session_id)
+
+
+def _record_plan_results(plan_run: _PlanRun, channel_id: str, job_name: str, prompt: str, **values: str) -> str:
+    """The results of the parts with a notice (prompt ``scheduler/<prompt>``) as a message in the job's session that the
+    model sees in its history: the user can go on there. Returns the text."""
+    from .message_processor import record_autonomous_turn
+    from .prompt_loader import load_prompt
+
+    text = load_prompt(f"scheduler/{prompt}", lang=plan_run.lang, results=plan_run.results, **values).strip()
+    record_autonomous_turn("scheduler", channel_id, job_name, text)
+    return text
+
+
+async def _deliver_unclosed_plan(
+    job: Job, store: JobStore, plan_run: _PlanRun, channel_id: str, session_id: str, reason: str,
+) -> None:
+    """The closing turn of a plan failed: the run still delivers what the parts found, with the notice and the coverage line
+    (and the session shows it). The run stays failed (the caller re-raises): the closing step is missing."""
+    text = _record_plan_results(plan_run, channel_id, job.name, "plan_closing_failed", reason=reason)
+    text = f"{text}\n\n{plan_run.coverage}"
     store.add_run(job.job_id, session_id, text)
     await _deliver_result(job, text, session_id)
 
@@ -693,16 +761,12 @@ class _PlanRun:
     """What the parts of a plan job leave for the closing turn and the message."""
 
     prompt_block: str   # results for the closing prompt
+    results: str        # the rendered results alone (for a run that is not closed)
     coverage: str       # the fixed line appended to the message
+    lang: str
 
 
-def _ui_language() -> str:
-    from .settings import load_settings
-
-    return str((load_settings() or {}).get("ui_language", "de"))
-
-
-async def _run_plan_parts(job: Job, plan: TaskPlan, channel_id: str, metadata: dict[str, Any]) -> _PlanRun:
+async def _run_plan_parts(job: Job, plan: TaskPlan, session_id: str, metadata: dict[str, Any]) -> _PlanRun:
     """The parts of a plan job (lib/plan_engine.py): a start bubble, then one bubble per part as it ends (status line and
     transcripts); they go to the chat history only, never to the model. The new sources go in the notes. Every run
     stands for itself. Parts never send: the Horarium delivers. An exception outside the parts (the notes) fails the
@@ -712,14 +776,12 @@ async def _run_plan_parts(job: Job, plan: TaskPlan, channel_id: str, metadata: d
     from .debug_bus import debug, session_scope
     from .plan_engine import PlanResult, coverage_line, render_results, run_plan
     from .plugin_base import PluginContext
-    from .prompt_loader import load_prompt
+    from .prompt_loader import get_language, load_prompt
     from .security import TIER_COMMUNICATE, TIER_I18N_KEYS, resolve_trust_label
 
-    lang = _ui_language()
-    # The route of the session exists before the parts run: the closing turn finds the same session by it.
-    session_id = message_processor.session_for_channel("scheduler", channel_id)
-    _folder, notes_file = job_notes.sync(job.job_id, job.name)
+    lang = get_language()
     keeps_notes = _keeps_notes(job)
+    notes_file = job_notes.sync(job.job_id, job.name)[1] if keeps_notes else ""
     ctx = PluginContext(
         agent_id=job.agent, lang=lang, session_id=session_id, user_query=job.payload.get("message", ""),
         max_tier=job.max_tier, source="scheduler", trust=resolve_trust_label("scheduler", job.name, metadata),
@@ -754,10 +816,11 @@ async def _run_plan_parts(job: Job, plan: TaskPlan, channel_id: str, metadata: d
 
     now = datetime.now()
     if keeps_notes and result.new_sources:
-        _append_new_sources(file_manager.DOCUMENTS_DIR / notes_file, result.new_sources, now, lang)
+        _append_new_sources(notes_file, result.new_sources, now, lang)
+    results = render_results(result, lang)
     return _PlanRun(
-        prompt_block=load_prompt("scheduler/plan_results", lang=lang, results=render_results(result, lang)).strip(),
-        coverage=coverage_line(result, lang),
+        prompt_block=load_prompt("scheduler/plan_results", lang=lang, results=results).strip(),
+        results=results, coverage=coverage_line(result, lang), lang=lang,
     )
 
 
@@ -818,14 +881,31 @@ def _part_bubble_artifacts(done: PartDone, index: int, count: int, lang: str) ->
     return [block, *(artifact for artifact in artifacts if artifact.kind != KIND_COLLAPSIBLE)]
 
 
-def _append_new_sources(notes_path: Path, sources: set[str], when: datetime, lang: str) -> None:
-    """The sources the parts found beyond the given ones, as a section at the end of the job's notes."""
+def _append_new_sources(notes_file: str, sources: set[str], when: datetime, lang: str) -> None:
+    """The sources the parts found beyond the given ones, as a section at the end of the job's notes: only those the
+    notes do not name yet, and only to notes that exist. The notes of a job without them are made by the model at the end
+    of its run (prompt ``scheduler/notes_new``, chosen by ``job_notes.has_notes``); a file made here would turn that
+    into "notes exist" for a file holding nothing but addresses."""
+    from . import job_notes
+    from .plan_record import web_addresses_in
     from .prompt_loader import load_prompt
+    from .tools.url_utils import normalize_url
 
+    if not job_notes.has_notes(notes_file):
+        return
+    read = file_manager.read_file(notes_file)
+    if not read.success:
+        raise read.problem or RuntimeError(read.detail)
+    notes = read.metadata["content"]
+    known = {normalize_url(address) for address in web_addresses_in(notes)}
+    new = sorted({source for source in sources if normalize_url(source) not in known}, key=normalize_url)
+    if not new:
+        return
     heading = load_prompt("scheduler/plan_new_sources_heading", lang=lang, when=when.strftime("%Y-%m-%d %H:%M")).strip()
-    section = "\n".join([heading, *(f"- {source}" for source in sorted(sources))])
-    with notes_path.open("a", encoding="utf-8") as handle:
-        handle.write(f"\n\n{section}\n")
+    section = "\n".join([heading, *(f"- {source}" for source in new)])
+    written = file_manager.write_file(notes_file, f"{notes.rstrip()}\n\n{section}\n")
+    if not written.success:
+        raise written.problem or RuntimeError(written.detail)
 
 
 def build_job_prompt(job: Job, store: JobStore, plan_block: str = "") -> str:
@@ -834,9 +914,9 @@ def build_job_prompt(job: Job, store: JobStore, plan_block: str = "") -> str:
     ``plan_block``: what the parts of a plan job found, behind the task."""
     from .config import SCHEDULER_HISTORY_RUNS
     from .message_processor import announces_in_rooms, channel_display_label
-    from .prompt_loader import load_prompt
+    from .prompt_loader import get_language, load_prompt
 
-    lang = _ui_language()
+    lang = get_language()
     delivery = job.payload.get("delivery", "review")
     channel = _delivery_channel(job)
     if delivery == "announce" and announces_in_rooms(channel):

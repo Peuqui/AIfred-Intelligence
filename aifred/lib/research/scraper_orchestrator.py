@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator
 
 from ..formatting import format_number
 from ..logging_utils import log_message
-from ..tools import scrape_webpage
+from ..tools.registry import scrape_webpage
 
 
 async def orchestrate_scraping(
