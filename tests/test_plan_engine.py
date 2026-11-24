@@ -203,6 +203,18 @@ def test_d_a_failing_part_keeps_the_entries_it_made(ctx: PluginContext, model: M
     assert result.outcomes[0].not_checked == ["p1b"] and result.checked_count == 1
 
 
+def test_d_the_report_of_the_first_run_survives_a_failing_reminder(ctx: PluginContext, model: Model) -> None:
+    def script(title: str, is_follow_up: bool) -> list[Action]:
+        if is_follow_up:
+            raise RuntimeError("zweiter Anlauf kaputt")
+        return [_read(), _record("p1a")]
+
+    model.script = script
+    result = _result(_drive(_plan(1), ctx))
+    assert result.outcomes[0].failure == "zweiter Anlauf kaputt"
+    assert result.outcomes[0].report == "Bericht 1"
+
+
 def test_d_a_part_that_cannot_be_built_fails_too(ctx: PluginContext, model: Model, monkeypatch: pytest.MonkeyPatch) -> None:
     async def broken(agent_id: str, user_query: str, **kwargs: Any) -> tuple[str, ToolKit]:
         raise OSError("kein Werkzeug")

@@ -126,6 +126,7 @@ async def _run_part(
 
     async for event in pass_on(session.run()):
         yield event
+    outcome.report = "\n\n".join(reports)   # stands even if the reminder fails
     if open_positions := outcome.records.open_positions(part):
         async for event in pass_on(session.follow_up(_text("missing", ctx.lang, positions=", ".join(open_positions)))):
             yield event

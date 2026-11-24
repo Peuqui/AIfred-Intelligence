@@ -115,13 +115,27 @@ class TestExecutor:
 
         assert events[:3] == [{"progress": "Teil 1: läuft"}, {"work": "arbeit"}, {"artifacts": [{"kind": "x"}]}]
         result = _result_for(TaskPlan.from_payload(PLAN))
-        assert events[3] == {"result": f"{render_results(result, 'de')}\n\n{coverage_line(result, 'de')}"}
+        assert events[3] == {"result": f"{coverage_line(result, 'de')}\n\n{render_results(result, 'de')}"}
         assert len(events) == 4
         assert seen["plan"] == TaskPlan.from_payload(PLAN)
         assert seen["ctx"] is ctx
         assert seen["tiers"] == plugin.settings().allowed_tiers
         assert seen["depth"] == 0
         assert not seen["more"]
+
+    def test_the_coverage_line_leads_so_that_capping_the_tail_cannot_cut_it(self, plugin, ctx, monkeypatch):
+        from aifred.lib.tool_output_cap import cap_tool_output
+
+        async def fake_run_plan(plan: TaskPlan, plan_ctx: PluginContext, **more: Any) -> AsyncGenerator[dict[str, Any], None]:
+            yield {"plan_result": _result_for(plan)}
+
+        monkeypatch.setattr(engine, "run_plan", fake_run_plan)
+        events = asyncio.run(_collect(_tool(plugin, ctx).executor(**PLAN)))
+        result = _result_for(TaskPlan.from_payload(PLAN))
+        text = events[0]["result"]
+        assert text.startswith(coverage_line(result, "de"))
+        padded = text + "\n" + "x" * 20000
+        assert coverage_line(result, "de") in cap_tool_output(padded, 200)
 
     def test_the_depth_of_the_context_goes_to_the_engine(self, plugin, ctx, monkeypatch):
         monkeypatch.setattr(plugin, "_load_settings", lambda: {sub.MAX_DEPTH_KEY: "2"})
