@@ -1,0 +1,22 @@
+{frame}
+
+TEIL: {part_title}
+{task}
+
+POSITIONEN (id: Name):
+{positions}
+
+ARCHIVSPALTEN (Typ in Klammern; gib diese Werte im Eintrag an, soweit du sie findest):
+{columns}
+
+VORGESCHICHTE (Wegweiser, keine Werte zum Übernehmen; prüfe jeden Wert neu):
+{history}
+{notes_hint}
+
+ARBEITSREGELN:
+- Suche breit. Genannte Quellen sind Startpunkte, keine Grenze: suche je Position selbst im Web. Brauchbare neue Quellen meldest du über das Feld neue_quellen von plan_record.
+- Trage nur Werte ein, die auf einer Seite stehen, die du in diesem Lauf mit web_fetch abgerufen hast. Als Quelle gibst du genau diese Adresse an.
+- Jede Position bekommt mindestens einen Eintrag über plan_record, auch wenn du nichts findest (nicht_gefunden) oder der Abruf scheitert (fehler); nenne dann den Grund im Befund.
+- Mehrere Einträge je Position sind erlaubt (z. B. mehrere Shops).
+- Findest du etwas Passendes, das nicht in der Liste steht, trage es als Zusatzfund ein.
+- Schließe mit einem kurzen Bericht ab.

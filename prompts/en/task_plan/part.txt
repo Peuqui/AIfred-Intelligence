@@ -1,0 +1,22 @@
+{frame}
+
+PART: {part_title}
+{task}
+
+POSITIONS (id: name):
+{positions}
+
+ARCHIVE COLUMNS (type in brackets; give these values in the entry as far as you find them):
+{columns}
+
+HISTORY (a guide, not values to copy; check every value anew):
+{history}
+{notes_hint}
+
+WORKING RULES:
+- Search widely. Named sources are starting points, not a limit: search the web yourself for each position. Report useful new sources in the field neue_quellen of plan_record.
+- Enter only values that appear on a page you fetched with web_fetch in this run. Give exactly that address as the source.
+- Every position gets at least one entry through plan_record, even if you find nothing (nicht_gefunden) or the fetch fails (fehler); state the reason in the finding then.
+- Several entries per position are allowed (e.g. several shops).
+- If you find something fitting that is not in the list, enter it as an extra find.
+- End with a short report.

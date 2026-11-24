@@ -1,6 +1,6 @@
 """The plan of a split task: a frame, parts with their positions, and the columns of the archive.
 
-One structure for the Horarium job payload and the chat tool (``frame``, ``parts``, ``columns``, ``chart``).
+One structure for the Horarium job payload and the chat tool (``frame``, ``parts``, ``columns``, ``trend``).
 ``plan_problem`` is the one check; ``job_problem`` (scheduler) and the tools use it, none words the rules a second time.
 """
 
@@ -12,13 +12,13 @@ from typing import Any
 from .user_error import Invalid
 
 COLUMN_TYPES = ("text", "zahl", "link")
-CHART_TYPE = "zahl"
+TREND_TYPE = "zahl"
 # Fields every entry carries itself; a job column of the same name would collide with them.
 MANDATORY_FIELDS = ("position_id", "status", "befund", "quelle", "neue_quellen")
 # Position id of the entry for something found besides the listed positions.
 EXTRA_POSITION_ID = "zusatz"
 # Payload keys that make a payload a plan.
-PLAN_KEYS = ("frame", "parts", "columns", "chart")
+PLAN_KEYS = ("frame", "parts", "columns", "trend")
 
 
 @dataclass(frozen=True)
@@ -46,12 +46,12 @@ class TaskPlan:
     frame: str = ""
     parts: list[PlanPart] = field(default_factory=list)
     columns: list[PlanColumn] = field(default_factory=list)
-    chart_value: str | None = None
+    trend_value: str | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> TaskPlan:
         """The plan of a payload; expects a payload ``plan_problem`` accepted."""
-        chart = payload.get("chart")
+        trend = payload.get("trend")
         return cls(
             frame=payload.get("frame", ""),
             parts=[
@@ -62,7 +62,7 @@ class TaskPlan:
                 for part in payload.get("parts", [])
             ],
             columns=[PlanColumn(name=column["name"], type=column["type"]) for column in payload.get("columns", [])],
-            chart_value=chart["value"] if chart is not None else None,
+            trend_value=trend["value"] if trend is not None else None,
         )
 
     def to_payload(self) -> dict[str, Any]:
@@ -77,8 +77,8 @@ class TaskPlan:
             ],
             "columns": [{"name": column.name, "type": column.type} for column in self.columns],
         }
-        if self.chart_value is not None:
-            payload["chart"] = {"value": self.chart_value}
+        if self.trend_value is not None:
+            payload["trend"] = {"value": self.trend_value}
         return payload
 
 
@@ -94,7 +94,7 @@ def _shape_problem(payload: dict[str, Any]) -> Invalid | None:
     """Whether the payload has the form ``from_payload`` reads: lists of objects with text fields."""
     if not isinstance(payload.get("frame", ""), str):
         return _malformed("frame")
-    parts, columns, chart = payload.get("parts", []), payload.get("columns", []), payload.get("chart")
+    parts, columns, trend = payload.get("parts", []), payload.get("columns", []), payload.get("trend")
     if not isinstance(parts, list):
         return _malformed("parts")
     for part in parts:
@@ -110,8 +110,8 @@ def _shape_problem(payload: dict[str, Any]) -> Invalid | None:
     if not all(isinstance(column, dict) and _is_text(column.get("name")) and isinstance(column.get("type"), str)
                for column in columns):
         return _malformed("columns (name, type)")
-    if chart is not None and not (isinstance(chart, dict) and _is_text(chart.get("value"))):
-        return _malformed("chart (value)")
+    if trend is not None and not (isinstance(trend, dict) and _is_text(trend.get("value"))):
+        return _malformed("trend (value)")
     return None
 
 
@@ -148,8 +148,8 @@ def plan_problem(payload: dict[str, Any]) -> Invalid | None:
         if column.type not in COLUMN_TYPES:
             return Invalid("plan_unknown_column_type", column=column.name, value=column.type,
                            allowed=", ".join(COLUMN_TYPES))
-    if plan.chart_value is not None and not any(
-        column.name == plan.chart_value and column.type == CHART_TYPE for column in plan.columns
+    if plan.trend_value is not None and not any(
+        column.name == plan.trend_value and column.type == TREND_TYPE for column in plan.columns
     ):
-        return Invalid("plan_chart_not_a_number_column", value=plan.chart_value, type=CHART_TYPE)
+        return Invalid("plan_trend_not_a_number_column", value=plan.trend_value, type=TREND_TYPE)
     return None

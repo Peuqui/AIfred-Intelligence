@@ -1210,7 +1210,7 @@
   "error_plan_duplicate_column": "Der Spaltenname „{column}“ kommt mehrfach vor.",
   "error_plan_reserved_column": "Der Spaltenname „{column}“ ist nicht erlaubt (reserviert: {reserved}).",
   "error_plan_unknown_column_type": "Die Spalte „{column}“ hat den unbekannten Typ „{value}“ (möglich: {allowed}).",
-  "error_plan_chart_not_a_number_column": "Der Diagrammwert „{value}“ muss der Name einer Spalte vom Typ „{type}“ sein.",
+  "error_plan_trend_not_a_number_column": "Der Verlaufswert „{value}“ muss der Name einer Spalte vom Typ „{type}“ sein.",
   "error_schedule_never_fires": "Nach dem Ausdruck „{expression}“ ({kind}) liefe der Job nie.",
   "error_cron_field_count": "Ein Cron-Ausdruck hat fünf Felder (Minute Stunde Tag Monat Wochentag), „{expression}“ hat {found}.",
   "error_cron_not_understood": "Feld {field}, „{part}“: „{value}“ ist weder eine Zahl noch ein Name (erlaubt: Zahl, Name, *, a-b, /Schritt, Liste mit Komma).",

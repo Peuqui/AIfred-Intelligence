@@ -1,0 +1,1 @@
+Ein kurzer Bericht in ein paar Sätzen: was dir aufgefallen ist und was nicht ging. Die Werte stehen in den Einträgen von plan_record, nicht im Bericht.
