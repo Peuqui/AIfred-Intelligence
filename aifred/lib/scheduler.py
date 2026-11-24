@@ -563,6 +563,12 @@ async def _run_due_job(store: JobStore, job: Job) -> None:
     except Exception as exc:  # noqa: BLE001 — one failing job must not end the loop
         log_exception(f"Horarium: job '{job.name}' failed", exc)
         store.mark_failed(job.job_id)
+    except asyncio.CancelledError:
+        # A stop (or a superseding turn) cancelled the run: it counts as a failure, so the next appointment
+        # moves on and nothing retries at once. The cancellation goes on: it is the task's.
+        log_message(f"Horarium: job '{job.name}' cancelled", "warning")
+        store.mark_failed(job.job_id)
+        raise
     finally:
         release_job(job.job_id)
 
@@ -579,6 +585,9 @@ async def run_job_now(job: Job) -> None:
         log_message(f"Horarium: job '{job.name}' completed (run now)")
     except Exception as exc:  # noqa: BLE001 — the failure shows in the log, nothing to mark
         log_exception(f"Horarium: job '{job.name}' failed (run now)", exc)
+    except asyncio.CancelledError:
+        log_message(f"Horarium: job '{job.name}' cancelled (run now)", "warning")
+        raise
     finally:
         release_job(job.job_id)
 
@@ -601,8 +610,13 @@ async def scheduler_loop() -> None:
                 await asyncio.shield(asyncio.ensure_future(_run_due_job(store, job)))
 
         except asyncio.CancelledError:
-            log_message("Horarium: shutting down")
-            return
+            # The shield passes on the job task's cancellation too (a stop of the run): only a cancellation of
+            # the loop's own task ends the loop.
+            task = asyncio.current_task()
+            if task is None or task.cancelling() > 0:
+                log_message("Horarium: shutting down")
+                return
+            log_message("Horarium: a job was cancelled, the loop goes on")
         except Exception as exc:  # noqa: BLE001 — the loop outlives every error
             log_message(f"Horarium: loop error: {exc}", "error")
 
@@ -618,11 +632,11 @@ async def _execute_job(job: Job) -> None:
     delivery (review / announce / webhook) stays scheduler-specific.
     """
     import secrets
-    from datetime import datetime
 
-    from .envelope import InboundMessage
-    from .message_processor import process_inbound
+    from . import message_processor
+    from .pipeline_registry import register_pipeline, unregister_pipeline
     from .security import DELIVERY_CHANNEL_KEY
+    from .turn_service import start_next_turn
 
     message_text = job.payload.get("message", "")
     agent = job.agent
@@ -655,9 +669,30 @@ async def _execute_job(job: Job) -> None:
         "max_tier": job.max_tier,
         DELIVERY_CHANNEL_KEY: _delivery_channel(job),
     }
-    # A job with parts: the parts run first (each a sub-agent, in the session the closing turn finds by its route),
-    # then the closing turn gets what they found.
-    plan_run = await _run_plan_parts(job, TaskPlan.from_payload(job.payload), channel_id, metadata) \
+    # The route of the session exists before anything runs: the parts and the closing turn find the same session by it.
+    session_id = message_processor.session_for_channel("scheduler", channel_id)
+    # The whole run, from the start bubble to the delivery, is the session's pipeline: a chat message waits in its
+    # queue instead of running beside the parts, and a stop cancels the run. The closing turn runs inline in this
+    # task and leaves the registration to us (turn_service.run_turn).
+    task = asyncio.current_task()
+    assert task is not None
+    register_pipeline(session_id, task)
+    try:
+        await _run_job(job, store, session_id, channel_id, metadata)
+    finally:
+        unregister_pipeline(session_id, task)
+        start_next_turn(session_id)
+
+
+async def _run_job(job: Job, store: JobStore, session_id: str, channel_id: str, metadata: dict[str, Any]) -> None:
+    """The parts (if any), the closing turn and the delivery of one run, in the session's pipeline."""
+    from datetime import datetime
+
+    from .envelope import InboundMessage
+    from .message_processor import process_inbound
+
+    # A job with parts: the parts run first (each a sub-agent), then the closing turn gets what they found.
+    plan_run = await _run_plan_parts(job, TaskPlan.from_payload(job.payload), session_id, metadata) \
         if job.payload.get("parts") else None
     msg = InboundMessage(
         channel="scheduler",
@@ -666,7 +701,7 @@ async def _execute_job(job: Job) -> None:
         text=build_job_prompt(job, store, plan_run.prompt_block if plan_run else ""),
         timestamp=datetime.now(),
         metadata=metadata,
-        target_agent=agent,
+        target_agent=job.agent,
         task=True,
     )
 
@@ -675,8 +710,8 @@ async def _execute_job(job: Job) -> None:
     if outbound is None or not outbound.text:
         raise RuntimeError(f"Engine returned no response for job '{job.name}'")
 
-    session_id = outbound.metadata.get("session_id", "")
-    if not session_id:
+    outbound_session_id = outbound.metadata.get("session_id", "")
+    if not outbound_session_id:
         raise RuntimeError(f"process_inbound returned no session_id for job '{job.name}'")
 
     # What goes out is what the model wrote after its last tool call, without thinking — the same text
@@ -684,8 +719,8 @@ async def _execute_job(job: Job) -> None:
     # and once more after them went out twice). The job prompt asks for the tools first, then the message once.
     # The coverage line of a plan is appended by the code, not written by the model.
     text = f"{outbound.text}\n\n{plan_run.coverage}" if plan_run else outbound.text
-    store.add_run(job.job_id, session_id, text)
-    await _deliver_result(job, text, session_id)
+    store.add_run(job.job_id, outbound_session_id, text)
+    await _deliver_result(job, text, outbound_session_id)
 
 
 @dataclass
@@ -702,7 +737,7 @@ def _ui_language() -> str:
     return str((load_settings() or {}).get("ui_language", "de"))
 
 
-async def _run_plan_parts(job: Job, plan: TaskPlan, channel_id: str, metadata: dict[str, Any]) -> _PlanRun:
+async def _run_plan_parts(job: Job, plan: TaskPlan, session_id: str, metadata: dict[str, Any]) -> _PlanRun:
     """The parts of a plan job (lib/plan_engine.py): a start bubble, then one bubble per part as it ends (status line and
     transcripts); they go to the chat history only, never to the model. The new sources go in the notes. Every run
     stands for itself. Parts never send: the Horarium delivers. An exception outside the parts (the notes) fails the
@@ -716,8 +751,6 @@ async def _run_plan_parts(job: Job, plan: TaskPlan, channel_id: str, metadata: d
     from .security import TIER_COMMUNICATE, TIER_I18N_KEYS, resolve_trust_label
 
     lang = _ui_language()
-    # The route of the session exists before the parts run: the closing turn finds the same session by it.
-    session_id = message_processor.session_for_channel("scheduler", channel_id)
     _folder, notes_file = job_notes.sync(job.job_id, job.name)
     keeps_notes = _keeps_notes(job)
     ctx = PluginContext(

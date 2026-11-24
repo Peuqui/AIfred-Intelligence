@@ -173,12 +173,15 @@ def start_turn(request: TurnRequest) -> asyncio.Task[TurnOutcome]:
 
 
 async def run_turn(request: TurnRequest) -> TurnOutcome:
-    """Run the turn in the current task (it becomes the session's pipeline: a stop cancels it)."""
-    from .pipeline_registry import register_pipeline, unregister_pipeline
+    """Run the turn in the current task (it becomes the session's pipeline: a stop cancels it). A task that is the
+    session's pipeline already (a job's run, whose closing turn runs inline) keeps it: whoever registered the task
+    unregisters it and starts the waiting message when everything is over, not this turn in the middle of it."""
+    from .pipeline_registry import is_registered, register_pipeline, unregister_pipeline
 
     session_id = request.session_id
     task = asyncio.current_task()
     assert task is not None
+    owns_registration = not is_registered(session_id, task)
     register_pipeline(session_id, task)
     turn_id = uuid.uuid4().hex
     status = "done"
@@ -200,13 +203,15 @@ async def run_turn(request: TurnRequest) -> TurnOutcome:
             log_exception("Turn failed", error)
             debug(f"❌ Turn failed: {error}")
         finally:
-            unregister_pipeline(session_id, task)
+            if owns_registration:
+                unregister_pipeline(session_id, task)
             session_events.publish(session_id, "turn_finished", {"turn_id": turn_id, "status": status})
-            _start_next(session_id)
+            if owns_registration:
+                start_next_turn(session_id)
     return TurnOutcome(status, routing.agent, tuple(routing.replies))
 
 
-def _start_next(session_id: str) -> None:
+def start_next_turn(session_id: str) -> None:
     """The next message waiting in the session's queue becomes the next turn, on the server's loop
     (a channel's turn ends on the message hub's). Only the chat queues (``submit_turn``, dictation,
     injection): a waiting message is one written in the chat."""

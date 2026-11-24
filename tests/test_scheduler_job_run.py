@@ -3,6 +3,8 @@ no self-sending, owner-gated memory and retrieved-data marking."""
 
 import asyncio
 import json
+import sqlite3
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
@@ -25,6 +27,8 @@ from aifred.lib.security import (
 def temp_job_store(tmp_path, monkeypatch):
     sched._job_store = sched.JobStore(tmp_path / "jobs.db")
     monkeypatch.setattr("aifred.lib.file_manager.DOCUMENTS_DIR", tmp_path / "documents")  # the job's folder: never the real workspace
+    monkeypatch.setattr("aifred.lib.session_storage.SESSION_DIR", tmp_path / "sessions")
+    monkeypatch.setattr(sched, "_running_job_ids", {})
     monkeypatch.setattr("aifred.lib.settings.load_settings", lambda: {"ui_language": "de"})
     # The real agents.json (its tool lists) is the user's: a run here has an agent with every tool.
     from aifred.lib.agent_config import AgentConfig
@@ -176,6 +180,92 @@ class TestExecuteJob:
         monkeypatch.setattr("aifred.lib.message_processor.process_inbound", fake_process_inbound)
         with pytest.raises(RuntimeError, match="no response"):
             asyncio.run(sched._execute_job(job))
+
+
+class TestLoopAndCancellation:
+    def _due_job(self) -> sched.Job:
+        job = sched.get_job_store().add("News", "interval", "3600", {"message": "Nachrichten"})
+        past = (datetime.now() - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S")
+        with sqlite3.connect(sched.get_job_store()._db_path) as conn:
+            conn.execute("UPDATE jobs SET next_run = ? WHERE job_id = ?", (past, job.job_id))
+        return job
+
+    def test_the_loop_outlives_a_cancelled_job_task_and_the_job_counts_as_failed(self, monkeypatch):
+        job = self._due_job()
+        started = asyncio.Event()
+        job_tasks: list[asyncio.Task] = []
+
+        async def execute(running):
+            task = asyncio.current_task()
+            assert task is not None
+            job_tasks.append(task)
+            started.set()
+            await asyncio.sleep(3600)
+
+        monkeypatch.setattr(sched, "_execute_job", execute)
+        result: dict[str, bool] = {}
+
+        async def scenario():
+            loop_task = asyncio.create_task(sched.scheduler_loop())
+            await started.wait()
+            job_tasks[0].cancel()                  # a stop: only the job's task, not the loop
+            await asyncio.sleep(0.05)
+            result["loop_alive"] = not loop_task.done()
+            loop_task.cancel()                     # the plugin is switched off: the loop ends (cancelled while it waits)
+            with pytest.raises(asyncio.CancelledError):
+                await loop_task
+
+        asyncio.run(scenario())
+        assert result["loop_alive"]
+        failed = sched.get_job_store().get(job.job_id)
+        assert failed is not None and failed.retry_count == 1 and failed.last_run == ""
+        assert sched.get_job_store().get_due_jobs(sched._now_iso()) == []   # no instant retry
+        assert sched._running_job_ids == {}
+
+    def test_a_cancelled_loop_ends_while_its_job_runs_on(self, monkeypatch):
+        job = self._due_job()
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def execute(running):
+            started.set()
+            await release.wait()
+
+        monkeypatch.setattr(sched, "_execute_job", execute)
+        result: dict[str, bool] = {}
+
+        async def scenario():
+            loop_task = asyncio.create_task(sched.scheduler_loop())
+            await started.wait()
+            loop_task.cancel()
+            await loop_task                        # returns: the loop is over
+            result["ended"] = loop_task.done()
+            release.set()
+            await asyncio.sleep(0.05)
+
+        asyncio.run(scenario())
+        done = sched.get_job_store().get(job.job_id)
+        assert result["ended"] and done is not None and done.last_run != "" and done.retry_count == 0
+
+    def test_run_now_passes_a_cancellation_on_and_marks_nothing(self, monkeypatch):
+        job = self._due_job()
+
+        async def execute(running):
+            await asyncio.sleep(3600)
+
+        monkeypatch.setattr(sched, "_execute_job", execute)
+
+        async def scenario():
+            assert sched.claim_job(job.job_id)
+            task = asyncio.ensure_future(sched.run_job_now(job))
+            await asyncio.sleep(0.01)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(scenario())
+        untouched = sched.get_job_store().get(job.job_id)
+        assert untouched is not None and untouched.retry_count == 0
+        assert sched._running_job_ids == {}
 
 
 # ── No self-sending in scheduler runs ─────────────────────────
