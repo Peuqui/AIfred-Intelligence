@@ -2,7 +2,7 @@
 
 The core of the ``delegate_task`` tool (plugin ``subagent``) and of the plan engine (``task_plan``): both start a
 ``SubagentSession``. What is the plugin's own (its settings: allowed tiers, depth) comes in as parameters; the
-transcript labels live in this package's i18n (``subagent_transcript_*``), one text for every caller.
+transcript labels live in ``lib/i18n`` (``subagent_transcript_*``), one text for every caller.
 
 ``run`` yields ``progress``, ``work``, ``artifacts`` and ``result`` events like a tool executor. ``follow_up`` sends one
 more user message into the same run (same toolkit instance, the report as the assistant's turn before it).

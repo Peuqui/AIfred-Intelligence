@@ -65,7 +65,7 @@ async def run_web_search(queries: list[str], llm_history: list[dict]) -> tuple[s
     from .research.scraper_orchestrator import orchestrate_scraping
     from .research.url_ranker import rank_urls_by_relevance
     from .settings import load_settings
-    from .tools import build_context
+    from .tools.context_builder import build_context
 
     debug(f"🔍 Web search: {', '.join(queries)}")
 

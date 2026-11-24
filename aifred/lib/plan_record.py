@@ -20,7 +20,13 @@ from urllib.parse import urlparse
 from .function_calling import Tool
 from .prompt_loader import load_prompt
 from .security import TIER_READONLY
-from .task_plan import EXTRA_POSITION_ID, PlanPart, TaskPlan
+from .task_plan import (
+    EXTRA_POSITION_ID,
+    MANDATORY_FIELDS,
+    REQUIRED_FIELDS,
+    PlanPart,
+    TaskPlan,
+)
 from .tools.url_utils import normalize_url
 
 TOOL_NAME = "plan_record"
@@ -58,35 +64,34 @@ class PartRecords:
         return [position.id for position in part.positions if position.id not in recorded]
 
 
-def _text(prompt: str, lang: str, **placeholders: str) -> str:
+def plan_text(prompt: str, lang: str, **placeholders: str) -> str:
     """A prompt of the tool, without the file's closing line break."""
     return load_prompt(f"task_plan/{prompt}", lang=lang, **placeholders).strip()
 
 
 def _field_description(field_key: str, lang: str, **placeholders: str) -> str:
-    return _text(f"record_field_{field_key}", lang, **placeholders)
+    return plan_text(f"record_field_{field_key}", lang, **placeholders)
 
 
 def record_schema(plan: TaskPlan, part: PlanPart, lang: str) -> dict[str, Any]:
     """The JSON schema of the tool's parameters, built from the part's positions and the plan's columns."""
+    field_schemas: dict[str, dict[str, Any]] = {
+        "position_id": {"type": "string", "enum": [*(position.id for position in part.positions), EXTRA_POSITION_ID]},
+        "status": {"type": "string", "enum": list(STATUSES)},
+        "befund": {"type": "string"},
+        "quelle": {"type": "string"},
+        "neue_quellen": {"type": "array", "items": {"type": "string"}},
+    }
     properties: dict[str, Any] = {
-        "position_id": {
-            "type": "string", "enum": [*(position.id for position in part.positions), EXTRA_POSITION_ID],
-            "description": _field_description("position_id", lang, extra_position_id=EXTRA_POSITION_ID),
-        },
-        "status": {"type": "string", "enum": list(STATUSES), "description": _field_description("status", lang)},
-        "befund": {"type": "string", "description": _field_description("befund", lang)},
-        "quelle": {"type": "string", "description": _field_description("quelle", lang)},
+        name: {**field_schemas[name], "description": _field_description(name, lang, extra_position_id=EXTRA_POSITION_ID)}
+        for name in MANDATORY_FIELDS
     }
     for column in plan.columns:
         properties[column.name] = {
             "type": _FIELD_SCHEMA_TYPES[column.type],
             "description": _field_description(f"column_{column.type}", lang, name=column.name),
         }
-    properties["neue_quellen"] = {
-        "type": "array", "items": {"type": "string"}, "description": _field_description("neue_quellen", lang),
-    }
-    return {"type": "object", "properties": properties, "required": ["position_id", "status", "befund"]}
+    return {"type": "object", "properties": properties, "required": list(REQUIRED_FIELDS)}
 
 
 # A new source is entered in the job's notes, which every later run reads as its own memory: one line, one address.
@@ -94,8 +99,11 @@ _WEB_ADDRESS_FORBIDDEN = re.compile(r"\s")
 
 
 def is_web_address(text: str) -> bool:
-    """A single-line http(s) address (no whitespace inside, a host)."""
-    parsed = urlparse(text)
+    """A single-line http(s) address (no whitespace inside, a host); text that cannot be split as an address is none."""
+    try:
+        parsed = urlparse(text)
+    except ValueError:   # e.g. an unclosed IPv6 bracket: the model's text is no address, which is the answer
+        return False
     return parsed.scheme in ("http", "https") and bool(parsed.netloc) and not _WEB_ADDRESS_FORBIDDEN.search(text)
 
 
@@ -121,7 +129,7 @@ def make_record_tool(
     allowed_positions = [position.id for position in part.positions] + [EXTRA_POSITION_ID]
 
     def reject(key: str, **placeholders: str) -> str:
-        return json.dumps({"error": _text(f"record_error_{key}", lang, **placeholders)}, ensure_ascii=False)
+        return json.dumps({"error": plan_text(f"record_error_{key}", lang, **placeholders)}, ensure_ascii=False)
 
     def value_problem(column: str, value: Any) -> str | None:
         """The rejection for a column value of the wrong type, None when it fits."""
@@ -156,7 +164,7 @@ def make_record_tool(
         if status == STATUS_FOUND:
             if not quelle.strip():
                 return reject("source_missing")
-            if normalize_url(quelle) not in read_urls_source():
+            if not is_web_address(quelle.strip()) or normalize_url(quelle) not in read_urls_source():
                 return reject("source_unread", url=quelle)
         return None
 
@@ -182,13 +190,13 @@ def make_record_tool(
         collector.new_sources.update(new_sources)
         still_open = collector.open_positions(part)
         if still_open:
-            return _text("record_accepted", lang, position_id=position_id, open=", ".join(still_open))
-        return _text("record_accepted_complete", lang, position_id=position_id)
+            return plan_text("record_accepted", lang, position_id=position_id, open=", ".join(still_open))
+        return plan_text("record_accepted_complete", lang, position_id=position_id)
 
     positions = "\n".join(f"- {position.id}: {position.name}" for position in part.positions)
     return Tool(
         name=TOOL_NAME,
-        description=_text("record_description", lang, part_title=part.title, positions=positions,
+        description=plan_text("record_description", lang, part_title=part.title, positions=positions,
                           extra_position_id=EXTRA_POSITION_ID),
         parameters=record_schema(plan, part, lang),
         executor=record,

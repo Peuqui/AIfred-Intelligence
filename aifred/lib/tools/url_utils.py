@@ -7,7 +7,7 @@ Extracted from agent_tools.py for better modularity.
 import re
 from urllib.parse import urlparse
 
-from ..config import DATA_DIR, DEBUG_LOG_RAW_MESSAGES
+from ..config import DATA_DIR, DEBUG_LOG_RAW_MESSAGES, READER_PROXY_HOST
 from ..logging_utils import log_message
 
 # ============================================================
@@ -120,7 +120,7 @@ def filter_non_scrapable_urls(
 # ============================================================
 
 # Reading proxy whose prefix is no part of the page's identity.
-_READER_PROXY_PREFIX = re.compile(r"^https?://r\.jina\.ai/", re.IGNORECASE)
+_READER_PROXY_PREFIX = re.compile(rf"^https?://{re.escape(READER_PROXY_HOST)}/", re.IGNORECASE)
 
 
 def normalize_url(url: str) -> str:
@@ -140,21 +140,19 @@ def normalize_url(url: str) -> str:
 
     Returns:
         Normalized URL (without scheme)
-    """
-    try:
-        address = _READER_PROXY_PREFIX.sub("", url.strip())
-        if "://" not in address:
-            address = f"https://{address}"
-        parsed = urlparse(address)
-        host = parsed.netloc.lower().removeprefix("www.")
-        normalized = f"{host}{parsed.path.rstrip('/')}"
-        if parsed.query:
-            normalized += f"?{parsed.query}"
-        return normalized
 
-    except ValueError as e:
-        log_message(f"⚠️ URL normalization failed for {url}: {e}")
-        return url  # Fallback: Original URL
+    Raises:
+        ValueError: the address cannot be split (e.g. an unclosed IPv6 bracket)
+    """
+    address = _READER_PROXY_PREFIX.sub("", url.strip())
+    if "://" not in address:
+        address = f"https://{address}"
+    parsed = urlparse(address)
+    host = parsed.netloc.lower().removeprefix("www.")
+    normalized = f"{host}{parsed.path.rstrip('/')}"
+    if parsed.query:
+        normalized += f"?{parsed.query}"
+    return normalized
 
 
 def deduplicate_urls(urls: list[str]) -> list[str]:
@@ -214,7 +212,12 @@ def deduplicate_urls_with_metadata(
     unique_snippets = []
 
     for i, url in enumerate(urls):
-        normalized = normalize_url(url)
+        # The addresses come from the search services: one that cannot be split is no result to read.
+        try:
+            normalized = normalize_url(url)
+        except ValueError as exc:
+            log_message(f"⚠️ Search result skipped, its address cannot be split: {url!r} ({exc})", "warning")
+            continue
 
         if normalized not in seen:
             seen.add(normalized)

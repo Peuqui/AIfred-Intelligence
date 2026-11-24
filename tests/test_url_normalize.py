@@ -2,7 +2,7 @@
 
 import pytest
 
-from aifred.lib.tools.url_utils import deduplicate_urls, normalize_url
+from aifred.lib.tools.url_utils import deduplicate_urls, deduplicate_urls_with_metadata, normalize_url
 
 SAME = "shop.test/produkt/a?id=1"
 
@@ -49,3 +49,14 @@ def test_deduplicate_uses_it() -> None:
     assert deduplicate_urls(["https://www.shop.test/a/", "http://shop.test/a#x", "https://shop.test/b"]) == [
         "https://www.shop.test/a/", "https://shop.test/b",
     ]
+
+
+def test_an_address_that_cannot_be_split_is_an_error_not_passed_through() -> None:
+    with pytest.raises(ValueError):
+        normalize_url("http://[not-an-ip/a")
+
+
+def test_a_search_result_whose_address_cannot_be_split_is_skipped_and_the_others_stay() -> None:
+    urls, titles, snippets = deduplicate_urls_with_metadata(
+        ["https://a.test/x", "http://[abc", "https://b.test/y"], ["A", "kaputt", "B"], ["sa", "sk", "sb"])
+    assert (urls, titles, snippets) == (["https://a.test/x", "https://b.test/y"], ["A", "B"], ["sa", "sb"])

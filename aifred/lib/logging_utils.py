@@ -32,17 +32,13 @@ def initialize_debug_log(force_reset: bool = False) -> None:
     """
     Initialize debug log file.
 
+    Called only by the service start (lib/server_startup.py): a script that imports the lib and logs must never
+    truncate the running service's live log.
+
     Mode: 'w' (overwrite) - fresh log on each service start
     Change to 'a' (append) when debugging across restarts
     """
     global _debug_log_initialized
-
-    # CLI tools (e.g. llama-swap-build-config) import the AIfred lib but must
-    # never truncate the running app's live debug log. They export
-    # AIFRED_CLI_MODE — treat the log as already initialized without touching it.
-    if os.environ.get("AIFRED_CLI_MODE"):
-        _debug_log_initialized = True
-        return
 
     if _debug_log_initialized and not force_reset:
         return
@@ -73,12 +69,8 @@ def initialize_debug_log(force_reset: bool = False) -> None:
 
 def log_message(message: str, category: LogCategory = "info") -> None:
     """A line in the debug log file (with FILE_DEBUG_ENABLED), stamped HH:MM:SS.mmm, a category other than info
-    after the stamp (until 08.11.2026 it was passed everywhere and written nowhere); the first call initializes
-    the file. ``message`` comes without timestamp."""
-    # Auto-initialize on first call
-    if not _debug_log_initialized:
-        initialize_debug_log()
-
+    after the stamp (until 08.11.2026 it was passed everywhere and written nowhere). ``message`` comes without
+    timestamp; the file is initialized by the service start, not here."""
     # ============================================================
     # FILE DEBUG (if enabled)
     # ============================================================

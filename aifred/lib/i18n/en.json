@@ -922,7 +922,6 @@
   "tool_horarium_delete": "Deleting job {job_id}",
   "tool_horarium_update": "Changing job {job_id}",
   "tool_horarium_list": "Loading scheduled jobs...",
-  "tool_run_task_plan": "Task plan: {frame}",
   "upload_document": "Document",
   "doc_hint": "Upload document: PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV",
   "doc_index_folder_progress": "({current}/{total}) Indexing {name}…",

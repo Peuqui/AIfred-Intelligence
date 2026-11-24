@@ -1,5 +1,5 @@
 """A Horarium job with parts: session first, then the parts, transcripts only in the chat history, closing
-turn with the results, delivery with the coverage line. Every run stands for itself: no archive, no history."""
+turn with the results, delivery with the coverage line. Every run stands for itself: no history."""
 
 from __future__ import annotations
 
@@ -105,14 +105,10 @@ class Run:
     async def process_inbound(self, msg: Any) -> Any:
         self.order.append("closing")
         self.seen["msg"] = msg
-        self.seen["archives_before_closing"] = self._archives()
         return SimpleNamespace(text="Bericht.", metadata={"session_id": SESSION_ID})
 
     async def deliver(self, job: sched.Job, text: str, session_id: str) -> None:
         self.delivered.append((text, session_id))
-
-    def _archives(self) -> list[str]:
-        return [path.read_text(encoding="utf-8") for path in file_manager.DOCUMENTS_DIR.rglob("plan_archiv.csv")]
 
 
 def _job(max_tier: int = TIER_WRITE_DATA, **payload: Any) -> sched.Job:
@@ -134,8 +130,7 @@ def test_the_run_goes_session_parts_bubble_closing_and_delivers_with_the_coverag
     # the closing prompt: the job prompt and the results
     prompt = run.seen["msg"].text
     assert prompt.startswith("[Geplanter Job: Preise]") and "Fasse zusammen." in prompt
-    assert "ok, billig" in prompt and "VERLAUF" not in prompt and "plan_archiv" not in prompt
-    assert run.seen["archives_before_closing"] == []   # a plan run writes no plan_archiv.csv
+    assert "ok, billig" in prompt and "VERLAUF" not in prompt
     # nothing but the code appends the line
     coverage = "1 von 2 Positionen geprüft\nNicht geprüft: Teil 1 / Magazin"
     assert run.delivered == [(f"Bericht.\n\n{coverage}", SESSION_ID)]
@@ -186,7 +181,6 @@ def test_new_sources_land_in_existing_notes_once_and_the_next_run_starts_without
     asyncio.run(sched._execute_job(job))
     assert "VERLAUF" not in second.seen["msg"].text
     assert _notes_of(job).count("neu.example") == 1 and _notes_of(job).count("## Neue Quellen (") == 1
-    assert first.seen["archives_before_closing"] == second.seen["archives_before_closing"] == []   # no plan_archiv.csv
 
 
 def test_an_address_the_notes_name_in_a_link_or_in_backticks_counts_as_known(monkeypatch) -> None:

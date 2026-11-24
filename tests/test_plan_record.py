@@ -133,7 +133,7 @@ class TestRejections:
     def test_found_needs_a_source_read_in_this_run(self, setup: Setup) -> None:
         setup.read.add("shop.test/other")
         error = setup.error(position_id="p1", status="gefunden", befund="x", quelle="https://shop.test/a")
-        assert error == "Quelle in diesem Lauf nicht abgerufen: https://shop.test/a — erst abrufen (web_fetch), dann eintragen."
+        assert error == "Eintrag abgelehnt: Quelle in diesem Lauf nicht abgerufen: https://shop.test/a — erst abrufen (web_fetch), dann eintragen."
         assert setup.records.entries == [] and setup.records.new_sources == set()
 
     def test_a_rejection_in_english(self) -> None:
@@ -225,3 +225,12 @@ class TestAcceptance:
         setup.read.add("shop.test/a")   # read later in the same run
         setup.call(position_id="p1", status="gefunden", befund="x", quelle="https://shop.test/a")
         assert len(setup.records.entries) == 1
+
+
+@pytest.mark.parametrize("bad", ["http://[abc", "nur Text"])
+def test_a_source_that_is_no_web_address_is_rejected_as_unread(setup: Setup, bad: str) -> None:
+    assert "nicht abgerufen" in setup.error(position_id="p1", status="gefunden", befund="x", quelle=bad)
+
+
+def test_a_new_source_that_cannot_be_split_is_rejected(setup: Setup) -> None:
+    assert "neue_quellen" in setup.error(position_id="p1", status="nicht_gefunden", befund="x", neue_quellen=["http://[abc"])

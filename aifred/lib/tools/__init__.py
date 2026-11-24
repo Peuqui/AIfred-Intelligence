@@ -1,7 +1,10 @@
 """
 Tools Module - Modular Tool Architecture
 
-This module contains all agent tools split into logical components:
+This module contains all agent tools split into logical components. The package imports nothing itself: a caller
+imports the module it needs, so that e.g. ``url_utils`` (used by the core) does not pull in the scraper and the
+search tools with their heavy dependencies.
+
 - base.py: Base classes and exceptions
 - url_utils.py: URL normalization and deduplication
 - search_tools.py: Web search tool implementations
@@ -9,50 +12,3 @@ This module contains all agent tools split into logical components:
 - context_builder.py: Context building for LLM
 - registry.py: Tool registry and wrapper functions
 """
-
-# Base classes and exceptions
-from .base import BaseTool, RateLimitError, APIKeyMissingError
-
-# URL utilities
-from .url_utils import normalize_url, deduplicate_urls
-
-# Search tools
-from .search_tools import (
-    BraveSearchTool,
-    TavilySearchTool,
-    SearXNGSearchTool,
-    MultiAPISearchTool
-)
-
-# Scraper tool
-from .scraper_tool import WebScraperTool
-
-# Context builder
-from .context_builder import build_context
-
-# Registry and wrappers
-from .registry import ToolRegistry, get_tool_registry, search_web_multi, scrape_webpage
-
-__all__ = [
-    'APIKeyMissingError',
-    # Base
-    'BaseTool',
-    # Search Tools
-    'BraveSearchTool',
-    'MultiAPISearchTool',
-    'RateLimitError',
-    'SearXNGSearchTool',
-    'TavilySearchTool',
-    # Registry
-    'ToolRegistry',
-    # Scraper
-    'WebScraperTool',
-    # Context
-    'build_context',
-    'deduplicate_urls',
-    'get_tool_registry',
-    # URL Utils
-    'normalize_url',
-    'scrape_webpage',
-    'search_web_multi',
-]

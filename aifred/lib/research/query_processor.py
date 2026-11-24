@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator
 from urllib.parse import urlparse
 
 from ..logging_utils import log_message
-from ..tools import search_web_multi
+from ..tools.registry import search_web_multi
 from ..tools.url_utils import deduplicate_urls, deduplicate_urls_with_metadata
 
 

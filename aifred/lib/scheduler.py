@@ -766,12 +766,6 @@ class _PlanRun:
     lang: str
 
 
-def _ui_language() -> str:
-    from .settings import load_settings
-
-    return str((load_settings() or {}).get("ui_language", "de"))
-
-
 async def _run_plan_parts(job: Job, plan: TaskPlan, session_id: str, metadata: dict[str, Any]) -> _PlanRun:
     """The parts of a plan job (lib/plan_engine.py): a start bubble, then one bubble per part as it ends (status line and
     transcripts); they go to the chat history only, never to the model. The new sources go in the notes. Every run
@@ -782,10 +776,10 @@ async def _run_plan_parts(job: Job, plan: TaskPlan, session_id: str, metadata: d
     from .debug_bus import debug, session_scope
     from .plan_engine import PlanResult, coverage_line, render_results, run_plan
     from .plugin_base import PluginContext
-    from .prompt_loader import load_prompt
+    from .prompt_loader import get_language, load_prompt
     from .security import TIER_COMMUNICATE, TIER_I18N_KEYS, resolve_trust_label
 
-    lang = _ui_language()
+    lang = get_language()
     keeps_notes = _keeps_notes(job)
     notes_file = job_notes.sync(job.job_id, job.name)[1] if keeps_notes else ""
     ctx = PluginContext(
@@ -920,9 +914,9 @@ def build_job_prompt(job: Job, store: JobStore, plan_block: str = "") -> str:
     ``plan_block``: what the parts of a plan job found, behind the task."""
     from .config import SCHEDULER_HISTORY_RUNS
     from .message_processor import announces_in_rooms, channel_display_label
-    from .prompt_loader import load_prompt
+    from .prompt_loader import get_language, load_prompt
 
-    lang = _ui_language()
+    lang = get_language()
     delivery = job.payload.get("delivery", "review")
     channel = _delivery_channel(job)
     if delivery == "announce" and announces_in_rooms(channel):

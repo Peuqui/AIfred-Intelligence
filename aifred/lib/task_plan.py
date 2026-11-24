@@ -14,7 +14,8 @@ from .user_error import Invalid
 
 COLUMN_TYPES = ("text", "zahl", "link")
 # Fields every entry carries itself; a job column of the same name would collide with them.
-MANDATORY_FIELDS = ("position_id", "status", "befund", "quelle", "neue_quellen")
+REQUIRED_FIELDS = ("position_id", "status", "befund")
+MANDATORY_FIELDS = (*REQUIRED_FIELDS, "quelle", "neue_quellen")
 # Position id of the entry for something found besides the listed positions.
 EXTRA_POSITION_ID = "zusatz"
 # Payload keys that make a payload a plan.

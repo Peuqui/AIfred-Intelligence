@@ -129,11 +129,6 @@ def test_an_invalid_plan_is_refused_with_its_reason(client: TestClient, store: s
     assert store.list_all() == []
 
 
-def test_the_removed_trend_field_is_refused_as_unknown(client: TestClient, store: scheduler.JobStore) -> None:
-    assert client.post("/jobs", json={**CRON, **PLAN, "trend": {"value": "preis"}}).status_code == 422
-    assert store.list_all() == []
-
-
 def test_the_end_of_a_schedule_is_stored_listed_changed_and_refused_when_wrong(client: TestClient, store: scheduler.JobStore) -> None:
     created = client.post("/jobs", json={**CRON, "schedule_expr": "0 8,14,20 * * *", "ends_at": "2099-11-30T18:00"}).json()
     assert created["ends_at"] == "2099-11-30T18:00" and client.get("/jobs").json()[0]["ends_at"] == "2099-11-30T18:00"
