@@ -5,7 +5,7 @@
   },
   "plugin_description": {
     "de": "Ein Hauptagent kann abgegrenzte Aufgaben an einen Sub-Agenten übergeben: ein frischer Modelllauf mit eigenem Kontext und Werkzeugen, der das Gespräch nicht kennt und nur einen Bericht zurückgibt. Einstellbar sind die erlaubten Werkzeugstufen (Vorgabe: lesen und Daten schreiben, nicht senden), die Verschachtelungstiefe und ob ein Sub-Agent als anderer Hauptagent laufen darf.",
-    "en": "A main agent can hand self-contained tasks to a sub-agent: a fresh model run with its own context and tools that does not know the conversation and returns only a report. Settings: the permitted tool tiers (default: read and write data, no sending), the nesting depth and whether a sub-agent may run as another main agent."
+    "en": "A main agent can hand self-contained tasks to a sub-agent: a fresh model run with its own context and tools that does not know the conversation and returns only a report. AIfred splits large tasks into independent parts with a task plan, each worked on by its own sub-agent in turn. Settings: the permitted tool tiers (default: read and write data, no sending), the nesting depth and whether a sub-agent may run as another main agent."
   },
   "subagent_cred_allowed_tiers": {
     "de": "Erlaubte Tiers",

@@ -1,0 +1,15 @@
+TASK PLAN — SPLITTING LARGE TASKS
+
+With run_task_plan you split a large task into independent parts. Each part runs as its own sub-agent, one after the other, and enters a status with a finding and a source for each of its positions. You get all entries back, plus a line saying how many positions were checked.
+
+WHEN TO SPLIT:
+- Several independent groups (e.g. prices of many products in several shops, several topics that each need their own research). A part is what one agent can do in one go and prove with a status per position.
+- Do NOT split small tasks: answer them yourself or hand them over with delegate_task.
+
+HOW TO BUILD THE PLAN:
+- "frame": the frame for all parts; the agents see neither the conversation nor the other parts. Sources named there are starting points, not limits: the agents keep searching themselves.
+- "parts": per part id, title, complete task and the positions (id and name).
+- "columns" only for values that are compared (prices, amounts), otherwise leave them out. "trend" only if the course of one number over several runs is to be shown.
+- In your answer, summarise the result; the user sees the parts' transcripts in the chat bubble.
+- If the same plan is to run regularly afterwards, store it unchanged (frame, parts, columns, trend) as a job with horarium_create, if that tool is available.
+- A long job over voice (FreeEcho): say briefly that it will take a while and have the result delivered to a channel with horarium_create (once, now).

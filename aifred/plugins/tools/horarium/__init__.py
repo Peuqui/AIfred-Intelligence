@@ -15,6 +15,14 @@ from ....lib.function_calling import Tool
 from ....lib.security import JOB_DEFAULT_TIER, TIER_ADMIN, TIER_READONLY, TIER_WRITE_DATA
 from ....lib.plugin_base import BackgroundPart, PluginContext, load_tool_description, load_tool_parameters
 from ....lib.scheduler import DELIVERY_MODES, SCHEDULE_TYPES
+from ....lib.task_plan import (
+    TaskPlan,
+    parts_with_added,
+    parts_with_replaced,
+    parts_without,
+    plan_parameters_schema,
+)
+from ....lib.user_error import Invalid
 
 
 async def _not_chosen_by_owner(recipient: str, webhook_url: str, ctx: PluginContext) -> str:
@@ -73,6 +81,57 @@ class HorariumPlugin:
         return json.dumps({"error": str(problem)}) if problem else None
 
     @staticmethod
+    def _parameters(tool_name: str) -> dict[str, Any]:
+        """The tool's schema from its params file, plus the plan fields from the one description every tool with a plan
+        shares (lib/task_plan.py). In update they replace what the job has; the part operations take one part as
+        the plan describes it."""
+        schema = load_tool_parameters(
+            __file__, tool_name, enums={"schedule_type": list(SCHEDULE_TYPES), "delivery": list(DELIVERY_MODES)},
+        )
+        plan = plan_parameters_schema()
+        properties = schema["properties"]
+        if tool_name == "horarium_create":
+            properties |= plan
+        else:
+            properties |= {key: plan[key] for key in ("frame", "columns", "trend")}
+            for operation in ("part_add", "part_update"):
+                properties[operation] = {**plan["parts"]["items"], "description": properties[operation]["description"]}
+        return schema
+
+    @staticmethod
+    def _plan_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        """What list shows of a job's plan: all of it (frame, the parts with task and positions, columns, trend), so a
+        part_update can send the part back with only the wanted change. Only what the job has."""
+        plan = TaskPlan.from_payload(payload).to_payload()
+        return {key: plan[key] for key in ("frame", "parts", "columns", "trend") if plan.get(key)}
+
+    @staticmethod
+    def _with_plan_changes(
+        payload: dict[str, Any], frame: str | None, columns: list[Any] | None, trend: dict[str, Any] | None,
+        part_add: dict[str, Any] | None, part_update: dict[str, Any] | None, part_remove: str,
+    ) -> dict[str, Any]:
+        """The payload with the plan operations of an update applied in a fixed order (frame, columns, trend, remove,
+        update, add); ``Invalid`` for a part id that exists or is unknown. The result is checked as a whole afterwards
+        (``_problem``): no operation checks half of it."""
+        changed = dict(payload)
+        if frame is not None:
+            changed["frame"] = frame
+        if columns is not None:
+            changed["columns"] = columns
+        if trend is not None:
+            if trend.get("value") == "":    # an empty value removes the trend
+                changed.pop("trend", None)
+            else:
+                changed["trend"] = trend
+        if part_remove:
+            changed["parts"] = parts_without(changed, part_remove)
+        if part_update is not None:
+            changed["parts"] = parts_with_replaced(changed, part_update)
+        if part_add is not None:
+            changed["parts"] = parts_with_added(changed, part_add)
+        return changed
+
+    @staticmethod
     def _job_tier(requested: int | None, creator_tier: int, default: int) -> int | str:
         """The tier a job runs with: the default, or the requested one up to the creator's own tier; else error JSON."""
         if requested is None:
@@ -84,6 +143,11 @@ class HorariumPlugin:
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         from ....lib.logging_utils import log_message
         from ....lib.tool_args import InvalidValue, parse_bool
+
+        def own_job(job_id: int) -> bool:
+            """Whether this call comes from the run of the job itself: a run proposes changes to its own job in the
+            report, the owner approves them in the chat. The run's metadata carry its job (scheduler._execute_job)."""
+            return ctx.source == "scheduler" and ctx.metadata.get("job_id") == job_id
 
         async def _create(
             name: str,
@@ -99,6 +163,10 @@ class HorariumPlugin:
             audio_type: str = "",
             end_date: str = "",
             max_tier: int | None = None,
+            frame: str = "",
+            parts: list[Any] | None = None,
+            columns: list[Any] | None = None,
+            trend: dict[str, Any] | None = None,
         ) -> str:
             """Create a new scheduled job."""
             from ....lib.scheduler import get_job_store
@@ -117,6 +185,8 @@ class HorariumPlugin:
                 payload["webhook_url"] = webhook_url
             if audio_type:
                 payload["audio_type"] = audio_type
+            payload |= {key: value for key, value in
+                        {"frame": frame, "parts": parts, "columns": columns, "trend": trend}.items() if value}
             try:
                 if parse_bool(fixed_text, "fixed_text"):
                     payload["fixed_text"] = True
@@ -179,6 +249,7 @@ class HorariumPlugin:
                         "delivery": j.payload.get("delivery", "review"),
                         **{k: j.payload[k] for k in self._PAYLOAD_FIELDS
                            if k != "delivery" and j.payload.get(k)},
+                        **self._plan_summary(j.payload),
                     }
                     for j in jobs
                 ]
@@ -200,10 +271,18 @@ class HorariumPlugin:
             audio_type: str = "",
             end_date: str | None = None,
             max_tier: int | None = None,
+            frame: str | None = None,
+            columns: list[Any] | None = None,
+            trend: dict[str, Any] | None = None,
+            part_add: dict[str, Any] | None = None,
+            part_update: dict[str, Any] | None = None,
+            part_remove: str = "",
         ) -> str:
             """Change a scheduled job in place; empty arguments stay unchanged (end_date: "" removes the end)."""
             from ....lib.scheduler import get_job_store
 
+            if own_job(job_id):
+                return json.dumps({"error": str(Invalid("own_job_locked"))})
             store = get_job_store()
             job = store.get(job_id)
             if not job:
@@ -216,6 +295,10 @@ class HorariumPlugin:
                 "audio_type": audio_type,
             }
             payload = {**job.payload, **{k: v for k, v in changes.items() if v}}
+            try:
+                payload = self._with_plan_changes(payload, frame, columns, trend, part_add, part_update, part_remove)
+            except Invalid as exc:
+                return json.dumps({"error": f"{exc} — job {job_id} unchanged"})
             try:
                 if fixed_text is not None:
                     payload["fixed_text"] = parse_bool(fixed_text, "fixed_text")
@@ -263,6 +346,9 @@ class HorariumPlugin:
         async def _delete(job_id: int) -> str:
             """Delete a scheduled job with its folder in the workspace."""
             from ....lib.scheduler import delete_job, get_job_store
+
+            if own_job(job_id):
+                return json.dumps({"error": str(Invalid("own_job_locked"))})
             store = get_job_store()
             job = store.get(job_id)
             if not job:
@@ -279,7 +365,7 @@ class HorariumPlugin:
                 description=(
                     load_tool_description(__file__, "horarium_create")
                 ),
-                parameters=load_tool_parameters(__file__, "horarium_create", enums={"schedule_type": list(SCHEDULE_TYPES), "delivery": list(DELIVERY_MODES)}),
+                parameters=self._parameters("horarium_create"),
                 executor=_create,
             ),
             Tool(
@@ -293,7 +379,7 @@ class HorariumPlugin:
                 name="horarium_update",
                 tier=TIER_WRITE_DATA,
                 description=load_tool_description(__file__, "horarium_update"),
-                parameters=load_tool_parameters(__file__, "horarium_update", enums={"schedule_type": list(SCHEDULE_TYPES), "delivery": list(DELIVERY_MODES)}),
+                parameters=self._parameters("horarium_update"),
                 executor=_update,
             ),
             Tool(

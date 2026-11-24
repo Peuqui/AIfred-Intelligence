@@ -69,7 +69,7 @@ class TestPluginShape:
 
     def test_delegate_tool_is_readonly(self, plugin, ctx):
         tools = {t.name: t for t in plugin.get_tools(ctx)}
-        assert set(tools) == {sub.TOOL_NAME}
+        assert set(tools) == {sub.TOOL_NAME, sub.PLAN_TOOL_NAME}   # the plan tool: tests/test_run_task_plan_tool.py
         assert tools[sub.TOOL_NAME].tier == TIER_READONLY
         props = tools[sub.TOOL_NAME].parameters["properties"]
         assert set(props) == {"task", "expected_result"}

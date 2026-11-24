@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .config import PROJECT_ROOT
 from .user_error import Invalid
 
 COLUMN_TYPES = ("text", "zahl", "link")
@@ -153,3 +154,47 @@ def plan_problem(payload: dict[str, Any]) -> Invalid | None:
     ):
         return Invalid("plan_trend_not_a_number_column", value=plan.trend_value, type=TREND_TYPE)
     return None
+
+
+def plan_parameters_schema() -> dict[str, Any]:
+    """The parameters of a plan (``frame``, ``parts``, ``columns``, ``trend``) as JSON-Schema properties: the one
+    description for every tool that takes a plan (the chat tool ``run_task_plan``, ``horarium_create``). It lives in
+    ``prompts/tools/task_plan.params.json`` (prompt material, English), the allowed column types come from here."""
+    from .plugin_base import load_tool_parameters
+
+    properties: dict[str, Any] = load_tool_parameters(PROJECT_ROOT, "task_plan")["properties"]
+    properties["columns"]["items"]["properties"]["type"]["enum"] = list(COLUMN_TYPES)
+    return properties
+
+
+def _part_id(part: Any) -> str:
+    if not isinstance(part, dict) or not _is_text(part.get("id")):
+        raise _malformed("part (id)")
+    return str(part["id"])
+
+
+def parts_with_added(payload: dict[str, Any], part: Any) -> list[Any]:
+    """The payload's parts plus a new one; ``Invalid`` when its id exists. The result is not checked yet: ``plan_problem``."""
+    parts = list(payload.get("parts", []))
+    if any(_part_id(existing) == _part_id(part) for existing in parts):
+        raise Invalid("plan_part_exists", part=_part_id(part))
+    return [*parts, part]
+
+
+def parts_with_replaced(payload: dict[str, Any], part: Any) -> list[Any]:
+    """The payload's parts with the part of the same id replaced; ``Invalid`` when none has this id."""
+    parts = list(payload.get("parts", []))
+    index = next((i for i, existing in enumerate(parts) if _part_id(existing) == _part_id(part)), None)
+    if index is None:
+        raise Invalid("plan_part_unknown", part=_part_id(part))
+    parts[index] = part
+    return parts
+
+
+def parts_without(payload: dict[str, Any], part_id: str) -> list[Any]:
+    """The payload's parts without the part of this id; ``Invalid`` when none has it."""
+    parts = list(payload.get("parts", []))
+    kept = [existing for existing in parts if _part_id(existing) != part_id]
+    if len(kept) == len(parts):
+        raise Invalid("plan_part_unknown", part=part_id)
+    return kept

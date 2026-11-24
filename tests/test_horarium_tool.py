@@ -403,3 +403,264 @@ class TestScheduleEndInTheTool:
         assert "0 8,14,20 * * *" in tools["horarium_create"].description
         for lang in ("de", "en"):
             assert "0 8,14,20 * * *" in plugin.get_prompt_instructions(lang) and "end_date" in plugin.get_prompt_instructions(lang)
+
+
+# ── Jobs with a plan ──────────────────────────────────────────
+
+PLAN_PART_A: dict[str, Any] = {
+    "id": "a", "title": "Teil A", "task": "Suche A", "positions": [{"id": "a1", "name": "Alpha"}],
+}
+PLAN_PART_B: dict[str, Any] = {
+    "id": "b", "title": "Teil B", "task": "Suche B",
+    "positions": [{"id": "b1", "name": "Beta"}, {"id": "b2", "name": "Gamma"}],
+}
+PLAN: dict[str, Any] = {
+    "frame": "Preise beobachten",
+    "parts": [PLAN_PART_A, PLAN_PART_B],
+    "columns": [{"name": "preis", "type": "zahl"}],
+    "trend": {"value": "preis"},
+}
+
+
+def _tools_of(plugin, ctx) -> dict[str, Any]:
+    return {tool.name: tool for tool in plugin.get_tools(ctx)}
+
+
+def _call(tool, **arguments) -> dict[str, Any]:
+    data: dict[str, Any] = json.loads(_run(tool.executor(**arguments)))
+    return data
+
+
+def _create_plan_job(plugin, ctx, **more) -> int:
+    data = _call(
+        _tools_of(plugin, ctx)["horarium_create"], name="preise", schedule_type="cron", schedule_expr="0 7 * * *",
+        message="Berichte", **{**PLAN, **more},
+    )
+    assert data["success"] is True, data
+    return int(data["job_id"])
+
+
+class TestPlanCreate:
+    def test_a_plan_is_stored_in_the_payload(self, plugin, ctx):
+        job_id = _create_plan_job(plugin, ctx)
+        payload = _stored_payload(job_id)
+        assert {key: payload[key] for key in PLAN} == PLAN
+
+    def test_a_job_without_plan_has_no_plan_fields(self, plugin, ctx):
+        data = _call(_tools_of(plugin, ctx)["horarium_create"], name="x", schedule_type="interval",
+                     schedule_expr="3600", message="m")
+        assert not {"frame", "parts", "columns", "trend"} & set(_stored_payload(data["job_id"]))
+
+    @pytest.mark.parametrize("broken", [
+        {"trend": {"value": "gibt_es_nicht"}},
+        {"parts": [PLAN_PART_A, PLAN_PART_A]},
+        {"parts": [{**PLAN_PART_A, "positions": []}]},
+        {"columns": [{"name": "preis", "type": "kommazahl"}]},
+        {"parts": "kein Array"},
+    ])
+    def test_an_invalid_plan_is_refused_and_nothing_stored(self, plugin, ctx, broken):
+        data = _call(
+            _tools_of(plugin, ctx)["horarium_create"], name="x", schedule_type="cron", schedule_expr="0 7 * * *",
+            message="m", **{**PLAN, **broken},
+        )
+        assert "error" in data
+        assert get_job_store().list_all() == []
+
+    def test_parts_with_a_fixed_text_are_refused(self, plugin, ctx):
+        data = _call(
+            _tools_of(plugin, ctx)["horarium_create"], name="x", schedule_type="cron", schedule_expr="0 7 * * *",
+            message="m", fixed_text=True, delivery="announce", channel="telegram", **PLAN,
+        )
+        assert "error" in data
+
+    def test_the_schema_has_the_shared_plan_fields(self, plugin, ctx):
+        from aifred.lib.task_plan import plan_parameters_schema
+
+        properties = _tools_of(plugin, ctx)["horarium_create"].parameters["properties"]
+        assert {key: properties[key] for key in PLAN} == plan_parameters_schema()
+
+
+class TestPlanUpdate:
+    def _job(self, plugin, ctx) -> tuple[int, Any]:
+        return _create_plan_job(plugin, ctx), _tools_of(plugin, ctx)["horarium_update"]
+
+    def test_frame_is_replaced(self, plugin, ctx):
+        job_id, update = self._job(plugin, ctx)
+        assert _call(update, job_id=job_id, frame="Neuer Rahmen")["success"] is True
+        payload = _stored_payload(job_id)
+        assert payload["frame"] == "Neuer Rahmen"
+        assert payload["parts"] == PLAN["parts"] and payload["message"] == "Berichte"
+
+    def test_columns_are_replaced(self, plugin, ctx):
+        job_id, update = self._job(plugin, ctx)
+        columns = [{"name": "preis", "type": "zahl"}, {"name": "shop", "type": "link"}]
+        assert _call(update, job_id=job_id, columns=columns)["success"] is True
+        assert _stored_payload(job_id)["columns"] == columns
+
+    def test_columns_that_break_the_trend_are_refused(self, plugin, ctx):
+        job_id, update = self._job(plugin, ctx)
+        assert "error" in _call(update, job_id=job_id, columns=[{"name": "shop", "type": "text"}])
+        assert _stored_payload(job_id)["columns"] == PLAN["columns"]
+
+    def test_trend_is_replaced_and_removed(self, plugin, ctx):
+        job_id, update = self._job(plugin, ctx)
+        columns = [{"name": "preis", "type": "zahl"}, {"name": "menge", "type": "zahl"}]
+        assert _call(update, job_id=job_id, columns=columns, trend={"value": "menge"})["success"] is True
+        assert _stored_payload(job_id)["trend"] == {"value": "menge"}
+        assert _call(update, job_id=job_id, trend={"value": ""})["success"] is True
+        assert "trend" not in _stored_payload(job_id)
+
+    def test_a_trend_without_such_column_is_refused(self, plugin, ctx):
+        job_id, update = self._job(plugin, ctx)
+        assert "error" in _call(update, job_id=job_id, trend={"value": "gibt_es_nicht"})
+        assert _stored_payload(job_id)["trend"] == PLAN["trend"]
+
+    def test_part_add(self, plugin, ctx):
+        job_id, update = self._job(plugin, ctx)
+        part_c = {"id": "c", "title": "Teil C", "task": "Suche C", "positions": [{"id": "c1", "name": "Delta"}]}
+        assert _call(update, job_id=job_id, part_add=part_c)["success"] is True
+        assert _stored_payload(job_id)["parts"] == [PLAN_PART_A, PLAN_PART_B, part_c]
+
+    def test_part_add_with_an_existing_id_is_refused(self, plugin, ctx):
+        job_id, update = self._job(plugin, ctx)
+        data = _call(update, job_id=job_id, part_add={**PLAN_PART_A, "title": "Anders"})
+        assert "error" in data and "a" in data["error"]
+        assert _stored_payload(job_id)["parts"] == PLAN["parts"]
+
+    def test_part_update_replaces_the_part_of_the_same_id(self, plugin, ctx):
+        job_id, update = self._job(plugin, ctx)
+        new_b = {**PLAN_PART_B, "title": "Teil B neu", "positions": [{"id": "b1", "name": "Beta"}]}
+        assert _call(update, job_id=job_id, part_update=new_b)["success"] is True
+        assert _stored_payload(job_id)["parts"] == [PLAN_PART_A, new_b]
+
+    def test_part_update_of_an_unknown_id_is_refused(self, plugin, ctx):
+        job_id, update = self._job(plugin, ctx)
+        assert "error" in _call(update, job_id=job_id, part_update={**PLAN_PART_A, "id": "z"})
+        assert _stored_payload(job_id)["parts"] == PLAN["parts"]
+
+    def test_part_remove(self, plugin, ctx):
+        job_id, update = self._job(plugin, ctx)
+        assert _call(update, job_id=job_id, part_remove="a")["success"] is True
+        assert _stored_payload(job_id)["parts"] == [PLAN_PART_B]
+
+    def test_part_remove_of_an_unknown_id_is_refused(self, plugin, ctx):
+        job_id, update = self._job(plugin, ctx)
+        assert "error" in _call(update, job_id=job_id, part_remove="z")
+        assert _stored_payload(job_id)["parts"] == PLAN["parts"]
+
+    def test_the_whole_plan_is_checked_after_a_change(self, plugin, ctx):
+        job_id, update = self._job(plugin, ctx)
+        assert "error" in _call(update, job_id=job_id, part_add={**PLAN_PART_B, "id": "c", "positions": []})
+        assert "error" in _call(update, job_id=job_id, part_add={"id": "c", "title": "x"})
+        assert "error" in _call(update, job_id=job_id, part_add="kein Objekt")
+        assert _stored_payload(job_id)["parts"] == PLAN["parts"]
+
+    def test_a_refused_change_does_not_save_the_other_fields(self, plugin, ctx):
+        job_id, update = self._job(plugin, ctx)
+        assert "error" in _call(update, job_id=job_id, message="neu", part_remove="z")
+        assert _stored_payload(job_id)["message"] == "Berichte"
+
+    def test_plan_and_message_change_together(self, plugin, ctx):
+        job_id, update = self._job(plugin, ctx)
+        assert _call(update, job_id=job_id, message="Neu", part_remove="b", frame="F")["success"] is True
+        payload = _stored_payload(job_id)
+        assert (payload["message"], payload["frame"], payload["parts"]) == ("Neu", "F", [PLAN_PART_A])
+
+    def test_the_update_schema_offers_the_operations(self, plugin, ctx):
+        properties = _tools_of(plugin, ctx)["horarium_update"].parameters["properties"]
+        for key in ("frame", "columns", "trend", "part_add", "part_update", "part_remove"):
+            assert key in properties
+        assert properties["part_add"]["required"] == ["id", "title", "task", "positions"]
+        assert properties["part_add"]["description"] != properties["part_update"]["description"]
+
+
+class TestPlanList:
+    def test_a_plan_job_shows_its_whole_plan(self, plugin, ctx):
+        """In full, so a part_update can send a part back with only the wanted change."""
+        _create_plan_job(plugin, ctx)
+        job = _call(_tools_of(plugin, ctx)["horarium_list"])["jobs"][0]
+        assert job["frame"] == "Preise beobachten"
+        assert job["parts"] == [PLAN_PART_A, PLAN_PART_B]
+        assert job["columns"] == [{"name": "preis", "type": "zahl"}]
+        assert job["trend"] == {"value": "preis"}
+
+    def test_a_job_without_plan_shows_none(self, plugin, ctx):
+        _call(_tools_of(plugin, ctx)["horarium_create"], name="x", schedule_type="interval", schedule_expr="3600",
+              message="m")
+        job = _call(_tools_of(plugin, ctx)["horarium_list"])["jobs"][0]
+        assert not {"frame", "parts", "columns", "trend"} & set(job)
+
+
+class TestOwnJobLock:
+    """A run does not change or delete its own job; other jobs and the browser stay free."""
+
+    @staticmethod
+    def _ctx(source: str, job_id: int | None) -> PluginContext:
+        return PluginContext(agent_id="aifred", lang="de", session_id="s", max_tier=4, source=source,
+                             metadata={} if job_id is None else {"job_id": job_id})
+
+    def _two_jobs(self, plugin, ctx) -> tuple[int, int]:
+        return _create_plan_job(plugin, ctx), _create_plan_job(plugin, ctx)
+
+    @pytest.mark.parametrize("operation", [{"name": "neu"}, {"part_remove": "a"}, {"frame": "x"}, {"enabled": False}])
+    def test_update_of_the_own_job_is_refused(self, plugin, ctx, operation):
+        own, _other = self._two_jobs(plugin, ctx)
+        data = _call(_tools_of(plugin, self._ctx("scheduler", own))["horarium_update"], job_id=own, **operation)
+        assert data == {"error": t("error_own_job_locked", lang="en")}
+        job = get_job_store().get(own)
+        assert job is not None and job.name == "preise" and job.enabled and job.payload["parts"] == PLAN["parts"]
+
+    def test_delete_of_the_own_job_is_refused(self, plugin, ctx):
+        own, _other = self._two_jobs(plugin, ctx)
+        data = _call(_tools_of(plugin, self._ctx("scheduler", own))["horarium_delete"], job_id=own)
+        assert data == {"error": t("error_own_job_locked", lang="en")}
+        assert get_job_store().get(own) is not None
+
+    def test_another_job_may_be_changed_and_deleted_from_a_run(self, plugin, ctx):
+        own, other = self._two_jobs(plugin, ctx)
+        tools = _tools_of(plugin, self._ctx("scheduler", own))
+        assert _call(tools["horarium_update"], job_id=other, name="anders")["success"] is True
+        assert _call(tools["horarium_delete"], job_id=other)["success"] is True
+
+    def test_the_browser_may_change_and_delete_any_job(self, plugin, ctx):
+        own, other = self._two_jobs(plugin, ctx)
+        # The same job id in the metadata means nothing outside a run of the scheduler.
+        tools = _tools_of(plugin, self._ctx("browser", own))
+        assert _call(tools["horarium_update"], job_id=own, name="anders")["success"] is True
+        assert _call(tools["horarium_delete"], job_id=other)["success"] is True
+
+    def test_a_scheduler_context_without_job_id_locks_nothing(self, plugin, ctx):
+        own, _other = self._two_jobs(plugin, ctx)
+        tools = _tools_of(plugin, self._ctx("scheduler", None))
+        assert _call(tools["horarium_update"], job_id=own, name="anders")["success"] is True
+
+
+class TestJobIdReachesTheToolContext:
+    """The closing turn of a job run (and with it the toolkit's PluginContext) carries the job's id."""
+
+    def test_job_id_arrives_in_the_plugin_context(self, monkeypatch):
+        from datetime import datetime
+
+        import aifred.lib.plugin_registry as registry
+        from aifred.lib.agent_memory import prepare_agent_toolkit
+        from aifred.lib.envelope import InboundMessage
+        from aifred.lib.message_processor import _turn_origin
+        from aifred.lib.security import TIER_WRITE_DATA
+
+        message = InboundMessage(
+            channel="scheduler", channel_id="c", sender="preise", text="t", timestamp=datetime.now(),
+            metadata={"job_id": 42, "job_name": "preise"}, target_agent="aifred", task=True,
+        )
+        origin = _turn_origin(message, None, "Scheduler", "preise", False, TIER_WRITE_DATA)
+        seen: list[PluginContext] = []
+
+        def fake_collect(plugin_ctx):
+            seen.append(plugin_ctx)
+            return []
+
+        monkeypatch.setattr(registry, "collect_plugin_tools", fake_collect)
+        _run(prepare_agent_toolkit(
+            "aifred", "q", memory_enabled=False, session_id="s", max_tier=origin.max_tier, source="scheduler",
+            metadata=origin.metadata, trust=origin.trust,
+        ))
+        assert [(c.source, c.metadata["job_id"]) for c in seen] == [("scheduler", 42)]

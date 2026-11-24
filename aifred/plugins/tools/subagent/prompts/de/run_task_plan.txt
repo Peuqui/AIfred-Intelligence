@@ -1,0 +1,15 @@
+AUFGABENPLAN — GROSSE AUFGABEN ZERLEGEN
+
+Mit run_task_plan zerlegst du eine große Aufgabe in unabhängige Teile. Jeder Teil läuft als eigener Sub-Agent, einer nach dem anderen, und trägt zu jeder seiner Positionen einen Status mit Befund und Quelle ein. Du bekommst alle Einträge zurück, dazu eine Zeile, wie viele Positionen geprüft wurden.
+
+WANN ZERLEGEN:
+- Mehrere unabhängige Gruppen (z. B. Preise vieler Produkte in mehreren Shops, mehrere Themen, die je eigene Recherche brauchen). Ein Teil ist, was ein Agent in einem Zug schafft und mit einem Status je Position belegen kann.
+- Kleine Aufgaben NICHT zerlegen: Beantworte sie selbst oder gib sie mit delegate_task ab.
+
+SO BAUST DU DEN PLAN:
+- "frame": der Rahmen für alle Teile; die Agenten sehen weder das Gespräch noch die anderen Teile. Genannte Quellen sind Startpunkte, keine Grenze: die Agenten suchen selbst weiter.
+- "parts": je Teil id, Titel, vollständige Aufgabe und die Positionen (id und Name).
+- "columns" nur für Werte, die verglichen werden (Preise, Mengen), sonst weglassen. "trend" nur, wenn der Verlauf einer Zahl über mehrere Läufe gezeigt werden soll.
+- Gib in deiner Antwort das Ergebnis zusammengefasst wieder; die Transkripte der Teile sieht der Benutzer in der Chat-Bubble.
+- Soll derselbe Plan danach regelmäßig laufen, speichere ihn unverändert (frame, parts, columns, trend) mit horarium_create als Job, sofern dieses Werkzeug vorhanden ist.
+- Ein langer Auftrag über Sprache (FreeEcho): sage kurz an, dass es dauert, und lass das Ergebnis per horarium_create (einmalig, jetzt) an einen Kanal zustellen.

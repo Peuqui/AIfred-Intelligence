@@ -23,6 +23,7 @@ from typing import Any
 from collections.abc import AsyncGenerator
 
 from ....lib.function_calling import Tool
+from ....lib.i18n import t
 from ....lib.plugin_base import (
     CredentialField,
     PluginContext,
@@ -39,8 +40,11 @@ from ....lib.security import (
     TIER_WRITE_SYSTEM,
 )
 from ....lib.subagent_run import DEPTH_METADATA_KEY, SubagentSession, transcript_labels, within_tiers
+from ....lib.task_plan import TaskPlan, plan_parameters_schema, plan_problem
+from ....lib.user_error import Invalid
 
 TOOL_NAME = "delegate_task"
+PLAN_TOOL_NAME = "run_task_plan"
 
 # settings.json keys (also the env_key of the CredentialField)
 ALLOWED_TIERS_KEY = "SUBAGENT_ALLOWED_TIERS"
@@ -206,6 +210,15 @@ class SubAgentPlugin:
             ):
                 yield event
 
+        async def _run_plan(**plan: Any) -> AsyncGenerator[dict[str, Any], None]:
+            async for event in run_task_plan(ctx, settings, depth, plan):
+                yield event
+
+        plan_parameters = load_tool_parameters(__file__, PLAN_TOOL_NAME)
+        # The fields are the one plan description of lib/task_plan.py; here a plan needs its frame and its parts.
+        plan_parameters["properties"] = plan_parameters_schema()
+        plan_parameters["required"] = ["frame", "parts"]
+
         return [
             Tool(
                 name=TOOL_NAME,
@@ -213,6 +226,13 @@ class SubAgentPlugin:
                 description=self._description(ctx, settings),
                 parameters=parameters,
                 executor=_delegate,
+            ),
+            Tool(
+                name=PLAN_TOOL_NAME,
+                tier=TIER_READONLY,
+                description=load_tool_description(__file__, PLAN_TOOL_NAME),
+                parameters=plan_parameters,
+                executor=_run_plan,
             ),
         ]
 
@@ -232,6 +252,9 @@ class SubAgentPlugin:
         return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
+        if tool_name == PLAN_TOOL_NAME:
+            frame = str(tool_args.get("frame", "")).strip().replace("\n", " ")
+            return t("tool_run_task_plan", lang=lang, frame=frame[:70])
         if tool_name != TOOL_NAME:
             return ""
         task = str(tool_args.get("task", "")).strip().replace("\n", " ")
@@ -263,6 +286,27 @@ async def run_subagent(
     )
     async for event in session.run():
         yield event
+
+
+async def run_task_plan(
+    ctx: PluginContext, settings: SubAgentSettings, depth: int, arguments: dict[str, Any],
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Executor body of ``run_task_plan``: the check of the plan, then the engine in the lib with the plugin's
+    settings; the result is the text of the findings and the line of what was checked."""
+    from ....lib.plan_engine import coverage_line, render_results, run_plan
+
+    problem = plan_problem(arguments) or (None if arguments.get("parts") else Invalid("plan_no_parts"))
+    if problem is not None:
+        yield {"result": json.dumps({"error": str(problem)})}
+        return
+    async for event in run_plan(
+        TaskPlan.from_payload(arguments), ctx, allowed_tiers=settings.allowed_tiers, depth=depth,
+    ):
+        if "plan_result" in event:
+            result = event["plan_result"]
+            yield {"result": f"{render_results(result, ctx.lang)}\n\n{coverage_line(result, ctx.lang)}"}
+        else:
+            yield event
 
 
 plugin = SubAgentPlugin()
