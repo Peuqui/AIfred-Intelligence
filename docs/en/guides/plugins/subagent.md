@@ -51,6 +51,7 @@ agent there on its own, even when the user names none.
 | Tool | Description | Tier |
 |------|------------|------|
 | `delegate_task` | Hand a sub-task to a sub-agent; the result is its report | READONLY |
+| `run_task_plan` | Run a large task as a plan of several parts, one sub-agent each; the result is all entries plus a count line | READONLY |
 
 ### Parameters (`delegate_task`)
 
@@ -65,18 +66,35 @@ caller's ceiling (source and `max_tier`; a Telegram channel without write
 tools does not get them through a sub-agent either) and by the plugin setting
 "allowed tiers".
 
+## Large tasks: `run_task_plan`
+
+For a task that falls into several independent groups (for example the prices of many products in several shops),
+AIfred uses `run_task_plan` instead of `delegate_task`. You do not have to name the tool: state the task completely and
+AIfred decides whether it is large enough to split. Small tasks he answers himself or hands to `delegate_task`.
+
+AIfred builds a plan for it: a frame (applies to all parts; sources named there are starting points, not limits), the
+parts with a task and their positions each, optionally archive columns for values that are compared (e.g. price), and
+optionally a trend value. Each part runs one after the other as its own sub-agent and enters a status with a finding and
+a source for every position. A value counts only if the sub-agent really retrieved the source in this run. A long run
+can take minutes; afterwards the transcripts of the parts are in the bubble as collapsible blocks.
+
+What comes back to AIfred is all entries of all parts and below them a fixed line of how many positions were checked
+("N of M positions checked"), with the missing positions and failed parts and their reasons. AIfred summarizes the
+result in his answer. If the same plan is to run regularly afterwards, say so: AIfred stores it unchanged as a job in the
+[Horarium](horarium.md#jobs-with-sub-tasks). Details and limits: [task plans](../../architecture/task-plan.md).
+
 ## Who may delegate
 
-Like every tool, `delegate_task` has to be in the agent's tool list in
-`data/agents.json`. Agents without a whitelist (like AIfred) have it
-automatically, Codine has it listed. Sokrates and Salomo do not.
+Like every tool, `delegate_task` and `run_task_plan` have to be in the agent's tool list in
+`data/agents.json`. Agents without a whitelist (like AIfred) have them
+automatically, Codine has `delegate_task` listed. Sokrates and Salomo do not.
 
 ## Settings (gear icon in the plugin modal, `settings.json` next to the plugin)
 
 | Setting | Key | Default | Meaning |
 |---|---|---|---|
 | Allowed tiers | `SUBAGENT_ALLOWED_TIERS` | `0+2` | Read, research, write files, sandbox. No sending (tier 1), no deleting (tier 3). Sending stays with the main agent, which answers for it in the conversation |
-| Recursion depth | `SUBAGENT_MAX_DEPTH` | `1` | Whether a sub-agent may delegate itself. At 1 the sub-agent does not get the tool at all; the bound is structural |
+| Recursion depth | `SUBAGENT_MAX_DEPTH` | `1` | Whether a sub-agent may delegate itself. At 1 the sub-agent does not get the tools (`delegate_task` and `run_task_plan`) at all; the bound is structural |
 | Sub-agent as another main agent | `SUBAGENT_DELEGATE_TO_OTHER_AGENTS` | off | Enables the `agent` parameter: the sub-agent then runs as another main agent (e.g. Codine), with its identity and personality, model and tool list, but without conversation and memory. A different model means a model swap through llama-swap per delegation, often minutes. The switch is deliberately not an automatism |
 
 Memory is off for sub-agents and not a setting: everything the sub-agent needs
