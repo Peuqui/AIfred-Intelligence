@@ -45,7 +45,9 @@ nacheinander ab, nicht parallel. Für jeden Teil:
    laufen. Einträge, die der Teil vorher angenommen hat, bleiben gültig.
 
 Die Ereignisse für den Aufrufer sind `progress` (mit dem Titel des Teils vorneweg), `work` und `artifacts` (die
-Transkripte der Sub-Agenten) wie bei jedem Werkzeug-Executor, zuletzt `{"plan_result": PlanResult}`.
+Transkripte der Sub-Agenten) wie bei jedem Werkzeug-Executor, nach jedem Teil `{"part_done": PartDone}` (Ergebnis des Teils,
+seine Transkripte als rohe Artefakte, Laufzeit in Sekunden; auch für einen gescheiterten Teil), zuletzt
+`{"plan_result": PlanResult}`. Das Chat-Werkzeug `run_task_plan` reicht `part_done` nicht weiter.
 
 ## Eintragswerkzeug und Abrufprüfung
 

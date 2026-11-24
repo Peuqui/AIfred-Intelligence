@@ -270,9 +270,16 @@ For a job with parts, `_execute_job` first starts `_run_plan_parts`, then the cl
 5. **Part failure.** If a part throws an exception, it appears in the result with its reason and the next parts run on.
    An exception outside the parts (notes) fails the whole run; an engine that ends without a result is an error
    too.
-6. **Transcripts.** The transcripts of all parts appear as one bubble in the session's chat history only
-   (`record_chat_only_bubble`, title from `scheduler/plan_transcripts_title`); the model never sees it, `llm_history` is
-   untouched.
+6. **Bubbles during the run.** At the start a bubble appears: one line "Job ... started: N parts" and a collapsed block
+   with the parts and their positions (`_plan_started_bubble`). After each part its own bubble follows (the engine's
+   `PartDone` event, `_part_bubble_artifacts`): exactly one expandable block with no text around it. Its title line,
+   visible when collapsed (phone), carries the part and its state ("Part 1/4 · title: N of M positions, K entries,
+   duration", ", not checked: ..." for gaps, "failed: reason" for a failed part); expanded it holds the part's
+   transcripts (a collapsible holds text only, so the transcripts are sections inside it; pages and images a sub-agent
+   made follow as artifacts of their own below the block). All bubbles go through `record_chat_only_bubble` into the
+   chat history only (the model never sees them, `llm_history` is untouched) and reach open tabs at once as
+   `message_added`. Durations from 60 s on are shown as minutes:seconds. Order in the history: start, part 1 ... part N,
+   the closing turn's request, its answer.
 7. **Notes.** New sources the parts reported (`neue_quellen`) are appended by the code as a dated section to the job's
    notes (only if the job keeps notes, `_keeps_notes`).
 8. **Closing turn.** The closing turn is the usual run through `process_inbound`. Its prompt is the job prompt

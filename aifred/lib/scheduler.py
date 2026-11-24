@@ -20,10 +20,11 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import file_manager
 from .browser_push import notify_changed
+from .bubble import KIND_COLLAPSIBLE, BubbleArtifact
 from .config import (
     BASE_AGENT,
     SCHEDULER_CHECK_INTERVAL_SECONDS,
@@ -35,6 +36,9 @@ from .logging_utils import log_exception, log_message
 from .security import JOB_DEFAULT_TIER
 from .task_plan import PLAN_KEYS, TaskPlan, plan_problem
 from .user_error import Invalid
+
+if TYPE_CHECKING:
+    from .plan_engine import PartDone
 
 # What a job can be: one truth for the agents' scheduler tool (its JSON-schema enums), the jobs page
 # (the SQLite CHECK in _ensure_schema stays as the database's own limit).
@@ -699,11 +703,12 @@ def _ui_language() -> str:
 
 
 async def _run_plan_parts(job: Job, plan: TaskPlan, channel_id: str, metadata: dict[str, Any]) -> _PlanRun:
-    """The parts of a plan job (lib/plan_engine.py), the transcripts as a bubble that only the chat history gets and the
-    new sources in the notes. Every run stands for itself. Parts never send: the Horarium delivers. An exception
-    outside the parts (the notes) fails the run; a failing part is in the result."""
+    """The parts of a plan job (lib/plan_engine.py): a start bubble, then one bubble per part as it ends (status line and
+    transcripts); they go to the chat history only, never to the model. The new sources go in the notes. Every run
+    stands for itself. Parts never send: the Horarium delivers. An exception outside the parts (the notes) fails the
+    run; a failing part is in the result."""
     from . import job_notes, message_processor
-    from .bubble import BubbleArtifact, render_bubble
+    from .bubble import render_bubble
     from .debug_bus import debug, session_scope
     from .plan_engine import PlanResult, coverage_line, render_results, run_plan
     from .plugin_base import PluginContext
@@ -723,7 +728,13 @@ async def _run_plan_parts(job: Job, plan: TaskPlan, channel_id: str, metadata: d
     # The parts only gather; sending is the Horarium's delivery.
     allowed_tiers = frozenset(tier for tier, _label, _description in TIER_I18N_KEYS
                               if tier <= job.max_tier and tier != TIER_COMMUNICATE)
-    artifacts: list[BubbleArtifact] = []
+
+    def post(text: str, artifacts: list[BubbleArtifact]) -> None:
+        message_processor.record_chat_only_bubble(session_id, "scheduler", job.name, render_bubble(text, artifacts))
+
+    head, parts_block = _plan_started_bubble(job.name, plan, lang)
+    post(head, [BubbleArtifact(KIND_COLLAPSIBLE, parts_block, offset=len(head))])
+    parts_done = 0
     result: PlanResult | None = None
     with session_scope(session_id):
         async for event in run_plan(
@@ -732,16 +743,15 @@ async def _run_plan_parts(job: Job, plan: TaskPlan, channel_id: str, metadata: d
         ):
             if "progress" in event:
                 debug(event["progress"])
-            elif "artifacts" in event:
-                artifacts += [BubbleArtifact.from_dict(raw) for raw in event["artifacts"]]
+            elif "part_done" in event:
+                done: PartDone = event["part_done"]
+                parts_done += 1
+                post("", _part_bubble_artifacts(done, parts_done, len(plan.parts), lang))
             elif "plan_result" in event:
                 result = event["plan_result"]
     if result is None:
         raise RuntimeError(f"Plan of job '{job.name}' ended without a result")
 
-    if artifacts:
-        title = load_prompt("scheduler/plan_transcripts_title", lang=lang).strip()
-        message_processor.record_chat_only_bubble(session_id, "scheduler", job.name, render_bubble(title, artifacts))
     now = datetime.now()
     if keeps_notes and result.new_sources:
         _append_new_sources(file_manager.DOCUMENTS_DIR / notes_file, result.new_sources, now, lang)
@@ -749,6 +759,63 @@ async def _run_plan_parts(job: Job, plan: TaskPlan, channel_id: str, metadata: d
         prompt_block=load_prompt("scheduler/plan_results", lang=lang, results=render_results(result, lang)).strip(),
         coverage=coverage_line(result, lang),
     )
+
+
+def _plan_started_bubble(job_name: str, plan: TaskPlan, lang: str) -> tuple[str, dict[str, Any]]:
+    """The first bubble of a plan run: one line (job, number of parts) and a collapsed block with every part and its
+    positions (the data of a collapsible artifact)."""
+    from .formatting import format_number
+    from .prompt_loader import load_prompt
+
+    head = load_prompt("scheduler/plan_started_head", lang=lang, name=job_name,
+                       count=format_number(len(plan.parts), locale=lang)).strip()
+    part_lines = [
+        load_prompt("scheduler/plan_started_part", lang=lang, title=part.title,
+                    positions=", ".join(position.name for position in part.positions)).strip()
+        for part in plan.parts
+    ]
+    block = {"title": load_prompt("scheduler/plan_started_parts_title", lang=lang).strip(), "content": "\n".join(part_lines)}
+    return head, block
+
+
+def _part_title(done: PartDone, index: int, count: int, lang: str) -> str:
+    """The title line of a part's block, visible when it is collapsed: which part, how many positions it recorded, how
+    long it took, or why it failed."""
+    from .formatting import format_duration_s, format_number
+    from .prompt_loader import load_prompt
+
+    outcome, part = done.outcome, done.outcome.part
+    shown = {
+        "index": format_number(index, locale=lang), "count": format_number(count, locale=lang), "title": part.title,
+        "duration": format_duration_s(done.seconds, decimals=0),
+    }
+    if outcome.failure is not None:
+        return load_prompt("scheduler/plan_part_failed", lang=lang, reason=" ".join(outcome.failure.split()), **shown).strip()
+    title = load_prompt(
+        "scheduler/plan_part_status", lang=lang,
+        checked=format_number(len(part.positions) - len(outcome.not_checked), locale=lang),
+        total=format_number(len(part.positions), locale=lang),
+        entries=format_number(len(outcome.records.entries), locale=lang), **shown,
+    ).strip()
+    if outcome.not_checked:
+        names = {position.id: position.name for position in part.positions}
+        title += load_prompt("scheduler/plan_part_missing", lang=lang,
+                             positions=", ".join(names[position_id] for position_id in outcome.not_checked)).strip()
+    return title
+
+
+def _part_bubble_artifacts(done: PartDone, index: int, count: int, lang: str) -> list[BubbleArtifact]:
+    """The one block of a part's bubble: the status as its title, the part's transcripts (every collapsible the
+    sub-agents made, one under the other) as its content. What is no transcript (pages, images) follows as it is:
+    a collapsible cannot hold it."""
+    artifacts = [BubbleArtifact.from_dict(raw) for raw in done.artifacts]
+    transcripts = [artifact.data for artifact in artifacts if artifact.kind == KIND_COLLAPSIBLE]
+    content = "\n\n".join(
+        "\n".join(filter(None, [f"=== {data['title']} ===", data["content"], f"( {data['footer']} )" if data.get("footer") else ""]))
+        for data in transcripts
+    )
+    block = BubbleArtifact(KIND_COLLAPSIBLE, {"title": _part_title(done, index, count, lang), "content": content})
+    return [block, *(artifact for artifact in artifacts if artifact.kind != KIND_COLLAPSIBLE)]
 
 
 def _append_new_sources(notes_path: Path, sources: set[str], when: datetime, lang: str) -> None:

@@ -1,0 +1,1 @@
+Teil {index}/{count} · {title}: {checked} von {total} Positionen, {entries} Einträge, {duration}

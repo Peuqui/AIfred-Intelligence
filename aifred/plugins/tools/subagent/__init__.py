@@ -305,7 +305,7 @@ async def run_task_plan(
         if "plan_result" in event:
             result = event["plan_result"]
             yield {"result": f"{render_results(result, ctx.lang)}\n\n{coverage_line(result, ctx.lang)}"}
-        else:
+        elif "part_done" not in event:   # the tool's bubble gets the artifacts passed on as they come
             yield event
 
 
