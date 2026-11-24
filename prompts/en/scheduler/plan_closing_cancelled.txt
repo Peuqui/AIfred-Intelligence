@@ -1,0 +1,4 @@
+The run was stopped after the parts: the closing step is missing and nothing was delivered. Below are the results of the parts. You can carry on in this session.
+
+RESULT OF THE PARTS:
+{results}

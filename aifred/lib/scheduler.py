@@ -688,6 +688,7 @@ async def _run_job(job: Job, store: JobStore, session_id: str, channel_id: str, 
     """The parts (if any), the closing turn and the delivery of one run, in the session's pipeline."""
     from datetime import datetime
 
+    from . import message_processor
     from .envelope import InboundMessage
     from .message_processor import process_inbound
 
@@ -705,22 +706,54 @@ async def _run_job(job: Job, store: JobStore, session_id: str, channel_id: str, 
         task=True,
     )
 
-    outbound = await process_inbound(msg)
-
-    if outbound is None or not outbound.text:
-        raise RuntimeError(f"Engine returned no response for job '{job.name}'")
-
-    outbound_session_id = outbound.metadata.get("session_id", "")
-    if not outbound_session_id:
-        raise RuntimeError(f"process_inbound returned no session_id for job '{job.name}'")
+    try:
+        outbound = await process_inbound(msg)
+        if outbound is None or not outbound.text:
+            raise RuntimeError(f"Engine returned no response for job '{job.name}'")
+        outbound_session_id = outbound.metadata.get("session_id", "")
+        if not outbound_session_id:
+            raise RuntimeError(f"process_inbound returned no session_id for job '{job.name}'")
+    except Exception as exc:
+        # The parts are done and cost their time: what they found is not lost with the closing turn.
+        if plan_run is not None:
+            await _deliver_unclosed_plan(job, store, plan_run, channel_id, session_id, str(exc))
+        raise
+    except asyncio.CancelledError:
+        if plan_run is not None:
+            _record_plan_results(plan_run, channel_id, job.name, "plan_closing_cancelled")
+        raise
 
     # What goes out is what the model wrote after its last tool call, without thinking — the same text
     # every channel reply gets (PipelineResult.text_clean; 20.10.2026: a message written before the tools
     # and once more after them went out twice). The job prompt asks for the tools first, then the message once.
-    # The coverage line of a plan is appended by the code, not written by the model.
+    # The coverage line of a plan is appended by the code, not written by the model; the session shows it too.
     text = f"{outbound.text}\n\n{plan_run.coverage}" if plan_run else outbound.text
+    if plan_run:
+        message_processor.record_chat_only_bubble(session_id, "scheduler", job.name, plan_run.coverage)
     store.add_run(job.job_id, outbound_session_id, text)
     await _deliver_result(job, text, outbound_session_id)
+
+
+def _record_plan_results(plan_run: _PlanRun, channel_id: str, job_name: str, prompt: str, **values: str) -> str:
+    """The results of the parts with a notice (prompt ``scheduler/<prompt>``) as a message in the job's session that the
+    model sees in its history: the user can go on there. Returns the text."""
+    from .message_processor import record_autonomous_turn
+    from .prompt_loader import load_prompt
+
+    text = load_prompt(f"scheduler/{prompt}", lang=plan_run.lang, results=plan_run.results, **values).strip()
+    record_autonomous_turn("scheduler", channel_id, job_name, text)
+    return text
+
+
+async def _deliver_unclosed_plan(
+    job: Job, store: JobStore, plan_run: _PlanRun, channel_id: str, session_id: str, reason: str,
+) -> None:
+    """The closing turn of a plan failed: the run still delivers what the parts found, with the notice and the coverage line
+    (and the session shows it). The run stays failed (the caller re-raises): the closing step is missing."""
+    text = _record_plan_results(plan_run, channel_id, job.name, "plan_closing_failed", reason=reason)
+    text = f"{text}\n\n{plan_run.coverage}"
+    store.add_run(job.job_id, session_id, text)
+    await _deliver_result(job, text, session_id)
 
 
 @dataclass
@@ -728,7 +761,9 @@ class _PlanRun:
     """What the parts of a plan job leave for the closing turn and the message."""
 
     prompt_block: str   # results for the closing prompt
+    results: str        # the rendered results alone (for a run that is not closed)
     coverage: str       # the fixed line appended to the message
+    lang: str
 
 
 def _ui_language() -> str:
@@ -788,9 +823,10 @@ async def _run_plan_parts(job: Job, plan: TaskPlan, session_id: str, metadata: d
     now = datetime.now()
     if keeps_notes and result.new_sources:
         _append_new_sources(file_manager.DOCUMENTS_DIR / notes_file, result.new_sources, now, lang)
+    results = render_results(result, lang)
     return _PlanRun(
-        prompt_block=load_prompt("scheduler/plan_results", lang=lang, results=render_results(result, lang)).strip(),
-        coverage=coverage_line(result, lang),
+        prompt_block=load_prompt("scheduler/plan_results", lang=lang, results=results).strip(),
+        results=results, coverage=coverage_line(result, lang), lang=lang,
     )
 
 

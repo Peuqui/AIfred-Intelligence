@@ -123,11 +123,12 @@ def test_the_run_goes_session_parts_bubble_closing_and_delivers_with_the_coverag
     job = _job()
     asyncio.run(sched._execute_job(job))
 
-    assert run.order == ["session", "bubble", "parts", "done:t1", "bubble", "closing"]
+    assert run.order == ["session", "bubble", "parts", "done:t1", "bubble", "closing", "bubble"]   # the last: the coverage line
     assert run.seen["route"][0] == "scheduler"
     assert run.seen["msg"].channel_id == run.seen["route"][1]
     # a start bubble and the part's bubble, in the session of the route; the transcripts sit in the part's bubble
-    assert [(session_id, channel) for session_id, channel, _title, _content in run.bubbles] == [(SESSION_ID, "scheduler")] * 2
+    assert [(session_id, channel) for session_id, channel, _title, _content in run.bubbles] == [(SESSION_ID, "scheduler")] * 3
+    assert run.bubbles[2][3] == "1 von 2 Positionen geprüft\nNicht geprüft: Teil 1 / Magazin"
     assert "Protokoll Teil 1" in run.bubbles[1][3]
     # the closing prompt: the job prompt and the results
     prompt = run.seen["msg"].text
@@ -214,8 +215,8 @@ def test_the_start_bubble_names_every_part_with_its_positions_and_every_part_get
     run.scenarios = {"t1": "full", "t2": "fail", "t3": "gap"}
     asyncio.run(sched._execute_job(_job(**_three_parts())))
 
-    assert run.order == ["session", "bubble", "parts", "done:t1", "bubble", "done:t2", "bubble", "done:t3", "bubble", "closing"]
-    started, first, second, third = (content for *_rest, content in run.bubbles)
+    assert run.order == ["session", "bubble", "parts", "done:t1", "bubble", "done:t2", "bubble", "done:t3", "bubble", "closing", "bubble"]
+    started, first, second, third, _coverage = (content for *_rest, content in run.bubbles)
     # the start bubble: one line, the parts and their positions in a collapsed block
     assert started.startswith("Job „Preise“ gestartet: 3 Teilaufträge\n\n<details")
     assert _summary(started) == "Teile und Positionen"
@@ -271,7 +272,7 @@ def test_the_bubbles_stand_in_the_history_before_the_closing_request_and_the_mod
     assert llm_at_closing == []
     # every bubble reached the open tabs of the session at once, as the turn service's bubbles do
     added = [(session, data["entry"]["content"]) for session, kind, data in published if kind == "message_added"]
-    assert [content for _session, content in added] == contents
+    assert [content for _session, content in added][:-1] == contents   # the last: the coverage line, after the closing turn
     assert {session for session, _content in added} == {session_for_channel("scheduler", channel_ids[0])}
 
 
@@ -347,3 +348,85 @@ def test_a_stop_during_the_parts_ends_the_run_marks_it_failed_starts_the_waiting
     assert started == ["Hallo"]
     assert not pipeline_registry.is_pipeline_running(SESSION_ID)
     assert sched._running_job_ids == {}
+
+
+def _real_session(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The real session store instead of the bubble double: what stands in the session is read back from it."""
+    monkeypatch.setattr("aifred.lib.message_processor.record_chat_only_bubble", record_chat_only_bubble)
+    monkeypatch.setattr("aifred.lib.message_processor.session_for_channel", session_for_channel)
+    monkeypatch.setattr("aifred.lib.session_events.publish", lambda *args, **kwargs: None)
+
+
+def _session_of(job_run_session: str) -> dict[str, Any]:
+    data: dict[str, Any] = (load_session(job_run_session) or {})["data"]
+    return data
+
+
+def _routed_session(run: Run) -> str:
+    return session_for_channel("scheduler", run.seen["msg"].channel_id)
+
+
+COVERAGE = "1 von 2 Positionen geprüft\nNicht geprüft: Teil 1 / Magazin"
+
+
+def test_the_coverage_line_stands_in_the_session_as_a_bubble_the_model_does_not_see(monkeypatch) -> None:
+    run = Run(monkeypatch, record_bubbles=False)
+    _real_session(run, monkeypatch)
+    asyncio.run(sched._execute_job(_job()))
+    data = _session_of(_routed_session(run))
+    assert data["chat_history"][-1]["content"] == COVERAGE
+    assert data.get("llm_history", []) == []
+
+
+@pytest.mark.parametrize("closing", ["raises", "empty"])
+def test_a_failed_closing_delivers_notice_results_and_coverage_and_the_model_sees_them(monkeypatch, closing) -> None:
+    run = Run(monkeypatch, record_bubbles=False)
+    _real_session(run, monkeypatch)
+
+    async def failing(msg: Any) -> Any:
+        run.seen["msg"] = msg
+        if closing == "raises":
+            raise ValueError("Modell weg")
+        return SimpleNamespace(text="", metadata={"session_id": SESSION_ID})
+
+    monkeypatch.setattr("aifred.lib.message_processor.process_inbound", failing)
+    job = _job()
+
+    async def scenario() -> None:
+        sched.claim_job(job.job_id)
+        await sched._run_due_job(sched.get_job_store(), job)
+
+    asyncio.run(scenario())
+
+    [(text, session_id)] = run.delivered
+    assert session_id == _routed_session(run)
+    assert "Abschluss" in text and "ok, billig" in text and text.endswith(COVERAGE)
+    assert ("Modell weg" in text) == (closing == "raises") and ("Engine returned no response" in text) == (closing == "empty")
+    assert [stored for _, stored in sched.get_job_store().recent_runs(job.job_id, 5)] == [text]
+    llm = _session_of(session_id)["llm_history"]
+    assert len(llm) == 1 and "ok, billig" in llm[0]["content"] and "Abschluss" in llm[0]["content"]
+    failed = sched.get_job_store().get(job.job_id)
+    assert failed is not None and failed.retry_count == 1
+
+
+def test_a_stop_after_the_parts_writes_the_results_to_the_session_without_delivery_or_run_entry(monkeypatch) -> None:
+    run = Run(monkeypatch, record_bubbles=False)
+    _real_session(run, monkeypatch)
+
+    async def stopped(msg: Any) -> Any:
+        run.seen["msg"] = msg
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr("aifred.lib.message_processor.process_inbound", stopped)
+    job = _job()
+
+    async def scenario() -> None:
+        sched.claim_job(job.job_id)
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.ensure_future(sched._run_due_job(sched.get_job_store(), job))
+
+    asyncio.run(scenario())
+    assert run.delivered == []
+    assert sched.get_job_store().recent_runs(job.job_id, 5) == []
+    llm = _session_of(_routed_session(run))["llm_history"]
+    assert len(llm) == 1 and "ok, billig" in llm[0]["content"] and "abgebrochen" in llm[0]["content"]

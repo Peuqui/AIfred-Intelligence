@@ -1,0 +1,4 @@
+Der Abschluss dieses Jobs ist gescheitert: {reason}. Unten stehen die Ergebnisse der Teilaufträge, die fertig waren. Du kannst in dieser Sitzung weiterarbeiten, zum Beispiel den Bericht aus diesen Ergebnissen nachholen.
+
+ERGEBNIS DER TEILE:
+{results}
