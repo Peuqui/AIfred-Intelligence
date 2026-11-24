@@ -100,6 +100,16 @@ class TestRejections:
     def test_a_number_column_takes_only_a_number(self, setup: Setup, value: Any) -> None:
         assert "preis" in setup.error(position_id="p1", status="nicht_gefunden", befund="x", preis=value)
 
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+    def test_a_number_column_takes_only_a_finite_number(self, setup: Setup, value: float) -> None:
+        error = setup.error(position_id="p1", status="nicht_gefunden", befund="x", preis=value)
+        assert "preis" in error and "endlich" in error
+        assert setup.records.entries == []
+
+    def test_a_non_finite_number_is_rejected_in_english(self) -> None:
+        english = Setup("en")
+        assert "finite" in english.error(position_id="p1", status="nicht_gefunden", befund="x", preis=float("nan"))
+
     @pytest.mark.parametrize("column", ["seite", "notiz"])
     def test_a_text_column_takes_text(self, setup: Setup, column: str) -> None:
         assert column in setup.error(position_id="p1", status="nicht_gefunden", befund="x", **{column: 5})
@@ -172,6 +182,17 @@ class TestAcceptance:
         setup.call(position_id="p1", status="gefunden", befund="A", quelle="https://a.test/x", preis=10)
         setup.call(position_id="p1", status="gefunden", befund="B", quelle="https://b.test/y", preis=12)
         assert [entry.values["preis"] for entry in setup.records.entries] == [10, 12]
+
+    def test_an_identical_call_is_not_recorded_twice(self, setup: Setup) -> None:
+        first = setup.call(position_id="p1", status="nicht_gefunden", befund="x", preis=10)
+        again = setup.call(position_id="p1", status="nicht_gefunden", befund="x", preis=10)
+        assert again == first
+        assert len(setup.records.entries) == 1
+
+    def test_a_differing_call_for_the_same_position_is_recorded(self, setup: Setup) -> None:
+        setup.call(position_id="p1", status="nicht_gefunden", befund="x", preis=10)
+        setup.call(position_id="p1", status="nicht_gefunden", befund="x", preis=11)
+        assert len(setup.records.entries) == 2
 
     def test_new_sources_are_collected_once(self, setup: Setup) -> None:
         setup.call(position_id="p1", status="nicht_gefunden", befund="x", neue_quellen=["https://n.test", "https://m.test"])

@@ -137,11 +137,20 @@ class HorariumPlugin:
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         from ....lib.logging_utils import log_message
-        from ....lib.tool_args import InvalidValue, parse_bool
+        from ....lib.tool_args import InvalidValue, parse_bool, parse_id
+
+        def checked_job_id(raw: Any) -> int | str:
+            """The job id of a tool call as a whole number (the model may send "41"), or the error JSON for the model:
+            one parse for every tool that takes a job id, so the lock below compares like with like (the run's metadata
+            carry the id as int, scheduler._execute_job)."""
+            try:
+                return parse_id(raw, "job_id")
+            except InvalidValue as exc:
+                return json.dumps({"error": str(exc)})
 
         def own_job(job_id: int) -> bool:
             """Whether this call comes from the run of the job itself: a run proposes changes to its own job in the
-            report, the owner approves them in the chat. The run's metadata carry its job (scheduler._execute_job)."""
+            report, the owner approves them in the chat."""
             return ctx.source == "scheduler" and ctx.metadata.get("job_id") == job_id
 
         async def _create(
@@ -250,7 +259,7 @@ class HorariumPlugin:
             })
 
         async def _update(
-            job_id: int,
+            job_id: Any,
             name: str = "",
             schedule_type: str = "",
             schedule_expr: str = "",
@@ -274,6 +283,9 @@ class HorariumPlugin:
             """Change a scheduled job in place; empty arguments stay unchanged (end_date: "" removes the end)."""
             from ....lib.scheduler import get_job_store
 
+            job_id = checked_job_id(job_id)
+            if isinstance(job_id, str):
+                return job_id
             if own_job(job_id):
                 return json.dumps({"error": str(Invalid("own_job_locked"))})
             store = get_job_store()
@@ -336,10 +348,13 @@ class HorariumPlugin:
                 "delivery": updated.payload.get("delivery", "review"),
             })
 
-        async def _delete(job_id: int) -> str:
+        async def _delete(job_id: Any) -> str:
             """Delete a scheduled job with its folder in the workspace."""
             from ....lib.scheduler import delete_job, get_job_store
 
+            job_id = checked_job_id(job_id)
+            if isinstance(job_id, str):
+                return job_id
             if own_job(job_id):
                 return json.dumps({"error": str(Invalid("own_job_locked"))})
             store = get_job_store()

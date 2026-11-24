@@ -614,6 +614,20 @@ class TestOwnJobLock:
         assert _call(tools["horarium_update"], job_id=own, name="anders")["success"] is True
         assert _call(tools["horarium_delete"], job_id=other)["success"] is True
 
+    @pytest.mark.parametrize("tool_name", ["horarium_update", "horarium_delete"])
+    def test_the_own_job_stays_locked_when_the_id_arrives_as_text(self, plugin, ctx, tool_name):
+        own, _other = self._two_jobs(plugin, ctx)
+        data = _call(_tools_of(plugin, self._ctx("scheduler", own))[tool_name], job_id=str(own))
+        assert data == {"error": t("error_own_job_locked", lang="en")}
+        assert get_job_store().get(own) is not None
+
+    @pytest.mark.parametrize("tool_name", ["horarium_update", "horarium_delete"])
+    @pytest.mark.parametrize("bad", ["abc", "4.5", True, None, [1]])
+    def test_an_id_that_is_no_whole_number_is_a_tool_error(self, plugin, ctx, tool_name, bad):
+        own, _other = self._two_jobs(plugin, ctx)
+        data = _call(_tools_of(plugin, self._ctx("scheduler", own))[tool_name], job_id=bad)
+        assert "job_id" in data["error"] and get_job_store().get(own) is not None
+
     def test_a_scheduler_context_without_job_id_locks_nothing(self, plugin, ctx):
         own, _other = self._two_jobs(plugin, ctx)
         tools = _tools_of(plugin, self._ctx("scheduler", None))

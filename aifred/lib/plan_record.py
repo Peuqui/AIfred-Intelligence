@@ -10,6 +10,7 @@ reading tools report (``ToolKit.read_urls``), the tool compares the normalized s
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -107,6 +108,8 @@ def make_record_tool(
             if isinstance(value, bool) or not isinstance(value, int | float):
                 key = "number_text" if isinstance(value, str) else "type"
                 return reject(key, column=column, value=json.dumps(value, ensure_ascii=False), expected=_NUMBER_TYPE)
+            if not math.isfinite(value):
+                return reject("not_finite", column=column, value=json.dumps(value))
         elif not isinstance(value, str):
             return reject("type", column=column, value=json.dumps(value, ensure_ascii=False),
                           expected=column_types[column])
@@ -148,7 +151,10 @@ def make_record_tool(
         given = {name: value for name, value in columns.items() if value is not None}
         if (problem := entry_problem(position_id, status, befund, quelle, given)) is not None:
             return problem
-        collector.entries.append(PlanEntry(position_id, status, befund, quelle, given))
+        entry = PlanEntry(position_id, status, befund, quelle, given)
+        # A repeated call (same position, same fields) is the same finding: stored once, confirmed as the first time.
+        if entry not in collector.entries:
+            collector.entries.append(entry)
         collector.new_sources.update(new_sources)
         still_open = collector.open_positions(part)
         if still_open:
