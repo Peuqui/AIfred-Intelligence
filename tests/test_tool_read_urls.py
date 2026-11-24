@@ -106,3 +106,37 @@ def test_a_search_without_pages_reports_nothing(monkeypatch: pytest.MonkeyPatch)
     toolkit = ToolKit(tools=[_tool("web_search")], _source="browser")
     _events(toolkit, "web_search", {"queries": ["Preis"]})
     assert toolkit.read_urls == set()
+
+
+def test_a_slow_fetch_does_not_stop_the_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """web_fetch scrapes in a thread: in the hub thread the loop also carries the pucks' WebSockets, which a slow page
+    (trafilatura, then Playwright) dropped while the loop stood still (24.11.2026)."""
+    import time
+    from itertools import pairwise
+
+    def slow_scrape(_url: str) -> dict[str, Any]:
+        time.sleep(0.3)
+        return {"success": True, "content": "Seite", "word_count": 1}
+
+    monkeypatch.setattr(registry, "scrape_webpage", slow_scrape)
+    monkeypatch.setattr("aifred.lib.security.validate_external_url", lambda url: None)
+    fetch = next(tool for tool in get_research_tools() if tool.name == "web_fetch")
+    ticks: list[float] = []
+
+    async def heartbeat() -> None:
+        for _ in range(5):
+            ticks.append(time.monotonic())
+            await asyncio.sleep(0.05)
+
+    async def run() -> None:
+        async def drain() -> None:
+            async for _event in fetch.executor(url="https://shop.test/langsam"):
+                pass
+        beat = asyncio.create_task(heartbeat())
+        await asyncio.sleep(0.01)   # the heartbeat runs before the fetch starts
+        await drain()
+        await beat
+
+    asyncio.run(run())
+    # Five ticks 50 ms apart while the fetch sleeps 300 ms: no gap near the fetch's length.
+    assert max(b - a for a, b in pairwise(ticks)) < 0.2
