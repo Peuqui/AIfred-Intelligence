@@ -1,0 +1,1 @@
+Eintrag abgelehnt: Position „{position_id}“ gibt es in diesem Teil nicht. Erlaubt: {allowed}.

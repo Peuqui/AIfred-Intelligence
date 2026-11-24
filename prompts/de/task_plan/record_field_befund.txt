@@ -1,0 +1,1 @@
+Kurzer Befund in einem bis drei Sätzen. Bei nicht_gefunden und fehler der Grund (Pflicht).

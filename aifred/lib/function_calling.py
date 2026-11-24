@@ -23,6 +23,8 @@ from collections.abc import AsyncGenerator, Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from .tools.url_utils import normalize_url
+
 logger = logging.getLogger(__name__)
 
 def _error_of(result: str) -> str | None:
@@ -115,6 +117,8 @@ class ToolKit:
     _source: str = ""       # Audit context (browser/email/discord/…)
     _max_tier: int = 4      # Resolved max tier for this context
     _call_count: int = 0    # Chain depth counter (resets per LLM request)
+    # Addresses the tools of this toolkit reported as read (``{"read": [...]}``), normalized (tools.url_utils).
+    read_urls: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         self._by_name: dict[str, Tool] = {t.name: t for t in self.tools}
@@ -212,7 +216,9 @@ class ToolKit:
         - async generator → must yield ``{"progress": "..."}`` for interim
           updates, may yield ``{"artifacts": [{"kind", "data"}, ...]}`` for
           the caller's bubble, may yield ``{"work": {...}}`` for inference it
-          ran, may yield ``{"note": "..."}`` for the result text of the llm_history, and exactly
+          ran, may yield ``{"note": "..."}`` for the result text of the llm_history, may yield
+          ``{"read": ["url", ...]}`` for the pages it really read (collected in ``read_urls``, never a result,
+          nothing is emitted for it), and exactly
           one ``{"result": "..."}`` for the final payload (string). Anything
           else yielded is treated as a fallback plain-string result.
         """
@@ -315,6 +321,8 @@ class ToolKit:
                         yield {"type": "tool_work", "work": dict(item["work"])}
                     elif isinstance(item, dict) and "note" in item:
                         yield {"type": "tool_note", "note": str(item["note"])}
+                    elif isinstance(item, dict) and "read" in item:
+                        self.read_urls.update(normalize_url(url) for url in item["read"])
                     elif isinstance(item, dict) and "result" in item:
                         result_str = (
                             json.dumps(item["result"])

@@ -58,12 +58,13 @@ def get_research_tools(
             return
 
         queries = queries[:3]
-        result, source_count = await run_web_search(queries, _llm_history)
+        result, source_count, read_urls = await run_web_search(queries, _llm_history)
         shown.update(_URL_RE.findall(result or ""))
         if result:
             from ....lib.security import wrap_untrusted_data
             result = wrap_untrusted_data(result, "web_research")
         yield {"note": research_result_text(source_count, lang)}
+        yield {"read": read_urls}
         yield {"result": result}
 
     async def _execute_web_fetch(url: str) -> AsyncGenerator[dict[str, Any], None]:
@@ -105,6 +106,7 @@ def get_research_tools(
             log_message(f"✅ web_fetch: {word_count} words from {url}")
             from ....lib.security import wrap_untrusted_data
             yield {"note": load_prompt("shared/web_fetch_result", lang=lang)}
+            yield {"read": [url]}
             yield {"result": wrap_untrusted_data(f"# Content from {url}\n\n{content}", url)}
         else:
             error = result.get("error", "Failed to fetch URL")

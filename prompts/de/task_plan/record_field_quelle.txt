@@ -1,0 +1,1 @@
+Adresse der Seite, von der der Wert stammt. Bei „gefunden“ Pflicht und nur eine Adresse, die du in diesem Lauf abgerufen hast.

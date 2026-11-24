@@ -4,6 +4,7 @@ URL Utilities - Normalization and Deduplication
 Extracted from agent_tools.py for better modularity.
 """
 
+import re
 from urllib.parse import urlparse
 
 from ..config import DATA_DIR, DEBUG_LOG_RAW_MESSAGES
@@ -118,41 +119,37 @@ def filter_non_scrapable_urls(
 # URL DEDUPLICATION UTILITIES
 # ============================================================
 
+# Reading proxy whose prefix is no part of the page's identity.
+_READER_PROXY_PREFIX = re.compile(r"^https?://r\.jina\.ai/", re.IGNORECASE)
+
+
 def normalize_url(url: str) -> str:
     """
-    Normalize URL for deduplication
+    Normalize URL for deduplication and for comparing read addresses
 
     Handles:
-    - www. vs non-www
+    - reader proxy prefix (https://r.jina.ai/<address>): the embedded address counts
     - http vs https
+    - host case and a leading www.
     - Trailing slashes
     - URL fragments (#)
-    - Query parameters (?) [optional - currently NOT removed!]
+    - Query parameters stay (can be important, e.g., ?id=123)
 
     Args:
         url: URL to normalize
 
     Returns:
-        Normalized URL
+        Normalized URL (without scheme)
     """
     try:
-        parsed = urlparse(url.lower().strip())
-
-        # Normalize domain (remove www.)
-        domain = parsed.netloc.replace('www.', '')
-
-        # Normalize path (remove trailing slash)
-        path = parsed.path.rstrip('/')
-
-        # Keep query params (can be important, e.g., ?id=123)
-        # Ignore fragments (# anchors)
-        query = parsed.query
-
-        # Build normalized URL
-        normalized = f"{domain}{path}"
-        if query:
-            normalized += f"?{query}"
-
+        address = _READER_PROXY_PREFIX.sub("", url.strip())
+        if "://" not in address:
+            address = f"https://{address}"
+        parsed = urlparse(address)
+        host = parsed.netloc.lower().removeprefix("www.")
+        normalized = f"{host}{parsed.path.rstrip('/')}"
+        if parsed.query:
+            normalized += f"?{parsed.query}"
         return normalized
 
     except ValueError as e:

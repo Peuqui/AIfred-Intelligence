@@ -1,0 +1,1 @@
+Eintrag abgelehnt: unbekannte Felder: {field}. Spalten dieses Plans: {allowed}.

@@ -1,0 +1,1 @@
+Spalte {name}: eine Zahl (JSON-Zahl mit Punkt als Dezimalzeichen, z. B. 48.5, kein Text, keine Einheit).

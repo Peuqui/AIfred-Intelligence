@@ -1,0 +1,3 @@
+Records the result for one position of the part "{part_title}". Call the tool for every position; several entries per position are allowed (e.g. several shops). Positions:
+{positions}
+Something relevant that is not in the list goes under the position "{extra_position_id}". Status "gefunden" needs a source address you fetched in this run; without a fetch the entry is rejected. If you find nothing or the fetch fails, record "nicht_gefunden" or "fehler" with the reason in the finding.

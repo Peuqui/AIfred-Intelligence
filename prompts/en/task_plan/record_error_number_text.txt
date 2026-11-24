@@ -1,0 +1,1 @@
+Entry rejected: field {column} is a number column, you sent text ({value}). Send a JSON number with a dot as decimal separator, e.g. 48.5, without quotes and without a unit.
