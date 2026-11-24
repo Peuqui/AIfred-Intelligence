@@ -120,6 +120,7 @@ def test_a_job_with_a_plan_keeps_it_when_saved_again_and_changes_it(client: Test
 
 @pytest.mark.parametrize(("change", "key", "values"), [
     ({"parts": [{**PLAN["parts"][0], "positions": []}]}, "plan_part_without_positions", {"part": "hpa"}),
+    ({"parts": []}, "plan_no_parts", {}),
     ({"columns": [{"name": "preis", "type": "datum"}]}, "plan_unknown_column_type", {"column": "preis", "value": "datum", "allowed": "text, zahl, link"}),
 ])
 def test_an_invalid_plan_is_refused_with_its_reason(client: TestClient, store: scheduler.JobStore, change: dict[str, Any], key: str, values: dict[str, Any]) -> None:

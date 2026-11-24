@@ -786,8 +786,8 @@ async def _run_plan_parts(job: Job, plan: TaskPlan, session_id: str, metadata: d
     from .security import TIER_COMMUNICATE, TIER_I18N_KEYS, resolve_trust_label
 
     lang = _ui_language()
-    _folder, notes_file = job_notes.sync(job.job_id, job.name)
     keeps_notes = _keeps_notes(job)
+    notes_file = job_notes.sync(job.job_id, job.name)[1] if keeps_notes else ""
     ctx = PluginContext(
         agent_id=job.agent, lang=lang, session_id=session_id, user_query=job.payload.get("message", ""),
         max_tier=job.max_tier, source="scheduler", trust=resolve_trust_label("scheduler", job.name, metadata),
@@ -822,7 +822,7 @@ async def _run_plan_parts(job: Job, plan: TaskPlan, session_id: str, metadata: d
 
     now = datetime.now()
     if keeps_notes and result.new_sources:
-        _append_new_sources(file_manager.DOCUMENTS_DIR / notes_file, result.new_sources, now, lang)
+        _append_new_sources(notes_file, result.new_sources, now, lang)
     results = render_results(result, lang)
     return _PlanRun(
         prompt_block=load_prompt("scheduler/plan_results", lang=lang, results=results).strip(),
@@ -887,14 +887,31 @@ def _part_bubble_artifacts(done: PartDone, index: int, count: int, lang: str) ->
     return [block, *(artifact for artifact in artifacts if artifact.kind != KIND_COLLAPSIBLE)]
 
 
-def _append_new_sources(notes_path: Path, sources: set[str], when: datetime, lang: str) -> None:
-    """The sources the parts found beyond the given ones, as a section at the end of the job's notes."""
+def _append_new_sources(notes_file: str, sources: set[str], when: datetime, lang: str) -> None:
+    """The sources the parts found beyond the given ones, as a section at the end of the job's notes: only those the
+    notes do not name yet, and only to notes that exist. The notes of a job without them are made by the model at the end
+    of its run (prompt ``scheduler/notes_new``, chosen by ``job_notes.has_notes``); a file made here would turn that
+    into "notes exist" for a file holding nothing but addresses."""
+    from . import job_notes
+    from .plan_record import web_addresses_in
     from .prompt_loader import load_prompt
+    from .tools.url_utils import normalize_url
 
+    if not job_notes.has_notes(notes_file):
+        return
+    read = file_manager.read_file(notes_file)
+    if not read.success:
+        raise read.problem or RuntimeError(read.detail)
+    notes = read.metadata["content"]
+    known = {normalize_url(address) for address in web_addresses_in(notes)}
+    new = sorted({source for source in sources if normalize_url(source) not in known}, key=normalize_url)
+    if not new:
+        return
     heading = load_prompt("scheduler/plan_new_sources_heading", lang=lang, when=when.strftime("%Y-%m-%d %H:%M")).strip()
-    section = "\n".join([heading, *(f"- {source}" for source in sorted(sources))])
-    with notes_path.open("a", encoding="utf-8") as handle:
-        handle.write(f"\n\n{section}\n")
+    section = "\n".join([heading, *(f"- {source}" for source in new)])
+    written = file_manager.write_file(notes_file, f"{notes.rstrip()}\n\n{section}\n")
+    if not written.success:
+        raise written.problem or RuntimeError(written.detail)
 
 
 def build_job_prompt(job: Job, store: JobStore, plan_block: str = "") -> str:

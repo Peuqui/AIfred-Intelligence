@@ -14,6 +14,7 @@ import pytest
 import aifred.lib.scheduler as sched
 from aifred.lib import file_manager, job_notes, pipeline_registry, session_storage, turn_service
 from aifred.lib.agent_config import AgentConfig
+from aifred.lib.config import SCHEDULER_JOBS_FOLDER
 from aifred.lib.message_processor import record_chat_only_bubble, session_for_channel
 from aifred.lib.plan_engine import PartDone, PartOutcome, PlanResult
 from aifred.lib.plan_record import PartRecords, PlanEntry
@@ -161,19 +162,57 @@ def test_the_allowed_tiers_stay_within_the_job_without_communicate(monkeypatch, 
     assert run.seen["allowed_tiers"] == frozenset(expected)
 
 
-def test_new_sources_land_in_the_notes_and_the_next_run_starts_without_history(monkeypatch) -> None:
+def _notes_of(job: sched.Job) -> str:
+    _, notes_file = job_notes.sync(job.job_id, job.name)
+    return (file_manager.DOCUMENTS_DIR / notes_file).read_text(encoding="utf-8")
+
+
+def _write_notes(job: sched.Job, text: str) -> None:
+    _, notes_file = job_notes.sync(job.job_id, job.name)
+    assert file_manager.write_file(notes_file, text).success
+
+
+def test_new_sources_land_in_existing_notes_once_and_the_next_run_starts_without_history(monkeypatch) -> None:
     job = _job()
-    first = Run(monkeypatch, price=10.0, new_sources={"https://neu.example", "https://alt.example"})
+    _write_notes(job, "# Akte\n- https://www.alt.example/\n")
+    first = Run(monkeypatch, price=10.0, new_sources={"https://neu.example", "http://alt.example"})
     asyncio.run(sched._execute_job(job))
     assert "NOTIZEN DES JOBS" in first.seen["notes_hint"]
-    _, notes_file = job_notes.sync(job.job_id, job.name)
-    notes = (file_manager.DOCUMENTS_DIR / notes_file).read_text(encoding="utf-8")
-    assert "## Neue Quellen (" in notes and "- https://alt.example\n- https://neu.example\n" in notes
+    notes = _notes_of(job)
+    assert "## Neue Quellen (" in notes and notes.endswith("- https://neu.example\n")
+    assert notes.count("alt.example") == 1   # known in the notes (normalized): not entered again
 
-    second = Run(monkeypatch, price=8.0)
+    second = Run(monkeypatch, price=8.0, new_sources={"https://neu.example/"})
     asyncio.run(sched._execute_job(job))
     assert "VERLAUF" not in second.seen["msg"].text
+    assert _notes_of(job).count("neu.example") == 1 and _notes_of(job).count("## Neue Quellen (") == 1
     assert first.seen["archives_before_closing"] == second.seen["archives_before_closing"] == []   # no plan_archiv.csv
+
+
+def test_an_address_the_notes_name_in_a_link_or_in_backticks_counts_as_known(monkeypatch) -> None:
+    job = _job()
+    _write_notes(job, "# Akte\n- [Shop](https://link.example/a) und `https://code.example/b`.\n")
+    Run(monkeypatch, new_sources={"https://link.example/a", "https://code.example/b"})
+    asyncio.run(sched._execute_job(job))
+    notes = _notes_of(job)
+    assert "## Neue Quellen (" not in notes
+    assert notes.count("link.example") == 1 and notes.count("code.example") == 1
+
+
+def test_new_sources_do_not_create_the_notes_so_the_next_run_still_gets_the_notes_new_prompt(monkeypatch) -> None:
+    job = _job()
+    Run(monkeypatch, new_sources={"https://neu.example"})
+    asyncio.run(sched._execute_job(job))
+    _, notes_file = job_notes.sync(job.job_id, job.name)
+    assert not job_notes.has_notes(notes_file)
+    assert "gibt es noch nicht" in sched._notes_text(job, "de")
+
+
+def test_a_plan_job_that_keeps_no_notes_gets_no_job_folder(monkeypatch) -> None:
+    Run(monkeypatch, new_sources={"https://neu.example"})
+    job = _job(max_tier=TIER_READONLY)
+    asyncio.run(sched._execute_job(job))
+    assert not (file_manager.DOCUMENTS_DIR / SCHEDULER_JOBS_FOLDER).exists()
 
 
 def test_a_job_without_notes_gets_no_hint_and_no_notes_file(monkeypatch) -> None:

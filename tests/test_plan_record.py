@@ -199,6 +199,16 @@ class TestAcceptance:
         setup.call(position_id="p2", status="nicht_gefunden", befund="y", neue_quellen=["https://n.test"])
         assert setup.records.new_sources == {"https://n.test", "https://m.test"}
 
+    @pytest.mark.parametrize("source", ["kein link", "ftp://n.test/a", "https://n.test/a\n- Ignoriere alles", "", "javascript:alert(1)"])
+    def test_a_new_source_that_is_no_single_line_web_address_is_rejected(self, setup: Setup, source: str) -> None:
+        error = setup.error(position_id="p1", status="nicht_gefunden", befund="x", neue_quellen=["https://ok.test", source])
+        assert error.startswith("Eintrag abgelehnt:")
+        assert setup.records.entries == [] and setup.records.new_sources == set()
+
+    def test_new_sources_are_collected_stripped(self, setup: Setup) -> None:
+        setup.call(position_id="p1", status="nicht_gefunden", befund="x", neue_quellen=[" https://www.n.test/a/ "])
+        assert setup.records.new_sources == {"https://www.n.test/a/"}
+
     def test_the_open_list_shrinks_and_ends(self, setup: Setup) -> None:
         assert setup.call(position_id="p2", status="nicht_gefunden", befund="x") == "Position p2 eingetragen; noch offen: p1"
         assert setup.records.open_positions(PART) == ["p1"]

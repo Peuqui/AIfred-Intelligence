@@ -121,6 +121,9 @@ def plan_problem(payload: dict[str, Any]) -> Invalid | None:
     if (problem := _shape_problem(payload)) is not None:
         return problem
     plan = TaskPlan.from_payload(payload)
+    # Frame and columns only mean something to the parts: without them the run would ignore them silently.
+    if not plan.parts and (plan.frame or plan.columns):
+        return Invalid("plan_no_parts")
     if plan.parts and payload.get("fixed_text"):
         return Invalid("plan_parts_with_fixed_text")
     if (name := _duplicate([part.id for part in plan.parts])) is not None:

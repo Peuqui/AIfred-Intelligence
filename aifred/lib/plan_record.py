@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 
 from .function_calling import Tool
 from .prompt_loader import load_prompt
@@ -87,6 +89,25 @@ def record_schema(plan: TaskPlan, part: PlanPart, lang: str) -> dict[str, Any]:
     return {"type": "object", "properties": properties, "required": ["position_id", "status", "befund"]}
 
 
+# A new source is entered in the job's notes, which every later run reads as its own memory: one line, one address.
+_WEB_ADDRESS_FORBIDDEN = re.compile(r"\s")
+
+
+def is_web_address(text: str) -> bool:
+    """A single-line http(s) address (no whitespace inside, a host)."""
+    parsed = urlparse(text)
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc) and not _WEB_ADDRESS_FORBIDDEN.search(text)
+
+
+# An address inside written text ends where Markdown or prose closes around it: a link "[x](…)", backticks, quotes.
+_WEB_ADDRESS_IN_TEXT = re.compile(r"https?://[^\s<>()\[\]`'\"]+")
+
+
+def web_addresses_in(text: str) -> list[str]:
+    """The http(s) addresses a text names, also inside Markdown links and backticks."""
+    return _WEB_ADDRESS_IN_TEXT.findall(text)
+
+
 def make_record_tool(
     plan: TaskPlan, part: PlanPart, read_urls_source: Callable[[], set[str]], collector: PartRecords, lang: str,
 ) -> Tool:
@@ -147,6 +168,9 @@ def make_record_tool(
         if not isinstance(new_sources, list) or not all(isinstance(source, str) for source in new_sources):
             return reject("type", column="neue_quellen", value=json.dumps(new_sources, ensure_ascii=False),
                           expected="list")
+        new_sources = [source.strip() for source in new_sources]
+        if (bad := next((source for source in new_sources if not is_web_address(source)), None)) is not None:
+            return reject("new_source", source=json.dumps(bad, ensure_ascii=False))
         # A column the model left out stays out of the entry (null is the same as left out).
         given = {name: value for name, value in columns.items() if value is not None}
         if (problem := entry_problem(position_id, status, befund, quelle, given)) is not None:

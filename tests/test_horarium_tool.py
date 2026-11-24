@@ -456,6 +456,7 @@ class TestPlanCreate:
         {"parts": [{**PLAN_PART_A, "positions": []}]},
         {"columns": [{"name": "preis", "type": "kommazahl"}]},
         {"parts": "kein Array"},
+        {"parts": []},
     ])
     def test_an_invalid_plan_is_refused_and_nothing_stored(self, plugin, ctx, broken):
         data = _call(
