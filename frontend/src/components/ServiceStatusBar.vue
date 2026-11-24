@@ -42,6 +42,12 @@ const labels = computed(() => ({
 const rows = computed(() => (status.snapshot ? serviceRows(status.snapshot, labels.value) : null));
 const machines = computed(() => hostRows(status.hosts, labels.value));
 const localHold = computed(() => status.localHoldView);
+const holdPill = computed(() => {
+  const hold = status.localHold;
+  if (!hold || !localHold.value?.card) return null;
+  const word = hold.state === "active" && hold.end_requested_by ? "gpu_hold_short_ending" : `gpu_hold_short_${hold.state}`;
+  return { owner: hold.owner ?? "", word };
+});
 const now = ref(performance.now());
 const elapsed = computed(() => (now.value - status.receivedAt) / 1000);
 
@@ -99,6 +105,13 @@ onBeforeUnmount(() => {
       <!-- This machine's hold also in the closed bar: a request or a hold turns it yellow, seen without opening. -->
       <span v-if="localHold" class="badge" :class="[localHold.color, { pending: localHold.pending }]" :title="localHold.title">
         <CircuitBoard :size="20" /><span class="dot" />
+      </span>
+      <!-- Somebody asks for or holds the cards: a small pill with owner and state, as in Agent-Orc (Peuqui 24.11.2026: here,
+           not over the chat; a hold concerns the machine). Being part of the summary, a tap opens the bar with its card. -->
+      <span v-if="holdPill" class="hold-pill" :title="localHold?.title">
+        <span class="pill-dot" :class="{ pending: localHold?.pending }" />
+        <span class="owner">{{ holdPill.owner }}</span>
+        <span class="state">{{ t(holdPill.word) }}</span>
       </span>
       <button class="refresh" :title="t('service_status_refresh')" @click.prevent="status.fetch(true)"><RefreshCw :size="14" /></button>
     </summary>
@@ -166,6 +179,12 @@ onBeforeUnmount(() => {
 .status { padding: 4px 0 0; font-size: 0.85rem; }
 summary { display: flex; align-items: center; gap: 10px; cursor: pointer; list-style: none; }
 summary::-webkit-details-marker { display: none; }
+.hold-pill { display: inline-flex; flex-shrink: 1; min-width: 0; align-items: center; gap: 6px; margin-left: 8px; padding: 2px 8px; border-radius: 999px; background: var(--aifred-accent-amber); color: var(--aifred-page-bg); font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
+.hold-pill .owner { flex-shrink: 0; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; }
+.hold-pill .state { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 400; }
+.pill-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: var(--aifred-page-bg); }
+.pill-dot.pending { animation: blink 1.2s ease-in-out infinite; }
+@keyframes blink { 50% { opacity: 0.3; } }
 .lifecycle { display: flex; align-items: center; gap: 8px; margin: 4px 0 0; color: var(--aifred-text-secondary); }
 .badge { position: relative; display: inline-flex; width: 22px; height: 22px; }
 .badge img { width: 22px; height: 22px; object-fit: contain; }
@@ -180,7 +199,7 @@ summary::-webkit-details-marker { display: none; }
 .red .dot { background: var(--aifred-danger); }
 @keyframes breathe { 50% { opacity: 0.4; } }
 @keyframes pulse { 50% { transform: scale(1.5); opacity: 0.5; } }
-@media (prefers-reduced-motion: reduce) { .dot { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .dot, .pill-dot { animation: none !important; } }
 .refresh, .power { display: inline-flex; align-items: center; padding: 3px 6px; }
 .refresh { margin-left: auto; }
 /* A table: every line shares the columns (sign, service, model, time left, button), so the buttons stand one under the

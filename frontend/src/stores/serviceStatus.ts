@@ -21,7 +21,7 @@ export const useServiceStatus = defineStore("serviceStatus", () => {
   const notice = ref("");
   const acting = ref(false);
   let noticeTimer = 0;
-  // The hold as the status line and the band over the chat show it: state, detail and the buttons with their reasons.
+  // The hold as the status line shows it: state, detail and the buttons with their reasons.
   const localHoldView = computed(() => (localHold.value ? localHoldRow(localHold.value, {
     lang: language.value,
     hostUsed: t("service_status_host_used"),
@@ -39,17 +39,6 @@ export const useServiceStatus = defineStore("serviceStatus", () => {
     endWaiting: t("service_status_local_end_waiting"),
     releaseNeedsRequest: t("service_status_local_release_needs_request"),
   }) : null));
-  // The band over the chat starts folded to a pill, also for a request (Peuqui 24.11.2026: not big at once, as in
-  // Agent-Orc); a tap opens it for this state of this hold. Any change of the hold folds it again.
-  const openedHold = ref<string | null>(null);
-  const holdIdentity = computed(() => {
-    const hold = localHold.value;
-    return hold ? [hold.owner, hold.since, hold.state, hold.end_requested_by].join("|") : null;
-  });
-  const holdOpen = computed(() => holdIdentity.value !== null && openedHold.value === holdIdentity.value);
-  function setHoldOpen(open: boolean): void {
-    openedHold.value = open ? holdIdentity.value : null;
-  }
 
   function receive(next: ServiceSnapshot): void {
     snapshot.value = next;
@@ -128,5 +117,5 @@ export const useServiceStatus = defineStore("serviceStatus", () => {
     }
   }
 
-  return { snapshot, receivedAt, hosts, localHold, localHoldView, holdOpen, setHoldOpen, notice, acting, receive, fetch, act, endHold, releaseHoldNow, receiveLocalHold };
+  return { snapshot, receivedAt, hosts, localHold, localHoldView, notice, acting, receive, fetch, act, endHold, releaseHoldNow, receiveLocalHold };
 });

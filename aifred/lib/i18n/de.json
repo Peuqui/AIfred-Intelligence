@@ -995,7 +995,6 @@
   "gpu_hold_short_granted": "überlassen",
   "gpu_hold_short_active": "hält die Karten",
   "gpu_hold_short_ending": "endet",
-  "gpu_hold_fold": "Einklappen",
   "service_status_local_free": "keine Anfrage",
   "service_status_local_requested": "{owner} möchte die Karten",
   "service_status_local_granted": "überlassen an {owner}, wartet auf das Ende laufender Arbeit",

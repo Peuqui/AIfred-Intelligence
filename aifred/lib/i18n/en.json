@@ -995,7 +995,6 @@
   "gpu_hold_short_granted": "granted",
   "gpu_hold_short_active": "holds the cards",
   "gpu_hold_short_ending": "ending",
-  "gpu_hold_fold": "Fold",
   "service_status_local_free": "no request",
   "service_status_local_requested": "{owner} wants the cards",
   "service_status_local_granted": "granted to {owner}, waiting for running work to end",
