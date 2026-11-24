@@ -26,8 +26,10 @@ import JobsView from "./JobsView.vue";
 
 const job = {
   job_id: 1, name: "Morgengruß", enabled: true, delivery: "review", schedule_type: "cron",
-  schedule_expr: "0 8 * * *", next_run: "2026-11-15T08:00:00", last_run: "",
+  schedule_expr: "0 8 * * *", next_run: "2026-11-15T08:00:00", last_run: "", frame: "", parts: [], columns: [], trend: null,
 };
+
+let listed: unknown[] = [job];
 
 // The view's mount reads the options and the list; both stay open until answered here.
 function mountView(): ReturnType<typeof mount> {
@@ -41,7 +43,7 @@ async function answerAll(): Promise<void> {
   for (let round = 0; round < 3; round++) {
     for (const request of [...requests]) {
       if (request.path === "jobs/options") request.answer({ agents: [], channels: [], rooms_channels: [] });
-      if (request.path === "jobs") request.answer([job]);
+      if (request.path === "jobs") request.answer(listed);
     }
     await flushPromises();
   }
@@ -56,6 +58,7 @@ function runNowButton(view: ReturnType<typeof mount>) {
 describe("the run-now button", () => {
   beforeEach(() => {
     requests.length = 0;
+    listed = [job];
   });
 
   it("calls the run endpoint and is disabled until the 202 is there", async () => {
@@ -86,5 +89,21 @@ describe("the run-now button", () => {
     sent?.refuse(new ApiError(409, "Der Auftrag „Morgengruß“ läuft gerade schon."));
     await flushPromises();
     expect(view.find(".notice").text()).toContain("läuft gerade schon");
+  });
+});
+
+describe("the list", () => {
+  beforeEach(() => {
+    requests.length = 0;
+  });
+
+  it("counts the parts and positions of a job with a plan, and only of such a job", async () => {
+    const plan = { ...job, job_id: 2, name: "Plan", parts: [{ id: "a", title: "A", task: "t", positions: [{ id: "p", name: "P" }] }] };
+    listed = [job, plan];
+    const view = mountView();
+    await answerAll();
+    const counts = view.findAll("[data-test=plan-count]");
+    expect(counts).toHaveLength(1);
+    expect(counts[0]?.text()).toBe("jobs_plan_parts, jobs_plan_positions");   // texts not loaded: the keys (count 1 = singular)
   });
 });
