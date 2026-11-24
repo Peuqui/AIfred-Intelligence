@@ -2,7 +2,8 @@
 
 Every part gets its own ``SubagentSession`` with the ``plan_record`` tool; what the sub-agent reports goes through
 that tool into ``PartRecords``. Positions without an entry after the run get exactly one reminder, then count as not
-checked. A part that fails (exception) is a part failure with its reason; the next parts run on.
+checked. A part that fails (exception) or runs longer than ``PLAN_PART_TIMEOUT_SECONDS`` is a part failure with its
+reason; the next parts run on.
 
 ``run_plan`` yields ``progress``, ``work`` and ``artifacts`` like a tool executor (so one can pass them on), after
 every part ``{"part_done": PartDone}`` (the caller that shows a part when it is done) and at last
@@ -12,14 +13,16 @@ every part ``{"part_done": PartDone}`` (the caller that shows a part when it is 
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from .formatting import format_number
-from .logging_utils import log_exception
+from .config import PLAN_PART_TIMEOUT_SECONDS
+from .formatting import format_duration_s, format_number
+from .logging_utils import log_exception, log_message
 from .plan_record import PartRecords, PlanEntry, make_record_tool
 from .plugin_base import PluginContext
 from .prompt_loader import load_prompt
@@ -129,6 +132,31 @@ async def _run_part(
     outcome.report = "\n\n".join(reports)
 
 
+class _PartTimeout(Exception):
+    """The part used up its time limit."""
+
+
+async def _within(events: AsyncGenerator[dict[str, Any], None], limit_seconds: float) -> AsyncGenerator[dict[str, Any], None]:
+    """``events`` until the deadline; at the deadline the pending step is cancelled (the sub-agent's loop ends
+    through its ``finally`` blocks) and ``_PartTimeout`` is raised. The deadline is checked per step, so a
+    cancel never lands in the consumer."""
+    deadline = asyncio.get_running_loop().time() + limit_seconds
+    try:
+        while True:
+            try:
+                async with asyncio.timeout_at(deadline) as scope:
+                    event = await anext(events)
+            except StopAsyncIteration:
+                return
+            except TimeoutError:
+                if scope.expired():
+                    raise _PartTimeout from None
+                raise
+            yield event
+    finally:
+        await events.aclose()
+
+
 async def run_plan(
     plan: TaskPlan, ctx: PluginContext, *, allowed_tiers: frozenset[int], depth: int,
     notes_hint: str = "",
@@ -142,9 +170,14 @@ async def run_plan(
         artifacts: list[dict[str, Any]] = []
         started = time.monotonic()
         try:
-            async for event in _run_part(plan, part, ctx, allowed_tiers, depth, task, outcome):
+            async for event in _within(
+                _run_part(plan, part, ctx, allowed_tiers, depth, task, outcome), PLAN_PART_TIMEOUT_SECONDS,
+            ):
                 artifacts += event.get("artifacts", [])
                 yield event
+        except _PartTimeout:
+            outcome.failure = _text("part_timeout", ctx.lang, limit=format_duration_s(PLAN_PART_TIMEOUT_SECONDS))
+            log_message(f"Plan part '{part.id}' failed: {outcome.failure}", "warning")
         except Exception as exc:  # noqa: BLE001 — a failed part must not stop the others; reported in the result
             log_exception(f"Plan part '{part.id}' failed", exc)
             outcome.failure = str(exc) or type(exc).__name__

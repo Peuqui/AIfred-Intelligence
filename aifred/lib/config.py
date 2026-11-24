@@ -1663,6 +1663,7 @@ MESSAGE_HUB_THREAD_TIMEOUT_SEC = 10
 SCHEDULER_HISTORY_RUNS = 10            # runs stored per job (the page shows them; the next run is told their times)
 SCHEDULER_CHECK_INTERVAL_SECONDS = 60     # how often the scheduler looks for due jobs
 SCHEDULER_WEBHOOK_TIMEOUT_SECONDS = 30   # a job's webhook POST gives up after this long
+PLAN_PART_TIMEOUT_SECONDS = env_int("PLAN_PART_TIMEOUT_SECONDS", 1800)  # one plan part (run + reminder) fails after this long; a hanging part blocked the serial scheduler loop and so every job (30 min ≈ 3x the average part, run 155: 4 parts in 33:47 min)
 SCHEDULER_JOBS_FOLDER = "jobs"         # workspace folder with one folder per job: its notes and the data it keeps (lib/job_notes.py)
 
 # ============================================================

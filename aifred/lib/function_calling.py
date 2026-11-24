@@ -116,7 +116,7 @@ class ToolKit:
     _agent_id: str = ""     # Audit context (which agent acted — 9+ configurable)
     _source: str = ""       # Audit context (browser/email/discord/…)
     _max_tier: int = 4      # Resolved max tier for this context
-    _call_count: int = 0    # Chain depth counter (resets per LLM request)
+    _call_count: int = 0    # Chain depth counter, one per ToolKit: in chat one ToolKit per request, in a plan one per part (run and reminder share it)
     # Addresses the tools of this toolkit reported as read (``{"read": [...]}``), normalized (tools.url_utils).
     read_urls: set[str] = field(default_factory=set)
 
