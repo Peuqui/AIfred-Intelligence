@@ -767,8 +767,6 @@ def record_autonomous_turn(
     ``speaker``: ein anderer Agent spricht (Name) — das Modell sieht dann eine
     „Nachricht von <speaker>“ statt einer automatischen Meldung. Die Bubble
     zeigt den Absender (``title``) in der Kopfzeile, der Text bleibt ohne Namen."""
-    from .session_storage import load_session
-
     session_id = session_for_channel(channel, channel_id, owner)
 
     content = text
@@ -802,19 +800,36 @@ def record_autonomous_turn(
     from .message_builder import build_autonomous_history_entry
     llm_entry = build_autonomous_history_entry(channel, text, image_urls, speaker)
 
-    # M4: load→append→save as ONE unit (see session_rmw_lock).
-    from .session_storage import session_rmw_lock
+    entry = _append_assistant_bubble(session_id, content, channel, title, llm_entry, owner)
+    push_hub_notification(session_id, title, channel, "system", status="done")
+    return BubbleRef(session_id, str(entry["timestamp"]))
+
+
+def _append_assistant_bubble(
+    session_id: str, content: str, channel: str, title: str, llm_entry: dict[str, Any] | None, owner: str,
+) -> dict[str, Any]:
+    """Append an assistant bubble to a session's chat history, and ``llm_entry`` to the model's history when given
+    (``None``: the model does not see it). Load, append and save are ONE unit (M4, see session_rmw_lock)."""
+    from .session_storage import load_session, session_rmw_lock
+
     with session_rmw_lock:
         session = load_session(session_id)
         data = (session or {}).get("data", {})
-        chat_history = list(data.get("chat_history", []))
         entry = build_channel_chat_entry(content, channel, title, "assistant")
-        chat_history.append(entry)
-        llm_history = [*data.get("llm_history", []), llm_entry]
+        chat_history = [*data.get("chat_history", []), entry]
+        llm_history = list(data.get("llm_history", []))
+        if llm_entry is not None:
+            llm_history.append(llm_entry)
         update_chat_data(session_id, chat_history, llm_history=llm_history, owner=owner)
+    return entry
 
-    push_hub_notification(session_id, title, channel, "system", status="done")
-    return BubbleRef(session_id, str(entry["timestamp"]))
+
+def record_chat_only_bubble(
+    session_id: str, channel: str, title: str, content: str, owner: str = MESSAGE_HUB_OWNER,
+) -> None:
+    """A bubble in a session's chat history that the model never sees (``llm_history`` stays as it is): what a
+    person may read, but must not fill the model's context, e.g. the transcripts of sub-agents."""
+    _append_assistant_bubble(session_id, content, channel, title, None, owner)
 
 
 async def announce_into_rooms(

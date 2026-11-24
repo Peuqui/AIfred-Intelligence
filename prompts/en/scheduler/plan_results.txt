@@ -1,0 +1,6 @@
+The parts of the task are done; below is what they found. The scheduler has already written the archive, do not touch it. The scheduler appends the line with the number of positions checked to your message itself, do not write it. A failed part and every position not checked are in the result: name them in your message and do not invent values for them.
+
+RESULT OF THE PARTS:
+{results}
+
+{trend}

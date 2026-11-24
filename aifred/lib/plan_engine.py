@@ -60,7 +60,7 @@ def _text(prompt: str, lang: str, **placeholders: str) -> str:
     return load_prompt(f"task_plan/{prompt}", lang=lang, **placeholders).strip()
 
 
-def _value_text(value: Any, lang: str) -> str:
+def value_text(value: Any, lang: str) -> str:
     """A column value for a person or a model: numbers in the language's notation."""
     if isinstance(value, int | float) and not isinstance(value, bool):
         exponent = Decimal(repr(value)).as_tuple().exponent
@@ -71,7 +71,7 @@ def _value_text(value: Any, lang: str) -> str:
 def _entry_text(entry: PlanEntry, lang: str) -> str:
     """One entry as a list line: status, finding, source and column values."""
     details = [_text("render_detail_source", lang, source=entry.quelle)] if entry.quelle else []
-    details += [f"{name}: {_value_text(value, lang)}" for name, value in entry.values.items()]
+    details += [f"{name}: {value_text(value, lang)}" for name, value in entry.values.items()]
     return _text("render_entry", lang, status=entry.status, befund=entry.befund,
                  details=f" ({'; '.join(details)})" if details else "")
 

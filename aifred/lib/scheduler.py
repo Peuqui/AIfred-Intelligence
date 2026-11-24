@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from . import file_manager
 from .browser_push import notify_changed
 from .config import (
     BASE_AGENT,
@@ -32,7 +33,7 @@ from .cron import next_cron_run
 from .i18n import t
 from .logging_utils import log_exception, log_message
 from .security import JOB_DEFAULT_TIER
-from .task_plan import PLAN_KEYS, plan_problem
+from .task_plan import PLAN_KEYS, TaskPlan, plan_problem
 from .user_error import Invalid
 
 # What a job can be: one truth for the agents' scheduler tool (its JSON-schema enums), the jobs page
@@ -638,23 +639,29 @@ async def _execute_job(job: Job) -> None:
     # Fresh channel_id per run → routing_table allocates a new session,
     # so every job execution lives in its own conversation. What earlier
     # runs delivered comes in through the job prompt instead.
+    channel_id = secrets.token_hex(8)
+    metadata = {
+        "job_name": job.name,
+        "job_id": job.job_id,
+        # wake_agent pins the target agent so the LLM-based intent
+        # detection in process_inbound doesn't reroute the request.
+        "wake_agent": agent,
+        # Honored by resolve_tier_for_sender for the scheduler channel
+        # only — see security.py.
+        "max_tier": job.max_tier,
+        DELIVERY_CHANNEL_KEY: _delivery_channel(job),
+    }
+    # A job with parts: the parts run first (each a sub-agent, in the session the closing turn finds by its route),
+    # then the closing turn gets what they found.
+    plan_run = await _run_plan_parts(job, TaskPlan.from_payload(job.payload), channel_id, metadata) \
+        if job.payload.get("parts") else None
     msg = InboundMessage(
         channel="scheduler",
-        channel_id=secrets.token_hex(8),
+        channel_id=channel_id,
         sender=job.name,
-        text=build_job_prompt(job, store),
+        text=build_job_prompt(job, store, plan_run.prompt_block if plan_run else ""),
         timestamp=datetime.now(),
-        metadata={
-            "job_name": job.name,
-            "job_id": job.job_id,
-            # wake_agent pins the target agent so the LLM-based intent
-            # detection in process_inbound doesn't reroute the request.
-            "wake_agent": agent,
-            # Honored by resolve_tier_for_sender for the scheduler channel
-            # only — see security.py.
-            "max_tier": job.max_tier,
-            DELIVERY_CHANNEL_KEY: _delivery_channel(job),
-        },
+        metadata=metadata,
         target_agent=agent,
         task=True,
     )
@@ -671,19 +678,103 @@ async def _execute_job(job: Job) -> None:
     # What goes out is what the model wrote after its last tool call, without thinking — the same text
     # every channel reply gets (PipelineResult.text_clean; 20.10.2026: a message written before the tools
     # and once more after them went out twice). The job prompt asks for the tools first, then the message once.
-    store.add_run(job.job_id, session_id, outbound.text)
-    await _deliver_result(job, outbound.text, session_id)
+    # The coverage line of a plan is appended by the code, not written by the model.
+    text = f"{outbound.text}\n\n{plan_run.coverage}" if plan_run else outbound.text
+    store.add_run(job.job_id, session_id, text)
+    await _deliver_result(job, text, session_id)
 
 
-def build_job_prompt(job: Job, store: JobStore) -> str:
+@dataclass
+class _PlanRun:
+    """What the parts of a plan job leave for the closing turn and the message."""
+
+    prompt_block: str   # results and trend for the closing prompt
+    coverage: str       # the fixed line appended to the message
+
+
+def _ui_language() -> str:
+    from .settings import load_settings
+
+    return str((load_settings() or {}).get("ui_language", "de"))
+
+
+async def _run_plan_parts(job: Job, plan: TaskPlan, channel_id: str, metadata: dict[str, Any]) -> _PlanRun:
+    """The parts of a plan job (lib/plan_engine.py), the transcripts as a bubble that only the chat history gets, the
+    archive, the trend table and the new sources in the notes. Parts never send: the Horarium delivers. An exception
+    outside the parts (the archive, the notes) fails the run; a failing part is in the result."""
+    from . import job_notes, message_processor, plan_archive
+    from .bubble import BubbleArtifact, render_bubble
+    from .debug_bus import debug, session_scope
+    from .plan_engine import PlanResult, coverage_line, render_results, run_plan
+    from .plugin_base import PluginContext
+    from .prompt_loader import load_prompt
+    from .security import TIER_COMMUNICATE, TIER_I18N_KEYS, resolve_trust_label
+
+    lang = _ui_language()
+    # The route of the session exists before the parts run: the closing turn finds the same session by it.
+    session_id = message_processor.session_for_channel("scheduler", channel_id)
+    folder, notes_file = job_notes.sync(job.job_id, job.name)
+    archive = plan_archive.archive_path(folder)
+    keeps_notes = _keeps_notes(job)
+    ctx = PluginContext(
+        agent_id=job.agent, lang=lang, session_id=session_id, user_query=job.payload.get("message", ""),
+        max_tier=job.max_tier, source="scheduler", trust=resolve_trust_label("scheduler", job.name, metadata),
+        metadata=dict(metadata),
+    )
+    # The parts only gather; sending is the Horarium's delivery.
+    allowed_tiers = frozenset(tier for tier, _label, _description in TIER_I18N_KEYS
+                              if tier <= job.max_tier and tier != TIER_COMMUNICATE)
+    artifacts: list[BubbleArtifact] = []
+    result: PlanResult | None = None
+    with session_scope(session_id):
+        async for event in run_plan(
+            plan, ctx, allowed_tiers=allowed_tiers, depth=0, history=plan_archive.last_entries(archive, plan),
+            notes_hint=load_prompt("scheduler/plan_notes_hint", lang=lang, file=notes_file).strip() if keeps_notes else "",
+        ):
+            if "progress" in event:
+                debug(event["progress"])
+            elif "artifacts" in event:
+                artifacts += [BubbleArtifact.from_dict(raw) for raw in event["artifacts"]]
+            elif "plan_result" in event:
+                result = event["plan_result"]
+    if result is None:
+        raise RuntimeError(f"Plan of job '{job.name}' ended without a result")
+
+    if artifacts:
+        title = load_prompt("scheduler/plan_transcripts_title", lang=lang).strip()
+        message_processor.record_chat_only_bubble(session_id, "scheduler", job.name, render_bubble(title, artifacts))
+    now = datetime.now()
+    plan_archive.append_run(archive, plan, result, now)
+    table = plan_archive.trend_table(archive, plan, lang)
+    if keeps_notes and result.new_sources:
+        _append_new_sources(file_manager.DOCUMENTS_DIR / notes_file, result.new_sources, now, lang)
+    trend = load_prompt("scheduler/plan_trend", lang=lang, table=table).strip() if table else ""
+    return _PlanRun(
+        prompt_block=load_prompt("scheduler/plan_results", lang=lang, results=render_results(result, lang),
+                                 trend=trend).strip(),
+        coverage=coverage_line(result, lang),
+    )
+
+
+def _append_new_sources(notes_path: Path, sources: set[str], when: datetime, lang: str) -> None:
+    """The sources the parts found beyond the given ones, as a section at the end of the job's notes."""
+    from .prompt_loader import load_prompt
+
+    heading = load_prompt("scheduler/plan_new_sources_heading", lang=lang, when=when.strftime("%Y-%m-%d %H:%M")).strip()
+    section = "\n".join([heading, *(f"- {source}" for source in sorted(sources))])
+    with notes_path.open("a", encoding="utf-8") as handle:
+        handle.write(f"\n\n{section}\n")
+
+
+def build_job_prompt(job: Job, store: JobStore, plan_block: str = "") -> str:
     """The message a job run starts with: job context, delivery, the times of the
-    previous runs, where the job's notes are and the task (prompts/<lang>/scheduler/)."""
+    previous runs, where the job's notes are and the task (prompts/<lang>/scheduler/).
+    ``plan_block``: what the parts of a plan job found, behind the task."""
     from .config import SCHEDULER_HISTORY_RUNS
     from .message_processor import announces_in_rooms, channel_display_label
     from .prompt_loader import load_prompt
-    from .settings import load_settings
 
-    lang = (load_settings() or {}).get("ui_language", "de")
+    lang = _ui_language()
     delivery = job.payload.get("delivery", "review")
     channel = _delivery_channel(job)
     if delivery == "announce" and announces_in_rooms(channel):
@@ -707,23 +798,31 @@ def build_job_prompt(job: Job, store: JobStore) -> str:
     else:
         history = load_prompt("scheduler/history_empty", lang=lang)
 
-    return load_prompt(
+    prompt = load_prompt(
         "scheduler/job_context", lang=lang,
         job_name=job.name, delivery=delivery_text.strip(),
         history=history.strip(), notes=_notes_text(job, lang), task=job.payload.get("message", ""),
     )
+    return f"{prompt.rstrip()}\n\n{plan_block}" if plan_block else prompt
+
+
+def _keeps_notes(job: Job) -> bool:
+    """Does the job keep notes? Not a job that may not write data (below the tier of the owner's), nor one whose agent
+    lacks the tools to read and write them."""
+    from . import job_notes
+    from .security import TIER_WRITE_DATA
+
+    return job.max_tier >= TIER_WRITE_DATA and job_notes.agent_can_keep_notes(job.agent)
 
 
 def _notes_text(job: Job, lang: str) -> str:
     """What the run is told of the job's notes (lib/job_notes.py): where they are and that it reads and continues them.
-    A job that may not write data (below the tier of the owner's), or whose agent lacks the tools to read and write
-    them, has none, and the run is not told of any."""
+    A job without notes (``_keeps_notes``) is not told of any."""
     from . import job_notes
     from .prompt_loader import load_prompt
-    from .security import TIER_WRITE_DATA
     from .upload_files import DOCUMENTS_URL
 
-    if job.max_tier < TIER_WRITE_DATA or not job_notes.agent_can_keep_notes(job.agent):
+    if not _keeps_notes(job):
         return ""
     folder, notes_file = job_notes.sync(job.job_id, job.name)
     key = "scheduler/notes" if job_notes.has_notes(notes_file) else "scheduler/notes_new"

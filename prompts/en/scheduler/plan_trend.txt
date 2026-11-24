@@ -1,0 +1,2 @@
+TREND (computed by the code from the archive; ↓ smaller, ↑ larger than in the previous run):
+{table}
