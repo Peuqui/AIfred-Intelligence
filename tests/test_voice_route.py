@@ -223,3 +223,20 @@ def test_a_second_exchange_is_appended_not_replaced(session_store):
         )
     assert len(session_store["chat_history"]) == 4 and len(session_store["llm_history"]) == 4
     assert all('trust="external"' in entry["content"] for entry in session_store["llm_history"][::2])
+
+
+def test_the_routed_utterance_reaches_an_open_page_like_its_outcome(session_store, monkeypatch):
+    """The user's words of a routed voice turn are published as message_added, as the outcome is."""
+    from aifred.lib import session_events
+
+    published: list[tuple[str, dict]] = []
+    monkeypatch.setattr(session_events, "publish", lambda sid, kind, data: published.append((kind, data)))
+    mp.record_routed_voice_turn(
+        "freeecho2", "buero", sender="buero", text="Hallo Orc", route_name="orc", outcome="asked (Hal)",
+        metadata={AUTHENTICATED_DEVICE_KEY: True},
+    )
+    assert [kind for kind, _ in published] == ["message_added", "message_added"]
+    spoken, outcome = (data["entry"] for _, data in published)
+    assert spoken["role"] == "user" and "Hallo Orc" in spoken["content"]
+    assert outcome["role"] == "assistant" and outcome["content"] == "asked (Hal)"
+    assert all(data["ends_turn"] is False for _, data in published)

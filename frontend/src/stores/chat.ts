@@ -187,14 +187,19 @@ export const useChat = defineStore("chat", () => {
       case "turn_phase":
         phase.value = data.phase ? (data as unknown as TurnPhase) : null;
         break;
-      case "message_added":
-        history.value = [...history.value, data.entry as ChatEntry];
+      case "message_added": {
+        const added = data.entry as ChatEntry;
+        // A page that opened after the bubble was saved but before this event has it from the file already (the
+        // timestamp names a bubble, as in message_updated).
+        const known = history.value.some((old) => old.role === added.role && old.timestamp === added.timestamp);
+        if (!known) history.value = [...history.value, added];
         // A bubble from outside the turn (an alert, a job's part) leaves a running answer as it is.
         if (data.ends_turn !== false) {
           streaming.value = null;
           toolStatus.value = "";
         }
         break;
+      }
       case "message_updated": {
         // The bubble with what was spoken of it, once its reading is over.
         const entry = data.entry as ChatEntry;

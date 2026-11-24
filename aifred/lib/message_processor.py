@@ -473,7 +473,8 @@ def save_inbound_to_session(session_id: str, message: InboundMessage, from_user:
         data = session.get("data", {}) if session else {}
         existing_chat = data.get("chat_history", [])
 
-        existing_chat.append(build_inbound_chat_entry(message, from_user))
+        entry = build_inbound_chat_entry(message, from_user)
+        existing_chat.append(entry)
 
         # Browser detects via session file mtime-watch (SSOT)
         update_chat_data(
@@ -482,6 +483,7 @@ def save_inbound_to_session(session_id: str, message: InboundMessage, from_user:
             debug_messages=data.get("debug_messages", []),
             owner=MESSAGE_HUB_OWNER,
         )
+    _publish_outside_bubble(session_id, entry)
 
 
 def _is_auto_reply_enabled(channel: str) -> bool:
@@ -821,11 +823,16 @@ def _append_assistant_bubble(
         if llm_entry is not None:
             llm_history.append(llm_entry)
         update_chat_data(session_id, chat_history, llm_history=llm_history, owner=owner)
-    # The open pages of the session get the bubble at once, not only on a reload (24.11.2026: alerts and a job's
-    # parts showed only after one). ends_turn False: it is no answer of a running turn, whose stream goes on.
+    _publish_outside_bubble(session_id, entry)
+    return entry
+
+
+def _publish_outside_bubble(session_id: str, entry: dict[str, Any]) -> None:
+    """The open pages of the session get a bubble that is saved already at once, not only on a reload (24.11.2026:
+    alerts and a job's parts showed only after one). ends_turn False: it is no answer of a running turn, whose stream
+    goes on. A page that opened between saving and this event holds the bubble twice over: it skips one it has (chat.ts)."""
     from . import session_events
     session_events.publish(session_id, "message_added", {"entry": entry, "ends_turn": False})
-    return entry
 
 
 def record_chat_only_bubble(

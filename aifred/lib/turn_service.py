@@ -138,6 +138,12 @@ def submit_turn(request: TurnRequest) -> bool:
     return False
 
 
+def _saves_history(event: session_events.SessionEvent) -> bool:
+    """Whether the event closes what the history holds of the running turn: its start, or a bubble that ends an
+    answer. A bubble from outside the turn (``ends_turn`` False: an alert, a job's part) leaves the answer open."""
+    return event.kind == "turn_started" or (event.kind == "message_added" and event.data.get("ends_turn") is not False)
+
+
 def running_turn_events(session_id: str) -> list[session_events.SessionEvent]:
     """What a page that opens in the middle of a turn needs to show the answer being written, from the replay: the
     phase, and what the speaking agent has produced since the history last grew (``agent_started``, its ``token``
@@ -145,7 +151,7 @@ def running_turn_events(session_id: str) -> list[session_events.SessionEvent]:
     ``turn_started`` / ``message_added``. The page feeds them to the handler of its stream and follows the stream
     from ``last_event_id`` on."""
     events = session_events.replay_after(session_id, 0)
-    saved = max((at for at, event in enumerate(events) if event.kind in ("turn_started", "message_added")), default=-1)
+    saved = max((at for at, event in enumerate(events) if _saves_history(event)), default=-1)
     live = [event for event in events if event.kind == "turn_phase"]
     for event in events[saved + 1:]:
         if event.kind not in ("agent_started", "token", "tool_status"):

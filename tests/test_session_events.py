@@ -184,3 +184,13 @@ def test_a_finished_answer_is_not_replayed() -> None:
     session_events.publish(SESSION, "token", {"text": "fertig"})
     session_events.publish(SESSION, "message_added", {"entry": {}})
     assert turn_service.running_turn_events(SESSION) == []
+
+
+def test_a_bubble_from_outside_the_turn_keeps_the_answer_so_far_replayed() -> None:
+    """An alert or a job's part (message_added with ends_turn False) does not save the running answer to the history."""
+    session_events.publish(SESSION, "turn_started", {"user_entry": {}})
+    session_events.publish(SESSION, "agent_started", {"agent": "codine"})
+    session_events.publish(SESSION, "token", {"text": "Ein "})
+    session_events.publish(SESSION, "message_added", {"entry": {}, "ends_turn": False})
+    session_events.publish(SESSION, "token", {"text": "Hund"})
+    assert _kinds_and_texts(turn_service.running_turn_events(SESSION)) == [("agent_started", "codine"), ("token", "Ein Hund")]
