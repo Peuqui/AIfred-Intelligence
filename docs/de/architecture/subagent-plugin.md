@@ -43,8 +43,8 @@ ein Werkzeug einen aufklappbaren Block liefern kann.
 
 ## Das Plugin
 
-Verzeichnis `aifred/plugins/tools/subagent/`, Name `subagent`, ein Werkzeug
-`delegate_task`.
+Verzeichnis `aifred/plugins/tools/subagent/`, Name `subagent`, zwei Werkzeuge:
+`delegate_task` (dieser Abschnitt) und `run_task_plan` (siehe unten).
 
 **Parameter des Werkzeugs**
 
@@ -87,11 +87,11 @@ bekommt sie auch über einen Sub-Agenten nicht.
    eingeschaltetem Schalter und gesetztem `agent`, der des gewählten
    Agenten), Memory aus. Aus
    dem Kasten fliegen `delegate_task` und alle Werkzeuge, deren Tier nicht
-   in der Plugin-Einstellung „erlaubte Tiers“ steht. Ohne `delegate_task`
+   in der Plugin-Einstellung „erlaubte Tiers“ steht. Ohne `delegate_task` (und `run_task_plan`)
    ist die Rekursionstiefe strukturell 1, ohne Zähler und ohne Lock. Die
    Einstellung „Rekursionstiefe“ (Vorgabe 1) erlaubt später mehr; die
    aktuelle Tiefe wandert dann als Feld in `PluginContext.metadata`.
-2. System-Prompt des Sub-Agenten (`subagent.subagent_messages`), bewusst
+2. System-Prompt des Sub-Agenten (`subagent_run.subagent_messages`), bewusst
    schlank: derselbe Bauer wie überall, `prompt_loader.agent_system_prompt`,
    mit `answers_user=False` (die Antwort geht an den Aufrufer, nicht an den
    Benutzer: kein User-Präfix, kein Ausgabeformat, keine Formatregeln, keine
@@ -123,7 +123,7 @@ bekommt sie auch über einen Sub-Agenten nicht.
 4. Ausführung über `run_llm_stream` mit dem eigenen Werkzeugkasten; Modell,
    Sampling, Thinking und Kontextgröße aus dem Tuning des Aufrufers
    beziehungsweise des gewählten Agenten, über dieselben Helfer wie bei jedem
-   seiner Turns (`resolve_run_params` im Plugin bündelt Browser- und Hub-Pfad).
+   seiner Turns (`resolve_run_params` in `subagent_run.py` bündelt Browser- und Hub-Pfad).
 5. Während der Ausführung yieldet der Executor `progress`-Ereignisse: welche
    Werkzeuge der Sub-Agent gerade ruft. Die Statuszeile zeigt also
    „Codine (Sub-Agent) ruft read_file auf“, nicht den inneren Text.
@@ -166,6 +166,49 @@ Sub-Agent wissen muss, kommt in der Übergabe vom Hauptagenten, der das
 Gespräch und das Gedächtnis hat. Ein Sub-Agent, der Erinnerungen anlegt,
 würde Dinge festschreiben, die niemand im Gespräch gesehen hat.
 
+## Der Lauf in der lib: `SubagentSession`
+
+Der eigentliche Lauf liegt nicht im Plugin, sondern in `aifred/lib/subagent_run.py`, weil ihn zwei Aufrufer
+brauchen: das Plugin (`delegate_task`, `run_task_plan`) und die Plan-Engine ([Aufgabenpläne](task-plan.md)), die ihn
+für jeden Teil eines Plans startet. Die Lib importiert kein Plugin; was dem Plugin gehört (erlaubte Tiers,
+Rekursionstiefe), kommt als Parameter herein: `SubagentSession(ctx, allowed_tiers=…, depth=…, target_agent=…, task=…,
+expected_result=…, with_persona=False, extra_tools=())`.
+
+- `run()` ist die erste Anfrage. Der Generator liefert `progress` (was der Sub-Agent gerade ruft), `work` (die
+  Inferenzarbeit für die Metriken des Aufrufers), genau ein `artifacts` mit dem Transkript samt allen Artefakten der
+  eigenen Werkzeuge und zuletzt `result`, den Bericht. Den Werkzeugkasten baut `build_subagent_toolkit`, die
+  Nachrichten `subagent_messages`, Modell und Kontext `resolve_run_params`.
+- `follow_up(text)` schickt eine weitere Nutzernachricht in denselben Lauf: dasselbe Toolkit (dieselbe Instanz,
+  also bleibt auch das, was es sich gemerkt hat, etwa die gelesenen Adressen), die bisherigen Nachrichten mit dem
+  früheren Bericht als Zug des Assistenten. Das Ergebnis ist der neue Bericht. Vor `run()` ist der Aufruf ein Fehler.
+  Die Plan-Engine nutzt das für die eine Nachforderung fehlender Positionen.
+- `extra_tools` sind Werkzeuge des Aufrufers, die dem Werkzeugkasten unabhängig von den erlaubten Tiers
+  hinzugefügt werden (die Plan-Engine gibt so `plan_record` mit).
+- `toolkit` ist nach `run()` lesbar. `plan_record` holt sich darüber die Menge der gelesenen Adressen
+  (`ToolKit.read_urls`).
+
+Die Beschriftungen des Transkripts (Aufgabe, Denken, Werkzeug, Ergebnis, erwartetes Ergebnis, Bericht, kein Bericht,
+Nachforderung) stehen als `subagent_transcript_*` in `aifred/lib/i18n/de.json` und `en.json`, eine Quelle für beide
+Aufrufer (`transcript_labels`).
+
+## Zweites Werkzeug: `run_task_plan`
+
+Das Plugin bietet neben `delegate_task` ein zweites Werkzeug, `run_task_plan` (Tier `TIER_READONLY`). Es ist für große
+Aufträge, die in mehrere unabhängige Gruppen zerfallen (etwa Preise vieler Produkte in mehreren Shops); für kleine
+Aufgaben bleibt `delegate_task` oder die Antwort aus eigener Kraft. Die Felder `frame`, `parts`, und `columns`
+haben ein einziges Schema, `plan_parameters_schema()` in `aifred/lib/task_plan.py` (Quelle
+`prompts/tools/task_plan.params.json`); im Werkzeug sind `frame` und `parts` Pflicht. Der Executor `run_task_plan`
+prüft den Plan mit `plan_problem` (und dass es mindestens einen Teil gibt) und gibt sonst einen Fehler als Ergebnis
+zurück. Dann ruft er `run_plan` der Plan-Engine mit den erlaubten Tiers und der Tiefe des Plugins. Das Ergebnis des
+Werkzeugs ist der Text aller Einträge (`render_results`) und darunter die feste Zeile, wie viele Positionen geprüft
+wurden (`coverage_line`); die Transkripte der Teile kommen wie bei `delegate_task` als aufklappbare Blöcke in die
+Bubble. Einen Plan aus dem Chat kann das Modell unverändert mit `horarium_create` als Job speichern. Ablauf und
+Grenzen: [Aufgabenpläne](task-plan.md).
+
+Die Rekursionsgrenze gilt für beide Werkzeuge gemeinsam: `get_tools` liefert ab der eingestellten Tiefe weder
+`delegate_task` noch `run_task_plan`. Die Sub-Agenten eines Plans können also nur weiter delegieren oder planen, wo die
+Tiefe es erlaubt.
+
 ## Der aufklappbare Block
 
 Alles, was die Werkzeuge eines Turns für die Bubble liefern, ist ein
@@ -202,9 +245,11 @@ ohne dass Codine ein neuer Agententyp wird.
 
 | Datei | Neu oder Änderung |
 |---|---|
-| `aifred/plugins/tools/subagent/__init__.py` | neu, Plugin und Executor |
+| `aifred/plugins/tools/subagent/__init__.py` | neu, Plugin (Einstellungen, Werkzeug, Delegationsregeln); der Lauf selbst ist `SubagentSession` in der lib |
+| `aifred/lib/subagent_run.py` | der Kern: Toolkit bauen, Nachrichten, Modelllauf, Transkript, Bericht. `SubagentSession.run()` für die erste Anfrage, `follow_up(text)` für eine weitere Nutzernachricht im selben Lauf (gleiches Toolkit, Bericht als Assistenten-Zug), `extra_tools` für Werkzeuge des Aufrufers, `toolkit` für den Zugriff danach. Die Beschriftungen des Transkripts stehen in `lib/i18n` (`subagent_transcript_*`). Aufrufer: das Plugin und die Plan-Engine |
 | `aifred/plugins/tools/subagent/prompts/tools/delegate_task.txt` | neu, Werkzeugbeschreibung für das Modell |
 | `aifred/plugins/tools/subagent/prompts/de/delegate_task.txt`, `en/delegate_task.txt` | neu, Anleitung an den Aufrufer: wann delegieren, was in `task` gehört (Fragment, nur wenn `delegate_task` freigeschaltet) |
+| `aifred/plugins/tools/subagent/prompts/tools/run_task_plan.*`, `prompts/de/run_task_plan.txt`, `en/run_task_plan.txt` | zweites Werkzeug `run_task_plan`: führt einen Aufgabenplan (frame, parts, columns) über `lib/plan_engine.run_plan` aus; Schema der Felder aus `lib/task_plan.plan_parameters_schema()` (`prompts/tools/task_plan.params.json`), gleiche Rekursionsgrenze wie `delegate_task` |
 | `prompts/de/shared/subagent_frame.txt`, `prompts/en/shared/subagent_frame.txt` | neu, Rahmen für den Sub-Agenten |
 | `aifred/plugins/tools/subagent/settings.json` | entsteht beim ersten Speichern über das Zahnrad: erlaubte Tiers, Rekursionstiefe, Sub-Agent als anderer Hauptagent (`credential_fields`, nicht geheim) |
 | `aifred/lib/bubble.py` | Bubble-Artefakte und `render_bubble`, die eine Stelle für den Aufbau der Bubble |

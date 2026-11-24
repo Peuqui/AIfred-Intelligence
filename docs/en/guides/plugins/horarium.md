@@ -14,7 +14,7 @@ result is handed to the configured delivery mode.
 |------|------------|------|
 | `horarium_create` | Create a new scheduled job | WRITE_DATA |
 | `horarium_list` | List all scheduled jobs with status, next run, delivery mode, and the stored prompt | READONLY |
-| `horarium_update` | Change a scheduled job in place (only the fields passed; also switch on/off) | WRITE_DATA |
+| `horarium_update` | Change a scheduled job in place (only the fields passed; also switch on/off; add, change or remove single parts of a plan) | WRITE_DATA |
 | `horarium_delete` | Delete a scheduled job by its ID | WRITE_DATA |
 
 ## `horarium_create` parameters
@@ -31,16 +31,53 @@ result is handed to the configured delivery mode.
 | `recipient` | no | Recipient for `announce` (email address, etc.) |
 | `webhook_url` | no | URL for `webhook` delivery |
 | `end_date` | no | End of a `cron`/`interval` job: `YYYY-MM-DD` (that day still runs) or `YYYY-MM-DDTHH:MM`; left out, the job runs without limit. `horarium_update` sets or removes it (empty value) |
+| `frame` | no | Only for jobs with sub-tasks: the frame that applies to all parts |
+| `parts` | no | The sub-tasks, each with `id`, `title`, `task` and `positions` (each `id`, `name`) |
+| `columns` | no | Typed fields of the entries, each with `name` and `type` (`text`, `zahl`, `link`) |
 
 ## Features
 
 - **Three schedule types:** `cron` (cron expression, e.g. `0 8 * * *` = daily 8am), `interval` (seconds, e.g. `3600` = every hour), `once` (ISO timestamp, e.g. `2026-03-30T10:00:00`)
 - **Delivery modes:** `review` (default, show in UI), `announce` (send to a channel), `webhook` (HTTP POST); the whole answer is delivered as the browser shows it (without thinking), the agent sends nothing itself
 - **History per job:** each run sees what the last runs delivered
-- **Tier capping:** Jobs run at `TIER_COMMUNICATE`, not at the creating user's tier; they may still write memories because they belong to the owner
+- **Tier limit:** jobs run with the owner's tier by default (`JOB_DEFAULT_TIER`); `max_tier` at creation sets a lower one, at most the creator's own tier. Sub-tasks never send themselves (no `TIER_COMMUNICATE`); the Horarium delivers
 - **Isolated execution:** Each job runs from its own stored payload
 - **Persistent:** Jobs are stored via the job store and survive service restarts; what is overdue at a restart runs afterwards
 - **Off means off:** The execution loop belongs to the plugin. While it is off no job starts; a job that is already running runs to its end. Appointments of the time off lapse: when the plugin is switched on, due jobs move to their next regular appointment without a run and without an entry in the run log (a one-shot job is switched off)
+
+## Jobs with sub-tasks
+
+A large task (many positions, several independent groups, e.g. prices of many products in several shops, anew every
+week) is unreliable in a single prompt: positions drop silently, values are copied from earlier runs. So AIfred splits
+such a task himself when creating it. You only say what you want; AIfred builds a frame, the parts with their positions
+and, if needed, columns for values every entry records from it. Small tasks stay a single task without parts. If AIfred ran the
+plan earlier in the conversation with `run_task_plan`, he takes it over unchanged as the job. Parts cannot be combined
+with fixed text (`fixed_text`).
+
+**What happens in a run:**
+
+- The parts run one after the other, each as its own sub-agent. They search freely; sources named are starting points,
+  not limits. For every position they enter an entry (found, not found, error); a find counts only with a source that
+  was really retrieved. New sources they discover are appended by the Horarium to the job's notes.
+- If a position is still missing after a part, the part is asked exactly once more; after that it counts as "not checked".
+- If a part fails, the rest runs anyway. The message says which part failed and why.
+- At the end AIfred writes the message from all results. Below it the Horarium itself appends a line such as "11 of 12
+  positions checked", with the missing positions for gaps. The model does not write this line.
+- The transcripts of the parts are in the history of the run's session as collapsible blocks, not in what the model reads.
+
+**Every run stands for itself:** The Horarium keeps no archive and no trend table; the parts never see the findings of
+earlier runs. Knowledge about sources lives in the job's notes (the Horarium enters new sources there). Whoever wants to
+collect values across runs (e.g. prices) says so in the task: the closing turn then keeps the table itself in a file in the
+job's folder.
+
+**Editing in the chat:** Tell AIfred what should change; he changes single parts without touching the rest (add, change or
+remove a part, and replace frame and columns). "Show me my jobs" lists the plan completely. If a change is
+refused (e.g. a duplicate part id), the job stays unchanged.
+
+**A job does not change itself:** A running job may neither change nor delete its own job. Improvements it notices go into
+its report; you decide in the chat whether they are adopted.
+
+Structure and flow in detail: [scheduler](../../architecture/scheduler.md#jobs-with-sub-tasks).
 
 ## Run now
 

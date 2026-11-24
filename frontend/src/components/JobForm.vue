@@ -2,12 +2,14 @@
 // A scheduled job, new or changed: name, agent, what it says, when (a cron template or the five fields, an
 // interval, a point in time; the server says when it fires next before saving) and where the result goes
 // (review, sent through a channel, possibly as a fixed text without a model, or a webhook) with its tier.
-import { Bell, Clock, TriangleAlert } from "lucide-vue-next";
+import { Bell, Clock, Plus, TriangleAlert } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
 import type { JobOptions, JobRow, JobWrite } from "../api/types";
 import { t } from "../i18n";
 import { type ScheduleFields, type ScheduleType, composeSchedule, decomposeSchedule } from "../lib/schedule";
+import { hasPlan, planFormOf, planWrite } from "../lib/taskPlan";
 import { useJobs } from "../stores/jobs";
+import JobPlan from "./JobPlan.vue";
 import ModalDialog from "./ModalDialog.vue";
 
 const props = defineProps<{ job: JobRow | null; options: JobOptions }>();
@@ -34,6 +36,14 @@ const form = ref({
   audio_type: props.job?.audio_type ?? "notification",
   max_tier: props.job?.max_tier ?? props.options.default_tier,
 });
+// The sub-tasks: shown for a job that has a plan, or once the user asks for them.
+const plan = ref(planFormOf(props.job));
+const planShown = ref(hasPlan(props.job));
+const hasParts = computed(() => plan.value.parts.length > 0);
+function removePlan(): void {
+  plan.value = planFormOf(null);
+  planShown.value = false;
+}
 // The end of a cron or interval schedule, optional: a day, and a time if the last day is to end earlier than its evening.
 const [startEndDate = "", startEndTime = ""] = (props.job?.ends_at ?? "").split("T");
 const endDate = ref(startEndDate);
@@ -62,7 +72,7 @@ async function ask(): Promise<void> {
 watch(schedule, ask, { deep: true, immediate: true });
 
 async function save(): Promise<void> {
-  const job: JobWrite = { ...form.value, schedule_type: schedule.value.type, schedule_expr: composeSchedule(schedule.value), ends_at: endsAt.value };
+  const job: JobWrite = { ...form.value, ...planWrite(plan.value), schedule_type: schedule.value.type, schedule_expr: composeSchedule(schedule.value), ends_at: endsAt.value };
   if (await jobs.save(props.job?.job_id ?? null, job)) emit("close");
 }
 </script>
@@ -71,7 +81,6 @@ async function save(): Promise<void> {
   <ModalDialog @close="emit('close')">
     <form class="job" @submit.prevent="save">
       <strong class="title"><Clock :size="16" /> {{ job ? job.name : t("scheduler_new_job") }}</strong>
-      <p v-if="jobs.notice" class="notice"><TriangleAlert :size="16" /> {{ jobs.notice }}</p>
       <label>{{ t("agent_editor_name") }}<input v-model="form.name" required /></label>
       <label>{{ t("jobs_agent") }}
         <select v-model="form.agent">
@@ -144,13 +153,22 @@ async function save(): Promise<void> {
           <label v-else-if="form.delivery === 'webhook'" class="grow">{{ t("jobs_webhook_url") }}<input v-model="form.webhook_url" type="url" required /></label>
         </div>
         <label v-if="form.delivery === 'announce'" class="check" :title="t('sched_tip_fixed_text')">
-          <input v-model="form.fixed_text" type="checkbox" /> {{ t("sched_label_fixed_text") }}
+          <input v-model="form.fixed_text" type="checkbox" :disabled="hasParts" data-test="fixed-text" /> {{ t("sched_label_fixed_text") }}
         </label>
+        <p v-if="form.delivery === 'announce' && hasParts" class="hint" data-test="fixed-text-blocked">{{ t("jobs_plan_fixed_text_blocked") }}</p>
       </fieldset>
 
-      <label class="wide">{{ form.fixed_text ? t("sched_label_message_fixed") : t("sched_label_message") }}
+      <JobPlan v-if="planShown" :plan="plan" :options="options" @remove="removePlan" />
+      <div v-else class="wide">
+        <button type="button" data-test="add-plan" :disabled="form.fixed_text" @click="planShown = true"><Plus :size="16" /> {{ t("jobs_plan_add") }}</button>
+        <p v-if="form.fixed_text" class="hint" data-test="add-plan-blocked">{{ t("jobs_plan_add_blocked") }}</p>
+      </div>
+
+      <label class="wide">{{ hasParts ? t("jobs_plan_closing") : form.fixed_text ? t("sched_label_message_fixed") : t("sched_label_message") }}
         <textarea v-model="form.message" required></textarea>
       </label>
+      <p v-if="hasParts" class="hint wide" data-test="closing-hint">{{ t("jobs_plan_closing_hint") }}</p>
+      <p v-if="jobs.notice" class="notice" role="alert"><TriangleAlert :size="16" /> {{ jobs.notice }}</p>
       <div class="actions wide">
         <button type="button" @click="emit('close')">{{ t("agent_editor_cancel") }}</button>
         <button type="submit" :disabled="!!problem">{{ t("agent_editor_save") }}</button>
@@ -174,6 +192,7 @@ input:not([type="checkbox"]), select, textarea { background: var(--aifred-input-
 button { padding: 4px 8px; }
 textarea { min-height: 7em; resize: vertical; }
 .notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
+.hint { margin: 0; font-size: 0.8rem; color: var(--aifred-text-muted); }
 .next { margin: 0; font-size: 0.85rem; color: var(--aifred-accent-cyan); }
 .actions { display: flex; gap: 8px; justify-content: flex-end; }
 @media (max-width: 760px) {

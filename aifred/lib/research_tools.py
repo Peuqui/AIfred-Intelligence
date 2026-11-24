@@ -46,7 +46,7 @@ def research_result_text(source_count: int, lang: str) -> str:
     return load_prompt("shared/research_result", lang=lang, source_count=source_count)
 
 
-async def run_web_search(queries: list[str], llm_history: list[dict]) -> tuple[str, int]:
+async def run_web_search(queries: list[str], llm_history: list[dict]) -> tuple[str, int, list[str]]:
     """The web search of a turn:
     - Multi-API search (Brave, Tavily, SearXNG)
     - URL ranking (LLM-based, with the conversation for context)
@@ -55,8 +55,8 @@ async def run_web_search(queries: list[str], llm_history: list[dict]) -> tuple[s
 
     Reads backend and models from settings. Debug messages go through the Debug Bus (session_scope must be active).
 
-    Returns (context, number of sources read); the caller builds the
-    llm_history result text from the count (research_result_text).
+    Returns (context, number of sources read, addresses of the pages read); the caller builds the
+    llm_history result text from the count (research_result_text) and reports the addresses as read.
     """
     from .config import BACKEND_DEFAULT_MODELS, BACKEND_URLS, DEFAULT_SETTINGS
     from .debug_bus import debug, report_phase
@@ -111,9 +111,9 @@ async def run_web_search(queries: list[str], llm_history: list[dict]) -> tuple[s
         if not related_urls:
             if _is_network_outage(search_results):
                 debug("⚠️ Search unreachable — network/DNS failure (not 'no results')")
-                return WEB_SEARCH_NETWORK_ERROR, 0
+                return WEB_SEARCH_NETWORK_ERROR, 0, []
             debug("⚠️ No URLs found")
-            return json.dumps({"error": "No results found"}), 0
+            return json.dumps({"error": "No results found"}), 0, []
 
         # ── Phase 2: URL ranking ──────────────────────────────
         from .research.context_utils import get_model_native_context
@@ -171,12 +171,12 @@ async def run_web_search(queries: list[str], llm_history: list[dict]) -> tuple[s
 
         if not pages:
             debug("⚠️ No sources available")
-            return json.dumps({"error": "No results found"}), 0
+            return json.dumps({"error": "No results found"}), 0, []
 
         # ── Phase 4: Build context ────────────────────────────
         context = build_context(queries[0], pages)
         debug(f"✅ Research: {len(context)} chars, {len(pages)} sources")
-        return context, len(pages)
+        return context, len(pages), [page["url"] for page in pages]
 
     finally:
         await llm_client.close()

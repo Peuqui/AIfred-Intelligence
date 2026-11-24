@@ -1,0 +1,1 @@
+gefunden: Wert gelesen und belegt. nicht_gefunden: gesucht, aber nichts Passendes. fehler: die Prüfung scheiterte (Abruf, Seite).

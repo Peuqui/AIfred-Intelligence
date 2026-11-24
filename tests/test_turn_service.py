@@ -904,8 +904,8 @@ def test_the_notes_of_a_search_and_a_fetch_are_their_result_texts_and_no_bracket
     from aifred.lib.tools import registry
     from aifred.plugins.tools.research import get_research_tools
 
-    async def search(queries: list[str], _history: list[dict[str, Any]]) -> tuple[str, int]:
-        return "Treffer", 4
+    async def search(queries: list[str], _history: list[dict[str, Any]]) -> tuple[str, int, list[str]]:
+        return "Treffer", 4, []
 
     pages = {"https://example.org/a": {"success": True, "content": "Inhalt", "word_count": 1},
              "https://example.org/b": {"success": False, "error": "404"}}

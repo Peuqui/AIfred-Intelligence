@@ -1,0 +1,68 @@
+{
+  "type": "object",
+  "properties": {
+    "frame": {
+      "type": "string",
+      "description": "The overall context every part's agent gets: what the whole task is about, what counts as a good finding, what to avoid. Sources named here are starting points, not limits: the agents search the web themselves."
+    },
+    "parts": {
+      "type": "array",
+      "description": "The task split into independent groups, one sub-agent each, run one after the other. A part is what one agent can do in one go and report on with a status for every position. Do not split a small task.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Short unique id of the part"
+          },
+          "title": {
+            "type": "string",
+            "description": "Title of the part, shown in the progress and the result"
+          },
+          "task": {
+            "type": "string",
+            "description": "What the agent of this part does, complete and self-contained: it sees neither the conversation nor the other parts"
+          },
+          "positions": {
+            "type": "array",
+            "description": "The single things of this part, each of which gets an entry with a status (found, not found, error). At least one.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Short unique id of the position inside the part ('zusatz' is reserved)"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Name of the position as the agent should look for it"
+                }
+              },
+              "required": ["id", "name"]
+            }
+          }
+        },
+        "required": ["id", "title", "task", "positions"]
+      }
+    },
+    "columns": {
+      "type": "array",
+      "description": "Optional values every entry carries besides status, finding and source. Only for values that are compared (prices, counts); not for text that belongs in the finding.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the column (not position_id, status, befund, quelle, neue_quellen)"
+          },
+          "type": {
+            "type": "string",
+            "enum": [],
+            "description": "Type of the values: text, zahl (number) or link"
+          }
+        },
+        "required": ["name", "type"]
+      }
+    }
+  }
+}

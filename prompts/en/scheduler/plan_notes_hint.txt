@@ -1,0 +1,1 @@
+NOTES OF THE JOB: `{file}`. Read them first with read_file (known sources, experience, technical hints). Do not write into them; report new sources in the field neue_quellen, the scheduler enters them.

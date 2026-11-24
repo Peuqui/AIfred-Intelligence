@@ -2,7 +2,7 @@
 
 > **Deutsche Version:** [scheduler.md](../../de/architecture/scheduler.md)
 
-**Date:** 2026-03-29
+**Date:** 2026-11-24
 
 The plugin is called **Horarium** everywhere (`plugins/tools/horarium`, tools `horarium_*`); the engine behind it lives in `lib/scheduler.py`.
 
@@ -110,6 +110,8 @@ CREATE TABLE jobs (
 }
 ```
 
+Optionally the plan fields `frame`, `parts`, `columns` (see "Jobs with sub-tasks").
+
 ### API
 
 ```python
@@ -156,7 +158,9 @@ in addition.
 
 - **Job prompt:** `build_job_prompt()` builds the message to the agent from
   `prompts/<lang>/scheduler/`: job name, where the answer goes
-  (`delivery_<mode>.txt`), the previous runs and the task.
+  (`delivery_<mode>.txt`), the previous runs and the task. For a job with sub-tasks the
+  results of the parts are added (see "Jobs with sub-tasks"); a run then consists of the parts and the closing
+  turn, for every other job of exactly this one prompt.
 - **History per job:** table `job_runs` keeps what each run delivered,
   independent of the sessions and only for the newest `SCHEDULER_HISTORY_RUNS`
   runs per job. Exactly those go into the prompt as excerpts so the job does
@@ -219,6 +223,91 @@ POST body:
     "timestamp": "2026-03-30T08:00:05"
 }
 ```
+
+---
+
+## Jobs with sub-tasks
+
+A large task (many positions, several independent groups) does not fit one prompt: the model drops positions silently
+or copies values from earlier runs. So a job can carry a plan. The code directs the run, not the model; the control
+flow is the plan engine, which the chat tool `run_task_plan` also uses and which is described in
+[task plans](task-plan.md). A job without `parts` stays a run with exactly one prompt, with no special path.
+
+### Payload fields
+
+Besides `message` (for a plan, the closing task) the payload has four optional fields, all in `lib/task_plan.py`
+(`TaskPlan`, `PLAN_KEYS`):
+
+- `frame`: text that applies to all parts (what it is about, what a good finding is, what to avoid). Sources named
+  there are starting points, not limits.
+- `parts`: list of sub-tasks with `id`, `title`, `task` (complete, the part does not see the conversation) and
+  `positions`, a list of `id` and `name`. Every position gets at least one entry during the run.
+- `columns`: the typed fields of this job's entries, each with `name` and `type` (`text`, `zahl` or `link`), for values
+  every entry records (e.g. shop, price, availability).
+
+`job_problem` checks the payload before it is stored and calls `plan_problem` for any of these fields, the one check for
+the Horarium and the chat tool: shape of the fields, unique part, position and column names, no part without positions,
+the position id `zusatz` is reserved (finds outside the list), column names must not be `position_id`, `status`,
+`befund`, `quelle` or `neue_quellen`, known column types, and parts exclude
+`fixed_text`. The plan only runs when `parts` is not empty.
+
+### Flow of a run
+
+For a job with parts, `_execute_job` first starts `_run_plan_parts`, then the closing turn.
+
+1. **Session in advance.** The run gets a fresh `channel_id` like any other; `_run_plan_parts` creates the session at once
+   through `message_processor.session_for_channel("scheduler", channel_id)`, so the parts work in the same session the
+   closing turn later finds through its route.
+2. **Parts one after the other.** For each part the plan engine starts a sub-agent with fresh context (frame and part,
+   plus, if the job keeps notes, the pointer to the notes file). It runs as the job's
+   agent, without persona, with the job's tiers but without sending: all tiers up to the job's `max_tier` except
+   `TIER_COMMUNICATE` are allowed. The sub-agent plugin's setting "allowed tiers" does not apply here. Only the Horarium
+   delivers.
+3. **Entries and read check.** The part reports its results through the tool `plan_record`. An entry with status
+   `gefunden` is accepted only if its source was really retrieved in this run.
+4. **Exactly one reminder.** If positions remain without an entry, the same sub-agent gets the list of those still open
+   once. What is missing after that counts as "not checked".
+5. **Part failure.** If a part throws an exception, it appears in the result with its reason and the next parts run on.
+   An exception outside the parts (notes) fails the whole run; an engine that ends without a result is an error
+   too.
+6. **Transcripts.** The transcripts of all parts appear as one bubble in the session's chat history only
+   (`record_chat_only_bubble`, title from `scheduler/plan_transcripts_title`); the model never sees it, `llm_history` is
+   untouched.
+7. **Notes.** New sources the parts reported (`neue_quellen`) are appended by the code as a dated section to the job's
+   notes (only if the job keeps notes, `_keeps_notes`).
+8. **Closing turn.** The closing turn is the usual run through `process_inbound`. Its prompt is the job prompt
+   (`build_job_prompt`) plus the block from `scheduler/plan_results.txt`: the results of all parts (`render_results`,
+   including failed parts, positions not checked, extra finds and reports). The model is to name
+   failed parts and unchecked positions and invent nothing.
+9. **Count line.** What is delivered and logged is the model's answer, followed by the fixed line from `coverage_line`
+    ("N of M positions checked", with a list for gaps and with the reason for failed parts). The code appends the
+    line, not the model. Extra finds do not count towards completeness.
+
+A part can only delegate further where the recursion depth of the sub-agent plugin allows it (see
+[sub-agents](subagent-plugin.md)).
+
+### Every run stands for itself
+
+The Horarium keeps no archive, no trend table and no history: a part sees only frame, task, positions, columns and the
+notes pointer, never the findings of earlier runs, and within a run parts do not see each other. Knowledge needed across
+runs (sources that proved good) lives in the job's notes; the Horarium enters the parts' new sources there (step 7). Whoever
+wants to collect values across runs (prices, say) says so in the job's task: the closing turn then keeps the table
+itself in a file in the job's folder.
+
+### Lock against self-modification
+
+A running job does not change its own job: from a run (`source == "scheduler"`, `job_id` in the metadata)
+`horarium_update` and `horarium_delete` refuse the own job with the error message `own_job_locked`. The run writes change
+proposals into its report; the user approves them in the chat. Other jobs are not locked.
+
+### Editing in the chat
+
+`horarium_create` takes `frame`, `parts`, `columns`, fields from the same schema as the chat tool
+(`plan_parameters_schema`). `horarium_update` replaces `frame` and `columns` wholly and changes parts precisely: `part_add` appends a part, `part_update` replaces the part with the same `id`
+(the model sends it back with just the wanted change), `part_remove` removes a part by `id`. The operations run in a
+fixed order (frame, columns, remove, update, add); the finished payload is checked as a whole only afterwards,
+and with an invalid payload or an unknown or duplicate part id the job stays unchanged. `horarium_list` shows a job's
+plan completely (frame, parts with task and positions, columns).
 
 ---
 
@@ -303,7 +392,10 @@ All workers (channel listeners, scheduler) auto-restart on crash:
 
 | File | Purpose |
 |------|---------|
-| `aifred/lib/scheduler.py` | Job store, scheduler loop, delivery modes |
+| `aifred/lib/scheduler.py` | Job store, scheduler loop, delivery modes, flow of a job with parts (`_run_plan_parts`) |
+| `aifred/lib/task_plan.py` | Plan data model and the one check (`plan_problem`) |
+| `aifred/lib/plan_engine.py`, `plan_record.py` | Plan engine, recording tool: [task plans](task-plan.md) |
+| `prompts/<lang>/scheduler/plan_*.txt` | Texts of the plan flow (result block, notes pointer, new sources) |
 | `aifred/lib/message_hub.py` | Worker management with auto-restart |
 | `aifred/lib/api/agents.py` | Webhook API endpoint (`/api/agent/trigger`) |
 | `aifred/lib/credential_broker.py` | WEBHOOK_API_TOKEN mapping |

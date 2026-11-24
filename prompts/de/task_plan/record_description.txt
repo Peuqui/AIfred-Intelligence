@@ -1,0 +1,3 @@
+Trägt das Ergebnis für eine Position des Teils „{part_title}“ ein. Rufe das Werkzeug für jede Position auf, mehrere Einträge je Position sind erlaubt (z. B. mehrere Shops). Positionen:
+{positions}
+Etwas Passendes, das nicht in der Liste steht, trägst du unter der Position „{extra_position_id}“ ein. Status „gefunden“ verlangt als Quelle eine Adresse, die du in diesem Lauf abgerufen hast; ohne Abruf wird der Eintrag abgelehnt. Findest du nichts oder scheitert der Abruf, trage „nicht_gefunden“ bzw. „fehler“ mit dem Grund im Befund ein.

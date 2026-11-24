@@ -40,8 +40,8 @@ deliver a collapsible block.
 
 ## The plugin
 
-Directory `aifred/plugins/tools/subagent/`, name `subagent`, one tool
-`delegate_task`.
+Directory `aifred/plugins/tools/subagent/`, name `subagent`, two tools:
+`delegate_task` (this section) and `run_task_plan` (see below).
 
 **Tool parameters**
 
@@ -81,11 +81,11 @@ today does not get them through a sub-agent either.
    `prepare_agent_toolkit` with the caller's agent id (or, with the switch on
    and `agent` set, that of the chosen agent), memory off. `delegate_task`
    and every tool whose tier is not in the setting "allowed tiers" are
-   removed from the kit. Without `delegate_task`, the recursion depth is
+   removed from the kit. Without `delegate_task` (and `run_task_plan`), the recursion depth is
    structurally 1, with no counter and no lock. The setting "recursion
    depth" (default 1) allows more later; the current depth then travels as a
    field in `PluginContext.metadata`.
-2. The sub-agent's system prompt (`subagent.subagent_messages`),
+2. The sub-agent's system prompt (`subagent_run.subagent_messages`),
    deliberately lean: the same builder as everywhere,
    `prompt_loader.agent_system_prompt`, with `answers_user=False` (the answer
    goes to the caller, not to the user: no user prefix, no output format, no
@@ -116,7 +116,7 @@ today does not get them through a sub-agent either.
 4. Execution through `run_llm_stream` with the own toolkit; model, sampling,
    thinking and context size from the tuning of the caller or of the chosen
    agent, through the same helpers as in any of its turns (`resolve_run_params`
-   in the plugin bundles the browser and the hub path).
+   in `subagent_run.py` bundles the browser and the hub path).
 5. During execution the executor yields `progress` events: which tools the
    sub-agent is calling right now. The status line therefore shows "Codine
    (sub-agent) calls read_file", not the inner text.
@@ -156,6 +156,45 @@ needs to know comes in the handover from the main agent, which has the
 conversation and the memory. A sub-agent that stores memories would write
 down things nobody saw in the conversation.
 
+## The run in the lib: `SubagentSession`
+
+The run itself does not live in the plugin but in `aifred/lib/subagent_run.py`, because two callers need it: the plugin
+(`delegate_task`, `run_task_plan`) and the plan engine ([task plans](task-plan.md)), which starts it for every part of a
+plan. The lib imports no plugin; what belongs to the plugin (allowed tiers, recursion depth) comes in as parameters:
+`SubagentSession(ctx, allowed_tiers=…, depth=…, target_agent=…, task=…, expected_result=…, with_persona=False,
+extra_tools=())`.
+
+- `run()` is the first request. The generator yields `progress` (what the sub-agent is calling), `work` (the inference
+  work for the caller's metrics), exactly one `artifacts` with the transcript and all artifacts of its own tools, and
+  last `result`, the report. The toolkit is built by `build_subagent_toolkit`, the messages by `subagent_messages`,
+  model and context by `resolve_run_params`.
+- `follow_up(text)` sends one more user message into the same run: the same toolkit (the same instance, so what it
+  remembered stays, such as the addresses read), the messages so far with the earlier report as the assistant's turn.
+  The result is the new report. Before `run()` the call is an error. The plan engine uses it for its one reminder about
+  missing positions.
+- `extra_tools` are tools of the caller that are added to the toolkit whatever the tiers (the plan engine hands over
+  `plan_record` this way).
+- `toolkit` is readable after `run()`. `plan_record` uses it to get the set of addresses read (`ToolKit.read_urls`).
+
+The labels of the transcript (task, thinking, tool, result, expected result, report, no report, follow-up) are
+`subagent_transcript_*` in `aifred/lib/i18n/de.json` and `en.json`, one source for both callers (`transcript_labels`).
+
+## Second tool: `run_task_plan`
+
+Besides `delegate_task` the plugin offers a second tool, `run_task_plan` (tier `TIER_READONLY`). It is for large tasks
+that fall into several independent groups (for example prices of many products in several shops); small tasks stay
+with `delegate_task` or the caller's own answer. The fields `frame`, `parts`, and `columns` have one schema,
+`plan_parameters_schema()` in `aifred/lib/task_plan.py` (source `prompts/tools/task_plan.params.json`); in the tool
+`frame` and `parts` are required. The executor `run_task_plan` checks the plan with `plan_problem` (and that there is
+at least one part) and otherwise returns an error as the result. Then it calls `run_plan` of the plan engine with the
+plugin's allowed tiers and depth. The tool's result is the text of all entries (`render_results`) and below it the
+fixed line of how many positions were checked (`coverage_line`); the transcripts of the parts come into the bubble as
+collapsible blocks, as with `delegate_task`. The model can store a plan from the chat unchanged as a job with
+`horarium_create`. Flow and limits: [task plans](task-plan.md).
+
+The recursion bound holds for both tools together: from the configured depth on, `get_tools` returns neither
+`delegate_task` nor `run_task_plan`. The sub-agents of a plan can only delegate or plan further where the depth allows.
+
 ## The collapsible block
 
 Everything a turn's tools deliver for the bubble is a bubble artifact
@@ -190,7 +229,9 @@ pattern from the paper without Codine becoming a new agent type.
 
 | File | New or change |
 |---|---|
-| `aifred/plugins/tools/subagent/__init__.py` | new, plugin and executor |
+| `aifred/plugins/tools/subagent/__init__.py` | new, plugin (settings, tools, delegation rules); the run itself is `SubagentSession` in the lib |
+| `aifred/lib/subagent_run.py` | the core: build the toolkit, messages, model run, transcript, report. `SubagentSession.run()` for the first request, `follow_up(text)` for one more user message in the same run, `extra_tools` for tools of the caller, `toolkit` for access afterwards. Transcript labels are in `lib/i18n` (`subagent_transcript_*`). Callers: the plugin and the plan engine |
+| `aifred/plugins/tools/subagent/prompts/tools/run_task_plan.*`, `prompts/de/run_task_plan.txt`, `en/run_task_plan.txt` | second tool `run_task_plan`: runs a task plan (frame, parts, columns) through `lib/plan_engine.run_plan`; field schema from `lib/task_plan.plan_parameters_schema()` (`prompts/tools/task_plan.params.json`), same recursion bound as `delegate_task` |
 | `aifred/plugins/tools/subagent/prompts/tools/delegate_task.txt` | new, tool description for the model |
 | `aifred/plugins/tools/subagent/prompts/de/delegate_task.txt`, `en/delegate_task.txt` | new, instructions to the caller: when to delegate, what belongs in `task` (fragment, only when `delegate_task` is granted) |
 | `prompts/de/shared/subagent_frame.txt`, `prompts/en/shared/subagent_frame.txt` | new, frame for the sub-agent |

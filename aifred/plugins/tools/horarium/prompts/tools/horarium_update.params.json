@@ -66,6 +66,16 @@
     "max_tier": {
       "type": "integer",
       "description": "Optional new security tier of the job (0 read only, 1 communicate, 2 write data into the workspace, 3 system). Left out, it stays as it is. You cannot grant more than you have."
+    },
+    "part_add": {
+      "description": "Add one part to the job's plan. Its id must not exist yet."
+    },
+    "part_update": {
+      "description": "Replace the part of the same id completely (id, title, task, positions); the id must exist."
+    },
+    "part_remove": {
+      "type": "string",
+      "description": "Id of a part to remove from the plan; it must exist."
     }
   },
   "required": [

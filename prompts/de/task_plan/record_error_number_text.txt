@@ -1,0 +1,1 @@
+Eintrag abgelehnt: Feld {column} ist eine Zahlspalte, du hast Text geschickt ({value}). Schicke eine JSON-Zahl mit Punkt als Dezimalzeichen, z. B. 48.5, ohne Anführungszeichen und ohne Einheit.

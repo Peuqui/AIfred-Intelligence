@@ -158,7 +158,7 @@ def test_the_pages_of_a_web_search_are_counted_and_the_phase_ends(session: None,
             next(event.data for event in session_events.replay_after(SESSION, 0) if event.kind == "turn_phase")),
     )
     web.install(monkeypatch)
-    _context, sources = _in_session(research_tools.run_web_search(["Wetter morgen"], []))
+    _context, sources, _urls = _in_session(research_tools.run_web_search(["Wetter morgen"], []))
     assert sources == 1
     assert [(p["phase"], p["current"], p["total"], p["failed"]) for p in seen] == [
         ("scraping", 0, 3, 0), ("scraping", 1, 3, 0), ("scraping", 1, 3, 1),

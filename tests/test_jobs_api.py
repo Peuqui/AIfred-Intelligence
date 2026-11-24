@@ -97,6 +97,42 @@ def test_a_job_is_changed_switched_and_deleted(client: TestClient, store: schedu
     assert client.delete(f"/jobs/{job_id}").status_code == 404
 
 
+PLAN: dict[str, Any] = {
+    "frame": "Nur Shops mit Versand nach Deutschland.",
+    "parts": [{"id": "hpa", "title": "HPA", "task": "Preise suchen", "positions": [{"id": "a1", "name": "Adapter"}, {"id": "a2", "name": "Schlauch"}]}],
+    "columns": [{"name": "preis", "type": "zahl"}, {"name": "shop", "type": "text"}],
+}
+
+
+def test_a_job_with_a_plan_keeps_it_when_saved_again_and_changes_it(client: TestClient, store: scheduler.JobStore) -> None:
+    created = client.post("/jobs", json={**CRON, **PLAN}).json()
+    job_id = created["job_id"]
+    assert {key: created[key] for key in PLAN} == PLAN and store.get(job_id).payload["parts"] == PLAN["parts"]  # type: ignore[union-attr]
+    assert {key: client.get("/jobs").json()[0][key] for key in PLAN} == PLAN
+    saved = client.put(f"/jobs/{job_id}", json={**CRON, **PLAN, "message": "Abschluss neu"}).json()   # the form sends the plan back unchanged
+    assert saved["message"] == "Abschluss neu" and {key: saved[key] for key in PLAN} == PLAN
+    changed = client.put(f"/jobs/{job_id}", json={**CRON, **PLAN, "frame": "Neu", "columns": []}).json()
+    assert (changed["frame"], changed["columns"], changed["parts"]) == ("Neu", [], PLAN["parts"])
+    plain = client.post("/jobs", json=CRON).json()
+    assert (plain["frame"], plain["parts"], plain["columns"]) == ("", [], [])
+    assert not {"frame", "parts", "columns"} & store.get(plain["job_id"]).payload.keys()  # type: ignore[union-attr]
+
+
+@pytest.mark.parametrize(("change", "key", "values"), [
+    ({"parts": [{**PLAN["parts"][0], "positions": []}]}, "plan_part_without_positions", {"part": "hpa"}),
+    ({"columns": [{"name": "preis", "type": "datum"}]}, "plan_unknown_column_type", {"column": "preis", "value": "datum", "allowed": "text, zahl, link"}),
+])
+def test_an_invalid_plan_is_refused_with_its_reason(client: TestClient, store: scheduler.JobStore, change: dict[str, Any], key: str, values: dict[str, Any]) -> None:
+    refused = client.post("/jobs", json={**CRON, **PLAN, **change})
+    assert (refused.status_code, refused.json()["detail"]) == (422, t(f"error_{key}").format(**values))
+    assert store.list_all() == []
+
+
+def test_the_removed_trend_field_is_refused_as_unknown(client: TestClient, store: scheduler.JobStore) -> None:
+    assert client.post("/jobs", json={**CRON, **PLAN, "trend": {"value": "preis"}}).status_code == 422
+    assert store.list_all() == []
+
+
 def test_the_end_of_a_schedule_is_stored_listed_changed_and_refused_when_wrong(client: TestClient, store: scheduler.JobStore) -> None:
     created = client.post("/jobs", json={**CRON, "schedule_expr": "0 8,14,20 * * *", "ends_at": "2099-11-30T18:00"}).json()
     assert created["ends_at"] == "2099-11-30T18:00" and client.get("/jobs").json()[0]["ends_at"] == "2099-11-30T18:00"

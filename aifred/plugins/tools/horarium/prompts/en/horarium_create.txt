@@ -15,6 +15,7 @@ CREATING A JOB (horarium_create), when the user plans something ("remind me", "e
 4. The message is a PLAIN TEXT instruction (no code, no variables) to the model at execution time, and it describes ONLY the task, not the delivery. WRONG: "Write a prayer and send it via Telegram". RIGHT: "Write a short prayer."
 5. If the e-mailed answer should contain an image or file from this run (a chart, say), the ANSWER itself writes the reference with the /_upload/… URL from the tool result: ![description](URL) embeds an image, [name](URL) attaches the file. The message only says WHAT to show.
 6. A reminder or alarm at an exact time → fixed_text=true: the text goes out word for word and on time, without a model.
+7. If the job consists of several independent groups (e.g. prices of many products in several shops, every week anew), split it with frame, parts, columns (build: see the tool's fields); the message stays the instruction for the closing turn (e.g. writing the report). A part is what one agent can do in one go with a status per position; sources in the frame are starting points, not limits; columns only for values that are compared. Do NOT split small jobs. If you ran the plan earlier in the conversation with run_task_plan, take it over unchanged. A job with parts does not take fixed_text.
 
 TYPICAL JOBS (suggest them when it fits): a morning summary of the emails, today's appointments, one-time reminders, a periodic status check that reports only problems. Two examples:
 

@@ -1,0 +1,1 @@
+Position {position_id} recorded; still open: {open}

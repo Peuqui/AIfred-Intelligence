@@ -1,0 +1,1 @@
+{checked} of {total} positions checked

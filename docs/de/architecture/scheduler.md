@@ -2,7 +2,7 @@
 
 > **English version:** [scheduler.md](../../en/architecture/scheduler.md)
 
-**Stand:** 2026-03-29
+**Stand:** 2026-11-24
 
 Das Plugin heißt überall **Horarium** (`plugins/tools/horarium`, Werkzeuge `horarium_*`); die Engine dahinter liegt in `lib/scheduler.py`.
 
@@ -110,6 +110,8 @@ CREATE TABLE jobs (
 }
 ```
 
+Optional dazu die Plan-Felder `frame`, `parts`, `columns` (siehe „Jobs mit Teilaufträgen“).
+
 ### API
 
 ```python
@@ -156,7 +158,9 @@ zusätzlich aus.
 
 - **Job-Prompt:** `build_job_prompt()` baut die Nachricht an den Agenten aus
   `prompts/<lang>/scheduler/`: Job-Name, wohin die Antwort geht
-  (`delivery_<mode>.txt`), die bisherigen Läufe und der Auftrag.
+  (`delivery_<mode>.txt`), die bisherigen Läufe und der Auftrag. Bei einem Job mit Teilaufträgen
+  kommen die Ergebnisse der Teile dazu (siehe „Jobs mit Teilaufträgen“); ein Lauf besteht dann aus den Teilen und dem
+  Abschluss, bei jedem anderen Job aus genau diesem einen Prompt.
 - **Historie pro Job:** Tabelle `job_runs` hält, was jeder Lauf zugestellt hat,
   unabhängig von den Sessions und nur für die neuesten `SCHEDULER_HISTORY_RUNS`
   Läufe pro Job. Genau diese gehen als Auszug in den Prompt, damit sich der
@@ -222,6 +226,91 @@ POST-Body:
     "timestamp": "2026-03-30T08:00:05"
 }
 ```
+
+---
+
+## Jobs mit Teilaufträgen
+
+Ein umfangreicher Auftrag (viele Positionen, mehrere unabhängige Gruppen) passt nicht in einen einzigen Prompt: Das
+Modell lässt Positionen still fallen oder kopiert Werte aus früheren Läufen. Deshalb kann ein Job einen Plan tragen. Die
+Regie führt dann der Code, nicht das Modell; die Ablaufsteuerung selbst ist die Plan-Engine, die auch das
+Chat-Werkzeug `run_task_plan` benutzt und in [Aufgabenpläne](task-plan.md) beschrieben ist. Ein Job ohne `parts`
+bleibt ein Lauf mit genau einem Prompt, ohne Sonderweg.
+
+### Payload-Felder
+
+Zusätzlich zu `message` (bei einem Plan der Abschlussauftrag) kennt die Payload vier optionale Felder, alle in
+`lib/task_plan.py` (`TaskPlan`, `PLAN_KEYS`):
+
+- `frame`: Text, der für alle Teile gilt (worum es geht, was ein guter Fund ist, was zu meiden ist). Genannte Quellen
+  sind Startpunkte, keine Grenze.
+- `parts`: Liste von Teilaufträgen mit `id`, `title`, `task` (vollständig, der Teil sieht das Gespräch nicht) und
+  `positions`, einer Liste aus `id` und `name`. Jede Position bekommt im Lauf mindestens einen Eintrag.
+- `columns`: die typisierten Felder der Einträge dieses Jobs, je `name` und `type` (`text`, `zahl` oder `link`), für
+  Werte, die jeder Eintrag festhält (z. B. Shop, Preis, Verfügbarkeit).
+
+`job_problem` prüft die Payload vor dem Speichern und ruft bei jedem dieser Felder `plan_problem` auf, die eine Prüfung
+für Horarium und Chat-Werkzeug: Form der Felder, eindeutige Teil-, Positions- und Spaltennamen, kein Teil ohne
+Positionen, die Positions-ID `zusatz` ist reserviert (Funde außerhalb der Liste), Spaltennamen dürfen nicht
+`position_id`, `status`, `befund`, `quelle` oder `neue_quellen` heißen, bekannte Spaltentypen, und Teile schließen sich mit `fixed_text` aus. Gelaufen wird der Plan nur, wenn `parts` nicht leer ist.
+
+### Ablauf eines Laufs
+
+`_execute_job` startet bei einem Job mit Teilen zuerst `_run_plan_parts`, dann den Abschluss.
+
+1. **Sitzung vorab.** Der Lauf bekommt wie jeder andere eine frische `channel_id`; `_run_plan_parts` legt die Sitzung
+   sofort über `message_processor.session_for_channel("scheduler", channel_id)` an, damit die Teile in derselben
+   Sitzung arbeiten, die der Abschluss später über seine Route findet.
+2. **Teile nacheinander.** Die Plan-Engine startet je Teil einen Sub-Agenten mit frischem Kontext (Rahmen und Teil, dazu,
+   wenn der Job Notizen führt, der Hinweis auf die Notizdatei). Er läuft als
+   Agent des Jobs, ohne Persona, mit den Stufen des Jobs, aber ohne Senden: erlaubt sind alle Stufen bis `max_tier` des
+   Jobs außer `TIER_COMMUNICATE`. Die Plugin-Einstellung „Erlaubte Tiers“ des Sub-Agent-Plugins gilt hier nicht.
+   Zugestellt wird allein vom Horarium.
+3. **Eintragen und Abrufprüfung.** Der Teil meldet seine Ergebnisse über das Werkzeug `plan_record`. Ein Eintrag mit
+   Status `gefunden` wird nur angenommen, wenn die Quelle in diesem Lauf wirklich abgerufen wurde.
+4. **Genau eine Nachforderung.** Bleiben Positionen ohne Eintrag, bekommt derselbe Sub-Agent einmal die Liste der noch
+   offenen. Was danach fehlt, gilt als „nicht geprüft“.
+5. **Teilfehler.** Wirft ein Teil eine Ausnahme, steht er mit seinem Grund im Ergebnis, und die nächsten Teile laufen
+   weiter. Eine Ausnahme außerhalb der Teile (Notizen) lässt den ganzen Lauf scheitern; endet die Engine ohne
+   Ergebnis, ist das ebenfalls ein Fehler.
+6. **Transkripte.** Die Transkripte aller Teile erscheinen als eine Bubble nur im Chatverlauf der Sitzung
+   (`record_chat_only_bubble`, Titel aus `scheduler/plan_transcripts_title`); das Modell sieht sie nie, `llm_history`
+   bleibt unberührt.
+7. **Notizen.** Neue Quellen, die die Teile gemeldet haben (`neue_quellen`), hängt der Code als Abschnitt mit Datum an die
+   Job-Notizen an (nur wenn der Job Notizen führt, `_keeps_notes`).
+8. **Abschluss.** Der Abschluss ist der gewohnte Lauf über `process_inbound`. Sein Prompt ist der Job-Prompt
+   (`build_job_prompt`) plus der Block aus `scheduler/plan_results.txt`: die Ergebnisse aller Teile
+   (`render_results`, einschließlich gescheiterter Teile, nicht geprüfter Positionen, Zusatzfunden und Berichten). Das Modell soll gescheiterte Teile und nicht geprüfte Positionen nennen und nichts dazuerfinden.
+9. **Zählzeile.** Zugestellt und im Protokoll abgelegt wird die Antwort des Modells, darunter die feste Zeile aus
+    `coverage_line` („N von M Positionen geprüft“, bei Lücken mit Liste, bei gescheiterten Teilen mit Grund). Die Zeile
+    hängt der Code an, nicht das Modell. Zusatzfunde zählen nicht zur Vollständigkeit.
+
+Ein Teil kann nur weiter delegieren, wo die Rekursionstiefe des Sub-Agent-Plugins es erlaubt (siehe
+[Sub-Agenten](subagent-plugin.md)).
+
+### Jeder Lauf steht für sich
+
+Das Horarium führt weder ein Archiv noch eine Verlaufstabelle noch eine Vorgeschichte: Ein Teil sieht nur Rahmen, Aufgabe,
+Positionen, Spalten und den Notizen-Hinweis, nie die Funde früherer Läufe, und Teile sehen einander auch innerhalb eines
+Laufs nicht. Wissen, das über Läufe hinweg gebraucht wird (Quellen, die sich bewährt haben), steht in den Job-Notizen;
+neue Quellen der Teile trägt das Horarium dort ein (Schritt 7). Wer Werte über Läufe sammeln will (z. B. Preise), sagt
+das im Auftrag: Der Abschluss führt die Tabelle dann selbst in einer Datei im Job-Ordner.
+
+### Sperre gegen Selbständerung
+
+Ein laufender Job ändert seinen eigenen Job nicht: Aus einem Lauf (`source == "scheduler"`, `job_id` in den Metadaten)
+lehnen `horarium_update` und `horarium_delete` den eigenen Job mit der Fehlermeldung `own_job_locked` ab. Änderungsvorschläge
+schreibt der Lauf in seinen Bericht, der Benutzer gibt sie im Chat frei. Andere Jobs sind nicht gesperrt.
+
+### Bearbeiten im Chat
+
+`horarium_create` nimmt `frame`, `parts`, `columns`, Felder aus demselben Schema wie das
+Chat-Werkzeug (`plan_parameters_schema`). `horarium_update` ersetzt `frame` und `columns` ganz und ändert Teile teilgenau: `part_add` fügt einen Teil an, `part_update` ersetzt den Teil
+mit derselben `id` (das Modell schickt ihn mit nur der gewünschten Änderung zurück), `part_remove` entfernt einen Teil
+nach `id`. Die Operationen laufen in fester Reihenfolge (Rahmen, Spalten, entfernen, ändern, anfügen); die
+fertige Payload wird erst danach als Ganzes geprüft, bei einer ungültigen Payload oder einer unbekannten bzw. doppelten
+Teil-ID bleibt der Job unverändert. `horarium_list` zeigt den Plan eines Jobs vollständig (Rahmen, Teile mit Aufgabe und
+Positionen, Spalten).
 
 ---
 
@@ -306,7 +395,10 @@ Alle Worker (Channel-Listener, Scheduler) haben automatischen Restart bei Crashe
 
 | Datei | Funktion |
 |-------|----------|
-| `aifred/lib/scheduler.py` | Job Store, Scheduler Loop, Delivery Modes |
+| `aifred/lib/scheduler.py` | Job Store, Scheduler Loop, Delivery Modes, Ablauf eines Jobs mit Teilen (`_run_plan_parts`) |
+| `aifred/lib/task_plan.py` | Plan-Datenmodell und die eine Prüfung (`plan_problem`) |
+| `aifred/lib/plan_engine.py`, `plan_record.py` | Plan-Engine, Eintragswerkzeug: [Aufgabenpläne](task-plan.md) |
+| `prompts/<lang>/scheduler/plan_*.txt` | Texte des Plan-Ablaufs (Ergebnisblock, Notizen-Hinweis, neue Quellen) |
 | `aifred/lib/message_hub.py` | Worker-Management mit Auto-Restart |
 | `aifred/lib/api/agents.py` | Webhook-API Endpoint (`/api/agent/trigger`) |
 | `aifred/lib/credential_broker.py` | WEBHOOK_API_TOKEN Mapping |

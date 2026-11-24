@@ -53,6 +53,7 @@ wenn der Nutzer keinen nennt.
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
 | `delegate_task` | Teilaufgabe an einen Sub-Agenten geben; Ergebnis ist dessen Bericht | READONLY |
+| `run_task_plan` | Großen Auftrag als Plan aus mehreren Teilen ausführen, je Teil ein Sub-Agent; Ergebnis sind alle Einträge samt Zählzeile | READONLY |
 
 ### Parameter (`delegate_task`)
 
@@ -67,18 +68,37 @@ die Obergrenze des Aufrufers (Quelle und `max_tier`, ein Telegram-Kanal ohne
 Schreibrechte bekommt sie auch über einen Sub-Agenten nicht) und die
 Plugin-Einstellung „erlaubte Tiers“.
 
+## Große Aufträge: `run_task_plan`
+
+Für einen Auftrag, der in mehrere unabhängige Gruppen zerfällt (etwa die Preise vieler Produkte in mehreren Shops),
+nimmt AIfred nicht `delegate_task`, sondern `run_task_plan`. Du musst das Werkzeug nicht nennen: Sag den Auftrag
+vollständig, AIfred entscheidet selbst, ob er groß genug zum Zerlegen ist. Kleine Aufgaben beantwortet er selbst oder
+gibt sie mit `delegate_task` ab.
+
+AIfred baut dafür einen Plan aus einem Rahmen (gilt für alle Teile; genannte Quellen sind Startpunkte, keine Grenze), den
+Teilen mit je einer Aufgabe und ihren Positionen, optional Spalten für Werte, die jeder Eintrag festhält (z. B. Preis).
+Jeder Teil läuft nacheinander als eigener Sub-Agent und trägt für jede Position einen
+Status mit Befund und Quelle ein. Ein Wert gilt nur, wenn der Sub-Agent die Quelle in diesem Lauf wirklich abgerufen hat.
+Ein langer Lauf kann Minuten dauern; die Transkripte der Teile stehen danach aufklappbar in der Bubble.
+
+Zurück an AIfred kommen alle Einträge aller Teile und darunter eine feste Zeile, wie viele Positionen geprüft wurden
+(„N von M Positionen geprüft“), mit den fehlenden Positionen und gescheiterten Teilen samt Grund. AIfred fasst das
+Ergebnis in der Antwort zusammen. Soll derselbe Plan danach regelmäßig laufen, sag es: AIfred speichert ihn unverändert
+als Job im [Horarium](horarium.md#jobs-mit-teilaufträgen). Einzelheiten und Grenzen:
+[Aufgabenpläne](../../architecture/task-plan.md).
+
 ## Wer delegieren darf
 
-Wie jedes Werkzeug muss `delegate_task` in der Tool-Liste des Agenten in
-`data/agents.json` stehen. Agenten ohne Whitelist (wie AIfred) haben es
-automatisch, Codine hat es eingetragen. Sokrates und Salomo nicht.
+Wie jedes Werkzeug müssen `delegate_task` und `run_task_plan` in der Tool-Liste des Agenten in
+`data/agents.json` stehen. Agenten ohne Whitelist (wie AIfred) haben sie
+automatisch, Codine hat `delegate_task` eingetragen. Sokrates und Salomo nicht.
 
 ## Einstellungen (Zahnrad im Plugin-Modal, `settings.json` beim Plugin)
 
 | Einstellung | Schlüssel | Vorgabe | Bedeutung |
 |---|---|---|---|
 | Erlaubte Tiers | `SUBAGENT_ALLOWED_TIERS` | `0+2` | Lesen, Recherche, Dateien schreiben, Sandbox. Kein Senden (Tier 1), kein Löschen (Tier 3). Senden bleibt beim Hauptagenten, der es im Gespräch verantwortet |
-| Rekursionstiefe | `SUBAGENT_MAX_DEPTH` | `1` | Ob ein Sub-Agent selbst delegieren darf. Bei 1 bekommt der Sub-Agent das Werkzeug gar nicht erst, die Grenze ist strukturell |
+| Rekursionstiefe | `SUBAGENT_MAX_DEPTH` | `1` | Ob ein Sub-Agent selbst delegieren darf. Bei 1 bekommt der Sub-Agent die Werkzeuge (`delegate_task` und `run_task_plan`) gar nicht erst, die Grenze ist strukturell |
 | Sub-Agent als anderer Hauptagent | `SUBAGENT_DELEGATE_TO_OTHER_AGENTS` | aus | Schaltet den Parameter `agent` frei: Der Sub-Agent läuft dann als anderer Hauptagent (z. B. Codine), mit dessen Identity und Personality, Modell und Werkzeugliste, aber ohne Gespräch und Gedächtnis. Ein anderes Modell bedeutet über llama-swap einen Modellwechsel je Delegation, oft Minuten. Der Schalter ist bewusst kein Automatismus |
 
 Memory ist für Sub-Agenten aus und keine Einstellung: Alles, was der Sub-Agent

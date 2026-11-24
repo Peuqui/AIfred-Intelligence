@@ -1,0 +1,1 @@
+NOTIZEN DES JOBS: `{file}`. Lies sie zuerst mit read_file (bekannte Quellen, Erfahrungen, Technikhinweise). Schreibe nicht hinein; neue Quellen meldest du über das Feld neue_quellen, das Horarium trägt sie ein.

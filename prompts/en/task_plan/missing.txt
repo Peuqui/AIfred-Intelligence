@@ -1,0 +1,1 @@
+Still without an entry: {positions}. Enter them now through plan_record (also nicht_gefunden or fehler, with the reason in the finding).

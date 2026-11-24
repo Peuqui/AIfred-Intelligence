@@ -1,0 +1,1 @@
+Column {name}: a number (JSON number with a dot as decimal separator, e.g. 48.5, no text, no unit).
