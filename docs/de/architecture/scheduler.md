@@ -28,7 +28,7 @@ Jobs laufen in isolierten Sessions mit Security-Tier-Enforcement.
                                │
                     ┌──────────▼──────────┐
                     │  Isolierte Session   │
-                    │  (sched_ID_random)   │
+                    │  (zufällige ID)      │
                     └──────────┬──────────┘
                                │
                     ┌──────────▼──────────┐
@@ -163,12 +163,12 @@ zusätzlich aus.
   Abschluss, bei jedem anderen Job aus genau diesem einen Prompt.
 - **Historie pro Job:** Tabelle `job_runs` hält, was jeder Lauf zugestellt hat,
   unabhängig von den Sessions und nur für die neuesten `SCHEDULER_HISTORY_RUNS`
-  Läufe pro Job. Genau diese gehen als Auszug in den Prompt, damit sich der
-  Job nicht wiederholt: ganze Sätze bis etwa
-  `SCHEDULER_HISTORY_EXCERPT_CHARS` Zeichen, nie mitten im Satz, mit „…“, wenn
-  gekürzt wurde (`history_excerpt`). Was ein Job exakt behalten muss, soll er
-  laut Job-Prompt ins Gedächtnis schreiben. Jeder Lauf hat trotzdem eine
-  eigene Session.
+  Läufe pro Job; die Jobs-Seite zeigt sie. In den Prompt gehen nur die Zeiten
+  dieser Läufe („Bisherige Läufe dieses Jobs (neueste zuerst): …“,
+  `scheduler/history.txt`, `build_job_prompt`), nie die zugestellten Texte; beim
+  ersten Lauf steht dort `scheduler/history_empty.txt`. Was ein Job über Läufe
+  hinweg exakt behalten muss, soll er laut Job-Prompt in die Notizen oder ins
+  Gedächtnis schreiben. Jeder Lauf hat eine eigene Session.
 - **Die ganze Antwort:** Zugestellt und protokolliert wird die Antwort, wie
   sie im Browser erscheint, ohne Denkblöcke — derselbe `outbound.text`, den
   jede Kanal-Antwort bekommt. Bis 04.10.2026 ging nur der Text nach dem
@@ -183,9 +183,10 @@ zusätzlich aus.
   `email`-Werkzeug die Aktion `send`, wenn per Mail zugestellt wird. Das gilt
   auch für Sub-Agenten des Laufs. Die anderen Kanäle stehen dem Agenten offen,
   laut Job-Prompt aber nur, wenn der Auftrag es ausdrücklich verlangt.
-- **Gedächtnis:** Jobs laufen als Owner und dürfen Erinnerungen schreiben,
-  obwohl ihr Tier bei `TIER_COMMUNICATE` liegt (siehe security.md,
-  Gedächtnis nur für den Owner).
+- **Gedächtnis:** Jobs laufen als Owner und dürfen Erinnerungen schreiben;
+  das Gedächtnis hängt am Owner-Kontext, nicht am Tier des Jobs (Standard eines
+  Jobs: `JOB_DEFAULT_TIER = TIER_WRITE_DATA`, siehe security.md, Gedächtnis nur
+  für den Owner).
 - **Agent-Einstellungen:** Denken, Reasoning-Stufe und Sampling kommen aus
   den Agent-Einstellungen des Hauptfensters.
 
@@ -239,7 +240,7 @@ bleibt ein Lauf mit genau einem Prompt, ohne Sonderweg.
 
 ### Payload-Felder
 
-Zusätzlich zu `message` (bei einem Plan der Abschlussauftrag) kennt die Payload vier optionale Felder, alle in
+Zusätzlich zu `message` (bei einem Plan der Abschlussauftrag) kennt die Payload drei optionale Felder, alle in
 `lib/task_plan.py` (`TaskPlan`, `PLAN_KEYS`):
 
 - `frame`: Text, der für alle Teile gilt (worum es geht, was ein guter Fund ist, was zu meiden ist). Genannte Quellen
@@ -252,27 +253,42 @@ Zusätzlich zu `message` (bei einem Plan der Abschlussauftrag) kennt die Payload
 `job_problem` prüft die Payload vor dem Speichern und ruft bei jedem dieser Felder `plan_problem` auf, die eine Prüfung
 für Horarium und Chat-Werkzeug: Form der Felder, eindeutige Teil-, Positions- und Spaltennamen, kein Teil ohne
 Positionen, die Positions-ID `zusatz` ist reserviert (Funde außerhalb der Liste), Spaltennamen dürfen nicht
-`position_id`, `status`, `befund`, `quelle` oder `neue_quellen` heißen, bekannte Spaltentypen, und Teile schließen sich mit `fixed_text` aus. Gelaufen wird der Plan nur, wenn `parts` nicht leer ist.
+`position_id`, `status`, `befund`, `quelle` oder `neue_quellen` heißen, bekannte Spaltentypen, und Teile schließen sich mit `fixed_text` aus. Rahmen oder Spalten ohne Teile lehnt die Prüfung ab
+(`plan_no_parts`), sie würden im Lauf sonst still übergangen. Gelaufen wird der Plan nur, wenn `parts` nicht leer ist.
 
 ### Ablauf eines Laufs
 
-`_execute_job` startet bei einem Job mit Teilen zuerst `_run_plan_parts`, dann den Abschluss.
+`_execute_job` legt die Sitzung an und macht den ganzen Lauf zu ihrer Pipeline; `_run_job` startet bei einem Job mit Teilen
+zuerst `_run_plan_parts`, dann den Abschluss.
 
-1. **Sitzung vorab.** Der Lauf bekommt wie jeder andere eine frische `channel_id`; `_run_plan_parts` legt die Sitzung
-   sofort über `message_processor.session_for_channel("scheduler", channel_id)` an, damit die Teile in derselben
-   Sitzung arbeiten, die der Abschluss später über seine Route findet.
+1. **Sitzung und Pipeline.** Der Lauf bekommt wie jeder andere eine frische `channel_id`; `_execute_job` legt die Sitzung
+   sofort über `message_processor.session_for_channel("scheduler", channel_id)` an, damit die Teile in derselben Sitzung
+   arbeiten, die der Abschluss später über seine Route findet, und trägt den Task des Laufs mit `register_pipeline` als
+   Pipeline dieser Sitzung ein. Der ganze Lauf (Teile, Abschlusszug, Zustellung) ist damit ein Zug der Sitzung: Eine
+   Chat-Nachricht in dieser Sitzung wartet in der Warteschlange (`pending_messages`) und startet danach
+   (`start_next_turn` am Ende des Laufs), die Oberfläche zeigt „läuft“ (`is_pipeline_running`), und der Stopp
+   (`cancel_pipeline`) bricht den Lauf ab. Ein abgebrochener Lauf zählt als Fehlschlag (`mark_failed`, der nächste
+   Termin rückt weiter); die Scheduler-Schleife läuft weiter. Der Abschlusszug läuft inline in diesem Task und lässt die
+   Eintragung stehen (`turn_service.run_turn`).
 2. **Teile nacheinander.** Die Plan-Engine startet je Teil einen Sub-Agenten mit frischem Kontext (Rahmen und Teil, dazu,
    wenn der Job Notizen führt, der Hinweis auf die Notizdatei). Er läuft als
    Agent des Jobs, ohne Persona, mit den Stufen des Jobs, aber ohne Senden: erlaubt sind alle Stufen bis `max_tier` des
    Jobs außer `TIER_COMMUNICATE`. Die Plugin-Einstellung „Erlaubte Tiers“ des Sub-Agent-Plugins gilt hier nicht.
    Zugestellt wird allein vom Horarium.
+   Zwei Grenzen gelten je Teil. Das Zeitlimit `PLAN_PART_TIMEOUT_SECONDS` (`config.py`, Standard 1800 s = 30:00 min, per
+   Umgebungsvariable änderbar) deckt Lauf und Nachforderung des Teils zusammen ab: Danach bricht die Engine den Teil ab,
+   er scheitert mit dem Grund „Zeitlimit von … überschritten“ (`task_plan/part_timeout.txt`), die Einträge bis dahin
+   bleiben gültig, die nächsten Teile laufen weiter; ein hängender Teil blockiert so nicht mehr die serielle Schleife.
+   Das Kettenlimit `SECURITY_MAX_TOOL_CHAIN_DEPTH` (Standard 100 Werkzeugaufrufe) zählt je Teil: Jeder Teil hat sein
+   eigenes Werkzeug-Set, Lauf und Nachforderung desselben Teils teilen den Zähler, jeder `plan_record` zählt mit. Beides
+   gilt auch für `run_task_plan` im Chat.
 3. **Eintragen und Abrufprüfung.** Der Teil meldet seine Ergebnisse über das Werkzeug `plan_record`. Ein Eintrag mit
    Status `gefunden` wird nur angenommen, wenn die Quelle in diesem Lauf wirklich abgerufen wurde.
 4. **Genau eine Nachforderung.** Bleiben Positionen ohne Eintrag, bekommt derselbe Sub-Agent einmal die Liste der noch
    offenen. Was danach fehlt, gilt als „nicht geprüft“.
-5. **Teilfehler.** Wirft ein Teil eine Ausnahme, steht er mit seinem Grund im Ergebnis, und die nächsten Teile laufen
-   weiter. Eine Ausnahme außerhalb der Teile (Notizen) lässt den ganzen Lauf scheitern; endet die Engine ohne
-   Ergebnis, ist das ebenfalls ein Fehler.
+5. **Teilfehler.** Wirft ein Teil eine Ausnahme oder überschreitet er das Zeitlimit, steht er mit seinem Grund im
+   Ergebnis, und die nächsten Teile laufen weiter. Eine Ausnahme außerhalb der Teile (Notizen) lässt den ganzen Lauf
+   scheitern; endet die Engine ohne Ergebnis, ist das ebenfalls ein Fehler.
 6. **Bubbles während des Laufs.** Gleich beim Start steht eine Bubble: eine Zeile „Job … gestartet: N Teilaufträge“ und
    ein zugeklappter Block mit den Teilen und ihren Positionen (`_plan_started_bubble`). Nach jedem Teil folgt dessen
    eigene Bubble (`PartDone`-Ereignis der Engine, `_part_bubble_artifacts`): genau ein aufklappbarer Block ohne Text
@@ -282,31 +298,48 @@ Positionen, die Positions-ID `zusatz` ist reserviert (Funde außerhalb der Liste
    deshalb als Abschnitte darin; Seiten und Bilder, die ein Sub-Agent erzeugt hat, folgen als eigene Artefakte unter
    dem Block). Alle Bubbles gehen über `record_chat_only_bubble` nur in den Chatverlauf (das Modell sieht sie nie,
    `llm_history` bleibt unberührt) und erreichen offene Tabs sofort als `message_added`. Die Dauer ab 60 s als
-   Minuten:Sekunden. Reihenfolge im Verlauf: Start, Teil 1 … Teil N, Anfrage des Abschlusses, Antwort.
-7. **Notizen.** Neue Quellen, die die Teile gemeldet haben (`neue_quellen`), hängt der Code als Abschnitt mit Datum an die
-   Job-Notizen an (nur wenn der Job Notizen führt, `_keeps_notes`).
+   Minuten:Sekunden. Reihenfolge im Verlauf: Start, Teil 1 … Teil N, Anfrage des Abschlusses, Antwort, Zählzeile.
+7. **Notizen.** Neue Quellen, die die Teile gemeldet haben (`neue_quellen`), trägt der Code als Abschnitt mit Datum in
+   die Job-Notizen ein (nur wenn der Job Notizen führt, `_keeps_notes`). `plan_record` nimmt in `neue_quellen` nur
+   einzeilige http(s)-Adressen an (alles andere lehnt es ab, `record_error_new_source`). `_append_new_sources` schreibt
+   davon nur die, die in den Notizen noch nicht stehen (verglichen in der Form von `normalize_url`), und nur an
+   bestehende Notizen; eine Datei, die es noch nicht gibt, legt das Modell am Ende seines Laufs selbst an
+   (`scheduler/notes_new`), denn eine Datei nur aus Adressen würde als „Notizen vorhanden“ gelten.
 8. **Abschluss.** Der Abschluss ist der gewohnte Lauf über `process_inbound`. Sein Prompt ist der Job-Prompt
    (`build_job_prompt`) plus der Block aus `scheduler/plan_results.txt`: die Ergebnisse aller Teile
    (`render_results`, einschließlich gescheiterter Teile, nicht geprüfter Positionen, Zusatzfunden und Berichten). Das Modell soll gescheiterte Teile und nicht geprüfte Positionen nennen und nichts dazuerfinden.
 9. **Zählzeile.** Zugestellt und im Protokoll abgelegt wird die Antwort des Modells, darunter die feste Zeile aus
     `coverage_line` („N von M Positionen geprüft“, bei Lücken mit Liste, bei gescheiterten Teilen mit Grund). Die Zeile
-    hängt der Code an, nicht das Modell. Zusatzfunde zählen nicht zur Vollständigkeit.
+    hängt der Code an, nicht das Modell. Zusatzfunde zählen nicht zur Vollständigkeit. Die Antwort in der Sitzung hat die
+    Zeile nicht, deshalb legt der Code sie dort als eigene Bubble nach der Antwort ab (`record_chat_only_bubble`).
+
+**Scheitert der Abschlusszug** nach den Teilen (Ausnahme, keine Antwort), gehen die Ergebnisse nicht verloren:
+`_deliver_unclosed_plan` stellt sie zu, als Text aus `scheduler/plan_closing_failed.txt` (Hinweis mit dem Grund, darunter
+die Ergebnisse der Teile) plus Zählzeile. Der Text steht im Protokoll `job_runs` (`add_run`), geht den gewohnten
+Zustellweg (`_deliver_result`) und steht als Nachricht in der Sitzung, die das Modell in seinem Verlauf sieht
+(`record_autonomous_turn`); dort lässt sich weiterarbeiten, etwa den Bericht aus den Ergebnissen nachholen. Die Zählzeile
+steht in der Zustellung und im Protokoll, nicht in der Sitzungsnachricht. Der Lauf zählt trotzdem als gescheitert (die
+Ausnahme wird weitergereicht, `mark_failed`), denn der Abschluss fehlt. **Wird der Lauf nach den Teilen gestoppt**, steht
+nur in der Sitzung eine Nachricht aus `scheduler/plan_closing_cancelled.txt` mit den Ergebnissen; zugestellt wird nichts,
+und es gibt keinen Protokolleintrag. Wird er während der Teile gestoppt, bleiben nur die Bubbles der fertigen Teile im
+Verlauf, die Ergebnisse gehen verloren.
 
 Ein Teil kann nur weiter delegieren, wo die Rekursionstiefe des Sub-Agent-Plugins es erlaubt (siehe
 [Sub-Agenten](subagent-plugin.md)).
 
 ### Jeder Lauf steht für sich
 
-Das Horarium führt weder ein Archiv noch eine Verlaufstabelle noch eine Vorgeschichte: Ein Teil sieht nur Rahmen, Aufgabe,
-Positionen, Spalten und den Notizen-Hinweis, nie die Funde früherer Läufe, und Teile sehen einander auch innerhalb eines
-Laufs nicht. Wissen, das über Läufe hinweg gebraucht wird (Quellen, die sich bewährt haben), steht in den Job-Notizen;
+Ein Teil sieht nur Rahmen, Aufgabe, Positionen, Spalten und den Notizen-Hinweis, nie die Funde früherer Läufe, und Teile
+sehen einander auch innerhalb eines Laufs nicht; das Horarium bewahrt die Funde nicht über Läufe hinweg auf. Wissen, das über Läufe hinweg gebraucht wird (Quellen, die sich bewährt haben), steht in den Job-Notizen;
 neue Quellen der Teile trägt das Horarium dort ein (Schritt 7). Wer Werte über Läufe sammeln will (z. B. Preise), sagt
 das im Auftrag: Der Abschluss führt die Tabelle dann selbst in einer Datei im Job-Ordner.
 
 ### Sperre gegen Selbständerung
 
 Ein laufender Job ändert seinen eigenen Job nicht: Aus einem Lauf (`source == "scheduler"`, `job_id` in den Metadaten)
-lehnen `horarium_update` und `horarium_delete` den eigenen Job mit der Fehlermeldung `own_job_locked` ab. Änderungsvorschläge
+lehnen `horarium_update` und `horarium_delete` den eigenen Job mit der Fehlermeldung `own_job_locked` ab. Die `job_id`
+des Werkzeugaufrufs wird dafür an einer Stelle als ganze Zahl gelesen (`checked_job_id`, auch `"41"` zählt), damit der
+Vergleich mit der Zahl aus den Metadaten nicht an der Schreibweise scheitert. Änderungsvorschläge
 schreibt der Lauf in seinen Bericht, der Benutzer gibt sie im Chat frei. Andere Jobs sind nicht gesperrt.
 
 ### Bearbeiten im Chat
@@ -372,7 +405,7 @@ Token-basiert via Credential Broker (`WEBHOOK_API_TOKEN` in `.env`).
 ```json
 {
     "success": true,
-    "session_id": "webhook_a1b2c3d4",
+    "session_id": "3f9c0a7e5b1d4c28a6e07b91d5f2c834",
     "message": "Agent triggered, running in background"
 }
 ```
@@ -405,9 +438,9 @@ Alle Worker (Channel-Listener, Scheduler) haben automatischen Restart bei Crashe
 | `aifred/lib/scheduler.py` | Job Store, Scheduler Loop, Delivery Modes, Ablauf eines Jobs mit Teilen (`_run_plan_parts`) |
 | `aifred/lib/task_plan.py` | Plan-Datenmodell und die eine Prüfung (`plan_problem`) |
 | `aifred/lib/plan_engine.py`, `plan_record.py` | Plan-Engine, Eintragswerkzeug: [Aufgabenpläne](task-plan.md) |
-| `prompts/<lang>/scheduler/plan_*.txt` | Texte des Plan-Ablaufs (Ergebnisblock, Notizen-Hinweis, neue Quellen) |
+| `prompts/<lang>/scheduler/plan_*.txt` | Texte des Plan-Ablaufs: `plan_results` (Ergebnisblock), `plan_notes_hint`, `plan_new_sources_heading`, `plan_started_*` (Start-Bubble), `plan_part_*` (Titelzeile eines Teils), `plan_closing_*` (Abschluss gescheitert oder abgebrochen) |
 | `aifred/lib/message_hub.py` | Worker-Management mit Auto-Restart |
 | `aifred/lib/api/agents.py` | Webhook-API Endpoint (`/api/agent/trigger`) |
 | `aifred/lib/credential_broker.py` | WEBHOOK_API_TOKEN Mapping |
-| `aifred/aifred.py` | Scheduler-Registrierung beim App-Start |
+| `aifred/plugins/tools/horarium/__init__.py` | Werkzeuge und Registrierung der Scheduler-Schleife (`background_parts`) |
 | `data/scheduler/jobs.db` | SQLite Job-Datenbank |

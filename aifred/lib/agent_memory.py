@@ -534,7 +534,7 @@ async def prepare_agent_toolkit(
         filter_tools_by_tier(all_tools, max_tier), source, (metadata or {}).get(DELIVERY_CHANNEL_KEY, ""),
     )
     # Memory writes are gated by the owner check above, not by the tier: a
-    # scheduler job runs at TIER_COMMUNICATE but is still the owner's.
+    # scheduler job below the owner's tier is still the owner's.
     all_tools = memory_tools + all_tools
 
     # Per-agent tool whitelist (from agents.json)

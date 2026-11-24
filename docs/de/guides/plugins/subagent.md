@@ -31,7 +31,7 @@ Sub-Agent, mit dessen Identity und Personality, Modell und Werkzeugliste
 mit dem Werkzeugkasten, den er wirklich braucht, und auf Wunsch jeder mit
 eigenem Modell.
 
-Gemessen am 13.09.2026 mit Qwen3.8-27B, Prompt-Anteile in Token laut Debug-Log (gesamt inklusive Memory und kurzer History):
+Stand 13.09.2026 (seitdem hat AIfred weitere Werkzeuge, darunter `run_task_plan`, in seiner Whitelist; die Zahlen sind eine Messung von damals, keine Neuberechnung), gemessen mit Qwen3.8-27B, Prompt-Anteile in Token laut Debug-Log (gesamt inklusive Memory und kurzer History):
 
 | Agent | Werkzeuge | System | Tool-Schemata | Prompt gesamt |
 |---|---|---|---|---|
@@ -53,7 +53,7 @@ wenn der Nutzer keinen nennt.
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
 | `delegate_task` | Teilaufgabe an einen Sub-Agenten geben; Ergebnis ist dessen Bericht | READONLY |
-| `run_task_plan` | Großen Auftrag als Plan aus mehreren Teilen ausführen, je Teil ein Sub-Agent; Ergebnis sind alle Einträge samt Zählzeile | READONLY |
+| `run_task_plan` | Großen Auftrag als Plan aus mehreren Teilen ausführen, je Teil ein Sub-Agent; Ergebnis sind die Zählzeile und alle Einträge | READONLY |
 
 ### Parameter (`delegate_task`)
 
@@ -62,6 +62,16 @@ wenn der Nutzer keinen nennt.
 | `task` | string | ja | Die vollständige, in sich geschlossene Aufgabe: alles, was der Sub-Agent wissen muss |
 | `expected_result` | string | ja | Was der Bericht enthalten soll, damit der Aufrufer weiterarbeiten kann |
 | `agent` | string | nein | Nur wenn die Einstellung „Sub-Agent als anderer Hauptagent“ an ist: Agent, als der der Sub-Agent läuft: dessen Identity und Personality, Modell und Werkzeugliste. Angeboten werden alle Hauptagenten außer dem Aufrufer; gibt es keinen, fehlt der Parameter. Systemagenten (Kalibrierung, Vision) werden nie angeboten. Die Parameter-Beschreibung listet je Agent die Werkzeug-Gruppen, die sein Sub-Agent hätte (Plugins nach Whitelist und erlaubten Tiers), plus je Gruppe die Plugin-Beschreibung aus der `i18n.json` des Plugins in der Sprache des Turns |
+
+### Parameter (`run_task_plan`)
+
+Dieselben Felder wie bei einem Plan im Horarium (ein Schema, `plan_parameters_schema()`).
+
+| Parameter | Typ | Pflicht | Beschreibung |
+|-----------|-----|---------|--------------|
+| `frame` | string | ja | Der Rahmen für alle Teile: worum es geht, was ein guter Fund ist, was zu meiden ist. Genannte Quellen sind Startpunkte, keine Grenze |
+| `parts` | Liste | ja | Die Teilaufträge, je `id`, `title`, `task` (vollständig: der Teil sieht weder das Gespräch noch die anderen Teile) und `positions` (Liste aus `id` und `name`, mindestens eine; `zusatz` ist reserviert) |
+| `columns` | Liste | nein | Typisierte Felder, die jeder Eintrag trägt, je `name` und `type` (`text`, `zahl`, `link`); nicht `position_id`, `status`, `befund`, `quelle`, `neue_quellen` |
 
 Das Werkzeug selbst hat Tier READONLY. Was der Sub-Agent tun darf, bestimmen
 die Obergrenze des Aufrufers (Quelle und `max_tier`, ein Telegram-Kanal ohne
@@ -81,8 +91,11 @@ Jeder Teil läuft nacheinander als eigener Sub-Agent und trägt für jede Positi
 Status mit Befund und Quelle ein. Ein Wert gilt nur, wenn der Sub-Agent die Quelle in diesem Lauf wirklich abgerufen hat.
 Ein langer Lauf kann Minuten dauern; die Transkripte der Teile stehen danach aufklappbar in der Bubble.
 
-Zurück an AIfred kommen alle Einträge aller Teile und darunter eine feste Zeile, wie viele Positionen geprüft wurden
-(„N von M Positionen geprüft“), mit den fehlenden Positionen und gescheiterten Teilen samt Grund. AIfred fasst das
+Zurück an AIfred kommen zuerst eine feste Zeile, wie viele Positionen geprüft wurden
+(„N von M Positionen geprüft“), mit den fehlenden Positionen und gescheiterten Teilen samt Grund, und dann alle Einträge
+aller Teile (die Zeile steht vorn, damit sie nicht abgeschnitten wird, wenn ein langes Ergebnis gekürzt wird). Jeder Teil
+hat ein Zeitlimit (30:00 min, `PLAN_PART_TIMEOUT_SECONDS`); überschreitet er es, scheitert er mit Grund, und die anderen
+Teile laufen weiter. AIfred fasst das
 Ergebnis in der Antwort zusammen. Soll derselbe Plan danach regelmäßig laufen, sag es: AIfred speichert ihn unverändert
 als Job im [Horarium](horarium.md#jobs-mit-teilaufträgen). Einzelheiten und Grenzen:
 [Aufgabenpläne](../../architecture/task-plan.md).
@@ -90,8 +103,9 @@ als Job im [Horarium](horarium.md#jobs-mit-teilaufträgen). Einzelheiten und Gre
 ## Wer delegieren darf
 
 Wie jedes Werkzeug müssen `delegate_task` und `run_task_plan` in der Tool-Liste des Agenten in
-`data/agents.json` stehen. Agenten ohne Whitelist (wie AIfred) haben sie
-automatisch, Codine hat `delegate_task` eingetragen. Sokrates und Salomo nicht.
+`data/agents.json` stehen. AIfred hat beide. Sokrates, Salomo, Pater, Codine, Hal und Rabbi haben
+`delegate_task`, aber nicht `run_task_plan`. Agenten ohne Whitelist (kein Eintrag `tools`, so Vision und
+Kalibrierung) sehen alle Werkzeuge, die ihre Quelle und Stufe zulassen.
 
 ## Einstellungen (Zahnrad im Plugin-Modal, `settings.json` beim Plugin)
 
@@ -176,9 +190,9 @@ die Arbeit unterschlägt.
 
 - Keine parallelen Sub-Agenten: Auf Single-User-Hardware bringt Parallelität
   nichts, die Tool-Schleife arbeitet nacheinander.
-- Keine Zeitgrenze nach der Wanduhr: Kettentiefe und Kontextfenster begrenzen
+- Keine Zeitgrenze nach der Wanduhr bei `delegate_task`: Kettentiefe und Kontextfenster begrenzen
   den Sub-Agenten, das Lebenszeichen der Tool-Schleife hält lange Delegationen
-  am Leben.
+  am Leben. Die Teile eines Plans (`run_task_plan`, Horarium) haben dagegen ein Zeitlimit je Teil.
 - Kein Weg, das Transkript ans Hauptmodell zu geben.
 
 ## Beispiel

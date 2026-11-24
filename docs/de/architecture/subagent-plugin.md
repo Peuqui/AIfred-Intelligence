@@ -82,13 +82,14 @@ bekommt sie auch über einen Sub-Agenten nicht.
 
 **Ablauf eines Aufrufs**
 
-1. Der Executor baut den Werkzeugkasten des Sub-Agenten über
-   `prepare_agent_toolkit` mit der Agent-ID des Aufrufers (oder, bei
-   eingeschaltetem Schalter und gesetztem `agent`, der des gewählten
-   Agenten), Memory aus. Aus
-   dem Kasten fliegen `delegate_task` und alle Werkzeuge, deren Tier nicht
-   in der Plugin-Einstellung „erlaubte Tiers“ steht. Ohne `delegate_task` (und `run_task_plan`)
-   ist die Rekursionstiefe strukturell 1, ohne Zähler und ohne Lock. Die
+1. `SubagentSession` baut den Werkzeugkasten des Sub-Agenten über
+   `build_subagent_toolkit`, das `prepare_agent_toolkit` mit der Agent-ID des
+   Aufrufers aufruft (oder, bei eingeschaltetem Schalter und gesetztem `agent`,
+   der des gewählten Agenten), Memory aus, Tiefe um eins erhöht. Aus
+   dem Kasten fliegen alle Werkzeuge, deren Tier nicht
+   in der Plugin-Einstellung „erlaubte Tiers“ steht. `delegate_task` und `run_task_plan`
+   fehlen ab der eingestellten Tiefe, weil `get_tools` des Plugins dann nichts liefert;
+   bei Tiefe 1 ist die Rekursionsgrenze damit strukturell, ohne Zähler und ohne Lock. Die
    Einstellung „Rekursionstiefe“ (Vorgabe 1) erlaubt später mehr; die
    aktuelle Tiefe wandert dann als Feld in `PluginContext.metadata`.
 2. System-Prompt des Sub-Agenten (`subagent_run.subagent_messages`), bewusst
@@ -147,10 +148,14 @@ Der Bericht läuft beim Aufrufer durch die bestehende Kappung, die nur
 greift, wenn er den freien Kontext des Hauptmodells sprengen würde. Beim
 Aufrufer zählt die Delegation als ein Werkzeugaufruf.
 
-**Wer delegieren darf.** Wie jedes Werkzeug muss `delegate_task` in der
-Tool-Liste des Agenten in `agents.json` stehen. Kein Sonderfall im Code,
-auch nicht für Sokrates und Salomo; die sollen ohnehin einmal wie alle
-anderen Agenten behandelt werden.
+**Wer delegieren darf.** Wie jedes Werkzeug müssen `delegate_task` und
+`run_task_plan` in der Tool-Liste des Agenten in `agents.json` stehen
+(`agent_memory.py` filtert den Werkzeugkasten auf diese Liste). Kein Sonderfall im
+Code. Stand dieser Datei: AIfred hat beide, Sokrates, Salomo, Pater, Codine, Hal
+und Rabbi haben `delegate_task`, aber nicht `run_task_plan`. Agenten ohne Whitelist
+(`tools` fehlt, wie Vision und Kalibrierung) sehen alle Werkzeuge, die ihre Quelle
+und ihre Stufe zulassen, also auch beide; sie sind Systemagenten und werden nie als
+Sub-Agent angeboten.
 
 **Plugin-Einstellungen**, gespeichert in der `settings.json` des Plugins und
 über das Zahnrad im Plugin-Modal erreichbar:
@@ -187,7 +192,7 @@ expected_result=…, with_persona=False, extra_tools=())`.
 - `toolkit` ist nach `run()` lesbar. `plan_record` holt sich darüber die Menge der gelesenen Adressen
   (`ToolKit.read_urls`).
 
-Die Beschriftungen des Transkripts (Aufgabe, Denken, Werkzeug, Ergebnis, erwartetes Ergebnis, Bericht, kein Bericht,
+Die Beschriftungen des Transkripts (Titel, Aufgabe, Denken, Werkzeug, Ergebnis, erwartetes Ergebnis, Bericht, kein Bericht,
 Nachforderung) stehen als `subagent_transcript_*` in `aifred/lib/i18n/de.json` und `en.json`, eine Quelle für beide
 Aufrufer (`transcript_labels`).
 
@@ -200,14 +205,20 @@ haben ein einziges Schema, `plan_parameters_schema()` in `aifred/lib/task_plan.p
 `prompts/tools/task_plan.params.json`); im Werkzeug sind `frame` und `parts` Pflicht. Der Executor `run_task_plan`
 prüft den Plan mit `plan_problem` (und dass es mindestens einen Teil gibt) und gibt sonst einen Fehler als Ergebnis
 zurück. Dann ruft er `run_plan` der Plan-Engine mit den erlaubten Tiers und der Tiefe des Plugins. Das Ergebnis des
-Werkzeugs ist der Text aller Einträge (`render_results`) und darunter die feste Zeile, wie viele Positionen geprüft
-wurden (`coverage_line`); die Transkripte der Teile kommen wie bei `delegate_task` als aufklappbare Blöcke in die
+Werkzeugs ist die feste Zeile, wie viele Positionen geprüft wurden (`coverage_line`), und darunter der Text aller
+Einträge (`render_results`). Die Zeile steht vorn, weil die Kappung eines langen Ergebnisses den Schwanz abschneidet und
+der Hinweis auf nicht Geprüftes erhalten bleiben muss; die Transkripte der Teile kommen wie bei `delegate_task` als aufklappbare Blöcke in die
 Bubble. Einen Plan aus dem Chat kann das Modell unverändert mit `horarium_create` als Job speichern. Ablauf und
 Grenzen: [Aufgabenpläne](task-plan.md).
 
 Die Rekursionsgrenze gilt für beide Werkzeuge gemeinsam: `get_tools` liefert ab der eingestellten Tiefe weder
 `delegate_task` noch `run_task_plan`. Die Sub-Agenten eines Plans können also nur weiter delegieren oder planen, wo die
 Tiefe es erlaubt.
+
+Jeder Teil läuft mit eigenem Zeitlimit (`PLAN_PART_TIMEOUT_SECONDS`, Standard 30:00 min; ein Teil, der es überschreitet,
+scheitert mit Grund, die anderen laufen weiter) und eigenem Werkzeugkasten, also eigenem Kettenzähler
+(`SECURITY_MAX_TOOL_CHAIN_DEPTH`, geteilt von Lauf und Nachforderung des Teils). Beides gilt für den Chat-Aufruf
+ebenso wie für einen Horarium-Lauf.
 
 ## Der aufklappbare Block
 
@@ -234,7 +245,7 @@ die Referenzen aus, das Bild zeigt sein Artefakt.
 
 ## Was Codine daraus macht
 
-Codine ist heute ein normaler Agent mit 37 Werkzeugen. Sie wird nicht
+Codine ist heute ein normaler Agent mit 32 Werkzeugen (Whitelist in `data/agents.json`). Sie wird nicht
 umgebaut. Bekommt sie `delegate_task` in ihre Whitelist, kann sie eine
 Aufgabe zerlegen, Teilaufgaben an Arbeiter mit frischem Kontext und ihrer
 eigenen Werkzeugliste geben, das Ergebnis in Workspace-Dateien halten und
@@ -255,7 +266,7 @@ ohne dass Codine ein neuer Agententyp wird.
 | `aifred/lib/bubble.py` | Bubble-Artefakte und `render_bubble`, die eine Stelle für den Aufbau der Bubble |
 | `aifred/lib/function_calling.py`, `aifred/backends/base.py`, `aifred/lib/llm_pipeline.py` | Executor-Ereignis `artifacts` → `tool_artifacts` durch die Tool-Schleife, gesammelt mit Anker in `PipelineResult.artifacts` |
 | `aifred/lib/multi_agent.py`, `aifred/lib/llm_engine.py`, `aifred/lib/message_processor.py` | Bubble über `render_bubble` |
-| `data/agents.json` | `delegate_task` in die Whitelist der gewünschten Agenten |
+| `data/agents.json` | `delegate_task` und `run_task_plan` in die Whitelist der gewünschten Agenten |
 | `tests/test_subagent_plugin.py` | neu: Name gleich Ordnername, Werkzeug und Tier, Rekursionsfilter, Tier-Filter aus der Einstellung, Vererbung von `max_tier` und `source`, Memory aus, Ergebnis als Bericht, Block-Ereignis; `call_llm` gemockt |
 | `docs/de/guides/plugins/subagent.md`, `docs/en/guides/plugins/subagent.md` | neu, Nutzerdoku in beiden Sprachen |
 | `README.md`, `README.de.md`, `docs/<lang>/guides/plugins-overview.md` | Eintrag im Abschnitt Multi-Agent System und in der Plugin-Übersicht, im selben Commit wie der Code |
@@ -265,8 +276,8 @@ ohne dass Codine ein neuer Agententyp wird.
 - Keine parallelen Sub-Agenten. Auf Single-User-Hardware, mit einer
   llama.cpp-Instanz oder knappem KV-Speicher unter vLLM, bringt Parallelität
   nichts; die Tool-Schleife arbeitet ohnehin nacheinander.
-- Keine Zeitgrenze nach der Wanduhr. Kettentiefe und Kontextfenster
-  begrenzen den Sub-Agenten. Das vorhandene Lebenszeichen der Tool-Schleife,
+- Keine Zeitgrenze nach der Wanduhr für `delegate_task`. Kettentiefe und Kontextfenster
+  begrenzen den Sub-Agenten (die Teile eines Plans haben dagegen ein Zeitlimit, siehe oben). Das vorhandene Lebenszeichen der Tool-Schleife,
   alle zwanzig Sekunden während eines stillen Werkzeugaufrufs, deckt auch
   lange Delegationen ab; nichts Neues nötig.
 - Keine Weitergabe von Konversation oder Gedächtnis. Der Aufrufer packt,

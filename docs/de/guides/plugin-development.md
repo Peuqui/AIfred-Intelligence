@@ -386,7 +386,7 @@ debug("Found 5 results")
 ```
 
 Meldungen landen automatisch in:
-- der Log-Datei (`data/logs/aifred_debug.log`) — immer
+- der Log-Datei (`data/logs/aifred_debug.log`) — im Dienst immer (nur der Dienststart legt sie neu an; ein Skript, das die lib importiert, hängt höchstens an, und mit `AIFRED_CLI_MODE` schreibt es gar nichts)
 - der Debug-Konsole im Browser — wenn eine Browser-Session aktiv ist
 - der Session-Datei — wenn `session_scope` aktiv ist (Hub-Pfad)
 

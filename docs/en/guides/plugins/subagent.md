@@ -30,7 +30,7 @@ main agent"). The work is
 spread across several agents, each with the toolkit it actually needs and, if
 wanted, each with its own model.
 
-Measured on 2026-09-13 with Qwen3.8-27B, prompt shares in tokens from the debug log (total including memory and a short history):
+As of 2026-09-13 (AIfred has since got more tools in his whitelist, `run_task_plan` among them; the figures are a measurement from then, not recalculated), measured with Qwen3.8-27B, prompt shares in tokens from the debug log (total including memory and a short history):
 
 | Agent | Tools | System | Tool schemas | Prompt total |
 |---|---|---|---|---|
@@ -51,7 +51,7 @@ agent there on its own, even when the user names none.
 | Tool | Description | Tier |
 |------|------------|------|
 | `delegate_task` | Hand a sub-task to a sub-agent; the result is its report | READONLY |
-| `run_task_plan` | Run a large task as a plan of several parts, one sub-agent each; the result is all entries plus a count line | READONLY |
+| `run_task_plan` | Run a large task as a plan of several parts, one sub-agent each; the result is the count line and all entries | READONLY |
 
 ### Parameters (`delegate_task`)
 
@@ -60,6 +60,16 @@ agent there on its own, even when the user names none.
 | `task` | string | yes | The complete, self-contained task: everything the sub-agent must know |
 | `expected_result` | string | yes | What the report must contain so the caller can continue |
 | `agent` | string | no | Only when the setting "sub-agent as another main agent" is on: the agent the sub-agent runs as: its identity and personality, model and tool list. Every main agent except the caller is offered; if there is none, the parameter is absent. System agents (calibration, vision) are never offered. The parameter description lists, per agent, the tool groups its sub-agent would get (plugins by whitelist and allowed tiers), plus for each group the plugin description from the plugin's `i18n.json` in the language of the turn |
+
+### Parameters (`run_task_plan`)
+
+The same fields as a plan in the Horarium (one schema, `plan_parameters_schema()`).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `frame` | string | yes | The frame for all parts: what it is about, what a good finding is, what to avoid. Sources named there are starting points, not limits |
+| `parts` | list | yes | The sub-tasks, each with `id`, `title`, `task` (complete: the part sees neither the conversation nor the other parts) and `positions` (list of `id` and `name`, at least one; `zusatz` is reserved) |
+| `columns` | list | no | Typed fields every entry carries, each with `name` and `type` (`text`, `zahl`, `link`); not `position_id`, `status`, `befund`, `quelle`, `neue_quellen` |
 
 The tool itself has tier READONLY. What the sub-agent may do is bounded by the
 caller's ceiling (source and `max_tier`; a Telegram channel without write
@@ -77,16 +87,19 @@ parts with a task and their positions each, optionally columns for values every 
 a source for every position. A value counts only if the sub-agent really retrieved the source in this run. A long run
 can take minutes; afterwards the transcripts of the parts are in the bubble as collapsible blocks.
 
-What comes back to AIfred is all entries of all parts and below them a fixed line of how many positions were checked
-("N of M positions checked"), with the missing positions and failed parts and their reasons. AIfred summarizes the
+What comes back to AIfred is first a fixed line of how many positions were checked
+("N of M positions checked"), with the missing positions and failed parts and their reasons, and then all entries of all
+parts (the line leads so it is not cut off when a long result is shortened). Every part has a time limit (30:00 min,
+`PLAN_PART_TIMEOUT_SECONDS`); a part that exceeds it fails with its reason, and the other parts run on. AIfred summarizes the
 result in his answer. If the same plan is to run regularly afterwards, say so: AIfred stores it unchanged as a job in the
 [Horarium](horarium.md#jobs-with-sub-tasks). Details and limits: [task plans](../../architecture/task-plan.md).
 
 ## Who may delegate
 
 Like every tool, `delegate_task` and `run_task_plan` have to be in the agent's tool list in
-`data/agents.json`. Agents without a whitelist (like AIfred) have them
-automatically, Codine has `delegate_task` listed. Sokrates and Salomo do not.
+`data/agents.json`. AIfred has both. Sokrates, Salomo, Pater, Codine, Hal and Rabbi have `delegate_task` but not
+`run_task_plan`. Agents without a whitelist (no `tools` entry, like Vision and Calibration) see every tool their source
+and tier allow.
 
 ## Settings (gear icon in the plugin modal, `settings.json` next to the plugin)
 
@@ -165,8 +178,9 @@ work out.
 
 - No parallel sub-agents: on single-user hardware parallelism gains nothing,
   the tool loop works sequentially.
-- No wall-clock time limit: chain depth and context window bound the
-  sub-agent, the tool loop's heartbeat keeps long delegations alive.
+- No wall-clock time limit for `delegate_task`: chain depth and context window bound the
+  sub-agent, the tool loop's heartbeat keeps long delegations alive. The parts of a plan (`run_task_plan`, Horarium) do
+  have a time limit per part.
 - No way to hand the transcript to the main model.
 
 ## Example

@@ -386,7 +386,7 @@ debug("Found 5 results")
 ```
 
 Messages automatically go to:
-- Log file (`data/logs/aifred_debug.log`) — always
+- Log file (`data/logs/aifred_debug.log`) — always in the service (only the service start creates it afresh; a script that imports the lib at most appends, and with `AIFRED_CLI_MODE` it writes nothing at all)
 - Browser debug console — if browser session is active
 - Session file — if `session_scope` is active (Hub path)
 

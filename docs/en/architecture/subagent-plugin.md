@@ -77,12 +77,14 @@ today does not get them through a sub-agent either.
 
 **Flow of one call**
 
-1. The executor builds the sub-agent's toolkit through
-   `prepare_agent_toolkit` with the caller's agent id (or, with the switch on
-   and `agent` set, that of the chosen agent), memory off. `delegate_task`
-   and every tool whose tier is not in the setting "allowed tiers" are
-   removed from the kit. Without `delegate_task` (and `run_task_plan`), the recursion depth is
-   structurally 1, with no counter and no lock. The setting "recursion
+1. `SubagentSession` builds the sub-agent's toolkit through
+   `build_subagent_toolkit`, which calls `prepare_agent_toolkit` with the
+   caller's agent id (or, with the switch on and `agent` set, that of the
+   chosen agent), memory off, depth raised by one. Every tool whose tier is
+   not in the setting "allowed tiers" is removed from the kit.
+   `delegate_task` and `run_task_plan` are missing from the configured depth
+   on, because the plugin's `get_tools` then returns nothing; at depth 1 the
+   recursion bound is thereby structural, with no counter and no lock. The setting "recursion
    depth" (default 1) allows more later; the current depth then travels as a
    field in `PluginContext.metadata`.
 2. The sub-agent's system prompt (`subagent_run.subagent_messages`),
@@ -137,10 +139,14 @@ applies as in every turn. At the caller, the report passes through the
 existing cap, which only bites if it would blow the main model's free
 context. For the caller, the delegation counts as one tool call.
 
-**Who may delegate.** Like every tool, `delegate_task` has to be in the
-agent's tool list in `agents.json`. No special case in the code, not even
-for Sokrates and Salomo; they are to be treated like all other agents one
-day anyway.
+**Who may delegate.** Like every tool, `delegate_task` and `run_task_plan`
+have to be in the agent's tool list in `agents.json` (`agent_memory.py` filters
+the toolkit by this list). No special case in the code. State of this file:
+AIfred has both; Sokrates, Salomo, Pater, Codine, Hal and Rabbi have
+`delegate_task` but not `run_task_plan`. Agents without a whitelist (`tools`
+missing, like Vision and Calibration) see every tool their source and tier
+allow, so both too; they are system agents and are never offered as a
+sub-agent.
 
 **Plugin settings**, stored in the plugin's `settings.json` and reachable
 through the gear icon in the plugin modal:
@@ -176,7 +182,7 @@ extra_tools=())`.
   `plan_record` this way).
 - `toolkit` is readable after `run()`. `plan_record` uses it to get the set of addresses read (`ToolKit.read_urls`).
 
-The labels of the transcript (task, thinking, tool, result, expected result, report, no report, follow-up) are
+The labels of the transcript (title, task, thinking, tool, result, expected result, report, no report, follow-up) are
 `subagent_transcript_*` in `aifred/lib/i18n/de.json` and `en.json`, one source for both callers (`transcript_labels`).
 
 ## Second tool: `run_task_plan`
@@ -187,13 +193,18 @@ with `delegate_task` or the caller's own answer. The fields `frame`, `parts`, an
 `plan_parameters_schema()` in `aifred/lib/task_plan.py` (source `prompts/tools/task_plan.params.json`); in the tool
 `frame` and `parts` are required. The executor `run_task_plan` checks the plan with `plan_problem` (and that there is
 at least one part) and otherwise returns an error as the result. Then it calls `run_plan` of the plan engine with the
-plugin's allowed tiers and depth. The tool's result is the text of all entries (`render_results`) and below it the
-fixed line of how many positions were checked (`coverage_line`); the transcripts of the parts come into the bubble as
+plugin's allowed tiers and depth. The tool's result is the fixed line of how many positions were checked (`coverage_line`) and below it the text of all
+entries (`render_results`). The line leads because the cap of a long result cuts the tail and the note on what was not
+checked must survive; the transcripts of the parts come into the bubble as
 collapsible blocks, as with `delegate_task`. The model can store a plan from the chat unchanged as a job with
 `horarium_create`. Flow and limits: [task plans](task-plan.md).
 
 The recursion bound holds for both tools together: from the configured depth on, `get_tools` returns neither
 `delegate_task` nor `run_task_plan`. The sub-agents of a plan can only delegate or plan further where the depth allows.
+
+Every part runs with its own time limit (`PLAN_PART_TIMEOUT_SECONDS`, default 30:00 min; a part that exceeds it fails
+with its reason, the others run on) and its own toolkit, so its own chain counter (`SECURITY_MAX_TOOL_CHAIN_DEPTH`,
+shared by the part's run and its reminder). Both hold for the chat call as for a Horarium run.
 
 ## The collapsible block
 
@@ -219,7 +230,7 @@ the image is shown by its artifact.
 
 ## What Codine makes of it
 
-Codine is an ordinary agent with 37 tools today. She is not rebuilt. Given
+Codine is an ordinary agent with 32 tools today (whitelist in `data/agents.json`). She is not rebuilt. Given
 `delegate_task` in her whitelist, she can split a task, hand sub-tasks to
 workers with fresh context and her own tool list, keep the result in
 workspace files and check it with the sandbox. That is the manager-worker
@@ -239,7 +250,7 @@ pattern from the paper without Codine becoming a new agent type.
 | `aifred/lib/bubble.py` | bubble artifacts and `render_bubble`, the one place that builds the bubble |
 | `aifred/lib/function_calling.py`, `aifred/backends/base.py`, `aifred/lib/llm_pipeline.py` | executor event `artifacts` → `tool_artifacts` through the tool loop, collected with anchors in `PipelineResult.artifacts` |
 | `aifred/lib/multi_agent.py`, `aifred/lib/llm_engine.py`, `aifred/lib/message_processor.py` | bubble through `render_bubble` |
-| `data/agents.json` | `delegate_task` in the whitelist of the desired agents |
+| `data/agents.json` | `delegate_task` and `run_task_plan` in the whitelist of the desired agents |
 | `tests/test_subagent_plugin.py` | new: name equals folder name, tool and tier, recursion filter, tier filter from the setting, inheritance of `max_tier` and `source`, memory off, result as report, block event; `call_llm` mocked |
 | `docs/de/guides/plugins/subagent.md`, `docs/en/guides/plugins/subagent.md` | new, user guide in both languages |
 | `README.md`, `README.de.md`, `docs/<lang>/guides/plugins-overview.md` | entry in the Multi-Agent System section and in the plugin overview, in the same commit as the code |
@@ -249,9 +260,9 @@ pattern from the paper without Codine becoming a new agent type.
 - No parallel sub-agents. On single-user hardware, with one llama.cpp
   instance or tight KV memory under vLLM, parallelism gains nothing; the
   tool loop works sequentially anyway.
-- No wall-clock time limit. Chain depth and context window bound the
-  sub-agent. The tool loop's existing heartbeat, every twenty seconds during
-  a silent tool call, covers long delegations too; nothing new needed.
+- No wall-clock time limit for `delegate_task`. Chain depth and context window bound the
+  sub-agent (the parts of a plan do have a time limit, see above). The tool loop's existing heartbeat, every twenty
+  seconds during a silent tool call, covers long delegations too; nothing new needed.
 - No passing of conversation or memory. The caller puts what is needed into
   `task`.
 - No way to hand the inner run to the main model. It sees the report, the
