@@ -350,35 +350,34 @@ class EmailChannel(BaseChannel):
 
         Wrapped in asyncio.wait_for by the caller so a dead connection
         triggers a timeout instead of hanging forever.
+
+        The thread reading the IDLE event is never abandoned: when the IDLE
+        window passes without an event, DONE goes out and the server's answer
+        to it is taken from that same read. An abandoned read (asyncio can give
+        a thread up, not stop it) swallowed the answer to DONE, the drain
+        waited in vain and every quiet window ended in a fresh login: about
+        290 logins a day, which mail.de refused now and then for a minute or
+        two (24./25.11.2026).
         """
         tag = b"A001"
         await asyncio.to_thread(imap.send, tag + b" IDLE\r\n")
 
-        try:
-            response = await asyncio.wait_for(
-                asyncio.to_thread(_read_idle_response, imap),
-                timeout=_IDLE_TIMEOUT_SECONDS,
-            )
-        except TimeoutError:
+        read = asyncio.ensure_future(asyncio.to_thread(_read_idle_response, imap))
+        finished, _ = await asyncio.wait({read}, timeout=_IDLE_TIMEOUT_SECONDS)
+        if not finished:
             self.channel_log("Email Plugin: IDLE timeout (no events), re-entering IDLE")
-            response = b""
 
-        if response:
-            self.channel_log(f"Email Plugin: IDLE wakeup — {response.strip().decode(errors='replace')}")
-
-        # Exit IDLE — DONE + drain can hang on dead connections.
+        # Exit IDLE — DONE + the answer can hang on dead connections.
         # Use a short timeout so we don't wait for the outer watchdog.
         try:
-            await asyncio.wait_for(
-                asyncio.to_thread(imap.send, b"DONE\r\n"),
-                timeout=10,
-            )
-            await asyncio.wait_for(
-                asyncio.to_thread(_drain_idle_response, imap, tag),
-                timeout=10,
-            )
+            await asyncio.wait_for(asyncio.to_thread(imap.send, b"DONE\r\n"), timeout=10)
+            response = await asyncio.wait_for(read, timeout=10)
+            if response.startswith(tag):
+                return  # the answer to DONE: no event came
+            self.channel_log(f"Email Plugin: IDLE wakeup — {response.strip().decode(errors='replace')}")
+            await asyncio.wait_for(asyncio.to_thread(_drain_idle_response, imap, tag), timeout=10)
         except TimeoutError:
-            # DONE/drain hung — connection is dead, let outer loop reconnect
+            # DONE/answer hung — connection is dead, let outer loop reconnect
             raise OSError("IDLE exit timeout")
 
     # ── Single-mail processing ─────────────────────────────────
