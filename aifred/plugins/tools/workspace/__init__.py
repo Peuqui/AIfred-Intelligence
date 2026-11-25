@@ -247,6 +247,9 @@ class WorkspacePlugin:
             .replace("{CHUNK_THRESHOLD_KB}", str(READ_FILE_CHUNK_THRESHOLD_KB)),
             parameters=load_tool_parameters(__file__, "read_file"),
             executor=_read_file,
+            # A file's content is bulk in a sub-agent's transcript (a job's notes: 113 KB, in every part's bubble);
+            # the call with the file name stays, the file itself can be opened (function_calling.Tool).
+            transcript_without_result=True,
         ))
 
         def _embed_html_hint(file_path: Path, result_json: str) -> str:

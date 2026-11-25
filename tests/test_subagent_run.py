@@ -303,6 +303,15 @@ class TestTranscriptSections:
         tools = get_research_tools(lang="de", llm_history=[], user_query="", session_id="s")
         assert {tool.name: tool.transcript_without_result for tool in tools} == {"web_search": True, "web_fetch": True}
 
+    def test_read_file_says_itself_that_the_file_content_is_no_transcript_text(self):
+        # A job's notes (113 KB on 25.11.2026) stood in full in every part's bubble; the call with the file name stays.
+        from aifred.lib.plugin_base import PluginContext
+        from aifred.plugins.tools.workspace import WorkspacePlugin
+        tools = WorkspacePlugin().get_tools(PluginContext(agent_id="aifred", lang="de", session_id="s", source="browser"))
+        flags = {tool.name: tool.transcript_without_result for tool in tools}
+        assert flags["read_file"] is True
+        assert flags["list_files"] is False
+
     def test_a_result_of_a_tool_the_toolkit_does_not_hold_stays(self, ctx, monkeypatch):
         _scripted(monkeypatch, [
             {"type": "tool_call", "name": "read_file", "arguments": "{}"},

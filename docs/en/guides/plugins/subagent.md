@@ -14,9 +14,9 @@ that is its role and working method. Only its report comes back, as an ordinary 
 result. The sub-agent's transcript, that is its task, its thinking (as a nested
 "Thinking Process" block, like the main agent's), its text, every tool call with
 arguments and result, and the report, appears as a collapsible block in the main
-agent's chat bubble. The raw results of `web_search` and `web_fetch` are left out
-(the calls with their queries and addresses stay; the pages read are in the sources
-block). It never reaches the model
+agent's chat bubble. The raw results of `web_search`, `web_fetch` and `read_file` are
+left out (the calls with their queries, addresses and file names stay; the pages read
+are in the sources block, a file can be opened itself). It never reaches the model
 and costs no tokens in the history.
 
 Architecture and decisions: [Sub-Agents as a Plugin](../../architecture/subagent-plugin.md).

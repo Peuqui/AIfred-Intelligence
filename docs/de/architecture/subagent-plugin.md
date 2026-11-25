@@ -138,9 +138,11 @@ bekommt sie auch über einen Sub-Agenten nicht.
    wird als aufklappbarer Block geliefert (siehe unten). Er besteht aus
    Abschnitten (`sections`): Text in normaler Schrift, das Denken als eigener
    verschachtelter Block „Denkprozess“ wie beim Hauptagenten. Nur das Ergebnis
-   von Werkzeugen mit `Tool.transcript_without_result` (`web_search`,
-   `web_fetch`: Seitentexte bis 45.000 Zeichen) fehlt, der Aufruf mit seinen
-   Argumenten bleibt; die gelesenen Seiten stehen im Block „Web-Quellen“.
+   von Werkzeugen mit `Tool.transcript_without_result` fehlt, der Aufruf mit
+   seinen Argumenten bleibt: `web_search` und `web_fetch` (Seitentexte bis
+   45.000 Zeichen; die gelesenen Seiten stehen im Block „Web-Quellen“) und
+   `read_file` (der Dateiinhalt, z. B. die Notizen eines Jobs mit 113 KB; die
+   Datei lässt sich selbst öffnen).
    Der Preis ist Größe in der Session-Datei, nicht im Kontext.
 
 **Budget.** Keine neue Budgetierung und kein eigener Schalter für die
