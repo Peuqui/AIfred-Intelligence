@@ -657,7 +657,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Schalter, Agent, Zeitplan, nächstem und letztem Lauf; anlegen, ändern, letzte Läufe, löschen. Der Zeitplan
   entsteht aus Feldern (Cron-Vorlage oder fünf Felder, Intervall mit Einheit, Datum und Uhrzeit;
   `lib/schedule.ts` mit Tests), der Server nennt vor dem Speichern den nächsten Lauf. Die Regeln (Typen,
-  Zustellwege, fester Text nur mit „Senden“ und Kanal, Ton-Art) stehen jetzt an einer Stelle,
+  Zustellwege, fester Text nur mit „Verschicken“ und Kanal, Ton-Art) stehen jetzt an einer Stelle,
   `scheduler.job_problem`, für das Werkzeug der Agenten, die Seite und die Cron-Vorlagen der Reflex-Kopie.
   `JobStore.add` lehnt einen Ausdruck ohne nächsten Lauf ab wie `update` (das Werkzeug legte an und löschte
   wieder), ein einmaliger Auftrag braucht einen gültigen Zeitpunkt (vorher wurde jeder Text gespeichert).

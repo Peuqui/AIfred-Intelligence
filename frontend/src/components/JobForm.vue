@@ -143,7 +143,7 @@ async function save(): Promise<void> {
       <fieldset class="wide">
         <legend>{{ t("sched_label_delivery") }}</legend>
         <div class="row">
-          <select v-model="form.delivery" :title="t(`sched_tip_delivery_${form.delivery}`)">
+          <select v-model="form.delivery">
             <option v-for="mode in options.delivery_modes" :key="mode" :value="mode">{{ t(`sched_delivery_${mode}`) }}</option>
           </select>
           <template v-if="form.delivery === 'announce'">
@@ -161,9 +161,11 @@ async function save(): Promise<void> {
           </template>
           <label v-else-if="form.delivery === 'webhook'" class="grow">{{ t("jobs_webhook_url") }}<input v-model="form.webhook_url" type="url" required /></label>
         </div>
-        <label v-if="form.delivery === 'announce'" class="check" :title="t('sched_tip_fixed_text')">
+        <p class="hint" data-test="delivery-hint">{{ t(`sched_tip_delivery_${form.delivery}`) }}</p>
+        <label v-if="form.delivery === 'announce'" class="check">
           <input v-model="form.fixed_text" type="checkbox" :disabled="hasParts" data-test="fixed-text" /> {{ t("sched_label_fixed_text") }}
         </label>
+        <p v-if="form.delivery === 'announce'" class="hint">{{ t("sched_tip_fixed_text") }}</p>
         <p v-if="form.delivery === 'announce' && hasParts" class="hint" data-test="fixed-text-blocked">{{ t("jobs_plan_fixed_text_blocked") }}</p>
       </fieldset>
 
