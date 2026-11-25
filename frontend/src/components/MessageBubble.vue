@@ -212,6 +212,7 @@ header { font-size: var(--text-small); font-weight: 600; color: var(--aifred-pri
   margin: 0.4em 0 1em;
   max-height: var(--thinking-max-height-desktop);
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 /* The title line carries input_bg in the answer's HTML (formatting.py); only !important brings it to the box's colour. */
 /* Closed, the box is its title line, the same space above and below; open, its content gets room at the bottom. */

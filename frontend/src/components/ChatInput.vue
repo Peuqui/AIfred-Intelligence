@@ -206,6 +206,7 @@ textarea {
   min-height: var(--line-size);
   max-height: calc(40 * var(--vh));
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--field-pad);
   font: inherit;
   line-height: var(--field-line);

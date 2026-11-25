@@ -173,7 +173,7 @@ input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .emoji { width: 100%; }
 .color { width: 100%; height: 34px; padding: 2px; cursor: pointer; }
 .actions { display: flex; gap: 8px; justify-content: flex-end; }
-.rights { display: flex; flex-direction: column; gap: 10px; max-height: calc(60 * var(--dvh)); overflow-y: auto; }
+.rights { display: flex; flex-direction: column; gap: 10px; max-height: calc(60 * var(--dvh)); overflow-y: auto; overscroll-behavior: contain; }
 /* min-width 0: a fieldset does not shrink below its widest content by itself; the pills wrap instead. */
 fieldset { min-width: 0; border: 1px solid var(--aifred-border); border-radius: 8px; display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 10px; }
 .hint { margin: 0; font-size: 0.85rem; color: var(--aifred-text-secondary); }

@@ -40,7 +40,7 @@ const openDialogs: symbol[] = [];
    offers); only then does it scroll. */
 .dialog {
   display: flex; flex-direction: column; gap: 14px; padding: 20px; box-sizing: border-box;
-  max-width: calc(100 * var(--vw) - 32px); max-height: calc(100 * var(--dvh) - 32px); overflow: auto;
+  max-width: calc(100 * var(--vw) - 32px); max-height: calc(100 * var(--dvh) - 32px); overflow: auto; overscroll-behavior: contain;
   background: var(--aifred-card-bg); border: 1px solid var(--aifred-border-light); border-radius: 12px;
 }
 .dialog.full { height: calc(100 * var(--dvh) - 32px); }

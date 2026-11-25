@@ -127,7 +127,7 @@ button { padding: 4px 8px; }
 .row-actions button { background: none; border: none; padding: 2px 4px; }
 input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
-.runs { width: min(760px, calc(86 * var(--vw))); max-height: calc(70 * var(--dvh)); overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.runs { width: min(760px, calc(86 * var(--vw))); max-height: calc(70 * var(--dvh)); overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 10px; }
 /* What a run delivered, set like the chat's bubbles (the same renderer), a little smaller. */
 .runs .text { margin-top: 4px; font-size: 0.9rem; overflow-wrap: anywhere; }
 .runs .text :deep(p) { margin: 0.5em 0; }

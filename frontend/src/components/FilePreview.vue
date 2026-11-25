@@ -79,7 +79,7 @@ const markdown = computed(() => (MARKDOWN_FILE.test(props.place.name) ? renderMa
 .name { margin-right: auto; overflow-wrap: anywhere; min-width: 0; }
 .tab { color: var(--aifred-primary); text-decoration: none; white-space: nowrap; --icon-own: currentColor; }
 .tab:hover { text-decoration: underline; }
-.box { margin: 0; flex: 1; min-height: 0; overflow: auto; background: var(--aifred-page-bg); padding: 12px; border-radius: 8px; }
+.box { margin: 0; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; background: var(--aifred-page-bg); padding: 12px; border-radius: 8px; }
 .text-box { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.85rem; }
 .markdown-box { font-size: 0.95rem; line-height: 1.5; }
 .picture { object-fit: contain; width: 100%; box-sizing: border-box; cursor: zoom-in; }

@@ -400,6 +400,7 @@ h2 { margin: 0; font-size: 1.1rem; }
   box-sizing: border-box; /* the grip's height is the one the box takes */
   height: var(--chat-height-desktop);
   overflow-y: auto;
+  overscroll-behavior: contain;
   /* The browser's scroll anchoring would carry the position along when the pinned question folds or unfolds (its
      height changes by the fold, the margin under it makes it good a tick later): near the top the box then jumped
      back to 0 on every touch and could not be scrolled away. The page keeps the position itself (follow scroll). */

@@ -190,5 +190,5 @@ input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--aifred-border); }
 .dot.done { background: var(--aifred-accent-success); border-color: var(--aifred-accent-success); }
 .dot.failed { background: var(--aifred-danger); border-color: var(--aifred-danger); }
-.console { margin: 0; max-height: 360px; overflow: auto; padding: 8px; font-size: 0.75rem; line-height: 1.35; white-space: pre-wrap; word-break: break-word; background: var(--aifred-input-bg); border: 1px solid var(--aifred-border); border-radius: 6px; }
+.console { margin: 0; max-height: 360px; overflow: auto; overscroll-behavior: contain; padding: 8px; font-size: 0.75rem; line-height: 1.35; white-space: pre-wrap; word-break: break-word; background: var(--aifred-input-bg); border: 1px solid var(--aifred-border); border-radius: 6px; }
 </style>

@@ -173,12 +173,11 @@ html, body { -webkit-tap-highlight-color: transparent; }
 /* The width of the big file dialogs (the viewer, the file requester): as wide as the page. Their height is the
    dialog's (ModalDialog: up to the screen less a margin). */
 :root { --file-dialog-width: min(var(--page-max-width), calc(100 * var(--vw) - 74px)); }
+/* Scroll chaining: each box with a bounded height that scrolls by itself (chat history, dialog, debug console, lists …)
+   sets overscroll-behavior: contain in its own style, so the page does not move on at the box's end (Peuqui 25.11.2026).
+   Never globally: the pages (Casus, jobs, settings …) are overflow-y: auto without a height; with contain a finger
+   on them no longer reached the page, and on the phone nothing scrolled (25.11.2026). */
 input, select, textarea { font: inherit; }
-/* A box that scrolls by itself (the chat's history, a dialog, a list) keeps the wheel and the finger at its end: the page
-   behind it no longer moves on when the box is at its bottom (Peuqui 25.11.2026). The page scrolls from outside the box.
-   Not on html/body: there it would also switch off the phone's pull-to-refresh. Boxes with nothing to scroll pass the
-   wheel on as before. */
-body * { overscroll-behavior: contain; }
 /* Lucide icons sit on the line of the text beside them (a label with an icon in front), and never shrink in a flex row. */
 svg.lucide { vertical-align: -0.15em; flex: none; }
 /* A switch as a pill, as on the Reflex page: grey when off, a muted orange when on (tools of an agent, agents of the chat). */

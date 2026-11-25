@@ -96,7 +96,7 @@ header, .head { display: flex; justify-content: space-between; align-items: cent
 button { padding: 4px 8px; }
 .notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 .counts { margin: 0; color: var(--aifred-text-secondary); }
-section { display: flex; flex-direction: column; gap: 6px; max-height: calc(45 * var(--dvh)); overflow-y: auto; }
+section { display: flex; flex-direction: column; gap: 6px; max-height: calc(45 * var(--dvh)); overflow-y: auto; overscroll-behavior: contain; }
 .empty { margin: 0; color: var(--aifred-text-muted); }
 .orphan { display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--aifred-border); padding-top: 6px; }
 .orphan .name { flex: 1; overflow-wrap: anywhere; }

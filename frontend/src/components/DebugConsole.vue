@@ -53,6 +53,7 @@ watch(
   box-sizing: border-box; /* the grip's height is the one the box takes */
   max-height: calc(var(--debug-max-height, 40vh) / var(--ui-zoom));
   overflow-y: auto;
+  overscroll-behavior: contain;
   margin: 6px 0 0;
   padding: 8px;
   background: var(--aifred-page-bg);

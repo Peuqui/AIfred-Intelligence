@@ -111,7 +111,7 @@ header { display: flex; justify-content: space-between; align-items: center; gap
 .bulk button { font-size: var(--text-small); padding: 2px 8px; }
 .bulk .select.on { border-color: var(--aifred-primary); color: var(--aifred-primary); --icon-own: currentColor; }
 .pick { accent-color: var(--aifred-primary); margin-left: 6px; }
-ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overscroll-behavior: contain; }
 li { display: flex; align-items: center; border-radius: 6px; }
 li.active, li:hover { background: var(--aifred-input-bg); }
 .entry { flex: 1; min-width: 0; text-align: left; padding: 6px 8px; display: flex; flex-direction: column; }
