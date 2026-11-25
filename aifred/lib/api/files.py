@@ -1,6 +1,6 @@
 """The file requester's server (VueFinder's RemoteDriver contract, OpenAPI of vuefinder 4.x): one base per area,
 ``/api/files/{area}``, the paths as ``<area>://<relative path>``. The area (lib/file_areas.py) gives root and
-allowed actions, for the logged-in user (a session's area only to its owner); the work is lib/file_browser.py.
+allowed actions, for the logged-in user (a session's area only to its owner); the work is lib/file_ops.py (folders) or lib/source_ops.py (document sources).
 ``/symlink`` is AIfred's own (VueFinder has none).
 """
 
@@ -34,7 +34,7 @@ class DirEntry(BaseModel):
     mime_type: str | None
     read_only: bool
     visibility: str = "public"
-    indexable: bool = Field(default=False, description="A file the search index has a parser for (only the documents area says)")
+    indexable: bool = Field(default=False, description="A file the search index has a parser for (only areas with an index say: documents and the document sources)")
     index_chunks: int = Field(default=0, description="Sections of the file in the search index, 0 = not in it")
 
 
@@ -136,7 +136,7 @@ async def _listing(ops: AreaOps, area: str, rel: str) -> FsData:
 
 
 class FileAreaInfo(BaseModel):
-    root: str = Field(description="The folder on the server the area's paths start at")
+    root: str = Field(description="Where the area's paths start: the folder on the server, for a document source its name")
     actions: list[str] = Field(description="What the requester may do there (lib/file_areas.ACTIONS)")
 
 

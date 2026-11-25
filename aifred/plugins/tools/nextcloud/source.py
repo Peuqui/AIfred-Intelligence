@@ -1,19 +1,20 @@
 """Nextcloud files as a document source for the document manager (live, no mirror).
 
-Satisfies ``lib.document_sources.DocumentSource``: browse folders, search,
-download as a stream, upload. Separate from the file tools, which serve the
+Satisfies ``lib.document_sources.EditableDocumentSource``: browse folders, search,
+download as a stream, upload, and change what is there (new folder, rename, move, copy, delete). Separate from the file tools, which serve the
 model (text only, only the agent folder): here the user sees the whole account
 of the plugin's user, and files go to and from the user as they are.
 """
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
 import httpx
 
 from ....lib.document_sources import DocumentSourceError, SourceDownload, SourceEntry
 from ....lib.plugin_base import plugin_i18n_text
+from ....lib.user_error import Conflict, Refused
 from . import DOCUMENT_SOURCE_KEY
 from .dav import DavClient, DavConflict, DavError, DavFile
 from .errors import NextcloudRefused
@@ -80,13 +81,69 @@ class NextcloudDocumentSource:
             await client.aclose()
 
     async def upload(self, folder_id: str, name: str, data: bytes, mime: str) -> SourceEntry:
-        if not self.writable:
-            raise DocumentSourceError("source_read_only", source=SOURCE)
+        self._writable()
         try:
             path = clean_path(f"{folder_id}/{name}")
             etag = await asyncio.to_thread(self._client.write_file, path, data, mime, None)
         except DavConflict as exc:
-            raise DocumentSourceError("source_name_exists", source=SOURCE, name=name) from exc
+            raise Conflict("source_name_exists", source=SOURCE, name=name) from exc
         except (DavError, NextcloudRefused, httpx.HTTPError) as exc:
             raise DocumentSourceError("source_upload_failed", source=SOURCE, name=name, reason=_reason(exc)) from exc
         return _entry(DavFile(path=path, is_folder=False, size=len(data), modified="", mime=mime, etag=etag))
+
+    def _writable(self) -> None:
+        """A name in use is a conflict (409) and a read-only account a refusal (403), not a failure of Nextcloud (502)."""
+        if not self.writable:
+            raise Refused("source_read_only", source=SOURCE)
+
+    async def _change(self, work: Callable[[], object], name: str, failed: Callable[[str], DocumentSourceError]) -> None:
+        """One change of the account in a worker thread; an existing target is its own message, any other failure
+        the caller's (``failed`` words it with the reason)."""
+        try:
+            await asyncio.to_thread(work)
+        except DavConflict as exc:
+            raise Conflict("source_name_exists", source=SOURCE, name=name) from exc
+        except (DavError, NextcloudRefused, httpx.HTTPError) as exc:
+            raise failed(_reason(exc)) from exc
+
+    async def create_folder(self, folder_id: str, name: str) -> str:
+        self._writable()
+        path = clean_path(f"{folder_id}/{name}")
+        await self._change(lambda: self._client.make_folder(path, exist_ok=False), name, lambda reason: DocumentSourceError(
+            "source_create_folder_failed", source=SOURCE, name=name, reason=reason))
+        return path
+
+    async def rename(self, file_id: str, name: str) -> str:
+        self._writable()
+        source = clean_path(file_id)
+        leaf = source.rsplit("/", 1)[-1]
+        target = clean_path(f"{source.rpartition('/')[0]}/{name}")
+        await self._change(lambda: self._client.move_file(source, target), name, lambda reason: DocumentSourceError(
+            "source_rename_failed", source=SOURCE, name=leaf, reason=reason))
+        return target
+
+    async def move(self, file_id: str, target_folder_id: str) -> str:
+        self._writable()
+        source = clean_path(file_id)
+        leaf = source.rsplit("/", 1)[-1]
+        target = clean_path(f"{target_folder_id}/{leaf}")
+        await self._change(lambda: self._client.move_file(source, target), leaf, lambda reason: DocumentSourceError(
+            "source_move_failed", source=SOURCE, name=leaf, reason=reason))
+        return target
+
+    async def copy(self, file_id: str, target_folder_id: str) -> str:
+        self._writable()
+        source = clean_path(file_id)
+        leaf = source.rsplit("/", 1)[-1]
+        target = clean_path(f"{target_folder_id}/{leaf}")
+        await self._change(lambda: self._client.copy_file(source, target), leaf, lambda reason: DocumentSourceError(
+            "source_copy_failed", source=SOURCE, name=leaf, reason=reason))
+        return target
+
+    async def delete(self, file_id: str) -> None:
+        """Nextcloud keeps it in the user's trash bin."""
+        self._writable()
+        source = clean_path(file_id)
+        leaf = source.rsplit("/", 1)[-1]
+        await self._change(lambda: self._client.delete_file(source), leaf, lambda reason: DocumentSourceError(
+            "source_delete_failed", source=SOURCE, name=leaf, reason=reason))

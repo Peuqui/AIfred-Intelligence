@@ -61,7 +61,7 @@ def relative(root: str, path: Path) -> str:
     return path.relative_to(root_folder(root)).as_posix()
 
 
-def _check_name(name: str) -> str:
+def check_name(name: str) -> str:
     name = name.strip()
     if not name or name in (".", "..") or "/" in name or "\0" in name:
         raise Invalid("invalid_entry_name", name=name)
@@ -130,7 +130,7 @@ def _done(work: str, error: OSError) -> NotDone:
 
 
 def create_folder(root: str, rel_path: str, name: str) -> Path:
-    target = _free(resolve(root, rel_path) / _check_name(name), name)
+    target = _free(resolve(root, rel_path) / check_name(name), name)
     try:
         target.mkdir()
     except OSError as error:
@@ -140,7 +140,7 @@ def create_folder(root: str, rel_path: str, name: str) -> Path:
 
 def write_file(root: str, rel_path: str, name: str, data: bytes) -> Path:
     """A new file (an upload); a name in use is refused, nothing is overwritten."""
-    target = _free(resolve(root, rel_path) / _check_name(name), name)
+    target = _free(resolve(root, rel_path) / check_name(name), name)
     try:
         target.write_bytes(data)
     except OSError as error:
@@ -152,7 +152,7 @@ def rename(root: str, rel_path: str, name: str) -> Path:
     source = resolve(root, rel_path)
     if source == root_folder(root):
         raise Invalid("leads_outside_sandbox", path=rel_path)
-    target = _free(source.parent / _check_name(name), name)
+    target = _free(source.parent / check_name(name), name)
     try:
         source.rename(target)
     except OSError as error:
@@ -200,7 +200,7 @@ def transfer(root: str, sources: list[str], destination: str, *, keep: bool) -> 
 def create_symlink(root: str, rel_path: str, name: str, target_rel: str) -> Path:
     """A link in ``rel_path`` to the folder ``target_rel`` of the root. Where the folder really is decides: one reached
     through a link that leads out is refused, a new link out would make the whole filesystem reachable."""
-    link = _free(resolve(root, rel_path) / _check_name(name), name)
+    link = _free(resolve(root, rel_path) / check_name(name), name)
     target = resolve(root, target_rel)
     if not target.is_dir():
         raise Invalid("not_a_folder", path=target_rel)

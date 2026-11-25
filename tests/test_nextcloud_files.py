@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from aifred.lib.document_sources import DocumentSourceError
+from aifred.lib.user_error import Conflict, Refused
 from aifred.lib.plugin_modules import ModuleAccess
 from aifred.lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
 from aifred.plugins.tools import nextcloud
@@ -362,7 +363,7 @@ def test_the_document_source_browses_uploads_and_downloads(client, folder) -> No
 @live
 def test_the_document_source_reports_what_went_wrong(client, folder) -> None:
     reader = NextcloudDocumentSource(client, writable=False)
-    with pytest.raises(DocumentSourceError, match="read-only"):
+    with pytest.raises(Refused, match="read-only"):                     # 403: a refusal, not a failure of Nextcloud
         asyncio.run(reader.upload(folder, "a.txt", b"x", "text/plain"))
     with pytest.raises(DocumentSourceError, match="HTTP 404"):
         asyncio.run(reader.list_folder(f"{folder}/fehlt"))
@@ -375,7 +376,7 @@ def test_the_document_source_reports_what_went_wrong(client, folder) -> None:
         await writer.upload(folder, "a.txt", b"x", "text/plain")
         await writer.upload(folder, "a.txt", b"y", "text/plain")
 
-    with pytest.raises(DocumentSourceError, match="exists already"):
+    with pytest.raises(Conflict, match="exists already"):               # 409
         asyncio.run(twice())
 
 

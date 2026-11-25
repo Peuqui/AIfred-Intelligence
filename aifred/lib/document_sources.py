@@ -62,6 +62,24 @@ class DocumentSource(Protocol):
     async def upload(self, folder_id: str, name: str, data: bytes, mime: str) -> SourceEntry: ...
 
 
+@runtime_checkable
+class EditableDocumentSource(DocumentSource, Protocol):
+    """A source that can also change what it holds. The source says so by having these methods (the file
+    requester offers the matching actions only then, and only while ``writable``); no list of capable sources
+    lives in the core. Every method answers with the id the item has afterwards (an id that is a path changes
+    with a rename or move), which the search index follows."""
+
+    async def create_folder(self, folder_id: str, name: str) -> str: ...
+
+    async def rename(self, file_id: str, name: str) -> str: ...
+
+    async def delete(self, file_id: str) -> None: ...
+
+    async def move(self, file_id: str, target_folder_id: str) -> str: ...
+
+    async def copy(self, file_id: str, target_folder_id: str) -> str: ...
+
+
 def source_index_name(source_key: str, file_id: str) -> str:
     """A source's file in the document index. The index derives its folders from
     this name, so the folder ``<key>:`` covers everything from one source."""

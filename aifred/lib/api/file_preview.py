@@ -10,6 +10,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from ..document_sources import SourceDownload
 from ..logging_utils import log_exception
 from ..user_error import Invalid
 
@@ -60,3 +61,10 @@ async def preview_of_bytes(name: str, data: bytes) -> DocumentPreview:
 
     require_reader(name)
     return await _preview(name, (lambda: document_text(data, name)) if _suffix(name) in PARSERS else (lambda: _raw(data)))
+
+
+async def preview_of_download(download: SourceDownload) -> DocumentPreview:
+    """A document source's file. The reader check comes first (an id need not hold the name, Drive's: the type is known
+    only now) and before the content is read."""
+    require_reader(download.name)
+    return await preview_of_bytes(download.name, b"".join([chunk async for chunk in download.chunks]))

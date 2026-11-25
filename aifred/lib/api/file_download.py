@@ -6,9 +6,10 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from ..config import PAGE_SANDBOX
+from ..document_sources import SourceDownload
 from ..standalone_page import standalone_page
 
 PAGE_SUFFIXES = (".html", ".htm")
@@ -54,3 +55,12 @@ def view_response(file: Path) -> Response:
     if is_page(file.name):
         return page_response(file.read_bytes(), file.name)
     return FileResponse(file, filename=file.name, content_disposition_type="inline")
+
+
+async def source_response(download: SourceDownload, *, inline: bool) -> Response:
+    """A document source's file as download or view: a page is read whole (it is sandboxed or made standalone), anything
+    else streams through as it comes. ONE place for the documents page's link and the requester's source areas."""
+    if is_page(download.name):
+        page = b"".join([chunk async for chunk in download.chunks])
+        return page_response(page, download.name) if inline else page_download(page, download.name)
+    return StreamingResponse(download.chunks, media_type=download.mime, headers=attachment(download.name, inline))

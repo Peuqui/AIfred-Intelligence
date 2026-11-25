@@ -36,7 +36,7 @@ class DavError(RuntimeError):
 
 
 class DavConflict(DavError):
-    """The object changed on the server since it was read (HTTP 412)."""
+    """The object changed on the server since it was read, or its target exists (HTTP 412; 405 of a MKCOL on a name in use)."""
 
 
 @dataclass(frozen=True)
@@ -320,13 +320,23 @@ class DavClient:
                                  headers={"Content-Type": content_type, "Content-Length": str(size), **condition})
         return str(response.headers.get("ETag", ""))
 
-    def make_folder(self, path: str) -> None:
-        """Create the folder; one that exists already is fine (405)."""
-        self._request("MKCOL", self._file_href(path), expect=(201, 405))
+    def make_folder(self, path: str, *, exist_ok: bool = True) -> None:
+        """Create the folder; one that exists already is fine (405) unless ``exist_ok`` is off (then DavConflict)."""
+        try:
+            self._request("MKCOL", self._file_href(path), expect=(201, 405) if exist_ok else (201,))
+        except DavError as exc:
+            if exc.status == 405:
+                raise DavConflict(405, f"{path} exists already") from exc
+            raise
 
     def move_file(self, path: str, target: str) -> None:
         """Move or rename; refused when ``target`` exists (412, :class:`DavConflict`)."""
         self._request("MOVE", self._file_href(path), expect=(201,),
+                      headers={"Destination": self._origin + self._file_href(target), "Overwrite": "F"})
+
+    def copy_file(self, path: str, target: str) -> None:
+        """Copy a file or a folder with its content; refused when ``target`` exists (412, :class:`DavConflict`)."""
+        self._request("COPY", self._file_href(path), expect=(201,),
                       headers={"Destination": self._origin + self._file_href(target), "Overwrite": "F"})
 
     def delete_file(self, path: str) -> None:

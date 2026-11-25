@@ -19,11 +19,14 @@ import tempfile
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from .config import DOCUMENTS_DIR
 from .formatting import format_stamp
 from .user_error import Invalid, Unavailable, UserError
+
+if TYPE_CHECKING:
+    from .document_sources import SourceEntry
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +153,20 @@ def index_state(rel_path: str, indexed_chunks: dict[str, int]) -> IndexState:
     return IndexState(
         indexable=PurePosixPath(name).suffix.lower() in PARSERS,
         chunks=indexed_chunks.get(rel_path) or indexed_chunks.get(name, 0),
+    )
+
+
+def source_index_state(source_key: str, entry: SourceEntry, indexed_chunks: dict[str, int]) -> IndexState:
+    """A document source's file in the search index (``indexed_chunks``: chunks_per_document()): the index names it
+    ``source_index_name``. A folder is no file. ONE place for the documents page and the requester's source areas."""
+    from .document_sources import source_index_name
+    from .document_store import PARSERS
+
+    if entry.is_folder:
+        return IndexState(indexable=False, chunks=0)
+    return IndexState(
+        indexable=PurePosixPath(entry.name).suffix.lower() in PARSERS,
+        chunks=indexed_chunks.get(source_index_name(source_key, entry.id), 0),
     )
 
 

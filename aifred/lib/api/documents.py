@@ -15,7 +15,7 @@ from typing import Any, Literal
 from urllib.parse import quote
 
 from fastapi import Form, UploadFile
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import document_indexing
@@ -27,18 +27,14 @@ from ..prompt_loader import get_language
 from ..user_error import Invalid, Missing, Unavailable
 from .app import api_app
 from .file_download import (
-    attachment,
     download_response,
-    is_page,
-    page_download,
-    page_response,
+    source_response,
     view_response,
 )
 from .file_preview import (
     DocumentPreview,
-    preview_of_bytes,
+    preview_of_download,
     preview_of_file,
-    require_reader,
 )
 
 
@@ -48,10 +44,7 @@ async def document_source_file(source_key: str, file_id: str, inline: bool = Fal
     slashes: Nextcloud's is the file's path. ``inline``: as the browser shows it (a page sandboxed, see view_response)."""
     download = await get_document_source(source_key).download(file_id)
     log_message(f"📄 Document {'view' if inline else 'download'} from {source_key}: {download.name}")
-    if is_page(download.name):
-        page = b"".join([chunk async for chunk in download.chunks])
-        return page_response(page, download.name) if inline else page_download(page, download.name)
-    return StreamingResponse(download.chunks, media_type=download.mime, headers=attachment(download.name, inline))
+    return await source_response(download, inline=inline)
 
 
 @api_app.get("/documents/local/download", tags=["Documents"])
@@ -197,9 +190,8 @@ async def document_source_preview(source_key: str, file_id: str) -> DocumentPrev
     """The text of a file of a document source as the search index's parser reads it (409 plugin off, 404 unknown
     source, 502 source failed, 422 no parser or a damaged file)."""
     download = await get_document_source(source_key).download(file_id)
-    require_reader(download.name)   # an id need not hold the name (Drive's): the type is known only now
     log_message(f"📄 Document preview from {source_key}: {download.name}")
-    return await preview_of_bytes(download.name, b"".join([chunk async for chunk in download.chunks]))
+    return await preview_of_download(download)
 
 
 # ── Uploading and indexing ───────────────────────────────────────────────
@@ -493,21 +485,17 @@ async def documents_sources() -> list[DocumentSourceInfo]:
 @api_app.get("/documents/source/{source_key}", response_model=SourceListing, tags=["Documents"])
 async def documents_source_listing(source_key: str, folder_id: str = "", query: str = "") -> SourceListing:
     """A folder of a source (``folder_id`` "" = its root), or the hits of a search over the whole source."""
-    from ..document_sources import source_index_name
-    from ..document_store import PARSERS
-
     source = _source(source_key)
     entries = await (source.search(query) if query else source.list_folder(folder_id))
     indexed = await asyncio.to_thread(fm.chunks_per_document)
     rows = []
     for entry in entries:
-        chunks = indexed.get(source_index_name(source_key, entry.id), 0)
+        state = fm.source_index_state(source_key, entry, indexed)
         rows.append(SourceRow(
             id=entry.id, name=entry.name, type="folder" if entry.is_folder else "file",
             size=fm.format_size(entry.size_bytes) if entry.size_bytes is not None else "",
             modified=format_stamp(datetime.fromisoformat(entry.modified).timestamp()) if entry.modified else "",
-            indexable=not entry.is_folder and Path(entry.name).suffix.lower() in PARSERS,
-            indexed=chunks > 0, chunks=chunks,
+            indexable=state.indexable, indexed=state.chunks > 0, chunks=state.chunks,
             download_url=f"/api/documents/source/{source_key}/file/{quote(entry.id, safe='/')}",
         ))
     return SourceListing(source=source_key, folder_id=folder_id, query=query, writable=source.writable, items=rows)
