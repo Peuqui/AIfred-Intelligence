@@ -121,20 +121,30 @@ def _read_pdf(file_path: Path) -> str:
     return result.stdout
 
 
+def _markdown_table(rows: list[list[str]]) -> str:
+    """Rows (the first is the header) as a Markdown table, the one shape of CSV and Excel for the index and the viewer.
+    A ``|`` in a cell is escaped and a line break becomes a space, else the table breaks; short rows are filled."""
+    width = max(len(row) for row in rows)
+
+    def line(cells: list[str]) -> str:
+        cells = [cell.replace("|", "\\|").replace("\r\n", " ").replace("\n", " ") for cell in cells]
+        return "| " + " | ".join(cells + [""] * (width - len(cells))) + " |"
+
+    return "\n".join([line(rows[0]), line(["---"] * width), *(line(row) for row in rows[1:])])
+
+
 def _read_csv(file_path: Path) -> str:
-    """Read a CSV file and return as markdown table."""
+    """Read a CSV file and return it as a Markdown table. The separator (comma, semicolon or tab) is sniffed from the
+    start of the file: a German CSV uses ';' and a decimal comma, which a comma reader splits in the middle of a price."""
     import csv
     import io
     content = _read_text_file(file_path)
-    reader = csv.reader(io.StringIO(content))
-    rows = list(reader)
-    if not rows:
-        return ""
-    # Header + separator + data rows
-    header = "| " + " | ".join(rows[0]) + " |"
-    separator = "| " + " | ".join("---" for _ in rows[0]) + " |"
-    data = "\n".join("| " + " | ".join(row) + " |" for row in rows[1:])
-    return f"{header}\n{separator}\n{data}"
+    try:
+        dialect: type[csv.Dialect] | csv.Dialect = csv.Sniffer().sniff(content[:4096], delimiters=",;\t")
+    except csv.Error:   # one column, nothing to sniff
+        dialect = csv.excel
+    rows = [row for row in csv.reader(io.StringIO(content), dialect) if any(cell.strip() for cell in row)]
+    return _markdown_table(rows) if rows else ""
 
 
 def _read_docx(file_path: Path) -> str:
@@ -154,10 +164,7 @@ def _read_xlsx(file_path: Path) -> str:
         rows = [[str(cell) if cell is not None else "" for cell in row] for row in ws.iter_rows(values_only=True)]
         if not rows:
             continue
-        header = "| " + " | ".join(rows[0]) + " |"
-        separator = "| " + " | ".join("---" for _ in rows[0]) + " |"
-        data = "\n".join("| " + " | ".join(row) + " |" for row in rows[1:])
-        parts.append(f"## {sheet}\n\n{header}\n{separator}\n{data}")
+        parts.append(f"## {sheet}\n\n{_markdown_table(rows)}")
     wb.close()
     return "\n\n".join(parts)
 
