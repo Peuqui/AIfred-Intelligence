@@ -187,4 +187,52 @@ button { padding: 4px 10px; }
 /* VueFinder puts its own dialogs (new folder, rename, delete …) on <body> at z-index 70: below the requester's
    ModalDialog (100), they opened unseen. Not scoped: they live outside this component. */
 .vuefinder__themer.vuefinder__modal-layout { z-index: 110; }
+
+/* VueFinder in AIfred's colours (Peuqui 25.11.2026): its theme "midnight" stays the base (dark, its rules for menus and
+   icons), its variables take the colours of theme.py. Body-level dialogs of VueFinder carry the same attribute, so the
+   selector reaches them too; "html" makes it win over VueFinder's own rule of the same shape. */
+html .vuefinder__themer[data-theme="midnight"] {
+  --vf-bg-primary: var(--aifred-card-bg);
+  --vf-bg-secondary: var(--aifred-page-bg);
+  --vf-bg-tertiary: var(--aifred-input-bg);
+  --vf-bg-hover: var(--aifred-button-soft-bg-hover);
+  --vf-bg-selected: var(--aifred-primary-bg);
+  --vf-bg-disabled: var(--aifred-input-bg);
+  --vf-text-primary: var(--aifred-text-primary);
+  --vf-text-secondary: var(--aifred-text-soft);
+  --vf-text-tertiary: var(--aifred-text-secondary);
+  --vf-text-disabled: var(--aifred-text-muted);
+  --vf-text-inverse: var(--aifred-page-bg);
+  --vf-border-primary: var(--aifred-border);
+  --vf-border-secondary: var(--aifred-border-light);
+  --vf-border-focus: var(--aifred-primary);
+  --vf-border-error: var(--aifred-danger);
+  --vf-accent-primary: var(--aifred-primary);
+  --vf-accent-secondary: var(--aifred-radix-orange-text);
+  --vf-accent-success: var(--aifred-accent-success);
+  --vf-accent-warning: var(--aifred-accent-warning);
+  --vf-accent-error: var(--aifred-danger);
+  --vf-interactive-hover: var(--aifred-button-soft-bg-hover);
+  --vf-interactive-active: var(--aifred-primary-bg);
+  --vf-interactive-focus: var(--aifred-primary-bg);
+  --vf-selection-bg: var(--aifred-primary-bg);
+  --vf-selection-border: var(--aifred-primary);
+  --vf-dropdown-bg: var(--aifred-card-bg);
+  --vf-dropdown-border: var(--aifred-border-light);
+  --vf-dropdown-text: var(--aifred-text-primary);
+  --vf-dropdown-hover: var(--aifred-input-bg);
+  --vf-overlay-bg: var(--aifred-backdrop);
+  --vf-overlay-border: var(--aifred-border-light);
+  --vf-overlay-text: var(--aifred-text-secondary);
+}
+/* Folders outlined in the yellow of files and documents, as AIfred's own icons, lightly filled; menus with AIfred's rim instead of a blue glow. */
+html .vuefinder__themer[data-theme="midnight"] .vuefinder__item-icon__folder,
+html .vuefinder__themer[data-theme="midnight"] .vuefinder__item-icon__folder--open {
+  fill: color-mix(in srgb, var(--aifred-radix-yellow-text) 25%, transparent); stroke: var(--aifred-radix-yellow-text);
+}
+/* AIfred's typeface instead of VueFinder's own. */
+html .vuefinder__themer[data-theme="midnight"], html .vuefinder__themer[data-theme="midnight"] * { font-family: inherit; }
+html .vuefinder__themer[data-theme="midnight"] .vuefinder__context-menu {
+  border-color: var(--aifred-border-light); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
 </style>
