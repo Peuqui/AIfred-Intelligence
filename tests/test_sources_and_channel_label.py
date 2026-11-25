@@ -7,14 +7,16 @@ though everything else calls it "Horarium".
 
 from __future__ import annotations
 
+from typing import Any
+
 from aifred.lib import message_processor
 from aifred.lib.bubble import KIND_SOURCES, BubbleArtifact, render_artifact
 from aifred.lib.formatting import build_sources_collapsible
 
-FETCHES = [
-    {"url": "https://b.example/zweite", "success": True},
-    {"url": "https://a.example/erste", "success": False},
-    {"url": "https://c.example/dritte", "success": True},
+FETCHES: list[dict[str, Any]] = [
+    {"url": "https://b.example/zweite", "success": True, "tool": "web_fetch"},
+    {"url": "https://a.example/erste", "success": False, "tool": "web_fetch"},
+    {"url": "https://c.example/dritte", "success": True, "tool": "web_search"},
 ]
 
 
@@ -25,7 +27,7 @@ class TestSourcesBlock:
         assert positions == sorted(positions)
         assert "Wörter" not in html
         assert "Relevanz" not in html
-        assert "In der Reihenfolge der Abrufe" in html
+        assert "In der Reihenfolge, in der sie gelesen wurden" in html
 
     def test_failed_fetch_is_marked_in_the_ui_language(self):
         html = build_sources_collapsible(FETCHES, lang="de")

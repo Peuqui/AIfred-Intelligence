@@ -209,6 +209,8 @@ class ToolKit:
             ``{"type": "tool_work", "work": {...}}`` — inference a tool ran
                 itself (a sub-agent), as ``perf_metrics.InferenceWork``; the
                 caller adds it to its own turn's metrics.
+            ``{"type": "tool_read", "urls": [...]}`` — the pages the tool really read, as it gave them (the bubble's
+                sources block lists them; the model never sees it).
             ``{"type": "tool_note", "note": "..."}`` — what a later turn
                 sees of this call's result instead of the result itself
                 (``history_result_text``).
@@ -221,8 +223,8 @@ class ToolKit:
           updates, may yield ``{"artifacts": [{"kind", "data"}, ...]}`` for
           the caller's bubble, may yield ``{"work": {...}}`` for inference it
           ran, may yield ``{"note": "..."}`` for the result text of the llm_history, may yield
-          ``{"read": ["url", ...]}`` for the pages it really read (collected in ``read_urls``, never a result,
-          nothing is emitted for it), and exactly
+          ``{"read": ["url", ...]}`` for the pages it really read (collected in ``read_urls`` and emitted as
+          ``tool_read`` for the bubble's sources block, never a result), and exactly
           one ``{"result": "..."}`` for the final payload (string). Anything
           else yielded is treated as a fallback plain-string result.
         """
@@ -327,6 +329,7 @@ class ToolKit:
                         yield {"type": "tool_note", "note": str(item["note"])}
                     elif isinstance(item, dict) and "read" in item:
                         self.read_urls.update(normalize_url(url) for url in item["read"])
+                        yield {"type": "tool_read", "urls": list(item["read"])}
                     elif isinstance(item, dict) and "result" in item:
                         result_str = (
                             json.dumps(item["result"])

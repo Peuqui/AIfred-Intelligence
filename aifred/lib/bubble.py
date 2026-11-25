@@ -20,7 +20,7 @@ from typing import Any
 
 # Kinds and their ``data``
 KIND_COLLAPSIBLE = "collapsible"      # {"title": str, "sections": [{"kind", "text"}], "icon", "footer": str (optional)}
-KIND_SOURCES = "sources"              # {"urls": [{"url": str, "success": bool | None}]}
+KIND_SOURCES = "sources"              # {"urls": [{"url": str, "success": bool | None, "tool": str}]} (see note_*_source)
 KIND_SANDBOX_HTML = "sandbox_html"    # {"url": str}
 KIND_SANDBOX_IMAGE = "sandbox_image"  # {"url": str}
 KIND_VISION_IMAGES = "vision_images"  # {"urls": [str], "alt": str}
@@ -69,6 +69,41 @@ class BubbleArtifact:
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> BubbleArtifact:
         return cls(kind=str(raw["kind"]), data=dict(raw["data"]))
+
+
+def _find_source(entries: list[dict[str, Any]], url: str) -> dict[str, Any] | None:
+    """The entry of a sources block for the same page (``normalize_url``: www, scheme, fragment, trailing slash)."""
+    from .tools.url_utils import normalize_url
+
+    def key(address: str) -> str:
+        try:
+            return normalize_url(address)
+        except ValueError:  # an address a model wrote that cannot be split: only itself is the same page
+            return address
+
+    wanted = key(url)
+    return next((entry for entry in entries if key(entry["url"]) == wanted), None)
+
+
+def note_source_call(entries: list[dict[str, Any]], url: str, tool: str) -> dict[str, Any] | None:
+    """A tool is about to fetch ``url``: the entry whose ``success`` the result sets, ``None`` when the page is
+    already listed as read (one entry per page, where it was first read; a failed earlier fetch is tried again)."""
+    existing = _find_source(entries, url)
+    if existing is None:
+        entry: dict[str, Any] = {"url": url, "success": None, "tool": tool}
+        entries.append(entry)
+        return entry
+    return existing if existing["success"] is False else None
+
+
+def note_source_read(entries: list[dict[str, Any]], url: str, tool: str) -> None:
+    """A tool reported ``url`` as read (``{"read": [...]}``): listed as read unless the page is already there; a page
+    whose fetch failed counts as read after all."""
+    existing = _find_source(entries, url)
+    if existing is None:
+        entries.append({"url": url, "success": True, "tool": tool})
+    elif existing["success"] is False:
+        existing["success"] = True
 
 
 def vision_image_urls(artifacts: list[BubbleArtifact]) -> list[str]:

@@ -236,7 +236,7 @@ class LLMBackend(ABC):
         Yields dicts of ``type``:
         - ``model_load`` first, when the request had to load the model (llama-swap backends)
         - ``content`` for text (reasoning as <think>...</think>), ``tool_call_start`` / ``tool_call`` /
-          ``tool_progress`` / ``tool_artifacts`` / ``tool_result``, ``tool_round`` (after the calls of a round ran:
+          ``tool_progress`` / ``tool_artifacts`` / ``tool_read`` (pages the tool read) / ``tool_result``, ``tool_round`` (after the calls of a round ran:
           its visible text and each call with its arguments and the result text a later turn sees),
           ``progress`` / ``debug``
         - ``done`` with the metrics, last

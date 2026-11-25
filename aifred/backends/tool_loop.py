@@ -342,6 +342,8 @@ class _Turn:
             elif kind == "tool_artifacts":
                 # Bubble artifacts: forwarded to the consumer, never appended to the messages the model sees.
                 yield {"type": "tool_artifacts", "name": call.name, "artifacts": item.get("artifacts", [])}
+            elif kind == "tool_read":
+                yield {"type": "tool_read", "name": call.name, "urls": item["urls"]}
             elif kind == "tool_result":
                 result = item.get("result", "") or ""
         # What a later turn sees of this call, decided here where the notes, the result of every way a call

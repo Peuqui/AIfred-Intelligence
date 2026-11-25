@@ -4,7 +4,7 @@ LLM Pipeline — Unified chunk-processing core for all LLM calls.
 Provides a single AsyncGenerator that wraps llm_client.chat_stream() with:
 - 500-error retry (1 attempt, 2s delay)
 - TTFT measurement
-- URL tracking (web_fetch calls)
+- URL tracking (web_fetch calls and the pages tools report as read)
 - Sandbox output extraction
 - Tool-call JSON stripping
 - Thinking block processing
@@ -29,6 +29,8 @@ from .bubble import (
     KIND_VLM_OUTPUT,
     BubbleArtifact,
     image_markdown,
+    note_source_call,
+    note_source_read,
 )
 from .config import DEBUG_LOG_RAW_OUTPUT
 from .context_manager import LoopCompression, estimate_tokens, strip_thinking_blocks
@@ -246,8 +248,8 @@ async def run_llm_stream(
     artifacts: list[BubbleArtifact] = []
     artifact_keys: set[str] = set()
     shown_image_urls: set[str] = set()
-    # The turn's own web_fetch calls share one sources block; the entry of
-    # the call in flight gets its success flag from the next tool result.
+    # The pages the turn read (web_fetch calls, pages a tool reported as read) share one sources block; the entry of
+    # the fetch in flight gets its success flag from the next tool result.
     own_sources: BubbleArtifact | None = None
     pending_fetch: dict[str, Any] | None = None
     # Text a model writes before a tool call is narration of the turn, not its
@@ -274,6 +276,15 @@ async def run_llm_stream(
             artifact = BubbleArtifact(KIND_VISION_IMAGES, {**artifact.data, "urls": urls})
         full_response += _ARTIFACT_ANCHOR.format(len(artifacts))
         artifacts.append(artifact)
+
+    def sources_entries() -> list[dict[str, Any]]:
+        """The entries of the turn's sources block; the block comes into the bubble with its first one."""
+        nonlocal own_sources
+        if own_sources is None:
+            own_sources = BubbleArtifact(KIND_SOURCES, {"urls": []})
+            add_artifact(own_sources)
+        entries: list[dict[str, Any]] = own_sources.data["urls"]
+        return entries
 
     def source_alias(source_id: Any) -> str:
         from .vision_utils import resolve_source_alias
@@ -320,13 +331,14 @@ async def run_llm_stream(
                     tool_args = json.loads(full_args) if full_args else {}
                 except (ValueError, json.JSONDecodeError):
                     tool_args = {}
-                pending_fetch = {"url": tool_args.get("url", ""), "success": None}
-                if own_sources is None:
-                    own_sources = BubbleArtifact(KIND_SOURCES, {"urls": []})
-                    add_artifact(own_sources)
-                own_sources.data["urls"].append(pending_fetch)
+                pending_fetch = note_source_call(sources_entries(), tool_args.get("url", ""), tool_name)
 
             yield chunk
+
+        elif chunk_type == "tool_read":
+            # Pages a tool read itself (web_search reads its best hits): listed like the fetched ones.
+            for read_url in chunk["urls"]:
+                note_source_read(sources_entries(), read_url, chunk["name"])
 
         elif chunk_type == "tool_progress":
             # Streaming tools (web_search, search_documents, …) emit progress

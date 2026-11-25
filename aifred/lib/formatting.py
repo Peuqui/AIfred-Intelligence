@@ -1251,9 +1251,11 @@ def build_sandbox_image(url: str) -> str:
 
 
 def build_sources_collapsible(fetches: list[dict[str, Any]], lang: str | None = None) -> str:
-    """HTML ``<details>`` block listing the pages the turn's ``web_fetch`` calls read, in the order they ran.
+    """HTML ``<details>`` block listing the pages the turn read (fetched, or read by a tool itself), in the order they
+    were read, each with the tool it was read through.
 
-    ``fetches``: dicts with ``url`` and ``success`` (lib/bubble.py, KIND_SOURCES). Empty string when there are none.
+    ``fetches``: dicts with ``url``, ``success`` and ``tool`` (lib/bubble.py, KIND_SOURCES). Empty string when there
+    are none.
     Same styling as the thinking collapsible.
     """
     if not fetches:
@@ -1271,17 +1273,19 @@ def build_sources_collapsible(fetches: list[dict[str, Any]], lang: str | None = 
     order_label = t("web_sources_order", lang=lang)
     failed_label = t("web_sources_fetch_failed", lang=lang)
 
-    # Number + status icon + URL (truncated); a failed fetch says so after its URL.
+    # Number + status icon + URL (truncated); the tool it was read through and, for a failed fetch, that it failed
+    # after the URL.
     source_lines = []
     for i, fetch in enumerate(fetches, 1):
         url = fetch["url"]
+        notes = [t("web_sources_via", lang=lang, tool=fetch["tool"])]
         if fetch["success"]:
             mark = '<span style="color: var(--aifred-accent-success); flex-shrink: 0;">✓</span>'
-            note = ""
         else:
             mark = '<span style="color: var(--aifred-primary-active); flex-shrink: 0;">✗</span>'
-            note = (f'<span style="color: var(--aifred-text-muted); font-style: italic; flex-shrink: 0; '
-                    f'white-space: nowrap;">({failed_label})</span>')
+            notes.append(failed_label)
+        note = (f'<span style="color: var(--aifred-text-muted); font-style: italic; flex-shrink: 0; '
+                f'white-space: nowrap;">{" ".join(f"({text})" for text in notes)}</span>')
         source_lines.append(
             f'<div style="display: flex; align-items: baseline; gap: 0.8em;">'
             f'<span style="color: var(--aifred-text-muted); flex-shrink: 0; min-width: 1.5em;">{i}.</span>'

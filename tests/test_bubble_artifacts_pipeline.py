@@ -48,7 +48,7 @@ class _Turn:
         yield {"type": "tool_call", "name": "delegate_task", "arguments": "{}"}
         yield {"type": "tool_artifacts", "name": "delegate_task", "artifacts": [
             {"kind": KIND_COLLAPSIBLE, "data": {"title": "Sub-Agent", "sections": [text_section("lief")]}},
-            {"kind": KIND_SOURCES, "data": {"urls": [{"url": "https://example.org", "success": True}]}},
+            {"kind": KIND_SOURCES, "data": {"urls": [{"url": "https://example.org", "success": True, "tool": "web_fetch"}]}},
             {"kind": KIND_SANDBOX_HTML, "data": {"url": PAGE}},
         ]}
         yield {"type": "tool_result", "name": "delegate_task", "result": f"{SANDBOX_HTML_URL_MARKER}{PAGE}\nBericht"}

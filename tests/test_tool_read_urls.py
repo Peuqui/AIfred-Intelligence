@@ -1,5 +1,5 @@
 """Addresses a tool really read: the ``{"read": [...]}`` event of a tool executor (collected in ToolKit.read_urls,
-never a result) and the research tools that report it (web_fetch on success, web_search for the pages it read)."""
+never a result; reported to the bubble as ``tool_read``) and the research tools that report it (web_fetch on success, web_search for the pages it read)."""
 
 from __future__ import annotations
 
@@ -32,7 +32,10 @@ async def _reading(**_args: Any) -> AsyncGenerator[dict[str, Any], None]:
 def test_a_read_event_is_collected_normalized_and_is_no_result() -> None:
     toolkit = ToolKit(tools=[Tool(name="reader", description="", parameters={}, executor=_reading)])
     events = _events(toolkit, "reader", {})
-    assert events == [{"type": "tool_result", "result": "gelesen"}]
+    assert events == [
+        {"type": "tool_read", "urls": ["https://www.Shop.test/a/", "https://r.jina.ai/https://other.test/b#x"]},
+        {"type": "tool_result", "result": "gelesen"},
+    ]
     assert toolkit.read_urls == {"shop.test/a", "other.test/b"}
 
 
@@ -41,7 +44,9 @@ def test_a_read_event_alone_leaves_the_result_empty() -> None:
         yield {"read": ["https://shop.test/a"]}
 
     toolkit = ToolKit(tools=[Tool(name="reader", description="", parameters={}, executor=only_read)])
-    assert _events(toolkit, "reader", {}) == [{"type": "tool_result", "result": ""}]
+    assert _events(toolkit, "reader", {}) == [
+        {"type": "tool_read", "urls": ["https://shop.test/a"]}, {"type": "tool_result", "result": ""},
+    ]
     assert toolkit.read_urls == {"shop.test/a"}
 
 
