@@ -169,11 +169,11 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.requester { width: var(--file-dialog-width); display: flex; flex-direction: column; gap: 10px; }
+.requester { width: var(--file-dialog-width); height: var(--dialog-content-height); display: flex; flex-direction: column; gap: 10px; }
 .head { display: flex; align-items: center; gap: 12px; }
 .root { color: var(--aifred-text-secondary); font-size: 0.8rem; margin-right: auto; }
 .close { background: none; border: none; color: inherit; font-size: 1.3rem; cursor: pointer; }
-.finder { height: var(--file-dialog-height); }
+.finder { flex: 1; min-height: 0; }
 .pick { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 0.9rem; }
 .link { display: flex; flex-direction: column; gap: 10px; width: min(520px, calc(88 * var(--vw))); }
 .link label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--aifred-text-secondary); }

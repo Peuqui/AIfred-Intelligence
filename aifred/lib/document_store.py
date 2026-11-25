@@ -134,13 +134,14 @@ def _markdown_table(rows: list[list[str]]) -> str:
 
 
 def _read_csv(file_path: Path) -> str:
-    """Read a CSV file and return it as a Markdown table. The separator (comma, semicolon or tab) is sniffed from the
-    start of the file: a German CSV uses ';' and a decimal comma, which a comma reader splits in the middle of a price."""
+    """Read a CSV file and return it as a Markdown table. The separator (comma, semicolon, tab or pipe, the ones CSV
+    files use) is sniffed from the start of the file: a German CSV uses ';' and a decimal comma, which a comma reader
+    splits in the middle of a price."""
     import csv
     import io
     content = _read_text_file(file_path)
     try:
-        dialect: type[csv.Dialect] | csv.Dialect = csv.Sniffer().sniff(content[:4096], delimiters=",;\t")
+        dialect: type[csv.Dialect] | csv.Dialect = csv.Sniffer().sniff(content[:4096], delimiters=",;\t|")
     except csv.Error:   # one column, nothing to sniff
         dialect = csv.excel
     rows = [row for row in csv.reader(io.StringIO(content), dialect) if any(cell.strip() for cell in row)]

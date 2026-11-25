@@ -33,9 +33,13 @@ const openDialogs: symbol[] = [];
 
 <style scoped>
 .backdrop { position: fixed; inset: 0; background: var(--aifred-backdrop); display: flex; align-items: center; justify-content: center; z-index: 100; }
+/* A dialog grows with its content up to the screen less a margin of 16 px (Peuqui 25.11.2026: use what the screen
+   offers); only then does it scroll. --dialog-content-height is the room inside it (less its padding and rim), for a
+   content that needs a height of its own (the file requester's list). */
 .dialog {
+  --dialog-content-height: calc(100 * var(--dvh) - 32px - 42px);
   display: flex; flex-direction: column; gap: 14px; padding: 20px; box-sizing: border-box;
-  max-width: calc(95 * var(--vw)); max-height: calc(90 * var(--dvh)); overflow: auto;
+  max-width: calc(100 * var(--vw) - 32px); max-height: calc(100 * var(--dvh) - 32px); overflow: auto;
   background: var(--aifred-card-bg); border: 1px solid var(--aifred-border-light); border-radius: 12px;
 }
 /* A content's own width ("90 % of the screen") plus the dialog's padding ran wider than the dialog on a phone. */

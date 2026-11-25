@@ -2,8 +2,8 @@
 // The dialog of the viewer (lib/fileViewer.ts), mounted once in the shell: a file's text, from whichever page. Markdown
 // shows formatted, by the renderer of the chat's answers, and so do CSV and Excel files: the server's preview gives them
 // as Markdown tables (the index's parser, document_store._markdown_table). An image shows in the one picture view of the
-// app (ImageLightbox, also the chat's and the cameras'). The box has the size of the file dialogs (--file-dialog-width/-height,
-// App.vue), so a wide table fits or scrolls sideways under a header that stays.
+// app (ImageLightbox, also the chat's and the cameras'). The box is as wide as the page (--file-dialog-width, App.vue) and as high as
+// its text, up to the dialog's height (ModalDialog); a wide table scrolls sideways under a header that stays.
 import { FileText } from "lucide-vue-next";
 import { computed } from "vue";
 import { t } from "../i18n";
@@ -40,7 +40,7 @@ const markdown = computed(() =>
 <style scoped>
 .viewer-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
 .viewer-head button { background: none; border: none; font-size: 1.2rem; }
-.viewer-box { margin: 0; width: var(--file-dialog-width); max-height: var(--file-dialog-height); overflow: auto; background: var(--aifred-page-bg); padding: 12px; border-radius: 8px; }
+.viewer-box { margin: 0; width: var(--file-dialog-width); overflow: auto; background: var(--aifred-page-bg); padding: 12px; border-radius: 8px; }
 .viewer-text { white-space: pre-wrap; font-size: 0.85rem; }
 .viewer-markdown { font-size: 0.95rem; line-height: 1.5; }
 /* Tables (CSV, Excel, Markdown): the header stays on top while the rows scroll, every second row a shade darker. */

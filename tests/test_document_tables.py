@@ -20,6 +20,9 @@ def test_a_comma_csv_with_quoted_fields_tabs_and_empty_lines(tmp_path: Path) -> 
     tabbed = tmp_path / "b.csv"
     tabbed.write_text("a\tb\n1\t2\n", encoding="utf-8")
     assert _read_csv(tabbed).splitlines()[2] == "| 1 | 2 |"
+    piped = tmp_path / "d.csv"
+    piped.write_text("Shop|Preis\nkotte-zeller.de|89,98\n", encoding="utf-8")
+    assert _read_csv(piped).splitlines()[2] == "| kotte-zeller.de | 89,98 |"
 
 
 def test_a_single_column_csv_is_read_although_there_is_no_separator(tmp_path: Path) -> None:

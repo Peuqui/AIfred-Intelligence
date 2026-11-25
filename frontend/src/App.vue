@@ -169,9 +169,9 @@ html, body { -webkit-tap-highlight-color: transparent; }
    88vw became wider than the screen). Every size in screen units uses these; a part with a zoom of its own (the chat's
    history, its field) sets them anew. */
 :root { --vw: calc(1vw / var(--ui-zoom)); --vh: calc(1vh / var(--ui-zoom)); --dvh: calc(1dvh / var(--ui-zoom)); }
-/* The one size of the big file dialogs (the viewer's box, the file requester's list): as wide as the page, about three
-   quarters of the screen high, so a long list or a wide table needs little scrolling. */
-:root { --file-dialog-width: min(var(--page-max-width), calc(90 * var(--vw))); --file-dialog-height: calc(75 * var(--dvh)); }
+/* The width of the big file dialogs (the viewer, the file requester): as wide as the page. Their height is the
+   dialog's (ModalDialog: up to the screen less a margin). */
+:root { --file-dialog-width: min(var(--page-max-width), calc(100 * var(--vw) - 74px)); }
 input, select, textarea { font: inherit; }
 /* A box that scrolls by itself (the chat's history, a dialog, a list) keeps the wheel and the finger at its end: the page
    behind it no longer moves on when the box is at its bottom (Peuqui 25.11.2026). The page scrolls from outside the box.
