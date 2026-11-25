@@ -205,7 +205,8 @@ textarea { min-height: 7em; resize: vertical; }
 .notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
 .hint { margin: 0; font-size: 0.8rem; color: var(--aifred-text-muted); }
 .next { margin: 0; font-size: 0.85rem; color: var(--aifred-accent-cyan); }
-.actions { display: flex; gap: 8px; justify-content: flex-end; }
+/* The form is longer than a phone's screen: save and cancel stay at the bottom of the dialog (Peuqui 25.11.2026). */
+.actions { display: flex; gap: 8px; justify-content: flex-end; position: sticky; bottom: -20px; padding: 10px 0 20px; margin-bottom: -20px; background: var(--aifred-card-bg); border-top: 1px solid var(--aifred-border); }
 @media (max-width: 760px) {
   .job { grid-template-columns: 1fr; }
 }
