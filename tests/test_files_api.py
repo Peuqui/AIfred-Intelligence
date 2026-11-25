@@ -254,3 +254,55 @@ def test_an_area_shows_a_page_sandboxed_and_media_inline_with_its_type(client: T
 def test_an_area_file_of_a_text_type_without_a_parser_previews_as_raw_text(client: TestClient, area: Path) -> None:
     (area / "skript.py").write_text("print(1)\n", encoding="utf-8")
     assert client.get("/files/test/text", params={"path": "test://skript.py"}).json() == {"name": "skript.py", "text": "print(1)\n"}
+
+
+def test_the_documents_area_lists_each_files_place_in_the_index_as_the_documents_page_does(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aifred.lib import config, file_manager
+
+    documents = tmp_path / "documents"
+    (documents / "Akten").mkdir(parents=True)
+    (documents / "Akten" / "brief.pdf").write_bytes(b"%PDF")
+    (documents / "Akten" / "neu.md").write_text("x", encoding="utf-8")
+    (documents / "Akten" / "bild.png").write_bytes(b"png")           # no parser
+    (documents / "Akten" / "Unter").mkdir()
+    monkeypatch.setattr(config, "DOCUMENTS_DIR", documents)
+    monkeypatch.setattr(file_manager, "DOCUMENTS_DIR", documents)
+    calls: list[int] = []
+
+    def indexed() -> dict[str, int]:                                   # a stand-in for the index (one query per listing)
+        calls.append(1)
+        return {"Akten/brief.pdf": 7}
+
+    monkeypatch.setattr(file_manager, "chunks_per_document", indexed)
+    files = {entry["basename"]: entry for entry in client.get("/files/documents", params={"path": "documents://Akten"}).json()["files"]}
+    assert {name: (entry["indexable"], entry["index_chunks"]) for name, entry in files.items()} == {
+        "brief.pdf": (True, 7), "neu.md": (True, 0), "bild.png": (False, 0), "Unter": (False, 0),
+    }
+    page = {item["name"]: item for item in file_manager.list_directory("Akten").metadata["items"]}
+    assert all((page[name]["indexable"], page[name]["chunks"]) == (entry["indexable"], entry["index_chunks"]) for name, entry in files.items())
+    assert len(calls) == 2                                              # one per listing (this one and the page's), not per file
+    found = client.get("/files/documents/search", params={"path": "documents://", "filter": "brief", "deep": "1"}).json()["files"]
+    assert [(entry["indexable"], entry["index_chunks"]) for entry in found] == [(True, 7)]
+
+
+def test_an_area_without_an_index_lists_no_index_state(client: TestClient) -> None:
+    entries = client.get("/files/test/search", params={"path": "test://", "filter": "", "deep": "1"}).json()["files"]
+    assert entries and all(entry["indexable"] is False and entry["index_chunks"] == 0 for entry in entries)
+
+
+def test_the_reading_ways_are_methods_of_the_areas_ops(area: Path) -> None:
+    import asyncio
+
+    from aifred.lib.file_ops import FolderOps
+    from aifred.lib.user_error import Invalid
+
+    (area / "Notiz.md").write_text("Erst denken", encoding="utf-8")
+    ops = FolderOps(str(area))
+    assert asyncio.run(ops.text("Notiz.md")).text == "Erst denken"
+    assert asyncio.run(ops.view("Notiz.md")).headers["content-disposition"].startswith("inline")
+    assert asyncio.run(ops.download("Notiz.md")).headers["content-disposition"].startswith("attachment")
+    for read in (ops.view, ops.download, ops.text):
+        with pytest.raises(Invalid):                                    # a folder is no file
+            asyncio.run(read("Musik"))

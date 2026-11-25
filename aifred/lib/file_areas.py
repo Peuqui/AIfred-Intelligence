@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from .file_ops import DocumentOps, FolderOps
+from .file_ops import AreaOps, DocumentOps, FolderOps
 from .user_error import Missing, Refused
 
 # The actions of the requester, named as VueFinder names its features (newfolder, upload …); "symlink" is AIfred's.
@@ -22,7 +22,7 @@ class FileArea:
     actions: frozenset[str]
     ops: type[FolderOps] = field(default=FolderOps)   # what the actions do there (DocumentOps: the index follows)
 
-    def work(self) -> FolderOps:
+    def work(self) -> AreaOps:
         return self.ops(self.root())
 
     def require(self, action: str) -> None:

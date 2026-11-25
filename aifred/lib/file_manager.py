@@ -18,8 +18,8 @@ import shutil
 import tempfile
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from pathlib import Path, PurePosixPath
+from typing import Any, NamedTuple
 
 from .config import DOCUMENTS_DIR
 from .formatting import format_stamp
@@ -136,14 +136,29 @@ def chunks_per_document() -> dict[str, int]:
     return chunks
 
 
+class IndexState(NamedTuple):
+    indexable: bool   # the search index has a parser for the file
+    chunks: int       # its sections in the index, 0 = not in it
+
+
+def index_state(rel_path: str, indexed_chunks: dict[str, int]) -> IndexState:
+    """A local document's place in the search index (``indexed_chunks``: chunks_per_document()). ONE place for the
+    documents page and the file requester's documents area."""
+    from .document_store import PARSERS
+
+    name = PurePosixPath(rel_path).name
+    return IndexState(
+        indexable=PurePosixPath(name).suffix.lower() in PARSERS,
+        chunks=indexed_chunks.get(rel_path) or indexed_chunks.get(name, 0),
+    )
+
+
 def list_directory(folder_rel: str = "") -> FileOpResult:
     """List files + subfolders of ``folder_rel`` (relative to documents/).
 
     Each item dict has: ``name, type ('file'|'folder'), size, created,
     modified, indexed, chunks, indexable, file_count``. Hidden entries (leading dot) are excluded.
     """
-    from .document_store import PARSERS
-
     folder, err = safe_resolve(folder_rel) if folder_rel else (DOCUMENTS_DIR.resolve(), None)
     if err:
         return _refused(err)
@@ -191,8 +206,7 @@ def list_directory(folder_rel: str = "") -> FileOpResult:
             "file_count": file_count,
         })
     for f in files:
-        rel_str = str(f.relative_to(DOCUMENTS_DIR))
-        chunk_count = indexed_chunks.get(rel_str) or indexed_chunks.get(f.name, 0)
+        state = index_state(f.relative_to(DOCUMENTS_DIR).as_posix(), indexed_chunks)
         st = f.stat()
         items.append({
             "name": f.name,
@@ -200,9 +214,9 @@ def list_directory(folder_rel: str = "") -> FileOpResult:
             "size": format_size(st.st_size),
             "created": format_stamp(st.st_ctime),
             "modified": format_stamp(st.st_mtime),
-            "indexed": chunk_count > 0,
-            "chunks": chunk_count,
-            "indexable": f.suffix.lower() in PARSERS,
+            "indexed": state.chunks > 0,
+            "chunks": state.chunks,
+            "indexable": state.indexable,
             "file_count": 0,  # only meaningful for folders, kept for schema consistency
         })
     return FileOpResult(True, f"{len(items)} items", {"items": items})

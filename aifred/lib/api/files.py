@@ -6,19 +6,17 @@ allowed actions, for the logged-in user (a session's area only to its owner); th
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 from fastapi import Form, Query, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..file_ops import FolderOps
+from ..file_ops import AreaOps
 from ..logging_utils import log_message
 from ..user_error import Invalid
 from .app import api_app
-from .file_download import download_response, view_response
-from .file_preview import DocumentPreview, preview_of_file
+from .file_preview import DocumentPreview
 from .sessions import current_user
 
 _SIZES = {"small": (0, 1 << 20), "medium": (1 << 20, 10 << 20), "large": (10 << 20, None)}   # VueFinder's search filter
@@ -36,6 +34,8 @@ class DirEntry(BaseModel):
     mime_type: str | None
     read_only: bool
     visibility: str = "public"
+    indexable: bool = Field(default=False, description="A file the search index has a parser for (only the documents area says)")
+    index_chunks: int = Field(default=0, description="Sections of the file in the search index, 0 = not in it")
 
 
 class FsData(BaseModel):
@@ -116,11 +116,11 @@ def _dir_entry(area: str, entry: object) -> DirEntry:
         dir=_vf(area, parent), basename=entry.name, extension="" if entry.is_dir else Path(entry.name).suffix.lstrip("."),
         path=_vf(area, entry.rel_path), storage=area, type="dir" if entry.is_dir else "file", file_size=entry.size,
         last_modified=entry.mtime, mime_type=None if entry.is_dir else mime_type(Path(entry.name)),
-        read_only=not entry.writable,
+        read_only=not entry.writable, indexable=entry.indexable, index_chunks=entry.index_chunks,
     )
 
 
-def _ops(http: Request, area: str, action: str | None = None) -> FolderOps:
+def _ops(http: Request, area: str, action: str | None = None) -> AreaOps:
     """What the area's actions do, for the logged-in user; 403 for an action the area does not allow."""
     from ..file_areas import file_area
 
@@ -130,8 +130,8 @@ def _ops(http: Request, area: str, action: str | None = None) -> FolderOps:
     return chosen.work()
 
 
-def _listing(ops: FolderOps, area: str, rel: str) -> FsData:
-    entries, writable = ops.entries(rel)
+async def _listing(ops: AreaOps, area: str, rel: str) -> FsData:
+    entries, writable = await ops.entries(rel)
     return FsData(storages=[area], dirname=_vf(area, rel), read_only=not writable, files=[_dir_entry(area, e) for e in entries])
 
 
@@ -152,23 +152,23 @@ async def files_info(http: Request, area: str) -> FileAreaInfo:
 @api_app.get("/files/{area}", response_model=FsData, tags=["Files"])
 async def files_list(http: Request, area: str, path: str = Query("")) -> FsData:
     """A folder of the area (its root without ``path``)."""
-    return await asyncio.to_thread(_listing, _ops(http, area), area, _rel(area, path))
+    return await _listing(_ops(http, area), area, _rel(area, path))
 
 
 @api_app.post("/files/{area}/create-folder", response_model=FsData, tags=["Files"])
 async def files_create_folder(http: Request, area: str, request: InFolder) -> FsData:
     ops, rel = _ops(http, area, "newfolder"), _rel(area, request.path)
-    await asyncio.to_thread(ops.create_folder, rel, request.name)
+    await ops.create_folder(rel, request.name)
     log_message(f"📁 Files {area}: folder {request.name!r} in {rel or '/'}")
-    return await asyncio.to_thread(_listing, ops, area, rel)
+    return await _listing(ops, area, rel)
 
 
 @api_app.post("/files/{area}/rename", response_model=FsData, tags=["Files"])
 async def files_rename(http: Request, area: str, request: RenameRequest) -> FsData:
     ops = _ops(http, area, "rename")
-    await asyncio.to_thread(ops.rename, _rel(area, request.item), request.name)
+    await ops.rename(_rel(area, request.item), request.name)
     log_message(f"📁 Files {area}: {request.item!r} renamed to {request.name!r}")
-    return await asyncio.to_thread(_listing, ops, area, _rel(area, request.path))
+    return await _listing(ops, area, _rel(area, request.path))
 
 
 @api_app.post("/files/{area}/delete", response_model=DeleteResult, tags=["Files"])
@@ -176,11 +176,11 @@ async def files_delete(http: Request, area: str, request: DeleteRequest) -> Dele
     """Files, links (never their targets) and folders with their content."""
     ops, rel = _ops(http, area, "delete"), _rel(area, request.path)
     targets = {_rel(area, item.path) for item in request.items}
-    before, _writable = await asyncio.to_thread(ops.entries, rel)
+    before, _writable = await ops.entries(rel)
     for target in targets:
         await ops.delete(target)
     log_message(f"🗑️ Files {area}: deleted {sorted(targets)}")
-    listing = await asyncio.to_thread(_listing, ops, area, rel)
+    listing = await _listing(ops, area, rel)
     deleted = [_dir_entry(area, entry) for entry in before if entry.rel_path in targets]
     return DeleteResult(**listing.model_dump(), deleted=deleted)
 
@@ -189,9 +189,9 @@ async def _transfer(http: Request, area: str, request: TransferRequest, *, keep:
     ops = _ops(http, area, "copy" if keep else "move")
     sources = [_rel(area, source) for source in request.sources]
     destination = _rel(area, request.destination)
-    await asyncio.to_thread(ops.transfer, sources, destination, keep=keep)
+    await ops.transfer(sources, destination, keep=keep)
     log_message(f"📁 Files {area}: {'copied' if keep else 'moved'} {sources} → {destination or '/'}")
-    return await asyncio.to_thread(_listing, ops, area, _rel(area, request.path) if request.path else destination)
+    return await _listing(ops, area, _rel(area, request.path) if request.path else destination)
 
 
 @api_app.post("/files/{area}/copy", response_model=FsData, tags=["Files"])
@@ -216,30 +216,21 @@ async def files_upload(http: Request, area: str, file: UploadFile, path: str = F
     return {}
 
 
-def _file(http: Request, area: str, action: str, path: str) -> Path:
-    target = _ops(http, area, action).file(_rel(area, path))
-    if not target.is_file():
-        raise Invalid("not_a_file", path=path)
-    return target
-
-
 @api_app.get("/files/{area}/preview", tags=["Files"])
 async def files_preview(http: Request, area: str, path: str = Query(...)) -> Response:
-    target = await asyncio.to_thread(_file, http, area, "preview", path)
-    return await asyncio.to_thread(view_response, target)
+    return await _ops(http, area, "preview").view(_rel(area, path))
 
 
 @api_app.get("/files/{area}/text", response_model=DocumentPreview, tags=["Files"])
 async def files_text(http: Request, area: str, path: str = Query(...)) -> DocumentPreview:
     """The text of a file as the search index's parser reads it (the viewer's shape for every file location)."""
-    return await preview_of_file(await asyncio.to_thread(_file, http, area, "preview", path))
+    return await _ops(http, area, "preview").text(_rel(area, path))
 
 
 @api_app.get("/files/{area}/download", tags=["Files"])
 async def files_download(http: Request, area: str, path: str = Query(...)) -> Response:
     """The file as a download; an HTML page as one standalone file (lib/api/file_download.py)."""
-    target = await asyncio.to_thread(_file, http, area, "download", path)
-    return await asyncio.to_thread(download_response, target)
+    return await _ops(http, area, "download").download(_rel(area, path))
 
 
 @api_app.get("/files/{area}/search", response_model=SearchResult, tags=["Files"])
@@ -249,7 +240,7 @@ async def files_search(http: Request, area: str, path: str = Query(""), filter: 
     if size != "all" and size not in _SIZES:
         raise Invalid("unknown_size_filter", size=size)
     ops, rel = _ops(http, area, "search"), _rel(area, path)
-    found = await asyncio.to_thread(ops.search, rel, filter, deep=bool(deep))
+    found = await ops.search(rel, filter, deep=bool(deep))
     if size != "all":
         low, high = _SIZES[size]
         found = [entry for entry in found if entry.size is not None and entry.size >= low and (high is None or entry.size < high)]
@@ -260,6 +251,6 @@ async def files_search(http: Request, area: str, path: str = Query(""), filter: 
 async def files_symlink(http: Request, area: str, request: SymlinkRequest) -> FsData:
     """A link to a folder inside the area (VueFinder has none: the requester's own menu entry)."""
     ops, rel = _ops(http, area, "symlink"), _rel(area, request.path)
-    await asyncio.to_thread(ops.symlink, rel, request.name, _rel(area, request.target))
+    await ops.symlink(rel, request.name, _rel(area, request.target))
     log_message(f"🔗 Files {area}: link {request.name!r} → {request.target!r} in {rel or '/'}")
-    return await asyncio.to_thread(_listing, ops, area, rel)
+    return await _listing(ops, area, rel)

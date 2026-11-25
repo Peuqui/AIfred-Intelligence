@@ -28,6 +28,8 @@ class Entry:
     size: int | None       # None: folders and entries that cannot be read (a broken link)
     mtime: int | None
     writable: bool
+    indexable: bool = False   # a file the search index has a parser for (only areas with an index say)
+    index_chunks: int = 0     # its sections in the search index, 0 = not in it
 
 
 def root_folder(root: str) -> Path:
