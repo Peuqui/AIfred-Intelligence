@@ -1244,109 +1244,59 @@ def build_sandbox_image(url: str) -> str:
     )
 
 
-def build_sources_collapsible(used_sources: list, failed_sources: list, lang: str | None = None) -> str:
+def build_sources_collapsible(fetches: list[dict[str, Any]], lang: str | None = None) -> str:
+    """HTML ``<details>`` block listing the pages the turn's ``web_fetch`` calls read, in the order they ran.
+
+    ``fetches``: dicts with ``url`` and ``success`` (lib/bubble.py, KIND_SOURCES). Empty string when there are none.
+    Same styling as the thinking collapsible.
     """
-    Build HTML <details> collapsible for web sources.
-
-    Creates a compact collapsible matching the Denkprozess styling,
-    showing all sources sorted by rank_index (successful + failed mixed).
-
-    Args:
-        used_sources: List of dicts with 'url', 'word_count', 'rank_index', 'success'
-        failed_sources: List of dicts with 'url', 'error', 'rank_index'
-        lang: Language for labels (de/en). If None, uses get_ui_locale()
-
-    Returns:
-        HTML string with <details> collapsible, or empty string if no sources
-    """
+    if not fetches:
+        return ""
     if lang is None:
         lang = get_ui_locale()
 
-    # Combine all sources and sort by rank_index
-    all_sources = []
-
-    for src in used_sources:
-        all_sources.append({
-            "url": src.get("url", ""),
-            "word_count": src.get("word_count", 0),
-            "rank_index": src.get("rank_index", 999),
-            "success": True,
-            "error": None
-        })
-
-    for src in failed_sources:
-        all_sources.append({
-            "url": src.get("url", ""),
-            "word_count": 0,
-            "rank_index": src.get("rank_index", 999),
-            "success": False,
-            "error": src.get("error", "Failed")
-        })
-
-    if not all_sources:
-        return ""
-
-    # Sort by rank_index
-    all_sources.sort(key=lambda x: x["rank_index"])
-
-    # Build summary text
-    total = len(all_sources)
-    failed_count = len(failed_sources)
-
     from .i18n import t
 
+    failed_count = sum(1 for fetch in fetches if not fetch["success"])
     if failed_count > 0:
-        summary_text = t("web_sources_summary_failed", lang=lang, total=total, failed=failed_count)
+        summary_text = t("web_sources_summary_failed", lang=lang, total=len(fetches), failed=failed_count)
     else:
-        summary_text = t("web_sources_summary", lang=lang, total=total)
-    words_label = t("web_sources_words", lang=lang)
-    sorted_label = t("web_sources_sorted", lang=lang)
+        summary_text = t("web_sources_summary", lang=lang, total=len(fetches))
+    order_label = t("web_sources_order", lang=lang)
+    failed_label = t("web_sources_fetch_failed", lang=lang)
 
-    # Build source list HTML with table-like layout
-    # Number + status icon + URL (truncated) + metadata (word count or error)
-    # Numbering matches LLM's "Quelle 1, 2, 3" references
+    # Number + status icon + URL (truncated); a failed fetch says so after its URL.
     source_lines = []
-    for i, src in enumerate(all_sources, 1):
-        url = src["url"]
-        if src["success"]:
-            # Number + green checkmark + URL (cyan, styled via CSS) + word count
-            word_count = src["word_count"]
-            source_lines.append(
-                f'<div style="display: flex; align-items: baseline; gap: 0.8em;">'
-                f'<span style="color: var(--aifred-text-muted); flex-shrink: 0; min-width: 1.5em;">{i}.</span>'
-                f'<span style="color: var(--aifred-accent-success); flex-shrink: 0;">✓</span>'
-                f'<a href="{url}" target="_blank" rel="noopener" '
-                f'style="flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{url}</a>'
-                f'<span style="color: var(--aifred-text-muted); flex-shrink: 0; white-space: nowrap;">({word_count} {words_label})</span>'
-                f'</div>'
-            )
+    for i, fetch in enumerate(fetches, 1):
+        url = fetch["url"]
+        if fetch["success"]:
+            mark = '<span style="color: var(--aifred-accent-success); flex-shrink: 0;">✓</span>'
+            note = ""
         else:
-            # Number + orange X + URL (cyan, styled via CSS) + error
-            error = src["error"]
-            source_lines.append(
-                f'<div style="display: flex; align-items: baseline; gap: 0.8em;">'
-                f'<span style="color: var(--aifred-text-muted); flex-shrink: 0; min-width: 1.5em;">{i}.</span>'
-                f'<span style="color: var(--aifred-primary-active); flex-shrink: 0;">✗</span>'
-                f'<a href="{url}" target="_blank" rel="noopener" '
-                f'style="flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{url}</a>'
-                f'<span style="color: var(--aifred-text-muted); font-style: italic; flex-shrink: 0; white-space: nowrap;">({error})</span>'
-                f'</div>'
-            )
+            mark = '<span style="color: var(--aifred-primary-active); flex-shrink: 0;">✗</span>'
+            note = (f'<span style="color: var(--aifred-text-muted); font-style: italic; flex-shrink: 0; '
+                    f'white-space: nowrap;">({failed_label})</span>')
+        source_lines.append(
+            f'<div style="display: flex; align-items: baseline; gap: 0.8em;">'
+            f'<span style="color: var(--aifred-text-muted); flex-shrink: 0; min-width: 1.5em;">{i}.</span>'
+            f'{mark}'
+            f'<a href="{url}" target="_blank" rel="noopener" '
+            f'style="flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{url}</a>'
+            f'{note}'
+            f'</div>'
+        )
 
     sources_html = "\n".join(source_lines)
 
-    # Build complete collapsible (matching Denkprozess styling exactly)
-    collapsible = f"""<details style="font-size: 0.9em; margin-bottom: 0.5em; margin-top: 0.5em;">
+    return f"""<details style="font-size: 0.9em; margin-bottom: 0.5em; margin-top: 0.5em;">
 <summary style="cursor: pointer; font-weight: bold; color: var(--aifred-text-secondary); position: sticky; top: 0; z-index: 2; background: var(--aifred-input-bg); padding: 4px 0;">{summary_text}</summary>
 <div style="max-height: 60vh; overflow-y: auto; padding-left: 1em; padding-top: 0.3em; line-height: 1.6;">
 
 {sources_html}
 
-<div style="font-size: 0.9em; font-style: italic; color: var(--aifred-text-muted); margin-top: 0.3em;">{sorted_label}</div>
+<div style="font-size: 0.9em; font-style: italic; color: var(--aifred-text-muted); margin-top: 0.3em;">{order_label}</div>
 </div>
 </details>"""
-
-    return collapsible
 
 
 def build_tool_collapsible(block: dict[str, Any]) -> str:

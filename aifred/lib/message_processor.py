@@ -408,13 +408,17 @@ def outbound_parts(replies: Sequence[TurnReply], voice: str) -> list[ReplyPart]:
 def channel_display_label(channel: str) -> str:
     """User-facing channel name in the UI language — push title, LLM context
     and the persisted "[Channel] Sender" chat header all use this."""
+    from .i18n import t
     from .plugin_base import plugin_display_name
     from .plugin_registry import get_channel as _get_ch
     from .settings import load_settings
+    lang = (load_settings() or {}).get("ui_language", "de")
     plugin = _get_ch(channel)
     if plugin is None:
-        return channel.capitalize()
-    return plugin_display_name(plugin, (load_settings() or {}).get("ui_language", "de"))
+        # A channel without a plugin (NON_PLUGIN_CHANNEL_EMOJIS) has its name in the UI texts: the scheduler's is
+        # "Horarium" (until 25.11.2026 the channel's code name showed, "Scheduler").
+        return t(f"channel_label_{channel}", lang=lang)
+    return plugin_display_name(plugin, lang)
 
 
 def channel_emoji(channel: str) -> str:

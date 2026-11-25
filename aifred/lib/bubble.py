@@ -108,16 +108,7 @@ def render_artifact(artifact: BubbleArtifact, model_name: str | None) -> str:
     if kind == KIND_COLLAPSIBLE:
         return build_tool_collapsible(data)
     if kind == KIND_SOURCES:
-        urls = data["urls"]
-        successful = [
-            {"url": u["url"], "word_count": 0, "rank_index": i, "success": True}
-            for i, u in enumerate(urls) if u.get("success")
-        ]
-        failed = [
-            {"url": u["url"], "error": "fetch failed", "rank_index": i}
-            for i, u in enumerate(urls) if not u.get("success")
-        ]
-        return build_sources_collapsible(successful, failed)
+        return build_sources_collapsible(data["urls"])
     if kind == KIND_SANDBOX_HTML:
         return "\n\n".join(filter(None, [build_sandbox_iframe(data["url"]), _source_block(data["url"])]))
     if kind == KIND_SANDBOX_IMAGE:
