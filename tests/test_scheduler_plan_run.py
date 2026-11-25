@@ -14,6 +14,15 @@ import pytest
 import aifred.lib.scheduler as sched
 from aifred.lib import file_manager, job_notes, pipeline_registry, session_storage, turn_service
 from aifred.lib.agent_config import AgentConfig
+from aifred.lib.bubble import (
+    KIND_COLLAPSIBLE,
+    KIND_SANDBOX_HTML,
+    SECTION_TEXT,
+    SECTION_THINKING,
+    BubbleArtifact,
+    text_section,
+    thinking_section,
+)
 from aifred.lib.config import SCHEDULER_JOBS_FOLDER
 from aifred.lib.message_processor import record_chat_only_bubble, session_for_channel
 from aifred.lib.plan_engine import PartDone, PartOutcome, PlanResult
@@ -83,7 +92,7 @@ class Run:
         outcomes: list[PartOutcome] = []
         for part in plan.parts:
             yield {"progress": f"{part.title}: sucht"}
-            artifact = {"kind": "collapsible", "data": {"title": f"Protokoll {part.title}", "content": "Zeilen"}}
+            artifact = {"kind": "collapsible", "data": {"title": f"Protokoll {part.title}", "sections": [text_section("Zeilen")]}}
             yield {"artifacts": [artifact]}
             scenario = self.scenarios.get(part.id, "gap")
             checked = part.positions if scenario == "full" else part.positions[:1] if scenario == "gap" else []
@@ -254,6 +263,7 @@ def test_the_start_bubble_names_every_part_with_its_positions_and_every_part_get
     assert started.startswith("Job „Preise“ gestartet: 3 Teilaufträge\n\n<details")
     assert _summary(started) == "Teile und Positionen"
     assert ("- AAP01 und Tuning: Alpha, Beta&#10;- Zubehör: Gamma&#10;- Ersatzteile: Delta, Eps") in started
+    assert "monospace" not in started
     # a part's bubble is one block: the status in its title (visible collapsed), the transcript inside, no text around it
     for content in (first, second, third):
         assert content.startswith("<details") and content.endswith("</details>") and content.count("<details") == 1
@@ -261,6 +271,50 @@ def test_the_start_bubble_names_every_part_with_its_positions_and_every_part_get
     assert "Protokoll AAP01 und Tuning" in first and "Zeilen" in first
     assert _summary(second) == "Teil 2/3 · Zubehör: gescheitert: Modell weg, 10:45 min"
     assert _summary(third) == "Teil 3/3 · Ersatzteile: 1 von 2 Positionen, 1 Einträge, 10:45 min, nicht geprüft: Eps"
+
+
+def test_the_start_bubble_block_is_one_text_section() -> None:
+    plan = TaskPlan.from_payload(_three_parts())
+    head, block = sched._plan_started_bubble("Preise", plan, "de")
+    assert head.startswith("Job „Preise“ gestartet")
+    assert block["sections"] == [
+        text_section("- AAP01 und Tuning: Alpha, Beta\n- Zubehör: Gamma\n- Ersatzteile: Delta, Eps"),
+    ]
+    assert "content" not in block
+
+
+def _transcript(title: str, footer: str, *thinking: str) -> dict[str, Any]:
+    sections = [text_section(f"AUFGABE:\n{title}")]
+    for index, text in enumerate(thinking):
+        sections += [thinking_section(text), text_section(f"[WERKZEUG] t{index}")]
+    sections.append(text_section("[BERICHT]\nok"))
+    return BubbleArtifact(KIND_COLLAPSIBLE, {"title": f"Sub-Agent {title}", "sections": sections, "footer": footer}).to_dict()
+
+
+def test_a_part_block_keeps_the_thinking_blocks_of_every_sub_agent_in_their_order() -> None:
+    plan = TaskPlan.from_payload(_three_parts())
+    outcome = PartOutcome(part=plan.parts[0], records=PartRecords(entries=[], new_sources=set()), report="", failure=None,
+                          not_checked=[position.id for position in plan.parts[0].positions])
+    sandbox = {"kind": KIND_SANDBOX_HTML, "data": {"url": "/_upload/sandbox_output/s/page.html"}}
+    done = PartDone(outcome, [_transcript("A", "TTFT 1", "denke A1", "denke A2"), sandbox, _transcript("B", "", "denke B")], 1.0)
+
+    block, other = sched._part_bubble_artifacts(done, 1, 3, "de")
+
+    assert other.kind == KIND_SANDBOX_HTML and block.kind == KIND_COLLAPSIBLE and "content" not in block.data
+    sections = block.data["sections"]
+    assert [(section["kind"], section["text"]) for section in sections] == [
+        (SECTION_TEXT, "=== Sub-Agent A ==="), (SECTION_TEXT, "AUFGABE:\nA"),
+        (SECTION_THINKING, "denke A1"), (SECTION_TEXT, "[WERKZEUG] t0"),
+        (SECTION_THINKING, "denke A2"), (SECTION_TEXT, "[WERKZEUG] t1"),
+        (SECTION_TEXT, "[BERICHT]\nok"), (SECTION_TEXT, "( TTFT 1 )"),
+        (SECTION_TEXT, "=== Sub-Agent B ==="), (SECTION_TEXT, "AUFGABE:\nB"),
+        (SECTION_THINKING, "denke B"), (SECTION_TEXT, "[WERKZEUG] t0"),
+        (SECTION_TEXT, "[BERICHT]\nok"),
+    ]
+    from aifred.lib.bubble import render_artifact
+    html = render_artifact(block, None)
+    assert html.count("<details") == 1 + 3 and "monospace" not in html
+    assert html.index("denke A1") < html.index("denke A2") < html.index("denke B")
 
 
 def _summary(bubble: str) -> str:

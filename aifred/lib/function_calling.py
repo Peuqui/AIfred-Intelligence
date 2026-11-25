@@ -89,6 +89,10 @@ class Tool:
     # Looks at the world anew each call (a camera, its event log): the same answer again is news ("still nothing"), not a
     # loop, so the unchanged-result breaker leaves it alone; a model waiting for an event asks again and again.
     observes: bool = False
+    # The raw result is bulk (a page's text, up to tens of thousands of characters) the model needs but a reader of a
+    # sub-agent's transcript does not: the transcript keeps the call with its arguments (queries, address) and leaves
+    # the result out; the pages read are listed in the "Web sources" block.
+    transcript_without_result: bool = False
 
     @property
     def definition(self) -> dict[str, Any]:

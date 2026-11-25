@@ -17,6 +17,9 @@ from aifred.lib.bubble import (
     KIND_VISION_IMAGES,
     KIND_VLM_OUTPUT,
     BubbleArtifact,
+    code_section,
+    text_section,
+    thinking_section,
 )
 from aifred.lib.function_calling import Tool, ToolKit
 from aifred.lib.plugin_base import PluginContext, plugin_display_name
@@ -259,14 +262,19 @@ class TestRun:
         assert transcript["kind"] == KIND_COLLAPSIBLE
         assert "Lies a.txt" in transcript["data"]["title"]
         assert transcript["data"]["icon"] == run.SUBAGENT_ICON
+        sections = transcript["data"]["sections"]
+        assert "content" not in transcript["data"]
+        # The thinking is a section of its own, not a "[DENKEN]" line in the text
+        assert [s["text"] for s in sections if s["kind"] == "thinking"] == ["erst lesen"]
+        full_text = "\n".join(s["text"] for s in sections)
         pieces = ("erst lesen", "read_file", 'path: "a.txt"', "INHALT VON A", "Der Bericht: alles gut.")
-        positions = [transcript["data"]["content"].index(piece) for piece in pieces]
+        positions = [full_text.index(piece) for piece in pieces]
         assert positions == sorted(positions)  # in the order the run happened
         # The main agents' performance line, with model and backend, kept apart
         # from the transcript text and rendered italic in parentheses.
         footer = transcript["data"]["footer"]
         assert "TTFT" in footer and "test-model" in footer and "[llamacpp]" in footer
-        assert "TTFT" not in transcript["data"]["content"]
+        assert "TTFT" not in full_text
         from aifred.lib.formatting import build_tool_collapsible
         html = build_tool_collapsible(transcript["data"])
         assert '<div style="padding: 0.6em 0 0 1em; font-style: italic;">( ' in html and " )</div>" in html
@@ -288,7 +296,7 @@ class TestRun:
     def test_artifacts_of_the_subagent_turn_go_up(self, plugin, ctx):
         from aifred.lib.sandbox import SANDBOX_HTML_URL_MARKER, SANDBOX_IMAGE_URL_MARKER
         self.pipeline_result.artifacts = [
-            BubbleArtifact(KIND_COLLAPSIBLE, {"title": "inner", "content": "tief"}, offset=3),
+            BubbleArtifact(KIND_COLLAPSIBLE, {"title": "inner", "sections": [text_section("tief")]}, offset=3),
             BubbleArtifact(KIND_SOURCES, {"urls": [{"url": "https://example.org", "success": True}]}),
             BubbleArtifact(KIND_SANDBOX_HTML, {"url": "/_upload/sandbox_output/s/page.html"}),
             BubbleArtifact(KIND_SANDBOX_IMAGE, {"url": "/_upload/sandbox_output/s/plot.png"}),
@@ -358,7 +366,7 @@ class TestToolLoopIntegration:
     def test_toolkit_forwards_artifacts_event(self):
         async def executor(task: str):
             yield {"progress": "p"}
-            yield {"artifacts": [{"kind": KIND_COLLAPSIBLE, "data": {"title": "T", "content": "C"}}]}
+            yield {"artifacts": [{"kind": KIND_COLLAPSIBLE, "data": {"title": "T", "sections": [text_section("C")]}}]}
             yield {"result": "R"}
 
         kit = ToolKit(
@@ -367,7 +375,7 @@ class TestToolLoopIntegration:
         )
         events = _run(_collect(kit.execute_streaming("t", {"task": "x"})))
         assert [e["type"] for e in events] == ["tool_progress", "tool_artifacts", "tool_result"]
-        assert events[1]["artifacts"] == [{"kind": KIND_COLLAPSIBLE, "data": {"title": "T", "content": "C"}}]
+        assert events[1]["artifacts"] == [{"kind": KIND_COLLAPSIBLE, "data": {"title": "T", "sections": [text_section("C")]}}]
         assert events[2]["result"] == "R"
 
     def test_transcript_shows_code_arguments_in_full(self):
@@ -380,18 +388,64 @@ class TestToolLoopIntegration:
 
     def test_collapsible_html_escapes(self):
         from aifred.lib.formatting import build_tool_collapsible
-        html = build_tool_collapsible({"title": "🤝 <x>", "content": "a < b\n```code```"})
+        html = build_tool_collapsible({"title": "🤝 <x>", "sections": [text_section("a < b\n```code```")]})
         assert "<details" in html and "&lt;x&gt;" in html and "a &lt; b" in html
 
     def test_collapsible_icon_in_accent_colour(self):
         from aifred.lib.formatting import build_tool_collapsible
         from aifred.theme import COLORS
-        html = build_tool_collapsible({"icon": "⇄", "title": "Sub-Agent", "content": "x"})
+        html = build_tool_collapsible({"icon": "⇄", "title": "Sub-Agent", "sections": [text_section("x")]})
         assert f'<span style="color: {COLORS["primary"]};">⇄</span> Sub-Agent</summary>' in html
+
+    def test_collapsible_text_is_in_normal_font(self):
+        from aifred.lib.formatting import build_tool_collapsible
+        html = build_tool_collapsible({"title": "T", "sections": [text_section("Lies a.txt")]})
+        # The protocol is prose to read, not code: the body font, no typewriter face, no smaller size.
+        assert "monospace" not in html and "font-size: 0.95em" not in html
+        assert "white-space: pre-wrap" in html
+
+    def test_collapsible_code_section_keeps_the_typewriter_face(self):
+        from aifred.lib.formatting import build_tool_collapsible
+        html = build_tool_collapsible({"title": "T", "sections": [code_section("x = 1\nprint(x)")]})
+        assert "font-family: monospace" in html and "x = 1&#10;print(x)" in html
+
+    def test_collapsible_thinking_section_is_a_nested_thinking_block(self):
+        from aifred.lib.formatting import build_tool_collapsible, format_thinking_process, get_ui_locale
+        from aifred.lib.config import get_xml_tag_config
+        html = build_tool_collapsible({"title": "T", "sections": [
+            text_section("vorher"), thinking_section("erst <b>lesen</b>\n\nund & denken"), text_section("nachher"),
+        ]})
+        # An own <details> inside the outer one, in the same markup as the main agent's thinking block
+        assert html.count("<details") == 2 and html.count("</details>") == 2
+        think = get_xml_tag_config(get_ui_locale())["think"]
+        assert f"{think['icon']} {think['label']}</summary>" in html and f'<div class="{think["class"]}" style="white-space: pre-wrap;' in html
+        main_summary = format_thinking_process("<think>x</think>").splitlines()[1]
+        assert main_summary in html
+        # Content escaped, line breaks as the entity, no blank line anywhere (Markdown must stay off)
+        assert "erst &lt;b&gt;lesen&lt;/b&gt;&#10;&#10;und &amp; denken" in html
+        assert "\n\n" not in html and "monospace" not in html
+        # pre-wrap must not show the markup's own line breaks as empty lines at the edges of the thinking
+        assert 'word-break: break-word;">erst &lt;b&gt;' in html and "und &amp; denken</div>" in html
+        # The order of the sections is kept
+        order = [html.index(m) for m in ("vorher", "erst &lt;b&gt;", "nachher")]
+        assert order == sorted(order)
+
+    def test_collapsible_unknown_section_kind_is_refused(self):
+        from aifred.lib.formatting import build_tool_collapsible
+        with pytest.raises(ValueError, match="section kind"):
+            build_tool_collapsible({"title": "T", "sections": [{"kind": "unbekannt", "text": "x"}]})
+
+    def test_source_code_block_keeps_the_typewriter_face(self, tmp_path, monkeypatch):
+        from aifred.lib import bubble, sandbox
+        page = tmp_path / "page.html"
+        page.write_text("<p>hi</p>\n", encoding="utf-8")
+        monkeypatch.setattr(sandbox, "sandbox_output_path", lambda url: page)
+        html = bubble._source_block("/_upload/sandbox_output/s/page.html")
+        assert "font-family: monospace" in html and "&lt;p&gt;hi&lt;/p&gt;" in html
 
     def test_collapsible_content_stays_literal_text(self):
         from aifred.lib.formatting import build_tool_collapsible
-        html = build_tool_collapsible({"title": "T", "content": "a\n\n| x | y |\n|---|---|\n\n**b**"})
+        html = build_tool_collapsible({"title": "T", "sections": [text_section("a\n\n| x | y |\n|---|---|\n\n**b**")]})
         # One HTML block without any blank line, so Markdown never switches back
         # on inside it; line breaks travel as the &#10; entity.
         assert "\n\n" not in html and "a&#10;&#10;| x | y |" in html
@@ -415,7 +469,7 @@ class TestToolLoopIntegration:
         text = "![Tür](/_upload/vigilantia/a.jpg)\n\n<think>erst</think>Ich delegiere.<think>dann</think>Ergebnis."
         offset = text.index("<think>dann")
         artifacts = [
-            BubbleArtifact(KIND_COLLAPSIBLE, {"title": "TRANSKRIPT", "content": "x"}, offset=offset),
+            BubbleArtifact(KIND_COLLAPSIBLE, {"title": "TRANSKRIPT", "sections": [text_section("x")]}, offset=offset),
             BubbleArtifact(KIND_VISION_IMAGES, {"urls": ["/_upload/vigilantia/a.jpg"], "alt": "Tür"}, offset=offset),
         ]
         html = render_bubble(text, artifacts)

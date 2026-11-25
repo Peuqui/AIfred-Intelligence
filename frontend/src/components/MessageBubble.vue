@@ -219,6 +219,10 @@ header { font-size: var(--text-small); font-weight: 600; color: var(--aifred-pri
 .content :deep(details > summary) { padding: 3px 0 !important; color: var(--aifred-text-secondary); background: var(--aifred-collapsible-bg) !important; }
 .content :deep(details[data-sandbox]) { max-height: var(--sandbox-max-height); overflow: hidden; background: transparent; border: none; padding: 0; }
 .content :deep(.thinking-compact) { color: var(--aifred-text-soft); }
+/* A collapsible inside a collapsible (a sub-agent's thinking in its transcript): the outer box scrolls, the inner one grows
+   with its content, and its title line does not stick over the outer one's. */
+.content :deep(details details:not([data-sandbox])) { max-height: none; overflow-y: visible; }  /* more specific than the mobile rule below */
+.content :deep(details details > summary) { position: static !important; }
 .content :deep(details a) { color: var(--aifred-accent-cyan); }
 @media (max-width: 760px) {
   .content :deep(details:not([data-sandbox])) { max-height: var(--thinking-max-height-mobile); }

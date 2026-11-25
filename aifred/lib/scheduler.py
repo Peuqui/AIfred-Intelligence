@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from . import file_manager
 from .browser_push import notify_changed
-from .bubble import KIND_COLLAPSIBLE, BubbleArtifact
+from .bubble import KIND_COLLAPSIBLE, BubbleArtifact, text_section
 from .config import (
     BASE_AGENT,
     SCHEDULER_CHECK_INTERVAL_SECONDS,
@@ -853,7 +853,7 @@ def _plan_started_bubble(job_name: str, plan: TaskPlan, lang: str) -> tuple[str,
                     positions=", ".join(position.name for position in part.positions)).strip()
         for part in plan.parts
     ]
-    block = {"title": load_prompt("scheduler/plan_started_parts_title", lang=lang).strip(), "content": "\n".join(part_lines)}
+    block = {"title": load_prompt("scheduler/plan_started_parts_title", lang=lang).strip(), "sections": [text_section("\n".join(part_lines))]}
     return head, block
 
 
@@ -885,15 +885,17 @@ def _part_title(done: PartDone, index: int, count: int, lang: str) -> str:
 
 def _part_bubble_artifacts(done: PartDone, index: int, count: int, lang: str) -> list[BubbleArtifact]:
     """The one block of a part's bubble: the status as its title, the part's transcripts (every collapsible the
-    sub-agents made, one under the other) as its content. What is no transcript (pages, images) follows as it is:
-    a collapsible cannot hold it."""
+    sub-agents made, one under the other) as its sections. A transcript's sections stay as they are, so the thinking
+    keeps its own nested block; its title line and footer become text sections around them. What is no transcript
+    (pages, images) follows as it is: a collapsible cannot hold it."""
     artifacts = [BubbleArtifact.from_dict(raw) for raw in done.artifacts]
     transcripts = [artifact.data for artifact in artifacts if artifact.kind == KIND_COLLAPSIBLE]
-    content = "\n\n".join(
-        "\n".join(filter(None, [f"=== {data['title']} ===", data["content"], f"( {data['footer']} )" if data.get("footer") else ""]))
-        for data in transcripts
-    )
-    block = BubbleArtifact(KIND_COLLAPSIBLE, {"title": _part_title(done, index, count, lang), "content": content})
+    sections: list[dict[str, str]] = []
+    for data in transcripts:
+        sections += [text_section(f"=== {data['title']} ==="), *data["sections"]]
+        if data.get("footer"):
+            sections.append(text_section(f"( {data['footer']} )"))
+    block = BubbleArtifact(KIND_COLLAPSIBLE, {"title": _part_title(done, index, count, lang), "sections": sections})
     return [block, *(artifact for artifact in artifacts if artifact.kind != KIND_COLLAPSIBLE)]
 
 

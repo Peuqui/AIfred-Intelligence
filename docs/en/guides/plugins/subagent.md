@@ -11,9 +11,12 @@ loop. It sees neither the conversation nor the caller's memory and cannot ask
 questions back. It has a persona only when it runs as another main agent
 (parameter `agent`): it then carries that agent's identity and personality,
 that is its role and working method. Only its report comes back, as an ordinary tool
-result. The sub-agent's complete transcript, that is its thinking, its text,
-every tool call with arguments and result, and the report, appears as a
-collapsible block in the main agent's chat bubble. It never reaches the model
+result. The sub-agent's transcript, that is its task, its thinking (as a nested
+"Thinking Process" block, like the main agent's), its text, every tool call with
+arguments and result, and the report, appears as a collapsible block in the main
+agent's chat bubble. The raw results of `web_search` and `web_fetch` are left out
+(the calls with their queries and addresses stay; the pages read are in the sources
+block). It never reaches the model
 and costs no tokens in the history.
 
 Architecture and decisions: [Sub-Agents as a Plugin](../../architecture/subagent-plugin.md).

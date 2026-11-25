@@ -6,7 +6,6 @@
   "save_memory_hint": "Speichert die Unterhaltung im Langzeitgedächtnis der Agenten",
   "subagent_transcript_title": "Sub-Agent",
   "subagent_transcript_task": "AUFGABE",
-  "subagent_transcript_thinking": "DENKEN",
   "subagent_transcript_call": "WERKZEUG",
   "subagent_transcript_result": "ERGEBNIS",
   "subagent_transcript_expected": "ERWARTETES ERGEBNIS",

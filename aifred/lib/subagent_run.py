@@ -25,6 +25,8 @@ from .bubble import (
     KIND_SANDBOX_HTML,
     KIND_SANDBOX_IMAGE,
     BubbleArtifact,
+    text_section,
+    thinking_section,
 )
 from .formatting import performance_footer_text
 from .function_calling import Tool, ToolKit
@@ -42,7 +44,7 @@ SUBAGENT_ICON = DELEGATION_ICON
 # no tool at all, so recursion is bounded structurally, without a counter.
 DEPTH_METADATA_KEY = "subagent_depth"
 
-_TRANSCRIPT_LABEL_KEYS = ("title", "task", "thinking", "call", "result", "expected", "report", "no_report", "follow_up")
+_TRANSCRIPT_LABEL_KEYS = ("title", "task", "call", "result", "expected", "report", "no_report", "follow_up")
 _THINK_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 _TITLE_LEN = 60
 
@@ -270,7 +272,10 @@ class SubagentSession:
             build_llm_options(None, ctx.agent_id, caller_model, params.temperature, params.num_ctx),
         )
 
-        transcript: list[str] = [intro]
+        # The task first, in every transcript (also a follow-up's own).
+        transcript: list[dict[str, str]] = [text_section(intro)]
+        # The tools whose result the transcript leaves out (the call stays); a result carries its call's tool name.
+        results_left_out = {tool.name for tool in toolkit.tools if tool.transcript_without_result} if toolkit else set()
         # Text of the current model round; flushed into the transcript before
         # each tool call, so thinking, text and tools read in the order they ran.
         round_text: list[str] = []
@@ -283,11 +288,11 @@ class SubagentSession:
             # Backends deliver reasoning inline as <think>…</think>.
             for block in _THINK_RE.findall(text):
                 if block.strip():
-                    transcript.append(f"[{labels['thinking']}]\n{block.strip()}")
+                    transcript.append(thinking_section(block.strip()))
             plain = _THINK_RE.sub("", text).strip()
             # The last round's text is the report, shown once below.
             if plain and not final:
-                transcript.append(f"[{cfg.display_name}]\n{plain}")
+                transcript.append(text_section(f"[{cfg.display_name}]\n{plain}"))
 
         yield {"progress": f"{progress_prefix}: {params.model}"}
 
@@ -315,12 +320,12 @@ class SubagentSession:
                 elif kind == "tool_call":
                     flush_round(final=False)
                     name = event.get("name", "")
-                    transcript.append(format_transcript_call(labels["call"], name, event.get("arguments", "")))
+                    transcript.append(text_section(format_transcript_call(labels["call"], name, event.get("arguments", ""))))
                     yield {"progress": f"{progress_prefix}: {name}"}
                 elif kind == "tool_progress":
                     yield {"progress": f"{progress_prefix}: {event.get('message', '')}"}
-                elif kind == "tool_result":
-                    transcript.append(f"[{labels['result']}]\n{event.get('result', '')}")
+                elif kind == "tool_result" and event.get("name") not in results_left_out:
+                    transcript.append(text_section(f"[{labels['result']}]\n{event.get('result', '')}"))
                 elif kind == "pipeline_result":
                     pipeline_result = event["result"]
                     report = pipeline_result.text_clean.strip()
@@ -344,7 +349,7 @@ class SubagentSession:
         yield {"work": pipeline_result.metrics["work"] if pipeline_result is not None
                else InferenceWork.unmeasured().to_dict()}
         flush_round(final=True)
-        transcript.append(f"[{labels['report']}]\n{report or labels['no_report']}")
+        transcript.append(text_section(f"[{labels['report']}]\n{report or labels['no_report']}"))
         # Same performance line as below a main agent's answer (one builder);
         # shown below the transcript text.
         footer = performance_footer_text(pipeline_result.metadata_dict) if pipeline_result is not None else ""
@@ -356,7 +361,7 @@ class SubagentSession:
         transcript_artifact = BubbleArtifact(KIND_COLLAPSIBLE, {
             "icon": SUBAGENT_ICON,
             "title": f"{labels['title']} {cfg.display_name}: {_short(title_text)}",
-            "content": "\n\n".join(transcript),
+            "sections": transcript,
             "footer": footer,
         })
         inner = pipeline_result.artifacts if pipeline_result is not None else []

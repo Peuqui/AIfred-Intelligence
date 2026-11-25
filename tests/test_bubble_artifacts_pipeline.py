@@ -13,6 +13,7 @@ from aifred.lib.bubble import (
     KIND_VISION_IMAGES,
     KIND_VLM_OUTPUT,
     render_bubble,
+    text_section,
 )
 from aifred.lib.llm_pipeline import run_llm_stream
 from aifred.lib.perf_metrics import InferenceWork
@@ -46,7 +47,7 @@ class _Turn:
         yield {"type": "content", "text": "<think>weiter</think>Ich delegiere."}
         yield {"type": "tool_call", "name": "delegate_task", "arguments": "{}"}
         yield {"type": "tool_artifacts", "name": "delegate_task", "artifacts": [
-            {"kind": KIND_COLLAPSIBLE, "data": {"title": "Sub-Agent", "content": "lief"}},
+            {"kind": KIND_COLLAPSIBLE, "data": {"title": "Sub-Agent", "sections": [text_section("lief")]}},
             {"kind": KIND_SOURCES, "data": {"urls": [{"url": "https://example.org", "success": True}]}},
             {"kind": KIND_SANDBOX_HTML, "data": {"url": PAGE}},
         ]}

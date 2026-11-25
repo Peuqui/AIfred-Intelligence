@@ -1011,6 +1011,19 @@ def neutralize_markdown_fences(text: str) -> str:
     return text
 
 
+def _tag_details(summary_text: str, css_class: str, content: str, content_style: str = "") -> str:
+    """The ``<details>`` markup of a tag block (thinking, code, …); ``content`` already HTML-escaped. One place for the
+    main agent's blocks and the thinking blocks inside a tool collapsible (``build_tool_collapsible``), which pass a
+    ``content_style`` because their line breaks are entities in an HTML block, not Markdown paragraphs."""
+    style = f' style="{content_style}"' if content_style else ""
+    # Under pre-wrap the markup's own line breaks around the content would show as an empty first and last line.
+    edge = "" if content_style else "\n"
+    return f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
+<summary style="cursor: pointer; font-weight: bold; color: var(--aifred-text-secondary); position: sticky; top: 0; z-index: 2; background: var(--aifred-input-bg); padding: 4px 0;">{summary_text}</summary>
+<div class="{css_class}"{style}>{edge}{content}{edge}</div>
+</details>"""
+
+
 def format_thinking_process(
     ai_response: str,
     model_name: str | None = None,
@@ -1116,14 +1129,7 @@ def format_thinking_process(
         # neutralize_markdown_fences above.
         content = content.replace('&', '&amp;').replace('<', '&lt;')
 
-        # Build collapsible HTML
-        collapsible = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
-<summary style="cursor: pointer; font-weight: bold; color: var(--aifred-text-secondary); position: sticky; top: 0; z-index: 2; background: var(--aifred-input-bg); padding: 4px 0;">{summary_text}</summary>
-<div class="{css_class}">
-{content}
-</div>
-</details>"""
-        collapsibles.append(collapsible)
+        collapsibles.append(_tag_details(summary_text, css_class, content))
 
     # Remove only KNOWN tags (that became collapsibles) from response
     # Unknown tags stay in the text!
@@ -1299,32 +1305,60 @@ def build_sources_collapsible(fetches: list[dict[str, Any]], lang: str | None = 
 </details>"""
 
 
+def _escape_lines(text: str) -> str:
+    """Text for an HTML block without blank lines: escaped, line breaks as the entity &#10;. A blank line would end the
+    HTML block, and Markdown would switch on inside it (tables, **bold**), with pre-wrap spreading them as big gaps."""
+    import html as _html
+    return _html.escape(text.rstrip()).replace("\n", "&#10;")
+
+
+_PRESERVED_LINES_STYLE = "white-space: pre-wrap; word-break: break-word;"
+
+
+def _thinking_section_html(text: str) -> str:
+    """A thinking section of a tool collapsible: the main agent's thinking block (same icon, label, class, markup),
+    nested. pre-wrap keeps the line breaks that the main agent's block gets from Markdown paragraphs."""
+    think = get_xml_tag_config(get_ui_locale())["think"]
+    return _tag_details(f"{think['icon']} {think['label']}", think["class"], _escape_lines(text), _PRESERVED_LINES_STYLE)
+
+
 def build_tool_collapsible(block: dict[str, Any]) -> str:
     """HTML ``<details>`` block for UI-only content delivered by a tool.
 
     ``block`` is the data of a collapsible bubble artifact,
-    ``{"title": ..., "content": ..., "footer": ...}`` (see lib/bubble.py;
-    ``footer`` optional). The content is
-    shown as preformatted text and HTML-escaped, so a sub-agent transcript
-    with angle brackets or Markdown fences cannot break the bubble. Same
-    styling as the thinking and sources collapsibles; ignored by the token
-    estimate like every ``<details>`` block.
+    ``{"title": ..., "sections": [{"kind", "text"}, ...], "icon": ..., "footer": ...}`` (see lib/bubble.py;
+    ``icon`` and ``footer`` optional). Text sections are shown as preformatted text in the body font, thinking
+    sections as the main agent's thinking block nested inside, code sections in the typewriter face. All text is
+    HTML-escaped, so a sub-agent transcript with angle brackets or Markdown fences cannot break the bubble. Same
+    styling as the thinking and sources collapsibles; ignored by the token estimate like every ``<details>`` block.
     """
     import html as _html
+
     from ..theme import COLORS
+    from .bubble import SECTION_CODE, SECTION_TEXT, SECTION_THINKING
     title = _html.escape(str(block.get("title", "")).strip()) or "…"
     # Optional text-glyph icon (e.g. ⇄) in the accent colour, so it stands out
     # from the grey title the way the coloured emoji of other blocks do.
     icon_text = str(block.get("icon", "")).strip()
     if icon_text:
         title = f'<span style="color: {COLORS["primary"]};">{_html.escape(icon_text)}</span> {title}'
-    # Line breaks as the entity &#10;: the whole block is one HTML block without
-    # blank lines, so Markdown never switches back on inside it (a blank line
-    # made tables and **bold** render and pre-wrap spread them as big gaps).
     # Not <pre>: the Reflex UI rendered <pre> with its code-block component, which
     # expected a <code> child and crashed the page (until 08.11.2026). No own
     # max-height: the <details> rule of /api/app/theme.css already scrolls.
-    content = _html.escape(str(block.get("content", "")).rstrip()).replace("\n", "&#10;")
+    # The body font, not the typewriter face: a protocol is prose to read; only a page's source (code section) is code.
+    text_style = f"padding: 0.3em 0 0 1em; line-height: 1.5; {_PRESERVED_LINES_STYLE}"
+    section_html = {
+        SECTION_TEXT: lambda text: f'<div style="{text_style}">{_escape_lines(text)}</div>',
+        SECTION_CODE: lambda text: (
+            f'<div style="{text_style} font-family: monospace; font-size: 0.95em;">{_escape_lines(text)}</div>'
+        ),
+        SECTION_THINKING: _thinking_section_html,
+    }
+    sections = []
+    for section in block["sections"]:
+        if section["kind"] not in section_html:
+            raise ValueError(f"unknown collapsible section kind: {section['kind']}")
+        sections.append(section_html[section["kind"]](section["text"]))
     # Optional performance line, italic in parentheses like the footer below an
     # answer (format_metadata); HTML here, because Markdown is off in the block.
     footer_text = str(block.get("footer", "")).strip()
@@ -1336,7 +1370,6 @@ def build_tool_collapsible(block: dict[str, Any]) -> str:
         f'<details style="font-size: 0.9em; margin-bottom: 0.5em; margin-top: 0.5em;">\n'
         f'<summary style="cursor: pointer; font-weight: bold; color: var(--aifred-text-secondary); position: sticky; '
         f'top: 0; z-index: 2; background: var(--aifred-input-bg); padding: 4px 0;">{title}</summary>\n'
-        f'<div style="padding: 0.3em 0 0 1em; line-height: 1.5; white-space: pre-wrap; '
-        f'word-break: break-word; font-family: monospace; font-size: 0.95em;">{content}</div>\n'
-        f'{footer}</details>'
+        + "".join(f"{section}\n" for section in sections)
+        + f'{footer}</details>'
     )

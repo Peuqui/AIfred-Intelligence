@@ -294,8 +294,8 @@ zuerst `_run_plan_parts`, dann den Abschluss.
    eigene Bubble (`PartDone`-Ereignis der Engine, `_part_bubble_artifacts`): genau ein aufklappbarer Block ohne Text
    drumherum. Seine Titelzeile, auch zugeklappt (Handy) sichtbar, trägt Teil und Stand („Teil 1/4 · Titel: N von M
    Positionen, K Einträge, Dauer“, bei Lücken „, nicht geprüft: …“, bei einem gescheiterten Teil „gescheitert:
-   Grund“); aufgeklappt stehen die Transkripte des Teils (ein Collapsible enthält nur Text, die Transkripte stehen
-   deshalb als Abschnitte darin; Seiten und Bilder, die ein Sub-Agent erzeugt hat, folgen als eigene Artefakte unter
+   Grund“); aufgeklappt stehen die Transkripte des Teils (ein Collapsible enthält nur Abschnitte aus Text, Denken und Code, die Transkripte stehen
+   deshalb als Abschnitte darin, das Denken jedes Sub-Agenten als eigener verschachtelter Block; Seiten und Bilder, die ein Sub-Agent erzeugt hat, folgen als eigene Artefakte unter
    dem Block). Alle Bubbles gehen über `record_chat_only_bubble` nur in den Chatverlauf (das Modell sieht sie nie,
    `llm_history` bleibt unberührt) und erreichen offene Tabs sofort als `message_added`. Die Dauer ab 60 s als
    Minuten:Sekunden. Reihenfolge im Verlauf: Start, Teil 1 … Teil N, Anfrage des Abschlusses, Antwort, Zählzeile.

@@ -133,11 +133,15 @@ bekommt sie auch über einen Sub-Agenten nicht.
    `role=tool`-Nachricht an das Hauptmodell, das damit weiterdenkt. Keine
    Rekursion, kein Rücksprung: die Tool-Schleife wartet auf das Ergebnis
    wie bei jedem anderen Werkzeug.
-7. Das vollständige Transkript des Sub-Agenten, also sein Denken, sein
-   Text, jeder Werkzeugaufruf mit Argumenten und vollständigem Ergebnis und
-   der Bericht, wird als aufklappbarer Block geliefert (siehe unten). Nichts
-   davon läuft unter dem Radar; der Preis ist Größe in der Session-Datei,
-   nicht im Kontext.
+7. Das Transkript des Sub-Agenten, also der Auftrag, sein Denken, sein
+   Text, jeder Werkzeugaufruf mit Argumenten und Ergebnis und der Bericht,
+   wird als aufklappbarer Block geliefert (siehe unten). Er besteht aus
+   Abschnitten (`sections`): Text in normaler Schrift, das Denken als eigener
+   verschachtelter Block „Denkprozess“ wie beim Hauptagenten. Nur das Ergebnis
+   von Werkzeugen mit `Tool.transcript_without_result` (`web_search`,
+   `web_fetch`: Seitentexte bis 45.000 Zeichen) fehlt, der Aufruf mit seinen
+   Argumenten bleibt; die gelesenen Seiten stehen im Block „Web-Quellen“.
+   Der Preis ist Größe in der Session-Datei, nicht im Kontext.
 
 **Budget.** Keine neue Budgetierung und kein eigener Schalter für die
 Kappung. Der Sub-Agent hat seinen eigenen `ToolKit` und damit automatisch
@@ -192,7 +196,7 @@ expected_result=…, with_persona=False, extra_tools=())`.
 - `toolkit` ist nach `run()` lesbar. `plan_record` holt sich darüber die Menge der gelesenen Adressen
   (`ToolKit.read_urls`).
 
-Die Beschriftungen des Transkripts (Titel, Aufgabe, Denken, Werkzeug, Ergebnis, erwartetes Ergebnis, Bericht, kein Bericht,
+Die Beschriftungen des Transkripts (Titel, Aufgabe, Werkzeug, Ergebnis, erwartetes Ergebnis, Bericht, kein Bericht,
 Nachforderung) stehen als `subagent_transcript_*` in `aifred/lib/i18n/de.json` und `en.json`, eine Quelle für beide
 Aufrufer (`transcript_labels`).
 

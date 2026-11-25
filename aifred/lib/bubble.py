@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 
 # Kinds and their ``data``
-KIND_COLLAPSIBLE = "collapsible"      # {"title": str, "content": str, "icon", "footer": str (optional)}
+KIND_COLLAPSIBLE = "collapsible"      # {"title": str, "sections": [{"kind", "text"}], "icon", "footer": str (optional)}
 KIND_SOURCES = "sources"              # {"urls": [{"url": str, "success": bool | None}]}
 KIND_SANDBOX_HTML = "sandbox_html"    # {"url": str}
 KIND_SANDBOX_IMAGE = "sandbox_image"  # {"url": str}
@@ -27,6 +27,24 @@ KIND_VISION_IMAGES = "vision_images"  # {"urls": [str], "alt": str}
 KIND_VISION_FILM = "vision_film"      # {"url": str, "label": str} — a recorded film
 KIND_VLM_OUTPUT = "vlm_output"        # {"body": str}
 KIND_DOCUMENT_PAGES = "document_pages"  # {"urls": [str]} — images read_file prepared for viewing
+
+# Kinds of a collapsible's sections (``sections`` of KIND_COLLAPSIBLE): prose in the body font; thinking as its own
+# nested block, like the main agent's; code in the typewriter face (a page's source).
+SECTION_TEXT = "text"
+SECTION_THINKING = "thinking"
+SECTION_CODE = "code"
+
+
+def text_section(text: str) -> dict[str, str]:
+    return {"kind": SECTION_TEXT, "text": text}
+
+
+def thinking_section(text: str) -> dict[str, str]:
+    return {"kind": SECTION_THINKING, "text": text}
+
+
+def code_section(text: str) -> dict[str, str]:
+    return {"kind": SECTION_CODE, "text": text}
 
 
 @dataclass
@@ -88,7 +106,7 @@ def _source_block(url: str) -> str:
     label = t("collapsible_source_code", lang=get_ui_locale())
     return build_tool_collapsible({
         "title": f"📄 {label} — {path.name}",
-        "content": path.read_text(encoding="utf-8"),
+        "sections": [code_section(path.read_text(encoding="utf-8"))],
     })
 
 

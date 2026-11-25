@@ -6,7 +6,6 @@
   "save_memory_hint": "Saves the conversation to the agents' long-term memory",
   "subagent_transcript_title": "Sub-agent",
   "subagent_transcript_task": "TASK",
-  "subagent_transcript_thinking": "THINKING",
   "subagent_transcript_call": "TOOL",
   "subagent_transcript_result": "RESULT",
   "subagent_transcript_expected": "EXPECTED RESULT",

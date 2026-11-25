@@ -125,6 +125,7 @@ def get_research_tools(
             description=load_tool_description(__file__, "web_search"),
             parameters=load_tool_parameters(__file__, "web_search"),
             executor=_execute_web_search,
+            transcript_without_result=True,  # the pages stand in the "Web sources" block (function_calling.Tool)
         ),
         Tool(
             name="web_fetch",
@@ -132,6 +133,7 @@ def get_research_tools(
             description=load_tool_description(__file__, "web_fetch"),
             parameters=load_tool_parameters(__file__, "web_fetch"),
             executor=_execute_web_fetch,
+            transcript_without_result=True,  # the page stands in the "Web sources" block (function_calling.Tool)
         ),
     ]
 
