@@ -24,10 +24,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  # Two jobs as in GitHub's own Pages template: in one job the deploy asked for the artifact a few hundred ms after
+  # its upload and sometimes found none ("Found 0 artifact(s)", 7 of 41 runs up to 25.11.2026).
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -43,6 +42,13 @@ jobs:
           # since v4 dotfiles stay out unless asked for; docs/.nojekyll goes along as before
           include-hidden-files: true
 
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
