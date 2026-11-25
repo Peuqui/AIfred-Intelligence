@@ -169,7 +169,15 @@ html, body { -webkit-tap-highlight-color: transparent; }
    88vw became wider than the screen). Every size in screen units uses these; a part with a zoom of its own (the chat's
    history, its field) sets them anew. */
 :root { --vw: calc(1vw / var(--ui-zoom)); --vh: calc(1vh / var(--ui-zoom)); --dvh: calc(1dvh / var(--ui-zoom)); }
+/* The one size of the big file dialogs (the viewer's box, the file requester's list): as wide as the page, about three
+   quarters of the screen high, so a long list or a wide table needs little scrolling. */
+:root { --file-dialog-width: min(var(--page-max-width), calc(90 * var(--vw))); --file-dialog-height: calc(75 * var(--dvh)); }
 input, select, textarea { font: inherit; }
+/* A box that scrolls by itself (the chat's history, a dialog, a list) keeps the wheel and the finger at its end: the page
+   behind it no longer moves on when the box is at its bottom (Peuqui 25.11.2026). The page scrolls from outside the box.
+   Not on html/body: there it would also switch off the phone's pull-to-refresh. Boxes with nothing to scroll pass the
+   wheel on as before. */
+body * { overscroll-behavior: contain; }
 /* Lucide icons sit on the line of the text beside them (a label with an icon in front), and never shrink in a flex row. */
 svg.lucide { vertical-align: -0.15em; flex: none; }
 /* A switch as a pill, as on the Reflex page: grey when off, a muted orange when on (tools of an agent, agents of the chat). */
