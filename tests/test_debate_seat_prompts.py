@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_fixtures import raw_test_agents
 from aifred.lib import agent_config, prompt_loader
 from aifred.lib.debate_seats import SEAT_CRITIC, SEAT_JUDGE, SEAT_MAIN, seat_names, seat_prompt
 
@@ -26,7 +27,7 @@ DEFAULT_SEATS = {SEAT_MAIN: "aifred", SEAT_CRITIC: "sokrates", SEAT_JUDGE: "salo
 
 @pytest.fixture(autouse=True)
 def agents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
-    raw = agent_config._default_agents()
+    raw = raw_test_agents()
     raw["pater"] = {**raw["sokrates"], "display_name": "Pater Tuck", "aliases": []}
     raw["codine"] = {**raw["sokrates"], "display_name": "Codine", "aliases": []}
     agents_file = tmp_path / "agents.json"

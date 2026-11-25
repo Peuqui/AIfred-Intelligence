@@ -2569,12 +2569,12 @@ class CalibrationOptions:
 
 def calibration_options() -> CalibrationOptions:
     from ...backends.cloud_api import is_cloud_api_configured
-    from ..agent_config import load_agents_raw
+    from ..agent_config import CALIBRATION_AGENT, load_agents_raw
     from ..config import DEFAULT_CLOUD_API_PROVIDER
     from ..settings import persisted_settings
 
     saved = persisted_settings()
-    agent = load_agents_raw().get("calibration") or {}
+    agent = load_agents_raw()[CALIBRATION_AGENT]
     model = str(agent.get("model") or "")
     provider = str(agent.get("cloud_provider") or DEFAULT_CLOUD_API_PROVIDER)
     return CalibrationOptions(

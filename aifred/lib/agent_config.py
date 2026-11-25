@@ -36,7 +36,13 @@ VALID_ROLES = (ROLE_AGENT, ROLE_SYSTEM)
 # The base agent: it names AIfred, is never deleted or switched off, and always has a model of its own
 # (Peuqui 07.11.2026). Its display name can change, its id cannot.
 BASE_AGENT = "aifred"
-
+# The system agents the code needs: "vision" backs the image workflow, "calibration" the AI calibration
+# (calibration/ai_agent.py).
+VISION_AGENT = "vision"
+CALIBRATION_AGENT = "calibration"
+# The agents agents.json must hold, each with its role: the base agent talks in chats, the system agents back a
+# workflow. The server does not start otherwise (check_required_agents); nothing creates one.
+REQUIRED_AGENT_ROLES = {BASE_AGENT: ROLE_AGENT, VISION_AGENT: ROLE_SYSTEM, CALIBRATION_AGENT: ROLE_SYSTEM}
 
 # An agent's id names its prompt folder (prompts/<lang>/<id>/); the template folder has a hyphen, so no id is it.
 AGENT_ID_PATTERN = r"[a-z0-9_]+"
@@ -91,102 +97,6 @@ class AgentConfig:
         return asdict(self)
 
 
-def _default_agents() -> dict[str, dict]:
-    """Return the 3 default agents as raw dicts."""
-    return {
-        "aifred": {
-            "display_name": "AIfred",
-            "aliases": ["alfred", "ai fred", "eifred", "ai-fred"],
-            "emoji": "\U0001f3a9",
-            "description": "Gentleman-Berater und KI-Butler",
-            "role": "agent",
-            "color": "#e67700",
-            "tools": [],
-            "prompts": {
-                "identity": "aifred/identity.txt",
-                "personality": "aifred/personality.txt",
-                "reminder": "aifred/reminder.txt",
-            },
-            "toggles": {
-                "personality": True,
-                "reasoning": False,
-                "thinking": True,
-            },
-        },
-        "sokrates": {
-            "display_name": "Sokrates",
-            "aliases": ["socrates"],
-            "emoji": "\U0001f3db\ufe0f",
-            "description": "Scharfsinniger Philosoph und Kritiker",
-            "role": "agent",
-            "color": "#cd7f32",
-            "tools": [],
-            "prompts": {
-                "identity": "sokrates/identity.txt",
-                "personality": "sokrates/personality.txt",
-                "reminder": "sokrates/reminder.txt",
-            },
-            "toggles": {
-                "personality": True,
-                "reasoning": False,
-                "thinking": True,
-            },
-        },
-        "salomo": {
-            "display_name": "Salomo",
-            "aliases": ["salomon", "solomon"],
-            "emoji": "\U0001f451",
-            "description": "Weiser Richter und Synthesist",
-            "role": "agent",
-            "color": "#daa520",
-            "tools": [],
-            "prompts": {
-                "identity": "salomo/identity.txt",
-                "personality": "salomo/personality.txt",
-                "reminder": "salomo/reminder.txt",
-            },
-            "toggles": {
-                "personality": True,
-                "reasoning": False,
-                "thinking": True,
-            },
-        },
-        "vision": {
-            "display_name": "Vision",
-            "emoji": "\U0001f4f7",
-            "description": "Vision Language Model fuer Bildanalyse",
-            "color": "#56d4dd",
-            "role": ROLE_SYSTEM,   # backs the image workflow, no chat partner (as every agents.json has it)
-            "tools": [],           # it runs without a tool loop
-            # What the image model reads (it never speaks as an agent): the prompt editor shows these.
-            "prompts": {
-                "event_single": "vision/vision_event_single.txt",
-                "event_sequence": "vision/vision_event_sequence.txt",
-                "event_summary": "vision/vision_event_summary.txt",
-                "continuous": "vision/vision_continuous.txt",
-                "ir_context": "vision/vision_ir_context.txt",
-                "stamp_context": "vision/vision_stamp_context.txt",
-                "identity_context": "vision/vision_identity_context.txt",
-                "headcount_context": "vision/vision_headcount_context.txt",
-                "default_question": "vision/default_question.txt",
-                "task_adaptive": "vision/task_adaptive.txt",
-                "task_instruction_default": "vision/task_instruction_default.txt",
-                "task_instruction_question": "vision/task_instruction_question.txt",
-                "task_instruction_handoff": "vision/task_instruction_handoff.txt",
-                "task_instruction_handoff_question": "vision/task_instruction_handoff_question.txt",
-                "sandbox_screenshot": "vision/sandbox_screenshot.txt",
-                "sandbox_screenshot_focus": "vision/sandbox_screenshot_focus.txt",
-                "sandbox_screenshot_sequence": "vision/sandbox_screenshot_sequence.txt",
-            },
-            "toggles": {
-                "personality": True,
-                "reasoning": False,
-                "thinking": False,
-            },
-        },
-    }
-
-
 def config_from_raw(data: dict) -> AgentConfig:
     """The AgentConfig of an entry of agents.json; KeyError names a required field it lacks (display_name, emoji,
     description, role, color), Invalid a role other than VALID_ROLES, a colour that is no #rrggbb or a ``tools`` that
@@ -223,15 +133,36 @@ def load_agents() -> dict[str, AgentConfig]:
 
 
 def load_agents_raw() -> dict[str, dict]:
-    """Load agent configurations as raw dicts (for UI serialization)."""
+    """Load agent configurations as raw dicts (for UI serialization).
+
+    Raises:
+        FileNotFoundError: agents.json is missing (it is checked in; no agent is created on the fly)
+    """
     if not AGENTS_FILE.exists():
-        save_agents_raw(_default_agents())
+        raise FileNotFoundError(f"The agents file is missing: {AGENTS_FILE}")
 
     with open(AGENTS_FILE, "r", encoding="utf-8") as f:
         raw: dict = json.load(f)
 
     agents_data: dict[str, dict] = raw.get("agents", raw)
     return agents_data
+
+
+def check_required_agents() -> None:
+    """The start check of the server: agents.json loads (every entry is valid, see config_from_raw) and holds the
+    base agent and the system agents the code needs, each with its role (REQUIRED_AGENT_ROLES).
+
+    Raises:
+        FileNotFoundError: agents.json is missing
+        RuntimeError: a required agent is missing from it or has another role than the code needs
+    """
+    agents = load_agents()
+    problems = [f"missing: {agent_id}" for agent_id in REQUIRED_AGENT_ROLES if agent_id not in agents]
+    problems += [f"{agent_id} has the role '{agents[agent_id].role}', expected '{role}'"
+                 for agent_id, role in REQUIRED_AGENT_ROLES.items()
+                 if agent_id in agents and agents[agent_id].role != role]
+    if problems:
+        raise RuntimeError(f"The agents file {AGENTS_FILE} does not hold the required agents ({'; '.join(problems)})")
 
 
 def save_agents_raw(agents: dict[str, dict]) -> None:

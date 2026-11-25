@@ -32,6 +32,7 @@ Code-Änderungen, keine hardcodierten Agenten-Listen.
 **Anpassen:**
 - Alle Prompts sind reine Textdateien in `prompts/de/` und `prompts/en/`
 - Agenten-Definitionen liegen in `data/agents.json` (Prompt-Pfade, Toggles, Rollen)
+- Keine eingebauten Standard-Agenten: Es legt nichts eine `agents.json` an. Der Dienst startet nur, wenn sie sich laden lässt und AIfred (`BASE_AGENT`) sowie die Systemagenten Vision und Calibration in der richtigen Rolle (AIfred `agent`, die beiden anderen `system`) enthält (`agent_config.check_required_agents`); fehlt etwas, bricht der Start mit einer Meldung ab, die Datei und fehlende Agenten nennt
 - **Agenten-Editor** (Einstellungs-Modal): Agenten anlegen, bearbeiten, löschen; DE/EN-Prompt-Bearbeitung; Emoji-Auswahl; Tool-Pills mit Tier-Badges (T0–T4)
 - **Memory-Browser**: das ChromaDB-Gedächtnis jedes Agenten inspizieren und aufräumen
 - Persönlichkeit lässt sich pro Agent ausschalten — die Identität bleibt, der Sprechstil geht

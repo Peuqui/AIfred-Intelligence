@@ -23,7 +23,7 @@ def _drain(gen) -> list[str]:
 
 def _set_calibration(monkeypatch, **cfg) -> None:
     monkeypatch.setattr(
-        agent_config, "load_agents_raw", lambda: {"calibration": cfg}
+        agent_config, "load_agents_raw", lambda: {"calibration": {"prompts": {"system": "calibration/system.txt"}, **cfg}}
     )
 
 

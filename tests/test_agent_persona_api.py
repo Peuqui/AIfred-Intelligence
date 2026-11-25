@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
+from agent_fixtures import raw_test_agents
 from aifred.lib import agent_config, prompt_loader
 
 GROUPS = [
@@ -26,7 +27,7 @@ GROUPS = [
 @pytest.fixture
 def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Path, Path]]:
     agents_file = tmp_path / "agents.json"
-    agents = agent_config._default_agents()
+    agents = raw_test_agents()
     agents["schelm"] = {**agents["sokrates"], "display_name": "Schelm", "prompts": {"identity": "../../geheim.txt"}}
     agents_file.write_text(json.dumps({"agents": agents}), encoding="utf-8")
     monkeypatch.setattr(agent_config, "AGENTS_FILE", agents_file)

@@ -44,7 +44,7 @@ def _common_mocks(monkeypatch, enum_marker: dict):
     from aifred.lib import agent_config
     monkeypatch.setattr(
         agent_config, "load_agents_raw",
-        lambda: {"calibration": {"cloud_provider": "qwen", "model": "qwen-plus"}},
+        lambda: {"calibration": {"cloud_provider": "qwen", "model": "qwen-plus", "prompts": {"system": "calibration/system.txt"}}},
     )
     monkeypatch.setattr(cloud_api, "get_cloud_api_key", lambda provider: "fake-key")
     monkeypatch.setattr(ai_agent, "kill_orphan_on_port",

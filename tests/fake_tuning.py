@@ -4,12 +4,12 @@ a test's view takes them from the built-in defaults, not from the repository's d
 
 from __future__ import annotations
 
-from aifred.lib import agent_config
+from agent_fixtures import raw_test_agents
 from aifred.lib.agent_tuning import AgentTuning, default_agent_tuning, default_tuning
 
 
 def default_agents_tuning() -> dict[str, AgentTuning]:
     tuning = default_agent_tuning()
-    for agent in agent_config._default_agents():
+    for agent in raw_test_agents():
         tuning.setdefault(agent, default_tuning(agent))
     return tuning

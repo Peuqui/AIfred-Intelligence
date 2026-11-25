@@ -618,7 +618,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   er spricht im Namen des Agenten) melden einen Fehler. AIfred (`agent_config.BASE_AGENT`) und die
   Systemagenten bleiben an; gelöscht wird nach `deletion_refusal`: AIfred nie, Systemagenten nie,
   Sokrates und Salomo seit 08.11.2026 wie jeder andere (seit 19.11.2026 gibt es keine Voreinstellung der Plätze mehr, die das verhinderte) (vorher erst mit Schritt 6, weil die Reflex-Kopie an rund 100 Stellen fest auf ihre Tuning-Eimer griff). Vision stand in den eingebauten Standards (frische Installation) als Chat-Agent
-  statt als Systemagent; korrigiert.
+  statt als Systemagent; korrigiert. Seit 25.11.2026 gibt es keine eingebauten Standards mehr (`_default_agents` entfiel): fehlt `agents.json`, ist das ein Fehler, und der Dienst startet nur mit AIfred, Vision und Calibration darin.
 - **Agenten-Seite, Teil 2 (erledigt 07.11.2026):** ✏️ an jeder Karte öffnet `AgentEditor.vue`: 🎭 Persona
   (Name, Emoji, Beschreibung, weitere Namen für die Spracherkennung), 📝 Prompt-Ebenen je Sprache (mit
   Hinweis auf ungespeicherte Änderungen und auf eine Sprache ohne Datei), 🔐 Rechte nach Plugin-Gruppen

@@ -1,7 +1,7 @@
 """What AIfred starts once per process, with or without a browser: the debug log and the platform line, the background
 tasks (cleanups of audio state, lookup caches, vision, the audit log and the vLLM compile cache; the audio index), the
 vision pre-warm in live mode, the GPU detection and an empty Ollama; and the lifespans of the server: the event loop's
-watchdog, the session events' loop, the Message Hub with the plugins' background parts and Vigilantia's background watchers, the service status, the local hold.
+watchdog, the session events' loop, the check of agents.json, the Message Hub with the plugins' background parts and Vigilantia's background watchers, the service status, the local hold.
 
 The server (aifred/server.py) runs them all from its lifespan (``SERVER_LIFESPANS``).
 """
@@ -238,6 +238,15 @@ async def session_events_lifespan() -> AsyncIterator[None]:
 
 
 @contextlib.asynccontextmanager
+async def agents_check_lifespan() -> AsyncIterator[None]:
+    """The server does not start without an agents.json that loads and holds the base agent and the system agents."""
+    from .agent_config import check_required_agents
+
+    check_required_agents()
+    yield
+
+
+@contextlib.asynccontextmanager
 async def process_tasks_lifespan() -> AsyncIterator[None]:
     """The once-per-process start (``start_process_tasks``) when the server starts, not when someone opens a page."""
     await start_process_tasks()
@@ -245,5 +254,5 @@ async def process_tasks_lifespan() -> AsyncIterator[None]:
 
 
 # The server's lifespan, in this order: the loop's watchdog first (a freeze while starting shows too), the session
-# events' loop (the hub publishes into it), then the process tasks, the Message Hub, the service status, the local hold, the work report to GPU-Orc.
-SERVER_LIFESPANS = (loop_watchdog_lifespan, session_events_lifespan, process_tasks_lifespan, message_hub_lifespan, service_status_lifespan, local_hold_lifespan, gpu_orc_work_lifespan)
+# events' loop (the hub publishes into it), the check of agents.json, then the process tasks, the Message Hub, the service status, the local hold, the work report to GPU-Orc.
+SERVER_LIFESPANS = (loop_watchdog_lifespan, session_events_lifespan, agents_check_lifespan, process_tasks_lifespan, message_hub_lifespan, service_status_lifespan, local_hold_lifespan, gpu_orc_work_lifespan)

@@ -13,12 +13,13 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
+from agent_fixtures import raw_test_agents
 from aifred.lib import agent_config, prompt_loader
 
 
 @pytest.fixture
 def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Path, Path]]:
-    agents = agent_config._default_agents()
+    agents = raw_test_agents()
     agents["calibration"] = {
         "display_name": "Calibration", "emoji": "📐", "description": "", "role": "system", "color": "#7d8590", "model": "qwen-max",
         "cloud_provider": "qwen", "prompts": {"system": "calibration/system.txt"},

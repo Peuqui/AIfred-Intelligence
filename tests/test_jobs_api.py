@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
+from agent_fixtures import raw_test_agents
 from aifred.lib import agent_config, scheduler
 from aifred.lib.i18n import t
 
@@ -26,7 +27,7 @@ def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, channels_on: Callable
     monkeypatch.setattr(scheduler, "_job_store", job_store)
     monkeypatch.setattr("aifred.lib.file_manager.DOCUMENTS_DIR", tmp_path / "documents")  # a job's folder lies here, not in the real workspace
     agents_file = tmp_path / "agents.json"
-    agents = agent_config._default_agents()
+    agents = raw_test_agents()
     agents["sokrates"]["enabled"] = False
     agents_file.write_text(json.dumps({"agents": agents}), encoding="utf-8")
     monkeypatch.setattr(agent_config, "AGENTS_FILE", agents_file)

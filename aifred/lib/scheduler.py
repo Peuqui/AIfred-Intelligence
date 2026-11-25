@@ -23,10 +23,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import file_manager
+from .agent_config import BASE_AGENT
 from .browser_push import notify_changed
 from .bubble import KIND_COLLAPSIBLE, BubbleArtifact, text_section
 from .config import (
-    BASE_AGENT,
     SCHEDULER_CHECK_INTERVAL_SECONDS,
     SCHEDULER_WEBHOOK_TIMEOUT_SECONDS,
 )

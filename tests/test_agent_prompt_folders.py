@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_fixtures import raw_test_agents
 from aifred.lib import agent_bundle, agent_config, prompt_loader
 from aifred.lib.user_error import Conflict, Invalid
 
@@ -32,7 +33,7 @@ def prompts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         (root / lang / "shared" / "security_boundary.txt").write_text("Grenze", encoding="utf-8")
     monkeypatch.setattr(prompt_loader, "PROMPTS_DIR", root)
     agents_file = tmp_path / "agents.json"
-    agents_file.write_text(json.dumps({"agents": agent_config._default_agents()}), encoding="utf-8")
+    agents_file.write_text(json.dumps({"agents": raw_test_agents()}), encoding="utf-8")
     monkeypatch.setattr(agent_config, "AGENTS_FILE", agents_file)
     monkeypatch.setattr(agent_bundle, "_load_settings", dict)
     monkeypatch.setattr(agent_bundle, "save_settings", lambda _settings: None)

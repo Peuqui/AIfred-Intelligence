@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_fixtures import raw_test_agents
 from aifred.lib import agent_config, prompt_loader
 from aifred.lib.agent_config import create_agent
 from aifred.lib.debate_seats import SEAT_CRITIC, SEAT_JUDGE, SEAT_MAIN, check_seat_agent, seat_prompt
@@ -32,7 +33,7 @@ def prompts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             shutil.copytree(PROMPTS / lang / agent, root / lang / agent)
     monkeypatch.setattr(prompt_loader, "PROMPTS_DIR", root)
     agents_file = tmp_path / "agents.json"
-    agents_file.write_text(json.dumps({"agents": agent_config._default_agents()}), encoding="utf-8")
+    agents_file.write_text(json.dumps({"agents": raw_test_agents()}), encoding="utf-8")
     monkeypatch.setattr(agent_config, "AGENTS_FILE", agents_file)
     return root
 

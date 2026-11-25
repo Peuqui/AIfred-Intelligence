@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 from starlette.testclient import TestClient
 
+from agent_fixtures import raw_test_agents
 from aifred.lib import agent_config
 from aifred.lib.i18n import t
 
@@ -25,7 +26,7 @@ PROBE = "probe_agent"   # an agent of this test; its prompt folder does not exis
 @pytest.fixture
 def agents_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path = tmp_path / "agents.json"
-    agents = agent_config._default_agents()
+    agents = raw_test_agents()
     agents[PROBE] = {**agents["sokrates"], "display_name": "Probe", "aliases": [], "prompts": {"identity": f"{PROBE}/identity.txt"}}
     path.write_text(json.dumps({"agents": agents}), encoding="utf-8")
     monkeypatch.setattr(agent_config, "AGENTS_FILE", path)

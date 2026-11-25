@@ -313,14 +313,13 @@ def vision_options(target: RuntimeSettings, candidates: dict[str, str]) -> list[
 def models_in_use(view: RuntimeSettings, lang: str) -> list[tuple[str, list[str]]]:
     """Every model the agents run on (base ids, AIfred's first) with the names of who runs on it: the
     chat agents (one without a model of its own runs on AIfred's), the Automatik and the Vision agent."""
-    from .agent_config import get_agent_config
+    from .agent_config import VISION_AGENT, load_agents
     from .i18n import t
 
-    vision = get_agent_config("vision")
+    vision = load_agents()[VISION_AGENT]
     users = [(get_agent_base_model_id(view, agent), f"{emoji} {name}") for agent, name, emoji in chat_agents()]
     users.append((view.automatik_model_id or get_agent_base_model_id(view, "aifred"), t("automatik_agent_name", lang=lang)))
-    if vision:
-        users.append((get_agent_setting(view, "vision", "model_id"), f"{vision.emoji or '📷'} {vision.display_name}"))
+    users.append((get_agent_setting(view, VISION_AGENT, "model_id"), f"{vision.emoji} {vision.display_name}"))
     models: dict[str, list[str]] = {get_agent_base_model_id(view, "aifred"): []}
     for model_id, name in users:
         if model_id:
@@ -355,12 +354,12 @@ def agent_row(view: RuntimeSettings, agent: str, display_name: str, emoji: str, 
 
 async def quick_choices(view: RuntimeSettings, catalog: dict[str, str], lang: str) -> QuickChoices:
     """Every row of the quick choices from the settings (``view``) and the backend's models."""
-    from .agent_config import get_agent_config
+    from .agent_config import VISION_AGENT, load_agents
 
     def rows() -> list[AgentChoices]:
-        vision = get_agent_config("vision")
+        vision = load_agents()[VISION_AGENT]
         listed = [agent_row(view, agent, name, emoji, lang) for agent, name, emoji in chat_agents()]
-        listed.append(agent_row(view, "vision", vision.display_name if vision else "Vision", (vision.emoji if vision else "") or "📷", lang))
+        listed.append(agent_row(view, VISION_AGENT, vision.display_name, vision.emoji, lang))
         return listed
 
     # The rows (contexts, calibrations) and the vision options (Ollama, llama-swap, the cards) block: in a thread,

@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_fixtures import raw_test_agents
 from aifred.lib import agent_config, message_builder, prompt_loader
 from aifred.lib.message_builder import build_messages_from_llm_history, history_speaker
 
@@ -27,7 +28,7 @@ HISTORY = [
 
 @pytest.fixture(autouse=True)
 def agents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    raw = agent_config._default_agents()
+    raw = raw_test_agents()
     raw["pater"] = {**raw["sokrates"], "display_name": "Pater Tuck", "aliases": [], "role": "agent", "color": "#7d8590"}
     agents_file = tmp_path / "agents.json"
     agents_file.write_text(json.dumps({"agents": raw}), encoding="utf-8")

@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from agent_fixtures import raw_test_agents
 from aifred.lib import agent_config, context_manager, message_builder
 from aifred.lib.history_entries import (
     history_units,
@@ -39,7 +40,7 @@ def _round_with_results(agent: str, text: str, number: int) -> list[dict[str, An
 @pytest.fixture(autouse=True)
 def agents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     agents_file = tmp_path / "agents.json"
-    agents_file.write_text(json.dumps({"agents": agent_config._default_agents()}), encoding="utf-8")
+    agents_file.write_text(json.dumps({"agents": raw_test_agents()}), encoding="utf-8")
     monkeypatch.setattr(agent_config, "AGENTS_FILE", agents_file)
     monkeypatch.setattr(message_builder, "get_user_name", lambda: "Peuqui")
 

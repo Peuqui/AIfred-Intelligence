@@ -15,6 +15,7 @@ from fake_tuning import default_agents_tuning
 from fake_reading import FakeReading
 from test_tool_loop import FakeBackend, end
 
+from agent_fixtures import raw_test_agents
 from aifred.lib import (
     audio_processing,
     reply_speech,
@@ -608,7 +609,7 @@ def test_a_channel_message_for_an_agent_switched_off_is_refused_out_loud(
 
     from aifred.lib import agent_config
 
-    agents = agent_config._default_agents()
+    agents = raw_test_agents()
     agents["sokrates"]["enabled"] = False
     path = tmp_path / "agents.json"
     path.write_text(json.dumps({"agents": agents}), encoding="utf-8")

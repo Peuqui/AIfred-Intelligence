@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
+from agent_fixtures import raw_test_agents
 from aifred.lib import agent_config
 from aifred.lib.config import AGENT_DEFAULT_COLOR
 from aifred.lib.user_error import Invalid
@@ -20,7 +21,7 @@ from aifred.lib.user_error import Invalid
 @pytest.fixture
 def agents_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path = tmp_path / "agents.json"
-    agents = agent_config._default_agents()
+    agents = raw_test_agents()
     agents["sokrates"]["enabled"] = False
     path.write_text(json.dumps({"agents": agents}), encoding="utf-8")
     monkeypatch.setattr(agent_config, "AGENTS_FILE", path)
@@ -55,7 +56,7 @@ def test_a_colour_that_is_no_rrggbb_is_refused(color: str) -> None:
 
 def test_the_chat_reads_every_agents_colour_switched_off_and_system_agents_too(client: TestClient) -> None:
     colors = client.get("/agents/colors").json()
-    assert colors == {agent_id: entry["color"] for agent_id, entry in agent_config._default_agents().items()}
+    assert colors == {agent_id: entry["color"] for agent_id, entry in raw_test_agents().items()}
     assert "sokrates" in colors and "vision" in colors
 
 

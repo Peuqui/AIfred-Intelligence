@@ -31,6 +31,7 @@ context column in the UI; no code changes, no hardcoded agent lists.
 **Customising:**
 - All prompts are plain text files in `prompts/de/` and `prompts/en/`
 - Agent definitions live in `data/agents.json` (prompt paths, toggles, roles)
+- No built-in default agents: nothing creates an `agents.json`. The service starts only when it loads and holds AIfred (`BASE_AGENT`) and the system agents Vision and Calibration with the right roles (AIfred `agent`, the other two `system`) (`agent_config.check_required_agents`); if anything is missing the start aborts with a message naming the file and the missing agents
 - **Agent Editor** (settings modal): create, edit, delete agents; DE/EN prompt editing; emoji picker; tool pills with tier badges (T0–T4)
 - **Memory Browser**: inspect and clean up each agent's ChromaDB memory
 - Personality can be switched off per agent — identity stays, speaking style goes

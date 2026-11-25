@@ -14,6 +14,7 @@ import pytest
 from fake_lineups import choose_mode
 from fake_tuning import default_agents_tuning
 
+from agent_fixtures import raw_test_agents
 from aifred.lib import agent_config, session_events, session_storage, turn_service
 from aifred.lib.i18n import t
 from aifred.lib.llm_pipeline import PipelineResult
@@ -47,7 +48,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str,
     session_events._channels.pop(SESSION, None)
     agents_file = tmp_path / "agents.json"
     monkeypatch.setattr(agent_config, "AGENTS_FILE", agents_file)
-    agents_file.write_text(json.dumps({"agents": agent_config._default_agents()}), encoding="utf-8")
+    agents_file.write_text(json.dumps({"agents": raw_test_agents()}), encoding="utf-8")
 
     view = RuntimeSettings(
         backend_type="ollama", backend_url="http://x", ui_language="de",

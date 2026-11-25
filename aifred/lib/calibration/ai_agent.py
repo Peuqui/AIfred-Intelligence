@@ -244,12 +244,11 @@ def _build_system_prompt(
     ``constraints``: the blocks at the end (the caller's, the math projection, hybrid off), each one
     paragraph — the seed/strategy guidance lives only in the math projection.
     """
-    from ..agent_config import load_agents_raw
+    from ..agent_config import CALIBRATION_AGENT, load_agents_raw
     from ..config import MIN_USEFUL_CONTEXT_TOKENS
     from ..prompt_loader import load_prompt
 
-    cal_cfg = load_agents_raw().get("calibration") or {}
-    prompt_path = (cal_cfg.get("prompts") or {}).get("system") or "calibration/system.txt"
+    prompt_path = load_agents_raw()[CALIBRATION_AGENT]["prompts"]["system"]
     # load_prompt strips the .txt suffix internally
     prompt_name = prompt_path.removesuffix(".txt")
 
@@ -544,10 +543,10 @@ async def calibrate_with_ai(
     # / …) works, not just DashScope. The model must support OpenAI-style
     # tool-calling (this loop drives estimate/probe/finalize via tools).
     from ...backends.cloud_api import get_cloud_api_key
-    from ..agent_config import load_agents_raw
+    from ..agent_config import CALIBRATION_AGENT, load_agents_raw
     from ..config import CLOUD_API_PROVIDERS, DEFAULT_CLOUD_API_PROVIDER
     from ..prompt_loader import load_prompt
-    cal_cfg = load_agents_raw().get("calibration") or {}
+    cal_cfg = load_agents_raw()[CALIBRATION_AGENT]
     provider = str(cal_cfg.get("cloud_provider") or DEFAULT_CLOUD_API_PROVIDER)
     if cloud_model is None:
         cloud_model = cal_cfg.get("model") or None
