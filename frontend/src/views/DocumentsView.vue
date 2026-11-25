@@ -1,316 +1,127 @@
 <script setup lang="ts">
-// The documents page. The local documents folder (data/documents/): browse, new folder, rename, delete
-// from disk and/or the search index, preview through the index's parser, download, the path a tool takes,
-// upload (button or dropped files; the server indexes them) and index files, a selection or the whole
-// folder (a job of the server, its progress shown here). A further source the enabled plugins offer
-// (Nextcloud …) opens in SourceBrowser; the progress of an indexing run is shared by both.
-import {
-  BookMinus, BookPlus, BrushCleaning, Copy, Download, FileText, Folder, FolderOpen, FolderPlus, FolderUp, Library,
-  Pencil, RefreshCw, Trash2, TriangleAlert, Upload,
-} from "lucide-vue-next";
-import { computed, defineAsyncComponent, onMounted, ref } from "vue";
-import type { DocumentRow } from "../api/types";
-import IndexCare from "../components/IndexCare.vue";
-import ModalDialog from "../components/ModalDialog.vue";
-import SourceBrowser from "../components/SourceBrowser.vue";
-import { apiUrl } from "../api/client";
-import { isPageFile, opensInTab, viewFile } from "../lib/fileViewer";
-import { t, tCount } from "../i18n";
+// The documents page: a bar with the source (the local documents folder, and the further ones the enabled plugins offer:
+// Nextcloud …), below it the file browser (VueFinder, FileBrowser.vue) on the area of that source and beside it the
+// preview of the file clicked (FilePreview.vue), a divider between them to drag. Clicking one file after the other to
+// compare them is the point. Where the window has no room for a second column (the rule of the chat's session column,
+// lib/sessionsColumn.ts), a click opens the preview in the dialog (the viewer, lib/fileViewer.ts) instead.
+import { Folder } from "lucide-vue-next";
+import { computed, defineAsyncComponent, onMounted, ref, watch } from "vue";
+import type { DirEntry } from "vuefinder";
+import FilePreview from "../components/FilePreview.vue";
+import { t } from "../i18n";
+import { documentsSplit } from "../lib/devicePrefs";
+import { type ViewPlace, areaPlace, viewFile } from "../lib/fileViewer";
+import { useSessionsColumn } from "../lib/sessionsColumn";
+import { SPLIT, clampSplit, splitAt } from "../lib/splitter";
 import { LOCAL, useDocuments } from "../stores/documents";
 
+// VueFinder and its libraries are about 1 MB: loaded with the page, not with the app.
+const FileBrowser = defineAsyncComponent(() => import("../components/FileBrowser.vue"));
+
 const docs = useDocuments();
-onMounted(async () => {
-  await docs.loadSources();
-  await docs.open("");
-  await docs.watchIndexing();
-});
-const local = computed(() => docs.source === LOCAL);
-const caring = ref(false);
+onMounted(() => docs.loadSources());
 
-// The documents folder in the file requester (move, copy, rename, upload …; the index follows through the server's
-// file manager). The table here stays for the index; it reads the folder again once the requester closes.
-const FileRequester = defineAsyncComponent(() => import("../components/FileRequester.vue"));
-const exploring = ref(false);
-async function closeExplorer(): Promise<void> {
-  exploring.value = false;
-  await docs.open(folder.value);
+const area = computed(() => (docs.source === LOCAL ? "documents" : `source-${docs.source}`));
+const sideBySide = useSessionsColumn().possible;
+const previewed = ref<ViewPlace | null>(null);
+const browser = ref<{ clearSelection: () => void } | null>(null);
+watch(area, () => (previewed.value = null));
+
+// A file shows beside the list, or in the dialog when there is no room beside it. In the dialog the selection is
+// cleared again: the same file tapped once more must show again.
+function show(entry: DirEntry): void {
+  const place = areaPlace(area.value, entry);
+  if (sideBySide.value) {
+    previewed.value = place;
+    return;
+  }
+  viewFile(place);
+  browser.value?.clearSelection();
 }
 
-const folder = computed(() => docs.listing?.folder ?? "");
-// The folder as a trail of its parts, each a place to go back to.
-const trail = computed(() => {
-  const parts = folder.value ? folder.value.split("/") : [];
-  return parts.map((name, index) => ({ name, path: parts.slice(0, index + 1).join("/") }));
-});
-const pathOf = (row: DocumentRow): string => (folder.value ? `${folder.value}/${row.name}` : row.name);
-
-const selected = ref<string[]>([]);
-const allSelected = computed(() => !!docs.listing?.items.length && selected.value.length === docs.listing.items.length);
-
-async function go(path: string): Promise<void> {
-  selected.value = [];
-  await docs.open(path);
+// One file selected is a click on it: the preview follows (a folder or several files leave it as it is).
+function selected(items: DirEntry[]): void {
+  const [only] = items;
+  if (items.length === 1 && only?.type === "file") show(only);
 }
 
-const up = (): Promise<void> => go(folder.value.split("/").slice(0, -1).join("/"));
+// ── the divider ──
+const workspace = ref<HTMLElement | null>(null);
 
-function toggle(name: string): void {
-  selected.value = selected.value.includes(name) ? selected.value.filter((other) => other !== name) : [...selected.value, name];
-}
-
-function toggleAll(): void {
-  selected.value = allSelected.value ? [] : (docs.listing?.items.map((row) => row.name) ?? []);
-}
-
-// New folder and rename: one name field, open for one of them at a time.
-const naming = ref<{ old: string | null; name: string } | null>(null);
-async function named(): Promise<void> {
-  if (!naming.value) return;
-  const { old, name } = naming.value;
-  naming.value = null;
-  if (!name.trim() || name === old) return;
-  if (old === null) await docs.newFolder(name.trim());
-  else await docs.rename(old, name.trim());
-}
-
-// Deleting asks first: from the disk, from the index, or both.
-const deleting = ref<{ files: string[]; folders: string[]; fromDisk: boolean; fromIndex: boolean } | null>(null);
-function askDelete(names: string[]): void {
-  const rows = docs.listing?.items.filter((row) => names.includes(row.name)) ?? [];
-  deleting.value = {
-    files: rows.filter((row) => row.type === "file").map((row) => row.name),
-    folders: rows.filter((row) => row.type === "folder").map((row) => row.name),
-    fromDisk: true,
-    fromIndex: true,
+function dragDivider(): void {
+  const move = (event: PointerEvent): void => {
+    if (workspace.value) documentsSplit.value = splitAt(event.clientX, workspace.value.getBoundingClientRect());
   };
-}
-async function confirmDelete(): Promise<void> {
-  if (!deleting.value) return;
-  const { files, folders, fromDisk, fromIndex } = deleting.value;
-  deleting.value = null;
-  await docs.remove(files, folders, fromDisk, fromIndex);
-  selected.value = [];
-}
-
-// Every file shows as the viewer decides (lib/fileViewer.ts): a page sandboxed in a tab, a PDF, audio and video in a tab,
-// an image in the dialog, the rest as text.
-const hasPages = computed(() => !!docs.listing?.items.some((row) => row.type === "file" && isPageFile(row.name)));
-async function show(row: DocumentRow): Promise<void> {
-  await viewFile({
-    name: row.name,
-    viewUrl: apiUrl("documents/local/download?inline=true&path=" + encodeURIComponent(pathOf(row))),
-    text: () => docs.preview(pathOf(row)),
-  });
+  const stop = (): void => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", stop);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", stop);
 }
 
-async function copyPath(row: DocumentRow): Promise<void> {
-  await navigator.clipboard.writeText(pathOf(row));
+function nudgeDivider(event: KeyboardEvent): void {
+  const step = { ArrowLeft: -SPLIT.keyStep, ArrowRight: SPLIT.keyStep }[event.key];
+  if (step === undefined) return;
+  event.preventDefault();
+  documentsSplit.value = clampSplit(documentsSplit.value + step);
 }
-
-// Indexing: the files the index reads and every folder (with what is below it).
-function indexRows(rows: DocumentRow[]): Promise<void> {
-  return docs.index(
-    rows.filter((row) => row.type === "file" && row.indexable).map((row) => row.name),
-    rows.filter((row) => row.type === "folder").map((row) => row.name),
-  );
-}
-const indexSelected = (): Promise<void> => indexRows(docs.listing?.items.filter((row) => selected.value.includes(row.name)) ?? []);
-const indexFolder = (): Promise<void> => indexRows(docs.listing?.items ?? []);
-const deindex = (row: DocumentRow): Promise<unknown> => docs.remove([row.name], [], false, true);
-
-const picker = ref<HTMLInputElement | null>(null);
-async function picked(): Promise<void> {
-  const files = [...(picker.value?.files ?? [])];
-  if (picker.value) picker.value.value = "";
-  if (files.length) await docs.upload(files);
-}
-
-// Files dropped anywhere on the page go into the open folder (of a source only when it takes uploads).
-const dragging = ref(false);
-async function dropped(event: DragEvent): Promise<void> {
-  dragging.value = false;
-  const files = [...(event.dataTransfer?.files ?? [])];
-  if (!files.length) return;
-  if (local.value) await docs.upload(files);
-  else if (docs.remote?.writable) await docs.uploadRemote(files);
-}
-
-const run = computed(() => docs.indexing);
-const runOutcome = computed(() => {
-  const progress = run.value;
-  if (!progress || progress.running || !progress.total) return "";
-  let outcome = t("doc_index_folder_done", {
-    indexed: progress.indexed, files: tCount("doc_file_count", progress.total), chunks: tCount("doc_chunk_count", progress.chunks),
-  });
-  if (progress.failed.length) outcome += t("doc_index_folder_failed_suffix", { failed: progress.failed.length });
-  return outcome;
-});
 </script>
 
 <template>
-  <main
-    class="documents"
-    :class="{ dragging }"
-    @dragover.prevent="dragging = true"
-    @dragleave.self="dragging = false"
-    @drop.prevent="dropped"
-  >
-    <FileRequester v-if="exploring" area="documents" :title="t('doc_explorer_title')" @close="closeExplorer" />
+  <main class="documents">
     <header class="bar">
       <h2><Folder :size="16" /> {{ t("doc_manager_title") }}</h2>
-      <button v-if="local" :title="t('doc_explorer_tooltip')" @click="exploring = true"><FolderOpen :size="16" /> {{ t("doc_explorer") }}</button>
-      <select
-        v-if="docs.sources.length > 1"
-        class="sources"
-        :value="docs.source"
-        @change="docs.openSource(($event.target as HTMLSelectElement).value)"
-      >
-        <option v-for="option in docs.sources" :key="option.key" :value="option.key">{{ option.label }}</option>
-      </select>
-      <template v-if="local">
-        <nav class="trail">
-          <button :title="t('doc_to_root')" @click="go('')">{{ t("doc_source_local") }}</button>
-          <template v-for="part in trail" :key="part.path">
-            <span>/</span>
-            <button @click="go(part.path)">{{ part.name }}</button>
-          </template>
-        </nav>
-        <div class="actions">
-          <button v-if="folder" :title="t('doc_up_one_level')" @click="up"><FolderUp :size="16" /></button>
-          <button :title="t('doc_folder_create')" @click="naming = { old: null, name: '' }"><FolderPlus :size="16" /></button>
-          <button :title="t('doc_hint')" @click="picker?.click()"><Upload :size="16" /> {{ t("upload_document") }}</button>
-          <input ref="picker" type="file" multiple hidden @change="picked" />
-          <button
-            v-if="docs.listing?.items.length"
-            :title="t('doc_index_folder_recursive')"
-            :disabled="run?.running"
-            @click="indexFolder"
-          ><BookPlus :size="16" /></button>
-          <button :title="t('doc_refresh')" @click="go(folder)"><RefreshCw :size="16" /></button>
-          <button :title="t('db_index_title')" @click="caring = true"><BrushCleaning :size="16" /></button>
-          <button v-if="selected.length" :disabled="run?.running" @click="indexSelected">
-            <BookPlus :size="16" /> {{ t("doc_index") }} ({{ selected.length }})
-          </button>
-          <button v-if="selected.length" class="danger" @click="askDelete(selected)">
-            <Trash2 :size="16" /> {{ t("doc_delete_selected") }} ({{ selected.length }})
-          </button>
+      <label v-if="docs.sources.length > 1" class="source">
+        {{ t("doc_source_label") }}
+        <select :value="docs.source" @change="docs.source = ($event.target as HTMLSelectElement).value">
+          <option v-for="option in docs.sources" :key="option.key" :value="option.key">{{ option.label }}</option>
+        </select>
+      </label>
+    </header>
+    <p v-if="docs.notice" class="notice">{{ docs.notice }}</p>
+    <div ref="workspace" class="workspace" :style="{ '--split': documentsSplit }">
+      <div class="list">
+        <FileBrowser ref="browser" :key="area" :area="area" @select="selected" @open="show" />
+      </div>
+      <template v-if="sideBySide">
+        <div
+          class="divider-handle"
+          role="separator"
+          aria-orientation="vertical"
+          tabindex="0"
+          :title="t('doc_split_handle')"
+          :aria-label="t('doc_split_handle')"
+          @pointerdown.prevent="dragDivider"
+          @keydown="nudgeDivider"
+        />
+        <div class="side">
+          <FilePreview v-if="previewed" :place="previewed" />
+          <p v-else class="none">{{ t("doc_preview_none") }}</p>
         </div>
       </template>
-    </header>
-    <p v-if="docs.notice" class="notice"><TriangleAlert :size="16" /> {{ docs.notice }}</p>
-    <p v-for="reason in docs.rejected" :key="reason" class="notice"><TriangleAlert :size="16" /> {{ reason }}</p>
-    <p v-if="run?.running" class="progress">
-      {{ t("doc_index_folder_progress", { current: Math.min(run.done + 1, run.total), total: run.total, name: run.current }) }}
-    </p>
-    <div v-else-if="runOutcome" class="outcome">
-      <span><Library :size="16" /> {{ runOutcome }}</span>
-      <button :title="t('dialog_close')" @click="docs.indexing = null">×</button>
-      <p v-for="failure in run?.failed" :key="failure.path" class="failure"><TriangleAlert :size="16" /> {{ failure.path }}: {{ failure.reason }}</p>
     </div>
-    <p v-if="dragging" class="drop">{{ t("doc_drop_files") }}</p>
-
-    <template v-if="local">
-      <form v-if="naming" class="naming" @submit.prevent="named">
-        <input v-model="naming.name" :placeholder="t('doc_folder_name')" autofocus />
-        <button type="submit">{{ naming.old === null ? t("doc_create") : t("doc_rename") }}</button>
-        <button type="button" @click="naming = null">{{ t("doc_cancel") }}</button>
-      </form>
-
-      <p v-if="hasPages" class="page-hint"><Download :size="16" /> {{ t("doc_page_hint") }}</p>
-      <table v-if="docs.listing && docs.listing.items.length" class="list">
-        <thead>
-          <tr>
-            <th><input type="checkbox" :checked="allSelected" :title="t('doc_select_all')" @change="toggleAll" /></th>
-            <th class="name"></th>
-            <th>{{ t("doc_dates_hint") }}</th>
-            <th></th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in docs.listing.items" :key="row.name">
-            <td><input type="checkbox" :checked="selected.includes(row.name)" @change="toggle(row.name)" /></td>
-            <td class="name">
-              <button v-if="row.type === 'folder'" class="link" @click="go(pathOf(row))"><Folder :size="16" /> {{ row.name }}</button>
-              <button v-else class="link" :title="opensInTab(row.name) ? t('doc_open_page') : t('doc_preview')" @click="show(row)"><FileText :size="16" /> {{ row.name }}</button>
-              <span class="size">{{ row.type === "folder" ? tCount("doc_file_count", row.file_count) : row.size }}</span>
-            </td>
-            <td class="dates">{{ row.created }}<br />{{ row.modified }}</td>
-            <td><span v-if="row.indexed" class="indexed">{{ tCount("doc_chunk_count", row.chunks) }}</span></td>
-            <td class="row-actions">
-              <a v-if="row.type === 'file'" :href="apiUrl('documents/local/download?path=' + encodeURIComponent(pathOf(row)))" :title="isPageFile(row.name) ? t('doc_download_page') : t('doc_download')" download><Download :size="16" /></a>
-              <button v-if="row.type === 'file'" :title="t('doc_copy_path')" @click="copyPath(row)"><Copy :size="16" /></button>
-              <button v-if="row.indexed" :title="t('doc_deindex')" @click="deindex(row)"><BookMinus :size="16" /></button>
-              <button
-                v-else-if="row.type === 'file' && row.indexable"
-                :title="t('doc_index')"
-                :disabled="run?.running"
-                @click="indexRows([row])"
-              ><BookPlus :size="16" /></button>
-              <button :title="row.type === 'folder' ? t('doc_folder_rename') : t('doc_rename')" @click="naming = { old: row.name, name: row.name }"><Pencil :size="16" /></button>
-              <button :title="row.type === 'folder' ? t('doc_folder_delete') : t('doc_delete')" @click="askDelete([row.name])"><Trash2 :size="16" /></button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-else-if="docs.listing" class="empty">{{ folder ? t("doc_folder_empty") : t("doc_manager_empty") }}</p>
-    </template>
-    <SourceBrowser v-else />
-
-    <IndexCare v-if="caring" @close="caring = false" @changed="docs.reload()" />
-
-    <ModalDialog v-if="deleting" @close="deleting = null">
-      <strong>{{ t("doc_delete_confirm_title") }}</strong>
-      <p class="targets">
-        <span v-for="name in deleting.folders" :key="`folder-${name}`"><Folder :size="16" /> {{ name }}</span>
-        <span v-for="name in deleting.files" :key="`file-${name}`"><FileText :size="16" /> {{ name }}</span>
-      </p>
-      <label><input v-model="deleting.fromDisk" type="checkbox" /> {{ t("doc_delete_from_disk") }}</label>
-      <label><input v-model="deleting.fromIndex" type="checkbox" /> {{ t("doc_delete_from_index") }}</label>
-      <div class="dialog-actions">
-        <button @click="deleting = null">{{ t("doc_cancel") }}</button>
-        <button class="danger" :disabled="!deleting.fromDisk && !deleting.fromIndex" @click="confirmDelete">{{ t("doc_delete") }}</button>
-      </div>
-    </ModalDialog>
-
   </main>
 </template>
 
 <style scoped>
-.documents { overflow-y: auto; padding: 12px 0; display: flex; flex-direction: column; gap: 10px; }
+.documents { padding: 12px 0; display: flex; flex-direction: column; gap: 10px; }
 .bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 h2 { margin: 0; font-size: 1rem; }
-.sources { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
-.trail { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; color: var(--aifred-text-muted); }
-.actions { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
-input:not([type="checkbox"]) { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; }
-button { padding: 4px 8px; }
-.trail button, .link, .row-actions button { background: none; border: none; padding: 2px 4px; }
-.trail button:hover, .link:hover { text-decoration: underline; }
-input[type="checkbox"] { accent-color: var(--aifred-primary); }
-.notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
-.progress { margin: 0; color: var(--aifred-accent-cyan); }
-.outcome { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--aifred-accent-cyan); --icon-own: currentColor; }
-.outcome button { background: none; border: none; padding: 0 4px; }
-.failure { flex-basis: 100%; margin: 0; color: var(--aifred-accent-amber); overflow-wrap: anywhere; --icon-own: currentColor; }
-.dragging { outline: 2px dashed var(--aifred-primary); outline-offset: -4px; }
-.drop { margin: 0; color: var(--aifred-primary); }
-.naming { display: flex; gap: 8px; flex-wrap: wrap; }
-.list { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-.list th { text-align: left; font-weight: 500; font-size: 0.75rem; color: var(--aifred-text-muted); padding: 4px 6px; }
-.list td { padding: 6px; border-top: 1px solid var(--aifred-border); vertical-align: middle; }
-.name { width: 55%; overflow-wrap: anywhere; }
-.size { margin-left: 8px; font-size: 0.75rem; color: var(--aifred-text-muted); }
-.dates { font-size: 0.75rem; color: var(--aifred-text-secondary); white-space: nowrap; }
-.indexed { font-size: 0.75rem; color: var(--aifred-accent-cyan); white-space: nowrap; }
-.row-actions { white-space: nowrap; text-align: right; }
-.row-actions a { text-decoration: none; padding: 2px 4px; color: inherit; }
-.empty { color: var(--aifred-text-muted); }
-.page-hint { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 8px; padding: 8px 10px; font-size: 0.8rem; color: var(--aifred-text-secondary); background: var(--aifred-input-bg); border: 1px solid var(--aifred-border); border-radius: 8px; --icon-own: currentColor; }
-.targets { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; max-width: 60ch; overflow-wrap: anywhere; color: var(--aifred-text-secondary); }
-.dialog-actions { display: flex; gap: 10px; justify-content: flex-end; }
-@media (max-width: 760px) {
-  .dates { display: none; }
-  .name { width: auto; }
-}
+.source { display: flex; align-items: center; gap: 8px; color: var(--aifred-text-secondary); }
+.source select { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }
+.notice { margin: 0; color: var(--aifred-accent-amber); }
+/* The height of the window less the head of the page (bar, status line, this page's own bar): the browser and the preview
+   scroll inside, the page does not. */
+.workspace { display: flex; height: calc(100 * var(--vh) - 230px); min-height: 360px; }
+.list { flex: 1 1 0; min-width: 0; }
+.side { flex: 1 1 0; min-width: 320px; padding-left: 4px; }
+.none { margin: 0; color: var(--aifred-text-muted); }
+/* With a preview beside it the list takes its share (min and max keep both columns usable); alone, the whole width. */
+.workspace:has(.divider-handle) .list { flex: 0 0 calc(var(--split) * 100%); min-width: 260px; max-width: calc(100% - 330px); }
+/* A grip wider than its line: easy to hit with a finger, which must not scroll the page while dragging. */
+.divider-handle { flex: none; width: 14px; margin: 0 2px; cursor: col-resize; touch-action: none; position: relative; }
+.divider-handle::after { content: ""; position: absolute; top: 0; bottom: 0; left: 6px; width: 2px; border-radius: 1px; background: var(--aifred-border); }
+.divider-handle:hover::after, .divider-handle:focus-visible::after { background: var(--aifred-primary); }
+.divider-handle:focus-visible { outline: none; }
 </style>

@@ -1,40 +1,29 @@
-// One decision for every place: page, PDF, audio and video → a tab at the view address, image → the dialog, anything
-// else → the server's text preview.
-import { beforeEach, expect, test, vi } from "vitest";
-import { fileKind, viewFile, viewed } from "./fileViewer";
-
-const open = vi.fn();
-vi.stubGlobal("window", { open });
+// One decision for every place: the kind of a file by its name, and the dialog shows whatever place it is given
+// (FilePreview decides how; the dialog opens no tab of its own).
+import { beforeEach, expect, test } from "vitest";
+import { areaPlace, fileKind, viewFile, viewed } from "./fileViewer";
 
 beforeEach(() => {
   viewed.value = null;
-  open.mockClear();
 });
 
 test("files are told apart by their name", () => {
-  expect(["a.HTML", "b.png", "c.mp3", "d.pdf", "e.docx", "f"].map(fileKind)).toEqual(["page", "image", "media", "media", "text", "text"]);
+  expect(["a.HTML", "b.png", "c.mp3", "d.pdf", "e.docx", "f", "g.MP4", "h.md"].map(fileKind)).toEqual([
+    "page", "image", "audio", "pdf", "text", "text", "video", "text",
+  ]);
 });
 
-test("a page, a PDF and a sound open in a tab at the view address, the text preview is not asked", async () => {
-  const text = vi.fn();
-  for (const name of ["a.html", "b.pdf", "c.mp3", "d.MP4"]) await viewFile({ name, viewUrl: `/v/${name}`, text });
-  expect(open.mock.calls.map((call) => call[0])).toEqual(["/v/a.html", "/v/b.pdf", "/v/c.mp3", "/v/d.MP4"]);
-  expect(open).toHaveBeenCalledWith("/v/a.html", "_blank", "noopener");
-  expect(text).not.toHaveBeenCalled();
-  expect(viewed.value).toBeNull();
+test("viewFile gives the dialog the place as it is, whatever the kind of the file", () => {
+  for (const name of ["a.html", "b.pdf", "c.mp3", "d.MP4", "e.png", "f.py"]) {
+    const place = { name, viewUrl: `/v/${name}` };
+    viewFile(place);
+    expect(viewed.value).toEqual(place);
+  }
 });
 
-test("an image shows in the dialog from the view address", async () => {
-  await viewFile({ name: "plot.png", viewUrl: "/api/x", text: vi.fn() });
-  expect(viewed.value).toEqual({ name: "plot.png", imageUrl: "/api/x" });
-  expect(open).not.toHaveBeenCalled();
-});
-
-test("any other file shows as the text preview; a failed one shows nothing and the place says why", async () => {
-  await viewFile({ name: "a.py", viewUrl: "/v", text: async () => ({ name: "a.py", text: "print(1)" }) });
-  expect(viewed.value).toEqual({ name: "a.py", text: "print(1)" });
-  viewed.value = null;
-  await viewFile({ name: "kaputt.docx", viewUrl: "/v", text: async () => null });
-  expect(viewed.value).toBeNull();
-  expect(open).not.toHaveBeenCalled();
+test("a place of a file area names the preview and the text address of the file, with the path encoded", () => {
+  const place = areaPlace("documents", { basename: "Bericht 1.pdf", path: "documents://a b/Bericht 1.pdf" });
+  expect(place.name).toBe("Bericht 1.pdf");
+  expect(place.viewUrl).toContain("files/documents/preview?path=documents%3A%2F%2Fa%20b%2FBericht%201.pdf");
+  expect(place.text).toBeTypeOf("function");
 });

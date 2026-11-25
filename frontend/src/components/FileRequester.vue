@@ -1,97 +1,35 @@
 <script setup lang="ts">
-// The file requester: VueFinder over one area of the server (lib/file_areas.py, lib/api/files.py). It offers what the
-// area allows — browse, folders, rename, delete, copy, move, upload, download, preview, search — and in the context
-// menu of a folder "create link" (VueFinder has none). With ``pick`` it returns a folder: the one selected, else the
-// one open. Any place that needs files opens it with its area.
+// The file requester: a dialog around the file browser (FileBrowser.vue) over one area of the server. Any place that
+// needs files opens it with its area; a file opens in the viewer (lib/fileViewer.ts). With ``pick`` it returns a folder:
+// the one selected, else the one open. A link to a folder asks for its name here.
 import { FolderOpen, Link, TriangleAlert } from "lucide-vue-next";
-import { computed, getCurrentInstance, onMounted, ref } from "vue";
-import {
-  ContextMenuIds, type DirEntry, type FeaturesConfig, type Item, RemoteDriver, VueFinder, VueFinderPlugin, contextMenuItems, useVueFinder,
-} from "vuefinder";
-import "vuefinder/dist/style.css";
-import finderDe from "vuefinder/dist/locales/de.js";
-import finderEn from "vuefinder/dist/locales/en.js";
-import { ApiError, api, apiUrl } from "../api/client";
-import type { DocumentPreview, FileAreaInfo } from "../api/types";
-import { language, t } from "../i18n";
-import { viewFile } from "../lib/fileViewer";
+import { computed, ref } from "vue";
+import type { DirEntry } from "vuefinder";
+import { ApiError, api } from "../api/client";
+import type { FileAreaInfo } from "../api/types";
+import { t } from "../i18n";
+import { areaPlace, viewFile } from "../lib/fileViewer";
+import FileBrowser from "./FileBrowser.vue";
 import ModalDialog from "./ModalDialog.vue";
 
 const props = defineProps<{ area: string; title: string; pick?: boolean }>();
 const emit = defineEmits<{ close: []; pick: [path: string] }>();
 
-// VueFinder with its translations, installed on first use (the page loads this component only when it opens: VueFinder
-// and its libraries are about 1 MB); a second use leaves the installed plugin as it is.
-getCurrentInstance()?.appContext.app.use(VueFinderPlugin, { i18n: { de: finderDe, en: finderEn } });
-
-const finderId = `files-${props.area}`;
 const prefix = `${props.area}://`;
-const driver = new RemoteDriver({ baseURL: apiUrl(`files/${props.area}`) });
 const info = ref<FileAreaInfo | null>(null);
 const notice = ref("");
 const current = ref(prefix);
 const selected = ref<DirEntry[]>([]);
-
-// The area's actions as VueFinder's features; what the server has no endpoint for stays off.
-const features = computed<FeaturesConfig>(() => {
-  const allowed = new Set(info.value?.actions ?? []);
-  return {
-    newfolder: allowed.has("newfolder"), rename: allowed.has("rename"), delete: allowed.has("delete"),
-    upload: allowed.has("upload"), download: allowed.has("download"), preview: allowed.has("preview"),
-    search: allowed.has("search"), copy: allowed.has("copy"), move: allowed.has("move"),
-    newfile: false, edit: false, archive: false, unarchive: false, language: false, theme: false,
-    fullscreen: true, history: true, pinned: true,
-  };
-});
+const browser = ref<InstanceType<typeof FileBrowser> | null>(null);
 
 // ── a link to a folder (its own dialog: VueFinder knows no links) ──
 const linking = ref<DirEntry | null>(null);
 const linkName = ref("");
-const linkItem: Item = {
-  id: "aifred_link",
-  title: () => t("files_make_link"),
-  action: (_app, items) => {
-    const folder = items[0];
-    if (!folder) return;
-    linking.value = folder;
-    linkName.value = `${folder.basename} (Link)`;
-  },
-  show: (_app, context) => !!info.value?.actions.includes("symlink") && context.items.length === 1 && context.items[0]?.type === "dir",
-  order: 100,
-};
-
-// ── looking at a file: always the viewer (lib/fileViewer.ts), from the area's preview address ──
-async function view(entry: DirEntry): Promise<void> {
-  const query = `path=${encodeURIComponent(entry.path)}`;
+function askLink(folder: DirEntry): void {
+  linking.value = folder;
+  linkName.value = `${folder.basename} (Link)`;
   notice.value = "";
-  await viewFile({
-    name: entry.basename,
-    viewUrl: apiUrl(`files/${props.area}/preview?${query}`),
-    text: async () => {
-      try {
-        return await api<DocumentPreview>(`files/${props.area}/text?${query}`);
-      } catch (error) {
-        notice.value = error instanceof ApiError ? error.detail : String(error);
-        return null;
-      }
-    },
-  });
 }
-
-function fileDoubleClick(event: { item: DirEntry; preventDefault: () => void }): void {
-  event.preventDefault();
-  void view(event.item);
-}
-
-// The menu entry "Preview" goes to the viewer, not to VueFinder's own.
-const menu = [
-  ...contextMenuItems.map((item) =>
-    item.id === ContextMenuIds.preview
-      ? { ...item, action: (_app: unknown, items: DirEntry[]) => { if (items[0]) void view(items[0]); } }
-      : item,
-  ),
-  linkItem,
-];
 
 async function makeLink(): Promise<void> {
   if (!linking.value) return;
@@ -102,7 +40,7 @@ async function makeLink(): Promise<void> {
       body: JSON.stringify({ path: current.value, name: linkName.value.trim(), target: linking.value.path }),
     });
     linking.value = null;
-    await useVueFinder(finderId).refresh();
+    await browser.value?.refresh();
   } catch (error) {
     notice.value = error instanceof ApiError ? error.detail : String(error);
   }
@@ -114,14 +52,6 @@ const chosen = computed(() => {
   return only?.type === "dir" ? only.path : current.value;
 });
 const chosenText = computed(() => `${info.value?.root ?? ""}/${chosen.value.slice(prefix.length)}`.replace(/\/+$/, "") || "/");
-
-onMounted(async () => {
-  try {
-    info.value = await api<FileAreaInfo>(`files/${props.area}/info`);
-  } catch (error) {
-    notice.value = error instanceof ApiError ? error.detail : String(error);
-  }
-});
 </script>
 
 <template>
@@ -132,18 +62,15 @@ onMounted(async () => {
         <code v-if="info" class="root">{{ info.root }}</code>
         <button class="close" :title="t('dialog_close')" @click="emit('close')">×</button>
       </header>
-      <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
-      <div v-if="info" class="finder">
-        <VueFinder
-          :id="finderId"
-          :driver="driver"
-          :features="features"
-          :locale="language"
-          :config="{ theme: 'midnight', persist: false, initialPath: prefix }"
-          :context-menu-items="menu"
-          @file-dclick="fileDoubleClick"
-          @select="(items: DirEntry[]) => (selected = items)"
-          @path-change="(path: string) => (current = path)"
+      <div class="finder">
+        <FileBrowser
+          ref="browser"
+          :area="area"
+          @info="(loaded) => (info = loaded)"
+          @select="(items) => (selected = items)"
+          @path-change="(path) => (current = path)"
+          @open="(entry) => viewFile(areaPlace(area, entry))"
+          @link="askLink"
         />
       </div>
       <footer v-if="pick" class="pick">
@@ -181,58 +108,4 @@ input { background: var(--aifred-input-bg); color: inherit; border: 1px solid va
 button { padding: 4px 10px; }
 .actions { display: flex; gap: 8px; justify-content: flex-end; }
 .notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
-</style>
-
-<style>
-/* VueFinder puts its own dialogs (new folder, rename, delete …) on <body> at z-index 70: below the requester's
-   ModalDialog (100), they opened unseen. Not scoped: they live outside this component. */
-.vuefinder__themer.vuefinder__modal-layout { z-index: 110; }
-
-/* VueFinder in AIfred's colours (Peuqui 25.11.2026): its theme "midnight" stays the base (dark, its rules for menus and
-   icons), its variables take the colours of theme.py. Body-level dialogs of VueFinder carry the same attribute, so the
-   selector reaches them too; "html" makes it win over VueFinder's own rule of the same shape. */
-html .vuefinder__themer[data-theme="midnight"] {
-  --vf-bg-primary: var(--aifred-card-bg);
-  --vf-bg-secondary: var(--aifred-page-bg);
-  --vf-bg-tertiary: var(--aifred-input-bg);
-  --vf-bg-hover: var(--aifred-button-soft-bg-hover);
-  --vf-bg-selected: var(--aifred-primary-bg);
-  --vf-bg-disabled: var(--aifred-input-bg);
-  --vf-text-primary: var(--aifred-text-primary);
-  --vf-text-secondary: var(--aifred-text-soft);
-  --vf-text-tertiary: var(--aifred-text-secondary);
-  --vf-text-disabled: var(--aifred-text-muted);
-  --vf-text-inverse: var(--aifred-page-bg);
-  --vf-border-primary: var(--aifred-border);
-  --vf-border-secondary: var(--aifred-border-light);
-  --vf-border-focus: var(--aifred-primary);
-  --vf-border-error: var(--aifred-danger);
-  --vf-accent-primary: var(--aifred-primary);
-  --vf-accent-secondary: var(--aifred-radix-orange-text);
-  --vf-accent-success: var(--aifred-accent-success);
-  --vf-accent-warning: var(--aifred-accent-warning);
-  --vf-accent-error: var(--aifred-danger);
-  --vf-interactive-hover: var(--aifred-button-soft-bg-hover);
-  --vf-interactive-active: var(--aifred-primary-bg);
-  --vf-interactive-focus: var(--aifred-primary-bg);
-  --vf-selection-bg: var(--aifred-primary-bg);
-  --vf-selection-border: var(--aifred-primary);
-  --vf-dropdown-bg: var(--aifred-card-bg);
-  --vf-dropdown-border: var(--aifred-border-light);
-  --vf-dropdown-text: var(--aifred-text-primary);
-  --vf-dropdown-hover: var(--aifred-input-bg);
-  --vf-overlay-bg: var(--aifred-backdrop);
-  --vf-overlay-border: var(--aifred-border-light);
-  --vf-overlay-text: var(--aifred-text-secondary);
-}
-/* Folders outlined in the yellow of files and documents, as AIfred's own icons, lightly filled; menus with AIfred's rim instead of a blue glow. */
-html .vuefinder__themer[data-theme="midnight"] .vuefinder__item-icon__folder,
-html .vuefinder__themer[data-theme="midnight"] .vuefinder__item-icon__folder--open {
-  fill: color-mix(in srgb, var(--aifred-radix-yellow-text) 25%, transparent); stroke: var(--aifred-radix-yellow-text);
-}
-/* AIfred's typeface instead of VueFinder's own. */
-html .vuefinder__themer[data-theme="midnight"], html .vuefinder__themer[data-theme="midnight"] * { font-family: inherit; }
-html .vuefinder__themer[data-theme="midnight"] .vuefinder__context-menu {
-  border-color: var(--aifred-border-light); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-}
 </style>

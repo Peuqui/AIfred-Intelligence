@@ -116,7 +116,7 @@ async function openFilm(event: CasusEvent): Promise<void> {
 }
 function playClip(clip: FilmClipInfo): void {
   clips.value = null;
-  void viewFile({ name: decodeURIComponent(clip.url.split("/").pop() ?? clip.label), viewUrl: clip.url, text: async () => null });
+  viewFile({ name: decodeURIComponent(clip.url.split("/").pop() ?? clip.label), viewUrl: clip.url });
 }
 // A picture opens what its event keeps: its pictures in the slideshow, after a burst its film.
 function open(event: CasusEvent, index: number): void {

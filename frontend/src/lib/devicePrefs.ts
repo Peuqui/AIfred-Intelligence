@@ -2,6 +2,7 @@
 // whether a question sticks at the top, where the saved chats stand, and three sizes — the chat's text, the interface (controls and labels) and the console. A browser that keeps nothing
 // (private window, blocked storage) gets the default.
 import { type Ref, ref, watch } from "vue";
+import { SPLIT } from "./splitter";
 
 function stored<T>(key: string, fallback: T, valid: (value: unknown) => value is T): Ref<T> {
   let initial = fallback;
@@ -39,6 +40,9 @@ export const TOUCH_FIRST = window.matchMedia("(pointer: coarse)");
 export const pinQuestion = stored("aifred-pin-question", !NARROW_SCREEN, isBoolean);
 // The saved chats as a column at the left of the chat on a wide window (lib/sessionsColumn.ts), or above it.
 export const sessionsColumn = stored("aifred-sessions-column", true, isBoolean);
+// The share of the width the file list takes beside the preview on the documents page (lib/splitter.ts).
+const isSplit = (value: unknown): value is number => typeof value === "number" && value >= SPLIT.min && value <= SPLIT.max;
+export const documentsSplit = stored("aifred-documents-split", SPLIT.default, isSplit);
 export const chatZoom = stored("aifred-chat-zoom", ZOOM.default, isZoom);
 export const uiZoom = stored("aifred-ui-zoom", ZOOM.default, isZoom);
 export const consoleZoom = stored("aifred-console-zoom", ZOOM.default, isZoom);

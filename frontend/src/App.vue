@@ -27,9 +27,10 @@ const settings = useSettings();
 const plugins = usePlugins();
 const route = useRoute();
 const router = useRouter();
-// With the saved chats as a column (on the chat page) the page may be wider, so the chat keeps its width.
+// With the saved chats as a column (on the chat page) the page may be wider, so the chat keeps its width; the documents
+// page (list and preview side by side) is as wide.
 const sessionsColumn = useSessionsColumn().shown;
-const wide = computed(() => sessionsColumn.value && route.path === "/");
+const wide = computed(() => sessionsColumn.value && ["/", "/documents"].includes(route.path));
 const menuOpen = ref(false);
 
 // The two sizes the menu offers (the chat's own is above the chat).
