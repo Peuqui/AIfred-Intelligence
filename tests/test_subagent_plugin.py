@@ -45,6 +45,7 @@ def ctx():
         session_id="test_session",
         max_tier=TIER_WRITE_DATA,
         source="telegram",
+        trust="owner",
         metadata={"chat_id": 7},
     )
 
@@ -179,6 +180,9 @@ class TestToolkit:
         assert kit._source == "telegram" and kit._max_tier == TIER_WRITE_DATA
         assert seen["memory_enabled"] is False
         assert seen["source"] == "telegram" and seen["max_tier"] == TIER_WRITE_DATA
+        # The caller's trust decides which plugins offer tools (the documents folder only to the owner); without it
+        # the sub-agent of a scheduled job had no read_file and never found the job's notes (24./25.11.2026).
+        assert seen["trust"] == "owner"
         assert seen["metadata"] == {"chat_id": 7, run.DEPTH_METADATA_KEY: 1}
         assert seen["llm_history"] == []
 

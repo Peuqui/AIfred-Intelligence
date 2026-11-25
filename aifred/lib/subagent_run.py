@@ -131,7 +131,7 @@ async def build_subagent_toolkit(
     ctx: PluginContext, allowed_tiers: frozenset[int], depth: int, target_agent: str, task: str,
     extra_tools: Sequence[Tool] = (),
 ) -> ToolKit | None:
-    """The sub-agent's toolkit: the target agent's normal kit (same source and
+    """The sub-agent's toolkit: the target agent's normal kit (same source, trust and
     tier ceiling as the caller, memory off, depth+1 so the recursion bound
     applies), reduced to the allowed tiers; the caller's ``extra_tools`` are added as they are."""
     _, toolkit = await prepare_agent_toolkit(
@@ -144,6 +144,7 @@ async def build_subagent_toolkit(
         llm_history=[],
         max_tier=ctx.max_tier,
         source=ctx.source,
+        trust=ctx.trust,
         metadata={**ctx.metadata, DEPTH_METADATA_KEY: depth + 1},
     )
     tools = within_tiers(toolkit.tools, allowed_tiers) if toolkit is not None else []
