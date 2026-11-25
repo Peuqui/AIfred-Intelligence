@@ -226,6 +226,7 @@ const value = (event: Event): string => (event.target as HTMLSelectElement).valu
 
 <template>
   <section class="casus">
+    <Teleport defer to="#vision-head">
     <div v-if="choices" class="filters">
       <select v-model="chosen.source">
         <option value="">{{ t("casus_source_all") }}</option>
@@ -271,6 +272,7 @@ const value = (event: Event): string => (event.target as HTMLSelectElement).valu
       <span>{{ pageLabel }}</span>
       <button :disabled="list.offset + list.page_size >= list.total" @click="turn(1)">›</button>
     </div>
+    </Teleport>
     <p v-if="list && !list.events.length" class="hint">{{ t("casus_empty") }}</p>
 
     <div v-for="(event, index) in list?.events ?? []" :key="event.id" class="event">

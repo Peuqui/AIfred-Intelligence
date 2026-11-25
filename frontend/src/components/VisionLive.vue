@@ -171,6 +171,7 @@ const similarity = (value: number | null): string => (value === null ? "" : ` ·
 
 <template>
   <section v-if="live" class="live">
+    <Teleport defer to="#vision-head">
     <div class="bar">
       <button v-for="camera in live.cameras" :key="camera.id" class="chip" :class="{ on: live.visible.includes(camera.id), away: !camera.available }" @click="toggle(camera.id)">
         {{ camera.label }}<template v-if="!camera.available"> <X :size="16" /></template>
@@ -205,6 +206,7 @@ const similarity = (value: number | null): string => (value === null ? "" : ` ·
       <button v-if="live.settings.fps === 0" :title="t('vision_preview_refresh_tooltip')" @click="renewed++"><RefreshCw :size="16" /></button>
       <button :title="t('vision_preview_rescan_tooltip')" @click="call(() => send<LiveView>('vision/cameras/rescan', 'POST')).then(show)"><ScanSearch :size="16" /></button>
     </div>
+    </Teleport>
     <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
     <p v-if="!live.cameras.length" class="empty">{{ t("vision_preview_no_source") }}</p>
 

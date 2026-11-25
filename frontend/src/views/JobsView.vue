@@ -47,7 +47,7 @@ async function runNow(job: JobRow): Promise<void> {
 
 <template>
   <main class="jobs">
-    <header class="bar">
+    <header class="bar page-head">
       <h2><Clock :size="16" /> {{ t("nav_jobs") }}</h2>
       <button v-if="jobs.options" @click="editing = { job: null }">＋ {{ t("scheduler_new_job") }}</button>
     </header>
@@ -107,8 +107,8 @@ async function runNow(job: JobRow): Promise<void> {
 </template>
 
 <style scoped>
-.jobs { overflow-y: auto; padding: 12px 0; display: flex; flex-direction: column; gap: 12px; }
-.bar { display: flex; align-items: center; gap: 14px; }
+.jobs { padding: 4px 0 12px; display: flex; flex-direction: column; gap: 12px; }
+.bar { display: flex; flex-direction: row; align-items: center; gap: 14px; }
 .bar button { margin-left: auto; }
 h2 { margin: 0; font-size: 1rem; }
 button { padding: 4px 8px; }

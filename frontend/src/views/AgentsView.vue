@@ -53,7 +53,7 @@ async function confirmDelete(): Promise<void> {
 
 <template>
   <main class="agents">
-    <header class="bar">
+    <header class="bar page-head">
       <h2><Bot :size="16" /> {{ t("nav_agents") }}</h2>
       <HelpButton topic="thinking" />
       <button :title="t('agent_editor_export_tooltip')" @click="bundles = 'export'"><Package :size="16" /></button>
@@ -138,11 +138,11 @@ async function confirmDelete(): Promise<void> {
 </template>
 
 <style scoped>
-.agents { overflow-y: auto; padding: 12px 0; display: flex; flex-direction: column; gap: 12px; }
+.agents { padding: 4px 0 12px; display: flex; flex-direction: column; gap: 12px; }
 h2 { margin: 0; font-size: 1rem; }
 h3 { margin: 8px 0 0; font-size: 0.95rem; }
 .system-hint { margin: 0; font-size: 0.85rem; color: var(--aifred-text-secondary); }
-.bar { display: flex; align-items: center; gap: 14px; }
+.bar { display: flex; flex-direction: row; align-items: center; gap: 14px; }
 .bar button:first-of-type { margin-left: auto; }
 .creating { display: flex; gap: 8px; flex-wrap: wrap; }
 .creating input { background: var(--aifred-input-bg); color: inherit; border: 1px solid var(--aifred-border); border-radius: 6px; padding: 4px 8px; font: inherit; }

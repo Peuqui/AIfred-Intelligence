@@ -45,7 +45,7 @@ beforeEach(() => {
 
 test("a row without a single picture renders no vision/frame image and no analyse button", async () => {
   serve({ clips: [], pictures: [] });
-  const wrapper = mount(VisionEvents);
+  const wrapper = mount(VisionEvents, { global: { stubs: { teleport: true } } });
   await flushPromises();
   const [burstRow, pictureRow] = wrapper.findAll(".event");
   expect(burstRow?.findAll("img")).toHaveLength(0);
@@ -63,7 +63,7 @@ test("a burst event without pictures shows the preview it kept, wide and tele, a
     if (path === "vision/casus/runs") return { analysis: { running: 0, last: 0, error: "" }, describe_all: { running: false, cancelling: false } };
     return {};
   });
-  const wrapper = mount(VisionEvents);
+  const wrapper = mount(VisionEvents, { global: { stubs: { teleport: true } } });
   await flushPromises();
   const sources = wrapper.findAll(".event img").map((image) => image.attributes("src"));
   expect(sources).toEqual(["/api/vision/frame?id=7&thumb=1", "/api/vision/frame?id=7&zoom=1&thumb=1"]);
@@ -72,7 +72,7 @@ test("a burst event without pictures shows the preview it kept, wide and tele, a
 
 test("the film button shows only where there is something to play", async () => {
   serve({ clips: [], pictures: [] });
-  const wrapper = mount(VisionEvents);
+  const wrapper = mount(VisionEvents, { global: { stubs: { teleport: true } } });
   await flushPromises();
   const [burstRow, pictureRow] = wrapper.findAll(".event");
   expect(burstRow?.find("button[title='casus_film_tooltip']").exists()).toBe(true);
@@ -81,7 +81,7 @@ test("the film button shows only where there is something to play", async () => 
 
 test("a burst's film opens in the file viewer with its URL", async () => {
   serve({ clips: [{ label: "Weitwinkel", url: FILM }], pictures: [] });
-  const wrapper = mount(VisionEvents);
+  const wrapper = mount(VisionEvents, { global: { stubs: { teleport: true } } });
   await flushPromises();
   await wrapper.find("button[title='casus_film_tooltip']").trigger("click");
   await flushPromises();
@@ -93,7 +93,7 @@ test("a burst's film opens in the file viewer with its URL", async () => {
 test("several burst films ask which one, then open it", async () => {
   const zoom = FILM.replace("wide", "zoom");
   serve({ clips: [{ label: "Weitwinkel", url: FILM }, { label: "Zoom", url: zoom }], pictures: [] });
-  const wrapper = mount(VisionEvents);
+  const wrapper = mount(VisionEvents, { global: { stubs: { teleport: true } } });
   await flushPromises();
   await wrapper.find("button[title='casus_film_tooltip']").trigger("click");
   await flushPromises();
@@ -105,7 +105,7 @@ test("several burst films ask which one, then open it", async () => {
 
 test("an occurrence without films runs its pictures as the slideshow", async () => {
   serve({ clips: [], pictures: [{ id: 1, has_zoom: false }, { id: 2, has_zoom: true }] });
-  const wrapper = mount(VisionEvents);
+  const wrapper = mount(VisionEvents, { global: { stubs: { teleport: true } } });
   await flushPromises();
   await wrapper.find("button[title='casus_film_tooltip']").trigger("click");
   await flushPromises();

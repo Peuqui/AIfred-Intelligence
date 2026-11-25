@@ -173,6 +173,9 @@ html, body { -webkit-tap-highlight-color: transparent; }
 /* The width of the big file dialogs (the viewer, the file requester): as wide as the page. Their height is the
    dialog's (ModalDialog: up to the screen less a margin). */
 :root { --file-dialog-width: min(var(--page-max-width), calc(100 * var(--vw) - 74px)); }
+/* The head of a page with a long list (Casus: tabs, filters, pages; jobs; agents …) stays at the top while the list
+   under it scrolls with the page (Peuqui 25.11.2026). Its page must not be overflow: auto, or it would stick to that. */
+.page-head { position: sticky; top: 0; z-index: 5; display: flex; flex-direction: column; gap: 8px; padding: 8px 0; background: var(--aifred-page-bg); border-bottom: 1px solid var(--aifred-border); }
 /* Scroll chaining: each box with a bounded height that scrolls by itself (chat history, dialog, debug console, lists …)
    sets overscroll-behavior: contain in its own style, so the page does not move on at the box's end (Peuqui 25.11.2026).
    Never globally: the pages (Casus, jobs, settings …) are overflow-y: auto without a height; with contain a finger
