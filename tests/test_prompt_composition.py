@@ -1,8 +1,8 @@
 """The one builder of an agent's system prompt (prompt_loader.agent_system_prompt), its layers by what the call has.
 
 Contract (Peuqui 14.11.2026, audit of every path):
-- The instructions of a plugin come only for tools the call really has; before the toolkit exists (``tools=None``)
-  for the agent's whitelist.
+- The instructions of a plugin come only for tools the call really has (always an explicit list, empty = none);
+  before the toolkit exists, the prompt is measured with the agent's own list (prompt_loader.get_direct_prompt_tokens).
 - The memory instructions come only when the session keeps memory AND the call has the memory tools.
 - The formatting rules come where the answer is shown, not where it is spoken (a channel with
   ``markdown_output = False``: the Echo puck, Telegram).
@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 
 from aifred.lib import plugin_registry, prompt_loader
+from aifred.lib.agent_config import get_agent_config
 from aifred.lib.prompt_loader import agent_system_prompt, conversation_situation, load_prompt
 from aifred.plugins.tools.nextcloud import store as nextcloud_store
 from aifred.plugins.tools.nextcloud.settings import NextcloudSettings
@@ -32,8 +33,15 @@ def nextcloud_is_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(nextcloud_store, "get_store", lambda: store)
 
 
+def _aifred_tools() -> list[str]:
+    """The tools of AIfred's list in agents.json (the tests' copy of the repo's): the call of a direct answer."""
+    config = get_agent_config("aifred")
+    assert config is not None and config.tools
+    return config.tools
+
+
 def _prompt(**overrides: Any) -> str:
-    arguments: dict[str, Any] = {"answer_channel": "browser", "external": False, "tools": None, "memory": True, **overrides}
+    arguments: dict[str, Any] = {"answer_channel": "browser", "external": False, "tools": _aifred_tools(), "memory": True, **overrides}
     return agent_system_prompt("aifred", conversation_situation(LANG), LANG, **arguments)
 
 
@@ -43,7 +51,7 @@ def _block(name: str) -> str:
 
 def test_plugin_instructions_follow_the_tools_the_call_has() -> None:
     nextcloud = "NEXTCLOUD"
-    assert nextcloud in _prompt(tools=None)                       # before the toolkit: the whitelist
+    assert nextcloud in _prompt(tools=_aifred_tools())            # the agent's own list
     assert nextcloud not in _prompt(tools=["read_file", "web_search"])
     assert _block("shared/tool_instructions") not in _prompt(tools=[])   # no tools, no tool layer
 

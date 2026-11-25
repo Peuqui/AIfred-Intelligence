@@ -22,7 +22,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Pat
     agents["calibration"] = {
         "display_name": "Calibration", "emoji": "📐", "description": "", "role": "system", "color": "#7d8590", "model": "qwen-max",
         "cloud_provider": "qwen", "prompts": {"system": "calibration/system.txt"},
-        "toggles": {"personality": False, "reasoning": False, "thinking": False}, "tools": None,
+        "toggles": {"personality": False, "reasoning": False, "thinking": False}, "tools": [],
     }
     agents_file = tmp_path / "agents.json"
     agents_file.write_text(json.dumps({"agents": agents}), encoding="utf-8")

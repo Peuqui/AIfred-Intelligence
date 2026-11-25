@@ -337,13 +337,12 @@ class ToolGroup(BaseModel):
 
 
 class AgentRights(BaseModel):
-    all: bool = Field(description="No whitelist: every tool, also of plugins switched on later")
     groups: list[ToolGroup] = Field(description="What can be granted right now (plugins switched off offer nothing)")
 
 
 class RightsChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    allowed: list[str] | None = Field(description="The tools granted; null grants every tool")
+    allowed: list[str] = Field(description="The tools granted, always a list (an empty one grants none); there is no \"every tool\"")
 
 
 class NewAgent(BaseModel):
@@ -450,12 +449,12 @@ def _rights(agent_id: str) -> AgentRights:
     from ..plugin_registry import tool_groups_on_offer
     from ..prompt_loader import get_language
 
-    allowed = _chat_agent(agent_id).tools
+    allowed = set(_chat_agent(agent_id).tools)
     lang = get_language()
     groups = tool_groups_on_offer(PluginContext(agent_id=agent_id, lang=lang, session_id=""))
-    return AgentRights(all=allowed is None, groups=[
+    return AgentRights(groups=[
         ToolGroup(name=group[f"name_{lang}"], tools=[
-            ToolRight(name=tool["name"], tier=tool["tier"], allowed=allowed is None or tool["name"] in allowed)
+            ToolRight(name=tool["name"], tier=tool["tier"], allowed=tool["name"] in allowed)
             for tool in group["tools"]
         ])
         for group in groups
@@ -594,19 +593,16 @@ async def agents_rights(agent_id: str) -> AgentRights:
 
 @api_app.put("/agents/{agent_id}/tools", response_model=AgentRights, tags=["Agents"])
 async def agents_rights_change(agent_id: str, change: RightsChange) -> AgentRights:
-    """Grant tools: null grants every tool. A list keeps what the whitelist held for tools not on offer now
-    (a plugin switched off): switching it on again brings them back as they were."""
+    """Grant tools: the list sent is what is granted of the tools on offer now (an empty list grants none). The
+    list keeps what it held for tools not on offer now (a plugin switched off): switching it on again brings them
+    back as they were."""
     from ..agent_config import update_agent
 
-    previous = _chat_agent(agent_id).tools
-    if change.allowed is None:
-        tools = None
-    else:
-        on_offer = {tool.name for group in _rights(agent_id).groups for tool in group.tools}
-        kept = [name for name in previous or [] if name not in on_offer]
-        tools = sorted(set(kept) | set(change.allowed))
+    on_offer = {tool.name for group in _rights(agent_id).groups for tool in group.tools}
+    kept = [name for name in _chat_agent(agent_id).tools if name not in on_offer]
+    tools = sorted(set(kept) | set(change.allowed))
     update_agent(agent_id, {"tools": tools})
-    log_message(f"🔐 Agent '{agent_id}' tools: {'all' if tools is None else len(tools)}")
+    log_message(f"🔐 Agent '{agent_id}' tools: {len(tools)}")
     return _rights(agent_id)
 
 

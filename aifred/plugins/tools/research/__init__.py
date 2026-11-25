@@ -149,7 +149,7 @@ class ResearchPlugin:
         return get_research_tools(lang=ctx.lang, llm_history=ctx.llm_history, user_query=ctx.user_query,
                                   session_id=ctx.session_id)
 
-    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str]) -> str:
         # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
         from ....lib.plugin_base import load_plugin_instructions
         return load_plugin_instructions(self, lang, granted_tools)

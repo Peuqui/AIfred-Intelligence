@@ -59,7 +59,7 @@ def test_deleting_an_agent_removes_its_own_folder_and_no_other(prompts: Path) ->
 
 def _bundle(agent_id: str, files: dict[str, str]) -> bytes:
     """A bundle of one agent whose layers point into its folder, with these files in both languages."""
-    config = {"display_name": agent_id.title(), "emoji": "🙂", "description": "", "role": "agent", "color": "#7d8590",
+    config = {"display_name": agent_id.title(), "emoji": "🙂", "description": "", "role": "agent", "color": "#7d8590", "tools": [],
               "prompts": {name.removesuffix(".txt"): f"{agent_id}/{name}" for name in files}}
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:

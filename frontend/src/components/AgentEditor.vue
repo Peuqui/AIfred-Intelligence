@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // An agent's editor on the agents page: 🎭 persona (name, emoji, colour, description, further names for the speech
 // recognition), the prompt layers per language, and 🔐 rights (the tools it may use, grouped by plugin as
-// they are on offer now; "every tool" includes plugins switched on later). Each tab saves on its own.
+// they are on offer now). The rights are always an explicit list: "mark all" and "clear all" only set it, and a tool
+// of a plugin switched on later is not in it until marked (a sentence in the tab says so). Each tab saves on its own.
 import { CircleCheck, FileText, Lock, TriangleAlert, VenetianMask } from "lucide-vue-next";
 import { onMounted, ref } from "vue";
 import { ApiError } from "../api/client";
@@ -52,11 +53,9 @@ const savePersona = (): Promise<void> =>
 
 // ── rights ──
 const rights = ref<AgentRights | null>(null);
-const all = ref(true);
 const allowed = ref(new Set<string>());
 function takeRights(from: AgentRights): void {
   rights.value = from;
-  all.value = from.all;
   allowed.value = new Set(from.groups.flatMap((group) => group.tools.filter((tool) => tool.allowed).map((tool) => tool.name)));
 }
 function toggleTool(name: string): void {
@@ -73,8 +72,14 @@ function setGroup(names: string[], on: boolean): void {
   }
   allowed.value = next;
 }
-const saveRights = (): Promise<void> =>
-  attempt(async () => takeRights(await agents.changeRights(props.agentId, all.value ? null : [...allowed.value])));
+// The helpers set the explicit list: every tool on offer now, or none.
+function selectAll(): void {
+  if (rights.value) allowed.value = new Set(rights.value.groups.flatMap((group) => group.tools.map((tool) => tool.name)));
+}
+const clearAll = (): void => {
+  allowed.value = new Set();
+};
+const saveRights = (): Promise<void> => attempt(async () => takeRights(await agents.changeRights(props.agentId, [...allowed.value])));
 
 onMounted(() =>
   attempt(async () => {
@@ -113,14 +118,18 @@ onMounted(() =>
       <PromptLayers v-if="tab === 'prompts' && persona" :agent-id="agentId" :keys="persona.prompt_keys" :languages="persona.languages" />
 
       <section v-if="tab === 'rights' && rights" class="rights">
-        <label class="all"><input v-model="all" type="checkbox" /> {{ t("agents_all_tools") }}</label>
-        <fieldset v-for="group in rights.groups" :key="group.name" :disabled="all">
+        <!-- New tools do not join by themselves: said as text in the tab (a phone has no mouse-over). -->
+        <p class="hint" data-test="rights-hint">{{ t("agents_rights_hint") }}</p>
+        <div class="bulk">
+          <button type="button" data-test="rights-select-all" @click="selectAll">{{ t("agents_rights_select_all") }}</button>
+          <button type="button" data-test="rights-clear" @click="clearAll">{{ t("agents_rights_clear") }}</button>
+        </div>
+        <fieldset v-for="group in rights.groups" :key="group.name">
           <legend>
             {{ group.name }}
             <!-- On only when every tool of the group is allowed; flipping it allows or forbids them all (Reflex's switch). -->
             <ToggleSwitch
-              :on="all || group.tools.every((tool) => allowed.has(tool.name))"
-              :disabled="all"
+              :on="group.tools.every((tool) => allowed.has(tool.name))"
               @toggle="(on) => setGroup(group.tools.map((tool) => tool.name), on)"
             />
           </legend>
@@ -130,8 +139,8 @@ onMounted(() =>
               <button
                 type="button"
                 class="pill"
-                :class="{ on: all || allowed.has(tool.name) }"
-                :aria-pressed="all || allowed.has(tool.name)"
+                :class="{ on: allowed.has(tool.name) }"
+                :aria-pressed="allowed.has(tool.name)"
                 @click="toggleTool(tool.name)"
               >
                 {{ tool.name }}
@@ -140,7 +149,7 @@ onMounted(() =>
             </span>
           </div>
         </fieldset>
-        <div class="actions"><button @click="saveRights">{{ t("agent_editor_save") }}</button></div>
+        <div class="actions"><button data-test="rights-save" @click="saveRights">{{ t("agent_editor_save") }}</button></div>
       </section>
     </div>
   </ModalDialog>
@@ -167,7 +176,8 @@ input[type="checkbox"] { accent-color: var(--aifred-primary); }
 .rights { display: flex; flex-direction: column; gap: 10px; max-height: calc(60 * var(--dvh)); overflow-y: auto; }
 /* min-width 0: a fieldset does not shrink below its widest content by itself; the pills wrap instead. */
 fieldset { min-width: 0; border: 1px solid var(--aifred-border); border-radius: 8px; display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 10px; }
-fieldset:disabled { opacity: 0.55; }
+.hint { margin: 0; font-size: 0.85rem; color: var(--aifred-text-secondary); }
+.bulk { display: flex; gap: 8px; flex-wrap: wrap; }
 legend { display: flex; gap: 6px; align-items: center; font-weight: 500; padding: 0 4px; }
 legend button { font-size: 0.75rem; padding: 1px 6px; }
 .pills { display: flex; flex-wrap: wrap; gap: 6px 10px; }

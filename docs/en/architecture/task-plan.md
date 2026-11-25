@@ -101,9 +101,10 @@ then lets the closing turn run with the results. The whole run is the pipeline o
 (browser, Telegram, email, Discord, FreeEcho, anything that runs through `process_inbound`) and uses the plugin's tier
 and depth settings. As with `delegate_task`, the model decides whether a task is large enough; the criteria are in the
 tool description. The chat call has no notes: the result is `coverage_line`, followed by `render_results`, as the tool result, which the model answers in the running turn.
-The tool is only in AIfred's whitelist (`tools` in `data/agents.json`); an agent that has a whitelist without `run_task_plan`
-does not get it (Sokrates, Salomo, Pater, Codine, Hal, Rabbi); agents without a whitelist see every tool their tier allows
-(filter in `agent_memory.py`). See [sub-agents](subagent-plugin.md).
+The tool is only in AIfred's tool list (`tools` in `data/agents.json`); an agent without `run_task_plan` in its list
+does not get it (Sokrates, Salomo, Pater, Codine, Hal, Rabbi). The list is required and always explicit: an agent with no
+entry or with `null` is refused when loading, an empty list means no tools (filter in `agent_memory.py`). See
+[sub-agents](subagent-plugin.md).
 
 ## Deliberate limits
 

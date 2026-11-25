@@ -163,7 +163,7 @@ class McpClientPlugin:
             tier=cfg["tier"],
         )
 
-    def get_prompt_instructions(self, lang: str, granted_tools: set[str] | None = None) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str]) -> str:
         from ....lib.plugin_base import load_plugin_instructions
         return load_plugin_instructions(self, lang, granted_tools)
 

@@ -17,9 +17,12 @@ Bundle layout (ZIP):
   voices/<name>/<name>.txt|.lab folder of the shared voice tree (the voices folder of the TTS service, its /config)
 
 Voice samples live at the top level (not per-agent) so a WAV that's
-referenced by multiple agents is included only once. Plugins/tools listed
-in config.tools that the target installation doesn't have are silently
-ignored at runtime.
+referenced by multiple agents is included only once. Tools listed in
+config.tools that the target installation doesn't have are silently
+ignored at runtime (the agent's rights are a list of names, see agent_config).
+A config without a tool list (or with null, which once meant "every tool") is
+imported with an empty list, so the agent starts with no tools, and the import
+says so in a warning: what an agent may use is never decided by a missing entry.
 """
 
 from __future__ import annotations
@@ -327,6 +330,9 @@ def import_bundle(
             # Its layers point into its own folder, where the files below go (until 08.11.2026 they kept the
             # bundle's paths: an agent renamed on a conflict read, and on deletion removed, the original's folder).
             config["prompts"] = {key: f"{effective_id}/{Path(path).name}" for key, path in (config.get("prompts") or {}).items()}
+            if config.get("tools") is None:   # no list: no rights (the agent is granted its tools in the editor)
+                config["tools"] = []
+                warnings.append(t("bundle_tools_missing", lang=lang, agent=effective_id))
             try:
                 config_from_raw(config)   # what loading agents.json reads: a field missing there breaks every agent
             except KeyError as missing:
@@ -361,7 +367,7 @@ def import_bundle(
             for engine, entry in tts_per_engine.items():
                 tts_root.setdefault(engine, {})[effective_id] = {key: entry[key] for key in VOICE_FIELDS if key in entry}
 
-            if (config.get("tools") or []):
+            if config["tools"]:
                 warnings.append(t("bundle_tools_kept", lang=lang, agent=effective_id))
 
             effective_ids.append(effective_id)

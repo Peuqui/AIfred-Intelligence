@@ -24,9 +24,7 @@ if TYPE_CHECKING:
     from ..lib.logging_utils import LogCategory
 
 
-def load_plugin_instructions(
-    plugin: Any, lang: str, granted_tools: set[str] | None = None
-) -> str:
+def load_plugin_instructions(plugin: Any, lang: str, granted_tools: set[str]) -> str:
     """Baut die Prompt-Anleitung eines Plugins aus ATOMAREN Fragment-Dateien im
     Plugin-Ordner zusammen — layered, je nach freigeschalteten Tools.
 
@@ -41,7 +39,8 @@ def load_plugin_instructions(
           ``vision_capture+vision_analyze.txt``   → nur wenn BEIDE erlaubt (Workflow-Layer), nach den einzelnen
       * ``_intro.txt`` → Plugin-Übergreifendes, wird vorangestellt, sobald
         mindestens ein Tool-Fragment greift.
-      * ``granted_tools=None`` → keine Whitelist → alle Fragmente.
+      * ``granted_tools`` ist immer die ausdrückliche Liste der erlaubten Tools (die Rechte des Agenten bzw. die Tools
+        des Aufrufs); es gibt keinen Wert „alle“.
 
     Leerer String, wenn das Plugin keinen Ordner für die Sprache hat oder der
     Agent kein Tool des Plugins hat.
@@ -63,7 +62,7 @@ def load_plugin_instructions(
             intro_text = f.read_text(encoding="utf-8").strip()
             continue
         required = set(f.stem.split("+"))
-        if granted_tools is None or required <= granted_tools:
+        if required <= granted_tools:
             txt = f.read_text(encoding="utf-8").strip()
             if txt:
                 fragments.append(txt)
@@ -74,7 +73,7 @@ def load_plugin_instructions(
     out: list[str] = []
     if intro_text:
         ptools = _plugin_tool_names(plugin)
-        if granted_tools is None or not ptools or (ptools & granted_tools):
+        if not ptools or (ptools & granted_tools):
             out.append(intro_text)
     out.extend(fragments)
     return "\n\n".join(out)  # "" wenn nichts greift
@@ -349,11 +348,9 @@ class ToolPlugin(Protocol):
         """Return Tool instances bound to the given context."""
         ...
 
-    def get_prompt_instructions(
-        self, lang: str, granted_tools: set[str] | None = None
-    ) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str]) -> str:
         """Prompt-Anleitung fürs System-Prompt. ``granted_tools`` = die für
-        diesen Agent freigeschalteten Tool-Namen (None = keine Whitelist).
+        diesen Agent freigeschalteten Tool-Namen (immer eine Liste, auch leer).
         Das Plugin liefert NUR die Anleitung der erlaubten Tools — siehe
         :func:`load_plugin_instructions` (atomare Fragmente pro Tool).
         Leerer String, wenn der Agent kein Tool dieses Plugins hat."""

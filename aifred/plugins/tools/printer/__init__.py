@@ -131,7 +131,7 @@ class PrinterPlugin:
             ))
         return tools
 
-    def get_prompt_instructions(self, lang: str, granted_tools: set[str] | None = None) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str]) -> str:
         return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:

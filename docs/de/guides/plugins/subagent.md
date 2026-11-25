@@ -104,8 +104,10 @@ als Job im [Horarium](horarium.md#jobs-mit-teilaufträgen). Einzelheiten und Gre
 
 Wie jedes Werkzeug müssen `delegate_task` und `run_task_plan` in der Tool-Liste des Agenten in
 `data/agents.json` stehen. AIfred hat beide. Sokrates, Salomo, Pater, Codine, Hal und Rabbi haben
-`delegate_task`, aber nicht `run_task_plan`. Agenten ohne Whitelist (kein Eintrag `tools`, so Vision und
-Kalibrierung) sehen alle Werkzeuge, die ihre Quelle und Stufe zulassen.
+`delegate_task`, aber nicht `run_task_plan`. Die Liste ist Pflicht: ein Agent ohne Eintrag `tools` oder mit `null` wird beim
+Laden abgelehnt, eine leere Liste (so Vision und Kalibrierung) heißt keine Werkzeuge; ein neu angelegter Agent startet mit
+leerer Liste, bis jemand im Editor Werkzeuge freigibt. Hat ein Agent keine Werkzeuge, bekommt sein Sub-Agent nur die
+mitgegebenen (`extra_tools`).
 
 ## Einstellungen (Zahnrad im Plugin-Modal, `settings.json` beim Plugin)
 

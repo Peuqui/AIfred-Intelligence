@@ -15,6 +15,7 @@ Zusammenfassung ohne Inhalt in der llm_history ab.
 import asyncio
 
 from aifred.lib import context_manager
+from aifred.lib.agent_config import get_agent_config
 from aifred.lib.config import HISTORY_COMPRESSION_TARGET, HISTORY_COMPRESSION_TRIGGER
 from aifred.lib.prompt_loader import agent_system_prompt, conversation_situation, get_direct_prompt_tokens
 
@@ -25,8 +26,10 @@ class TestPromptSizeFollowsTurnFlags:
     def test_measures_the_direct_prompt_builder(self):
         # Gegen den alten Fehler: gemessen wird der Prompt des gemeinsamen Bauers mit dem
         # Tokenizer, nicht irgendein anderer Bauer mit einer Heuristik.
+        aifred = get_agent_config("aifred")
+        assert aifred is not None and aifred.tools   # the prompt before the toolkit is built follows the agent's list
         expected = context_manager.count_tokens_with_tokenizer(agent_system_prompt(
-            "aifred", conversation_situation("de"), "de", answer_channel="browser", external=False, tools=None, memory=True,
+            "aifred", conversation_situation("de"), "de", answer_channel="browser", external=False, tools=aifred.tools, memory=True,
         ))
         assert get_direct_prompt_tokens("aifred", "de", memory=True) == expected
 

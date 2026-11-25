@@ -107,9 +107,10 @@ nutzt (Browser, Telegram, E-Mail, Discord, FreeEcho, alles, was durch `process_i
 und Tiefen-Einstellungen des Plugins. Das Modell entscheidet wie bei `delegate_task`, ob ein Auftrag groß genug ist; die
 Kriterien stehen in der Werkzeugbeschreibung. Der Chat-Aufruf hat keine Notizen: Das
 Ergebnis ist `coverage_line`, gefolgt von `render_results`, als Werkzeugergebnis, auf das das Modell im laufenden Zug antwortet.
-Das Werkzeug steht nur in der Whitelist (`tools` in `data/agents.json`) von AIfred; wer eine Whitelist hat und `run_task_plan`
-nicht darin, bekommt es nicht (Sokrates, Salomo, Pater, Codine, Hal, Rabbi); Agenten ohne Whitelist sehen alle Werkzeuge,
-die ihre Stufe zulässt (Filter in `agent_memory.py`). Siehe [Sub-Agenten](subagent-plugin.md).
+Das Werkzeug steht nur in der Werkzeugliste (`tools` in `data/agents.json`) von AIfred; wer `run_task_plan` nicht in seiner
+Liste hat, bekommt es nicht (Sokrates, Salomo, Pater, Codine, Hal, Rabbi). Die Liste ist Pflicht und immer ausdrücklich: ein
+Agent ohne Eintrag oder mit `null` wird beim Laden abgelehnt, eine leere Liste heißt keine Werkzeuge (Filter in
+`agent_memory.py`). Siehe [Sub-Agenten](subagent-plugin.md).
 
 ## Bewusste Grenzen
 

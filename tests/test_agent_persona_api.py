@@ -1,6 +1,6 @@
 """An agent's persona, prompts and rights over the API (agents page, part 2): name, emoji, description and aliases
 (addressing follows them), a prompt layer's text per language (nothing outside prompts/<lang>/), the tools granted
-(a list keeps what it held for tools of a plugin switched off), and a new agent from the template. agents.json and
+(always a list; it keeps what it held for tools of a plugin switched off), and a new agent from the template. agents.json and
 the prompts folder are temporary ones."""
 
 from __future__ import annotations
@@ -82,20 +82,21 @@ def test_a_prompt_path_out_of_the_prompts_folder_is_refused(client: TestClient, 
     assert not (prompts.parent / "geheim.txt").exists()
 
 
-def test_rights_grant_every_tool_or_a_list_that_keeps_tools_not_on_offer(client: TestClient, world: tuple[Path, Path]) -> None:
+def test_rights_are_a_list_that_keeps_tools_not_on_offer(client: TestClient, world: tuple[Path, Path]) -> None:
     agents_file, _prompts = world
     rights = client.get("/agents/sokrates/tools").json()
-    assert rights["all"] and [group["name"] for group in rights["groups"]] == ["Gedächtnis", "Web"]
+    assert "all" not in rights and [group["name"] for group in rights["groups"]] == ["Gedächtnis", "Web"]
+    assert not any(tool["allowed"] for group in rights["groups"] for tool in group["tools"])      # the list is empty
     raw = json.loads(agents_file.read_text(encoding="utf-8"))
     raw["agents"]["sokrates"]["tools"] = ["web_search", "nextcloud_read"]      # nextcloud: plugin switched off
     agents_file.write_text(json.dumps(raw), encoding="utf-8")
     changed = client.put("/agents/sokrates/tools", json={"allowed": ["store_memory", "web_fetch"]}).json()
-    assert not changed["all"]
+    assert "all" not in changed
     assert _saved(agents_file, "sokrates")["tools"] == ["nextcloud_read", "store_memory", "web_fetch"]
     web = next(group for group in changed["groups"] if group["name"] == "Web")
     assert [(tool["name"], tool["allowed"]) for tool in web["tools"]] == [("web_search", False), ("web_fetch", True)]
-    assert client.put("/agents/sokrates/tools", json={"allowed": None}).json()["all"]
-    assert _saved(agents_file, "sokrates")["tools"] is None
+    assert client.put("/agents/sokrates/tools", json={"allowed": None}).status_code == 422   # no "every tool"
+    assert _saved(agents_file, "sokrates")["tools"] == ["nextcloud_read", "store_memory", "web_fetch"]
 
 
 def test_a_new_agent_gets_the_template_prompts(client: TestClient, world: tuple[Path, Path]) -> None:

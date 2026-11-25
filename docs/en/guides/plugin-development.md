@@ -71,7 +71,7 @@ plugin = MyPlugin()
 - `PluginContext` provides: `agent_id`, `lang`, `session_id`, `state`, `user_query`, `max_tier`, `source`, `llm_history`, `metadata` (channel-specific, e.g. the Telegram `chat_id`)
 - Tool executors are async functions returning strings (JSON for errors)
 - **No hardcoded LLM text:** tool descriptions come from `prompts/tools/<tool>.txt` via `load_tool_description()`, parameter schemas from `prompts/tools/<tool>.params.json` via `load_tool_parameters()`, prompt instructions from `prompts/<de|en>/` via `load_plugin_instructions()` — both files live inside the plugin directory
-- `get_prompt_instructions()` receives `granted_tools` (the tool names enabled for the current agent, `None` = no whitelist) and returns only the instructions of those tools
+- `get_prompt_instructions()` receives `granted_tools` (the tool names enabled for the current agent, always a list, also an empty one; there is no "all") and returns only the instructions of those tools
 - **Credentials via broker**, never via `os.environ` or `config.py`
 
 ## Plugin Directory Layout

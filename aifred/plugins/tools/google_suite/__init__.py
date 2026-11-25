@@ -168,12 +168,12 @@ class GooglePlugin:
         from .drive.source import DriveDocumentSource
         return DriveDocumentSource(writable=modules.can_write("drive"))
 
-    def get_prompt_instructions(self, lang: str, granted_tools: set[str] | None = None) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str]) -> str:
         # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin;
         # nur für die Werkzeuge, die die Dienst-Stufen anbieten.
         from ....lib.plugin_base import load_plugin_instructions
         offered = {t.name for t in self.get_tools(PluginContext(agent_id="_prompt", lang=lang, session_id=""))}
-        granted = offered if granted_tools is None else granted_tools & offered
+        granted = granted_tools & offered
         return load_plugin_instructions(self, lang, granted)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:

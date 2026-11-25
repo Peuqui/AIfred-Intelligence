@@ -127,15 +127,15 @@ def delegation_legend(
     described: dict[str, str] = {}
     for agent_id in candidates:
         cfg = get_agent_config(agent_id)
-        whitelist = set(cfg.tools) if cfg is not None and cfg.tools is not None else None
+        assert cfg is not None  # the candidates are configured agents (delegation_candidates)
+        whitelist = set(cfg.tools)
         groups: list[str] = []
         for owner, tools in offered:
-            if any(whitelist is None or t.name in whitelist for t in tools):
+            if any(t.name in whitelist for t in tools):
                 name = plugin_display_name(owner, ctx.lang)
                 groups.append(name)
                 described.setdefault(name, plugin_description(owner, ctx.lang))
-        label = cfg.display_name if cfg is not None else agent_id
-        agent_lines.append(f"- {agent_id} ({label}): {', '.join(groups) or '-'}")
+        agent_lines.append(f"- {agent_id} ({cfg.display_name}): {', '.join(groups) or '-'}")
 
     plugin_lines = [f"- {name}: {text}" for name, text in described.items()]
     return "\n".join([
@@ -249,7 +249,7 @@ class SubAgentPlugin:
             description += "\n\n" + load_tool_description(__file__, "delegate_task_read_only")
         return description
 
-    def get_prompt_instructions(self, lang: str, granted_tools: set[str] | None = None) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str]) -> str:
         return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:

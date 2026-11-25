@@ -622,9 +622,10 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
 - **Agenten-Seite, Teil 2 (erledigt 07.11.2026):** ✏️ an jeder Karte öffnet `AgentEditor.vue`: 🎭 Persona
   (Name, Emoji, Beschreibung, weitere Namen für die Spracherkennung), 📝 Prompt-Ebenen je Sprache (mit
   Hinweis auf ungespeicherte Änderungen und auf eine Sprache ohne Datei), 🔐 Rechte nach Plugin-Gruppen
-  (`plugin_registry.tool_groups_on_offer`). „Alle Werkzeuge“ speichert keine Liste (auch später
-  eingeschaltete Plugins); eine Liste behält, was sie für Werkzeuge abgeschalteter Plugins hielt (Reflex
-  verlor sie beim Speichern). ＋ legt einen Agenten aus der Vorlage an, der Editor öffnet sich. Der
+  (`plugin_registry.tool_groups_on_offer`). Gespeichert wird immer eine ausdrückliche Liste; seit 25.11.2026 gibt es
+  kein „Alle Werkzeuge“ mehr (es speicherte keine Liste, auch später eingeschaltete Plugins gehörten dazu), nur „alle
+  markieren“ und „alle abwählen“, und ein neuer Agent hat keine Werkzeuge. Die Liste behält, was sie für Werkzeuge
+  abgeschalteter Plugins hielt (Reflex verlor sie beim Speichern). ＋ legt einen Agenten aus der Vorlage an, der Editor öffnet sich. Der
   Pfadschutz für Prompt-Dateien liegt jetzt an einer Stelle (`prompt_loader.prompt_path`, auch für die
   Reflex-Kopie). Bleibt für andere Seiten: geplante Aufträge je Agent
   (Aufträge), Gedächtnis ansehen und löschen; Automatik-Prompt und Cloud-Modell der Systemagenten kamen

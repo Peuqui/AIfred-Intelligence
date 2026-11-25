@@ -30,10 +30,12 @@ def temp_job_store(tmp_path, monkeypatch):
     monkeypatch.setattr("aifred.lib.session_storage.SESSION_DIR", tmp_path / "sessions")
     monkeypatch.setattr(sched, "_running_job_ids", {})
     monkeypatch.setattr("aifred.lib.settings.load_settings", lambda: {"ui_language": "de"})
-    # The real agents.json (its tool lists) is the user's: a run here has an agent with every tool.
+    # The real agents.json (its tool lists) is the user's: a run here has an agent with the tools the tests use.
     from aifred.lib.agent_config import AgentConfig
-    every_tool = AgentConfig(display_name="Agent", emoji="", description="", role="agent", color="#000000", tools=None)
-    monkeypatch.setattr("aifred.lib.agent_config.get_agent_config", lambda agent_id: every_tool)
+    from aifred.lib.job_notes import NOTES_TOOLS
+    granted = AgentConfig(display_name="Agent", emoji="", description="", role="agent", color="#000000",
+                          tools=[*sorted(NOTES_TOOLS), "store_memory"])
+    monkeypatch.setattr("aifred.lib.agent_config.get_agent_config", lambda agent_id: granted)
     yield
     sched._job_store = None
 
@@ -129,7 +131,7 @@ class TestJobPrompt:
 
         store = sched.get_job_store()
         job = store.add("Gebet", "interval", "60", {"message": "x", "agent": "pater"}, keeps_notes=True)
-        for tools, told in ((["web_search", "read_file"], False), (["read_file", "write_file"], True), (None, True)):
+        for tools, told in ((["web_search", "read_file"], False), (["read_file", "write_file"], True), ([], False)):
             config = AgentConfig(display_name="Pater", emoji="", description="", role="agent", color="#000000", tools=tools)
             monkeypatch.setattr("aifred.lib.agent_config.get_agent_config", lambda agent_id, config=config: config)
             assert ("Die Akte dieses Jobs" in sched.build_job_prompt(job, store)) is told, tools

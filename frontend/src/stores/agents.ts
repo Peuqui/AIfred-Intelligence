@@ -72,7 +72,7 @@ export const useAgents = defineStore("agents", () => {
 
   const writePrompt = (id: string, lang: string, key: string, text: string): Promise<PromptText> =>
     api<PromptText>(`${path(id)}/prompts/${lang}/${key}`, { method: "PUT", body: JSON.stringify({ text }) });
-  const changeRights = (id: string, allowed: string[] | null): Promise<AgentRights> =>
+  const changeRights = (id: string, allowed: string[]): Promise<AgentRights> =>
     api<AgentRights>(`${path(id)}/tools`, { method: "PUT", body: JSON.stringify({ allowed }) });
 
   const cloudModels = (id: string, provider: string): Promise<CloudModels> =>

@@ -116,7 +116,7 @@ class NextcloudPlugin:
             return None
         return NextcloudDocumentSource(store.client, writable=store.modules.can_write("files"))
 
-    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str]) -> str:
         """Tool fragments for the offered and granted tools, then the
         fragments of the readable (and, with a write tool, writable) modules."""
         from ....lib.plugin_base import load_plugin_instructions, load_plugin_prompt
@@ -127,7 +127,7 @@ class NextcloudPlugin:
         if store is None:
             return ""
         offered = {t.name for t in get_nextcloud_tools(store)}
-        granted = offered if granted_tools is None else granted_tools & offered
+        granted = granted_tools & offered
         text = load_plugin_instructions(self, lang, granted)
         if not text:
             return ""

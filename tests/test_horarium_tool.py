@@ -330,14 +330,19 @@ class TestSchedulerDelete:
         assert "error" in data
 
 
+def _every_tool(plugin, ctx):
+    """What an agent that was granted all of the plugin's tools has."""
+    return {tool.name for tool in plugin.get_tools(ctx)}
+
+
 class TestPromptInstructions:
-    def test_de_instructions(self, plugin):
-        instr = plugin.get_prompt_instructions("de")
+    def test_de_instructions(self, plugin, ctx):
+        instr = plugin.get_prompt_instructions("de", _every_tool(plugin, ctx))
         assert "horarium_create" in instr
         assert "cron" in instr
 
-    def test_en_instructions(self, plugin):
-        instr = plugin.get_prompt_instructions("en")
+    def test_en_instructions(self, plugin, ctx):
+        instr = plugin.get_prompt_instructions("en", _every_tool(plugin, ctx))
         assert "horarium_create" in instr
         assert "cron" in instr
 
@@ -402,7 +407,8 @@ class TestScheduleEndInTheTool:
             assert "end_date" in tools[name].parameters["properties"] and "end_date" not in tools[name].parameters.get("required", [])
         assert "0 8,14,20 * * *" in tools["horarium_create"].description
         for lang in ("de", "en"):
-            assert "0 8,14,20 * * *" in plugin.get_prompt_instructions(lang) and "end_date" in plugin.get_prompt_instructions(lang)
+            instructions = plugin.get_prompt_instructions(lang, set(tools))
+            assert "0 8,14,20 * * *" in instructions and "end_date" in instructions
 
 
 # ── Jobs with a plan ──────────────────────────────────────────

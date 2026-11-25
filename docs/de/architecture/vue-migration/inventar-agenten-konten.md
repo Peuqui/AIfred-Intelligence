@@ -251,8 +251,8 @@ per `dotenv.set_key` und Plugin-Settings, startet Kanal-Worker per `asyncio.crea
   Aufruf (77–82), Webhook gedeckelt (`api/agents.py:52-54`). Filter `filter_tools_by_tier` (235),
   Rückfrage `needs_confirmation` (469–483), Gedächtnis und Dokumentordner nur im Besitzer-Kontext
   `in_owner_context` (244–254).
-- **Tool-Whitelist je Agent:** `agents.json` `tools` (None = alle), durchgesetzt in
-  `agent_memory.py:518-519` und `prompt_loader.py:555`.
+- **Tool-Whitelist je Agent:** `agents.json` `tools` (seit 25.11.2026 immer eine ausdrückliche Liste, bis dahin hieß
+  `None` = alle), durchgesetzt in `agent_memory.py` (`prepare_agent_toolkit`) und `prompt_loader.py`.
 - **Plugin-Schalter:** Marker `.disabled` im Plugin-Ordner (`plugin_registry.py:41, 51-52, 263-284`); der
   Name wird gegen die vorhandenen Ordner geprüft (247–250). Kanalschalter `monitor/listener/auto_reply`
   in `settings.json` `channel_toggles` (`SM:449-530`).
@@ -277,7 +277,7 @@ per `dotenv.set_key` und Plugin-Settings, startet Kanal-Worker per `asyncio.crea
 | Agentenliste, Auswahl | Dropdown (Werte = IDs) | `agent_config` | `agents.json` |
 | Agent anlegen, ändern, löschen | Formular, Dirty-Flag, Bestätigungen, Emoji-Auswahl | `agent_config` + ID- und Rollenprüfung | `agents.json`, `prompts/{de,en}/<id>/` |
 | Prompt-Ebenen (Agenten, Automatik) | Tab, Sprache, Textfeld, Reset-Bestätigung | neuer Prompt-Dienst: Schlüssel listen, lesen, schreiben, mit Pfadprüfung | `prompts/` |
-| Tool-Whitelist | Pills, Gruppenschalter | `tool_groups_on_offer` + Umrechnung „alle = None“, Tools abgeschalteter Plugins erhalten | `agents.json` `tools` |
+| Tool-Whitelist | Pills, Gruppenschalter | `tool_groups_on_offer` (seit 25.11.2026 ohne „alle = None“), Tools abgeschalteter Plugins erhalten | `agents.json` `tools` |
 | Cloud-Modell der System-Agenten | Provider, Modell | `CloudAPIBackend.list_models` | `agents.json` `model`, `cloud_provider`, `toggles` |
 | Tuning je Agent (Sampling, Denken, Speed, RoPE, Modell, num_ctx) | Felder | Tuning-Dienst, einmal je Prozess: get/set mit Klammerung, Reset je Backend, Denk-Optionen, effektive Modell-ID | `settings.json` `agent_tuning`, `backend_models`; Modell-Cache (RoPE) |
 | Temperatur-Modus, Runden, Konsens | Schalter | Einstellungs-Dienst | `settings.json` |
@@ -449,8 +449,8 @@ Hilfe-Fenster → Image-Mixin.
 
 - **Whitelist verliert Tools abgeschalteter Plugins:** `editor_tools` enthält nur das gerade Angebotene
   (`AE:1120-1130`), gespeichert werden nur diese Namen (`AE:1335-1340`). Wer einen Agenten speichert,
-  während ein Plugin aus ist, entzieht ihm dessen Tools dauerhaft. Sind alle angebotenen an, wird `None`
-  gespeichert, also auch jedes später eingeschaltete Plugin.
+  während ein Plugin aus ist, entzieht ihm dessen Tools dauerhaft. Sind alle angebotenen an, wurde `None`
+  gespeichert, also auch jedes später eingeschaltete Plugin (so im Reflex-Editor; in Vue seit 25.11.2026 nicht mehr).
 - **Sprach-Fallback im Prompt-Editor:** fehlt die DE-Datei, steht die EN-Datei mit `[EN only]` im Feld
   (`AE:1207-1219`); Speichern entfernt das Präfix und schreibt den englischen Text als DE-Datei
   (`AE:1301-1309`).

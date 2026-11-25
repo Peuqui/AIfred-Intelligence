@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .settings import persisted_settings
+from .user_error import Missing
 
 # Base directory for prompts (relative to project root)
 PROMPTS_DIR = Path(__file__).parent.parent.parent / 'prompts'
@@ -392,7 +393,7 @@ def agent_system_prompt(
     *,
     answer_channel: str,
     external: bool,
-    tools: Collection[str] | None,
+    tools: Collection[str],
     memory: bool,
     seats: dict[str, str] | None = None,
     roles: str = DEBATE_ROLES,
@@ -406,16 +407,16 @@ def agent_system_prompt(
     ``answer_channel``: where the answer arrives (a job's delivery channel, else the message's): the
     formatting rules come where it is shown, not spoken or plain text. ``external``: the message is not the owner's (security.in_owner_context: a
     stranger, a webhook's payload): it adds the security boundary. ``tools``: the names of the
-    tools the call really has — only theirs get instructions; None while the toolkit is not built
-    yet (measuring the prompt before a turn: the agent's whitelist). ``memory``: the session is not
+    tools the call really has — only theirs get instructions; always a list, there is no "all" (before the toolkit is
+    built, measuring the prompt before a turn, it is the agent's own list). ``memory``: the session is not
     incognito. ``seats``: a debate's seats, described by ``roles``. ``agent_id`` None: a sub-agent
     without a persona (no identity, reasoning, personality). ``answers_user`` False: the answer goes
     to someone else than the user (a sub-agent's caller, a peer on AI-Connect) — no user prefix, output
     format, formatting rules, announcing or asking back.
     """
     return _merge_prompt_layers(
-        agent_id, situation, lang, seats=seats, memory=memory, answer_channel=answer_channel, external=external, roles=roles,
-        tools=tools, answers_user=answers_user,
+        agent_id, situation, tools, lang, seats=seats, memory=memory, answer_channel=answer_channel, external=external, roles=roles,
+        answers_user=answers_user,
     )
 
 
@@ -500,13 +501,13 @@ def load_memory_instructions(lang: str | None = None) -> str:
 def _merge_prompt_layers(
     agent: str | None,
     task_prompt: str,
+    tools: Collection[str],
     lang: str | None = None,
     seats: dict[str, str] | None = None,
     memory: bool = True,
     answer_channel: str = "browser",
     external: bool = False,
     roles: str = DEBATE_ROLES,
-    tools: Collection[str] | None = None,
     answers_user: bool = True,
 ) -> str:
     """
@@ -529,6 +530,7 @@ def _merge_prompt_layers(
     Args:
         agent: Agent name ("aifred", "sokrates", "salomo", or custom agent ID); None for a sub-agent without persona
         task_prompt: The task-specific prompt (already loaded with timestamp)
+        tools: The names of the tools the call has (an explicit list, empty = none): memory and plugin instructions follow it
         lang: Language code (de/en), defaults to current language
         seats: The debate's seats: with them, shared/multi_agent_roles.txt names who sits where
         memory: If True, include memory instructions (False in incognito mode)
@@ -581,7 +583,7 @@ def _merge_prompt_layers(
         parts.append(load_prompt('shared/security_boundary', lang=lang))
 
     # Layer 8: Memory instructions — when the session keeps memory and the call has the memory tools
-    if memory and (tools is None or "store_memory" in tools):
+    if memory and "store_memory" in tools:
         parts.append(load_memory_instructions(lang))
 
     # Layer 9: Personality (if enabled)
@@ -590,18 +592,11 @@ def _merge_prompt_layers(
         parts.append(personality)
 
     # Layer 10: Tool instructions — near the end so the model prioritizes tool use. The plugins'
-    # instructions only for the tools the call really has (``tools``); before the toolkit is built
-    # (None) for the agent's whitelist. Every plugin decides itself which fragments it gives
-    # (load_plugin_instructions) and gives "" when none of its tools is there.
-    from .agent_config import get_agent_config
+    # instructions only for the tools the call really has (``tools``). Every plugin decides itself which
+    # fragments it gives (load_plugin_instructions) and gives "" when none of its tools is there.
     from .plugin_registry import discover_tools
-    if tools is None:
-        assert agent is not None, "a sub-agent's prompt is built with its granted tools"
-        config = get_agent_config(agent)
-        allowed = set(config.tools) if (config and config.tools is not None) else None
-    else:
-        allowed = set(tools)
-    if allowed is None or allowed:
+    allowed = set(tools)
+    if allowed:
         parts.append(load_prompt('shared/tool_instructions', lang=lang))
         if answers_user:   # announcing a tool call is said to the user; a sub-agent speaks to nobody
             parts.append(load_prompt('shared/tool_announce', lang=lang))
@@ -725,11 +720,19 @@ def get_direct_prompt_tokens(
     situation: str | None = None,
 ) -> int:
     """Tokens des System-Prompts, den dieser Agent im nächsten Zug abschickt, bevor sein Werkzeugkasten
-    gebaut ist (Anleitungen nach seiner Whitelist, also die Obergrenze). ``situation``: die des ersten
-    Sprechers (das Symposion hat seine Regeln), sonst die Antwort an den Benutzer."""
+    gebaut ist (Anleitungen nach seiner Werkzeugliste, also die Obergrenze). ``situation``: die des ersten
+    Sprechers (das Symposion hat seine Regeln), sonst die Antwort an den Benutzer.
+
+    Raises:
+        Missing: der Agent hat keinen Eintrag in agents.json"""
+    from .agent_config import get_agent_config
     from .context_manager import count_tokens_with_tokenizer
+
+    config = get_agent_config(agent)
+    if config is None:
+        raise Missing("unknown_agent", agent=agent)
     prompt = agent_system_prompt(
         agent, situation if situation is not None else conversation_situation(lang), lang,
-        answer_channel="browser", external=False, tools=None, memory=memory,
+        answer_channel="browser", external=False, tools=config.tools, memory=memory,
     )
     return count_tokens_with_tokenizer(prompt)

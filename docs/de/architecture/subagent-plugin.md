@@ -158,9 +158,9 @@ Aufrufer zählt die Delegation als ein Werkzeugaufruf.
 `run_task_plan` in der Tool-Liste des Agenten in `agents.json` stehen
 (`agent_memory.py` filtert den Werkzeugkasten auf diese Liste). Kein Sonderfall im
 Code. Stand dieser Datei: AIfred hat beide, Sokrates, Salomo, Pater, Codine, Hal
-und Rabbi haben `delegate_task`, aber nicht `run_task_plan`. Agenten ohne Whitelist
-(`tools` fehlt, wie Vision und Kalibrierung) sehen alle Werkzeuge, die ihre Quelle
-und ihre Stufe zulassen, also auch beide; sie sind Systemagenten und werden nie als
+und Rabbi haben `delegate_task`, aber nicht `run_task_plan`. Die Liste ist Pflicht und
+immer ausdrücklich (`tools` fehlt oder `null`: der Agent wird beim Laden abgelehnt); die
+Systemagenten Vision und Kalibrierung haben eine leere Liste und werden nie als
 Sub-Agent angeboten.
 
 **Plugin-Einstellungen**, gespeichert in der `settings.json` des Plugins und

@@ -280,7 +280,7 @@
         "reasoning": false,
         "thinking": false
       },
-      "tools": null,
+      "tools": [],
       "color": "#56d4dd"
     },
     "pater": {
@@ -531,7 +531,7 @@
         "reasoning": false,
         "thinking": false
       },
-      "tools": null,
+      "tools": [],
       "cloud_provider": "qwen",
       "color": "#7d8590"
     }

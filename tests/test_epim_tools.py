@@ -106,7 +106,7 @@ def test_switched_off_module_disappears_from_tools_and_instructions(tmp_path, mo
     assert "entity_type must be one of" in refused["error"]
 
     monkeypatch.setattr(epim_db, "get_epim_db", lambda: database)
-    text = epim_plugin.get_prompt_instructions("de")
+    text = epim_plugin.get_prompt_instructions("de", set(tools))
     assert "KALENDER: Kalender 1" in text and "TERMINE ÄNDERN" in text
     assert "KONTAKTFELDER" not in text and "PASSWORTBEREICH" not in text
     assert "NOTIZEN ÄNDERN" not in text  # notes are readable only

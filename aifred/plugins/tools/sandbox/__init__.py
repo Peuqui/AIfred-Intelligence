@@ -241,7 +241,7 @@ class SandboxPlugin:
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         return get_sandbox_tools(session_id=ctx.session_id)
 
-    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str]) -> str:
         # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
         from ....lib.plugin_base import load_plugin_instructions
         return load_plugin_instructions(self, lang, granted_tools)

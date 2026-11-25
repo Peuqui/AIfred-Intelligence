@@ -183,7 +183,7 @@ class VisionPlugin:
         await set_armed(False)
 
     def get_prompt_instructions(
-        self, lang: str, granted_tools: set[str] | None = None
+        self, lang: str, granted_tools: set[str]
     ) -> str:
         # Kein Hardcoding — atomare Fragmente pro Tool in prompts/<de|en>/.
         from ....lib.plugin_base import load_plugin_instructions

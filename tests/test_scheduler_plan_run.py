@@ -49,8 +49,9 @@ def environment(tmp_path, monkeypatch):
     monkeypatch.setattr("aifred.lib.file_manager.DOCUMENTS_DIR", tmp_path / "documents")
     monkeypatch.setattr(session_storage, "SESSION_DIR", tmp_path / "sessions")
     monkeypatch.setattr("aifred.lib.settings.load_settings", lambda: {"ui_language": "de"})
-    every_tool = AgentConfig(display_name="Agent", emoji="", description="", role="agent", color="#000000", tools=None)
-    monkeypatch.setattr("aifred.lib.agent_config.get_agent_config", lambda agent_id: every_tool)
+    granted = AgentConfig(display_name="Agent", emoji="", description="", role="agent", color="#000000",
+                          tools=sorted(job_notes.NOTES_TOOLS))
+    monkeypatch.setattr("aifred.lib.agent_config.get_agent_config", lambda agent_id: granted)
     yield
     sched._job_store = None
 

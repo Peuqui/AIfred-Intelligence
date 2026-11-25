@@ -143,10 +143,10 @@ context. For the caller, the delegation counts as one tool call.
 have to be in the agent's tool list in `agents.json` (`agent_memory.py` filters
 the toolkit by this list). No special case in the code. State of this file:
 AIfred has both; Sokrates, Salomo, Pater, Codine, Hal and Rabbi have
-`delegate_task` but not `run_task_plan`. Agents without a whitelist (`tools`
-missing, like Vision and Calibration) see every tool their source and tier
-allow, so both too; they are system agents and are never offered as a
-sub-agent.
+`delegate_task` but not `run_task_plan`. The list is required and always
+explicit (`tools` missing or `null`: the agent is refused when loading); the
+system agents Vision and Calibration have an empty list and are never offered
+as a sub-agent.
 
 **Plugin settings**, stored in the plugin's `settings.json` and reachable
 through the gear icon in the plugin modal:

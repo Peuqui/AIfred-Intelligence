@@ -9,6 +9,7 @@ from aifred.lib.plugin_base import load_plugin_instructions
 READ_ONLY = {"list_files", "read_file", "search_in_file", "search_documents", "list_indexed", "list_orphaned", "chromadb_stats"}
 WRITING = ("write_file", "patch_file", "create_folder", "copy_file", "move_file", "rename", "delete_file",
            "delete_folder", "index_document", "chromadb_clear")
+EVERY_TOOL = READ_ONLY | set(WRITING)
 
 
 @pytest.mark.parametrize("lang", ["de", "en"])
@@ -22,7 +23,7 @@ def test_a_read_only_agent_is_not_told_about_writing_tools(lang: str) -> None:
 @pytest.mark.parametrize("lang", ["de", "en"])
 def test_a_full_toolkit_gets_every_workspace_tool(lang: str) -> None:
     from aifred.plugins.tools.workspace import plugin
-    text = load_plugin_instructions(plugin, lang, None)
+    text = load_plugin_instructions(plugin, lang, EVERY_TOOL)
     assert all(tool in text for tool in WRITING)
 
 
@@ -37,7 +38,7 @@ def test_a_workflow_of_several_tools_comes_after_the_single_tools(lang: str) -> 
     folder = Path(inspect.getfile(plugin.__class__)).parent / "prompts" / lang
     single = (folder / "write_file.txt").read_text(encoding="utf-8").strip()
     workflow = (folder / "write_file+index_document.txt").read_text(encoding="utf-8").strip()
-    text = load_plugin_instructions(plugin, lang, None)
+    text = load_plugin_instructions(plugin, lang, EVERY_TOOL)
     assert text.index(single) < text.index(workflow)
 
 

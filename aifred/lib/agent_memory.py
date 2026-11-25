@@ -29,6 +29,7 @@ from .function_calling import Tool, ToolKit
 from .logging_utils import log_message
 from .plugin_base import load_tool_description, load_tool_parameters
 from .security import TIER_READONLY, TIER_WRITE_DATA
+from .user_error import Missing
 
 # The agent memory tools and their tiers — one list for toolkit, agent
 # editor and tool pills.
@@ -482,8 +483,17 @@ async def prepare_agent_toolkit(
             memory context and tools together with source (in_owner_context)
 
     Returns:
-        (memory_context_str, toolkit) — the memories (a message before the question), combined toolkit.
+        (memory_context_str, toolkit) — the memories (a message before the question), combined toolkit: only the
+        tools the agent's list in agents.json names (none, so no toolkit, for an empty list).
+
+    Raises:
+        Missing: the agent has no entry in agents.json
     """
+    from .agent_config import get_agent_config
+
+    agent_cfg = get_agent_config(agent_id)
+    if agent_cfg is None:   # no entry, no rights: not "every tool"
+        raise Missing("unknown_agent", agent=agent_id)
     all_tools: list[Tool] = []
     memory_tools: list[Tool] = []
     memory_ctx = ""
@@ -537,12 +547,9 @@ async def prepare_agent_toolkit(
     # scheduler job below the owner's tier is still the owner's.
     all_tools = memory_tools + all_tools
 
-    # Per-agent tool whitelist (from agents.json)
-    from .agent_config import get_agent_config
-    agent_cfg = get_agent_config(agent_id)
-    if agent_cfg and agent_cfg.tools is not None:
-        allowed = set(agent_cfg.tools)
-        all_tools = [t for t in all_tools if t.name in allowed]
+    # The agent's rights (agents.json): only the tools its list names
+    allowed = set(agent_cfg.tools)
+    all_tools = [t for t in all_tools if t.name in allowed]
 
     toolkit = ToolKit(
         tools=all_tools,

@@ -101,8 +101,9 @@ result in his answer. If the same plan is to run regularly afterwards, say so: A
 
 Like every tool, `delegate_task` and `run_task_plan` have to be in the agent's tool list in
 `data/agents.json`. AIfred has both. Sokrates, Salomo, Pater, Codine, Hal and Rabbi have `delegate_task` but not
-`run_task_plan`. Agents without a whitelist (no `tools` entry, like Vision and Calibration) see every tool their source
-and tier allow.
+`run_task_plan`. The list is required: an agent with no `tools` entry or with `null` is refused when loading, an empty list
+(like Vision and Calibration) means no tools; a new agent starts with an empty list until someone grants tools in the
+editor. An agent without tools gives its sub-agent only the tools handed over (`extra_tools`).
 
 ## Settings (gear icon in the plugin modal, `settings.json` next to the plugin)
 

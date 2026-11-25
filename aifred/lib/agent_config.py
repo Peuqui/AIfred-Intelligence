@@ -55,6 +55,11 @@ class AgentConfig:
     role: str  # "agent" | "system" (VALID_ROLES)
     color: str  # "#rrggbb": the stripe at the left of its chat bubbles and its name there (AGENT_COLOR_PATTERN)
 
+    # The agent's rights: the names of the tools it may use, always an explicit list. Empty = nothing allowed until
+    # someone grants (a new agent starts so); there is no "every tool" (Peuqui 25.11.2026: a forgotten entry must
+    # never give an agent tools it is not to have). A tool a plugin adds later is not in any list until granted.
+    tools: list[str]
+
     # Prompt file paths relative to prompts/{lang}/
     # Keys: "identity", "personality", "reminder", "memory_context"
     prompts: dict[str, str] = field(default_factory=dict)
@@ -65,9 +70,6 @@ class AgentConfig:
         "reasoning": False,
         "thinking": True,
     })
-
-    # Tool whitelist — None means all tools allowed
-    tools: list[str] | None = None
 
     # Cloud-API provider + model identifier — only meaningful for system
     # agents that call out to a Cloud LLM (e.g. the calibration agent).
@@ -99,6 +101,7 @@ def _default_agents() -> dict[str, dict]:
             "description": "Gentleman-Berater und KI-Butler",
             "role": "agent",
             "color": "#e67700",
+            "tools": [],
             "prompts": {
                 "identity": "aifred/identity.txt",
                 "personality": "aifred/personality.txt",
@@ -117,6 +120,7 @@ def _default_agents() -> dict[str, dict]:
             "description": "Scharfsinniger Philosoph und Kritiker",
             "role": "agent",
             "color": "#cd7f32",
+            "tools": [],
             "prompts": {
                 "identity": "sokrates/identity.txt",
                 "personality": "sokrates/personality.txt",
@@ -135,6 +139,7 @@ def _default_agents() -> dict[str, dict]:
             "description": "Weiser Richter und Synthesist",
             "role": "agent",
             "color": "#daa520",
+            "tools": [],
             "prompts": {
                 "identity": "salomo/identity.txt",
                 "personality": "salomo/personality.txt",
@@ -152,6 +157,7 @@ def _default_agents() -> dict[str, dict]:
             "description": "Vision Language Model fuer Bildanalyse",
             "color": "#56d4dd",
             "role": ROLE_SYSTEM,   # backs the image workflow, no chat partner (as every agents.json has it)
+            "tools": [],           # it runs without a tool loop
             # What the image model reads (it never speaks as an agent): the prompt editor shows these.
             "prompts": {
                 "event_single": "vision/vision_event_single.txt",
@@ -183,7 +189,8 @@ def _default_agents() -> dict[str, dict]:
 
 def config_from_raw(data: dict) -> AgentConfig:
     """The AgentConfig of an entry of agents.json; KeyError names a required field it lacks (display_name, emoji,
-    description, role, color), Invalid a role other than VALID_ROLES or a colour that is no #rrggbb."""
+    description, role, color), Invalid a role other than VALID_ROLES, a colour that is no #rrggbb or a ``tools`` that
+    is no list of names (missing, null: the agent would have had every tool before; an empty list is the way to none)."""
     raw_aliases = data.get("aliases") or []
     aliases = [str(a).strip().lower() for a in raw_aliases if isinstance(a, str) and a.strip()]
     if data["role"] not in VALID_ROLES:
@@ -191,6 +198,9 @@ def config_from_raw(data: dict) -> AgentConfig:
         raise Invalid("agent_role_unknown", agent=data["display_name"], role=data["role"])
     if not re.fullmatch(AGENT_COLOR_PATTERN, data["color"]):
         raise Invalid("agent_color_format", agent=data["display_name"], color=data["color"])
+    tools = data.get("tools")
+    if not isinstance(tools, list) or not all(isinstance(name, str) for name in tools):
+        raise Invalid("agent_tools_format", agent=data["display_name"])
     return AgentConfig(
         display_name=data["display_name"],
         emoji=data["emoji"],
@@ -199,7 +209,7 @@ def config_from_raw(data: dict) -> AgentConfig:
         color=data["color"],
         prompts=data.get("prompts", {}),
         toggles=data.get("toggles", {}),
-        tools=data.get("tools"),
+        tools=tools,
         cloud_provider=data.get("cloud_provider", "qwen"),
         model=data.get("model", ""),
         aliases=aliases,
@@ -355,7 +365,7 @@ def create_agent(
 ) -> AgentConfig:
     """Create a new agent and save to config.
 
-    Also creates prompt template files for the agent.
+    Also creates prompt template files for the agent. The agent starts with no tools (``tools`` empty).
 
     Args:
         agent_id: Unique identifier (lowercase, no spaces)
@@ -394,6 +404,7 @@ def create_agent(
         description=description,
         role=ROLE_AGENT,
         color=color,
+        tools=[],   # a new agent may use nothing until someone grants it in the editor
         prompts=prompts,
     )
 

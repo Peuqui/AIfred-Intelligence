@@ -109,10 +109,11 @@ is chosen by the code (`debate_seats.round_rules`) and goes into `{round_rules}`
 ```python
 from aifred.lib.prompt_loader import agent_system_prompt, conversation_situation, load_prompt
 
-# An agent's system prompt, assembled from its layers: the situation says what it is to do
+# An agent's system prompt, assembled from its layers: the situation says what it is to do; `tools` is the explicit
+# list of the tools the call has (here the agent's own list; empty = no tool layer, there is no "all")
 system_prompt = agent_system_prompt(
     "aifred", conversation_situation("de"), "de",
-    answer_channel="browser", external=False, tools=None, memory=True,
+    answer_channel="browser", external=False, tools=["web_search", "read_file"], memory=True,
 )
 
 # One prompt file with placeholders (prompts/<lang>/<name>.txt)

@@ -634,9 +634,10 @@ class TestPluginMeta:
         monkeypatch.setattr(vp, "VISION_SETTINGS_PATH", tmp_path / "missing.json")
         assert vp.plugin.is_available() is False
 
-    def test_prompt_instructions_both_languages(self, patched_plugin):
-        de = vp.plugin.get_prompt_instructions("de")
-        en = vp.plugin.get_prompt_instructions("en")
+    def test_prompt_instructions_both_languages(self, patched_plugin, ctx):
+        every_tool = {t.name for t in vp.plugin.get_tools(ctx)}
+        de = vp.plugin.get_prompt_instructions("de", every_tool)
+        en = vp.plugin.get_prompt_instructions("en", every_tool)
         assert "Webcam" in de
         assert "webcam" in en.lower()
         assert de != en

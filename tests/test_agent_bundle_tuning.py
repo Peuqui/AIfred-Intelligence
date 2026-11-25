@@ -15,7 +15,7 @@ from aifred.lib.user_error import Invalid
 
 TUNING = {"temperature": 0.7, "top_k": 40, "top_p": 0.9, "min_p": 0.05, "repeat_penalty": 1.1,
           "personality": False, "reasoning": True, "speed_mode": True, "thinking_by_model": {"m": "on"}}
-AGENT = {"display_name": "Codine", "emoji": "🧑‍💻", "description": "", "role": "agent", "color": "#7d8590"}
+AGENT = {"display_name": "Codine", "emoji": "🧑‍💻", "description": "", "role": "agent", "color": "#7d8590", "tools": []}
 
 
 @pytest.fixture

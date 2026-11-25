@@ -347,7 +347,7 @@ def new_agent(world: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyP
             (prompts / lang / agent / "identity.txt").write_text(f"Du bist {name}.", encoding="utf-8")
             (prompts / lang / agent / "personality.txt").write_text(f"{name.upper()}-PERSONA", encoding="utf-8")
         _edit_agents(world, lambda agents: agents.update({agent: {
-            "display_name": name, "emoji": "🧐", "description": name, "role": "agent", "color": "#7d8590",
+            "display_name": name, "emoji": "🧐", "description": name, "role": "agent", "color": "#7d8590", "tools": [],
             "prompts": {"identity": f"{agent}/identity.txt", "personality": f"{agent}/personality.txt"},
         }}))
 

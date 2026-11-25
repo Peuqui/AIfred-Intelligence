@@ -88,7 +88,7 @@ class EpimPlugin:
             return []
         return get_epim_tools(db, source=ctx.source)
 
-    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str]) -> str:
         """Tool fragments for the offered and granted tools, then one fragment
         per readable module (``prompts/<lang>/modules/<module>.txt``) and its
         write fragment (``<module>.write.txt``) when the module is writable
@@ -101,7 +101,7 @@ class EpimPlugin:
         if db is None:
             return ""
         offered = {t.name for t in get_epim_tools(db, source="browser")}
-        granted = offered if granted_tools is None else granted_tools & offered
+        granted = granted_tools & offered
         text = load_plugin_instructions(self, lang, granted)
         if not text:
             return ""

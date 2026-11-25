@@ -93,7 +93,7 @@ def test_modules_shape_tools_and_instructions(monkeypatch):
     assert tools["nextcloud_create"].parameters["properties"]["entity_type"]["enum"] == ["event"]
     assert "error" in _call(tools, "nextcloud_create", entity_type="contact", data={"name": "x"})
     monkeypatch.setattr(store_module, "get_store", lambda: store)
-    text = nextcloud_plugin.plugin.get_prompt_instructions("de")
+    text = nextcloud_plugin.plugin.get_prompt_instructions("de", set(tools))
     assert "TERMINE ÄNDERN" in text and "KONTAKTE:" in text
     assert "AUFGABEN:" not in text
     assert "{upcoming_week}" not in text and "DATUMSREFERENZ" in text
@@ -120,8 +120,9 @@ def test_the_note_after_deleting_follows_its_switch(monkeypatch):
     monkeypatch.setattr(store_module, "get_store", lambda: store)
     plugin = nextcloud_plugin.plugin
     note = "In EPIM und auf dem Handy bleibt er stehen"
-    assert note in plugin.get_prompt_instructions("de")
+    every_tool = {tool.name for tool in get_nextcloud_tools(store)}
+    assert note in plugin.get_prompt_instructions("de", every_tool)
     assert note not in plugin.get_prompt_instructions("de", {"nextcloud_search", "nextcloud_create"})
     store._settings = replace(store.settings, delete_note=False)
-    assert note not in plugin.get_prompt_instructions("de")
+    assert note not in plugin.get_prompt_instructions("de", every_tool)
     store.close()

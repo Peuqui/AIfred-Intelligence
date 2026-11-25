@@ -60,12 +60,12 @@ def sync(job_id: int, name: str) -> tuple[str, str]:
 
 
 def agent_can_keep_notes(agent_id: str) -> bool:
-    """Does the agent have the tools to read and write the notes? A whitelist of tools (the agent's rights) that lacks one
+    """Does the agent have the tools to read and write the notes? A list of tools (the agent's rights) that lacks one
     of them leaves the notes out of its prompt, which would tell it to use what it has not."""
     from .agent_config import get_agent_config
 
     config = get_agent_config(agent_id)
-    return config is not None and (config.tools is None or NOTES_TOOLS <= set(config.tools))
+    return config is not None and NOTES_TOOLS <= set(config.tools)
 
 
 def has_notes(notes_file: str) -> bool:
