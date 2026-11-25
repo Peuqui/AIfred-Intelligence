@@ -159,7 +159,8 @@ async def run_plan(
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Run the plan's parts one after the other; ends with ``{"plan_result": PlanResult}``."""
     outcomes: list[PartOutcome] = []
-    for part in plan.parts:
+    for number, part in enumerate(plan.parts, start=1):
+        yield {"progress": f"▶ Part {number}/{len(plan.parts)} starts: {part.title} ({len(part.positions)} positions)"}
         outcome = PartOutcome(part=part, records=PartRecords(), report="", failure=None, not_checked=[])
         outcomes.append(outcome)
         task = part_task(plan, part, notes_hint, ctx.lang)

@@ -299,6 +299,11 @@ zuerst `_run_plan_parts`, dann den Abschluss.
    dem Block). Alle Bubbles gehen über `record_chat_only_bubble` nur in den Chatverlauf (das Modell sieht sie nie,
    `llm_history` bleibt unberührt) und erreichen offene Tabs sofort als `message_added`. Die Dauer ab 60 s als
    Minuten:Sekunden. Reihenfolge im Verlauf: Start, Teil 1 … Teil N, Anfrage des Abschlusses, Antwort, Zählzeile.
+   **Debug-Konsole der Sitzung.** Jeder Lauf, auch einer ohne Teile, beginnt dort mit einer Kopfzeile („⏰ Horarium job
+   '…' (id=N) starts · agent … · N parts one after the other, then the closing turn“ bzw. „one turn“, `_run_job`); die
+   Engine meldet jeden Teil beim Start („▶ Part 1/4 starts: Titel (N positions)“), der Scheduler sein Ende („✅ Part 1/4
+   '…' done after …“ bzw. „❌ … failed after …: Grund“) und vor dem Abschluss „⏰ All N parts ended · closing turn: …“.
+   Vorher begann die Konsole mit der ersten Zeile des Sub-Agenten und seinem Systemprompt, ohne Hinweis auf den Job.
 7. **Notizen.** Neue Quellen, die die Teile gemeldet haben (`neue_quellen`), trägt der Code als Abschnitt mit Datum in
    die Job-Notizen ein (nur wenn der Job Notizen führt, `_keeps_notes`). `plan_record` nimmt in `neue_quellen` nur
    einzeilige http(s)-Adressen an (alles andere lehnt es ab, `record_error_new_source`). `_append_new_sources` schreibt

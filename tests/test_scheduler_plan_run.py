@@ -463,3 +463,31 @@ def test_a_stop_after_the_parts_writes_the_results_to_the_session_without_delive
     assert sched.get_job_store().recent_runs(job.job_id, 5) == []
     llm = _session_of(_routed_session(run))["llm_history"]
     assert len(llm) == 1 and "ok, billig" in llm[0]["content"] and "abgebrochen" in llm[0]["content"]
+
+
+def test_the_debug_console_says_which_job_starts_every_part_s_end_and_the_closing_turn(monkeypatch) -> None:
+    lines: list[str] = []
+    monkeypatch.setattr("aifred.lib.debug_bus.debug", lines.append)
+    run = Run(monkeypatch)
+    run.scenarios = {"t2": "fail"}
+    second = {"id": "t2", "title": "Teil 2", "task": "Suche", "positions": [{"id": "p3", "name": "Holster"}]}
+    job = _job(parts=[*PAYLOAD["parts"], second])
+    asyncio.run(sched._execute_job(job))
+
+    assert lines == [
+        f"⏰ Horarium job 'Preise' (id={job.job_id}) starts · agent Agent · 2 parts one after the other, then the closing turn",
+        "Teil 1: sucht",
+        "✅ Part 1/2 'Teil 1' done after 10:45 min",
+        "Teil 2: sucht",
+        "❌ Part 2/2 'Teil 2' failed after 10:45 min: Modell weg",
+        "⏰ All 2 parts ended · closing turn: Agent writes the message",
+    ]
+
+
+def test_a_job_without_parts_says_in_the_debug_console_that_it_is_one_turn(monkeypatch) -> None:
+    lines: list[str] = []
+    monkeypatch.setattr("aifred.lib.debug_bus.debug", lines.append)
+    Run(monkeypatch)
+    job = sched.get_job_store().add("Gruß", "interval", "60", {"message": "Sag hallo."})
+    asyncio.run(sched._execute_job(job))
+    assert lines == [f"⏰ Horarium job 'Gruß' (id={job.job_id}) starts · agent Agent · one turn"]

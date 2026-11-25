@@ -51,7 +51,7 @@ after the other, not in parallel. For each part:
 6. The chain limit `SECURITY_MAX_TOOL_CHAIN_DEPTH` (default 100 tool calls) counts per part: every part has its own toolkit
    and so its own counter; the run and the reminder of the same part share it, and every `plan_record` counts.
 
-The events for the caller are `progress` (prefixed with the part's title), `work` and `artifacts` (the sub-agents'
+The events for the caller are `progress` (at the start of each part "▶ Part i/n starts: title (N positions)", then prefixed with the part's title), `work` and `artifacts` (the sub-agents'
 transcripts) as with any tool executor, after every part `{"part_done": PartDone}` (the part's outcome, its transcripts as
 raw artifacts, its run time in seconds; also for a failed part), and last `{"plan_result": PlanResult}`. The chat tool
 `run_task_plan` does not pass `part_done` on.

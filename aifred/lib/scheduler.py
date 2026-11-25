@@ -689,12 +689,19 @@ async def _run_job(job: Job, store: JobStore, session_id: str, channel_id: str, 
     from datetime import datetime
 
     from . import message_processor
+    from .agent_config import agent_display_name
+    from .debug_bus import debug, session_scope
     from .envelope import InboundMessage
     from .message_processor import process_inbound
 
+    # The session's debug console says first what runs here: everything after it belongs to this job.
+    parts = job.payload.get("parts") or []
+    with session_scope(session_id):
+        debug(f"⏰ Horarium job '{job.name}' (id={job.job_id}) starts · agent {agent_display_name(job.agent)} · "
+              + (f"{len(parts)} parts one after the other, then the closing turn" if parts else "one turn"))
     # A job with parts: the parts run first (each a sub-agent), then the closing turn gets what they found.
     plan_run = await _run_plan_parts(job, TaskPlan.from_payload(job.payload), session_id, metadata) \
-        if job.payload.get("parts") else None
+        if parts else None
     msg = InboundMessage(
         channel="scheduler",
         channel_id=channel_id,
@@ -772,8 +779,10 @@ async def _run_plan_parts(job: Job, plan: TaskPlan, session_id: str, metadata: d
     stands for itself. Parts never send: the Horarium delivers. An exception outside the parts (the notes) fails the
     run; a failing part is in the result."""
     from . import job_notes, message_processor
+    from .agent_config import agent_display_name
     from .bubble import render_bubble
     from .debug_bus import debug, session_scope
+    from .formatting import format_duration_s
     from .plan_engine import PlanResult, coverage_line, render_results, run_plan
     from .plugin_base import PluginContext
     from .prompt_loader import get_language, load_prompt
@@ -808,9 +817,16 @@ async def _run_plan_parts(job: Job, plan: TaskPlan, session_id: str, metadata: d
             elif "part_done" in event:
                 done: PartDone = event["part_done"]
                 parts_done += 1
+                failure = done.outcome.failure
+                debug(f"{'❌' if failure is not None else '✅'} Part {parts_done}/{len(plan.parts)} "
+                      f"'{done.outcome.part.title}' {'failed' if failure is not None else 'done'} after "
+                      f"{format_duration_s(done.seconds)}" + (f": {failure}" if failure is not None else ""))
                 post("", _part_bubble_artifacts(done, parts_done, len(plan.parts), lang))
             elif "plan_result" in event:
                 result = event["plan_result"]
+        if result is not None:
+            debug(f"⏰ All {len(plan.parts)} parts ended · closing turn: {agent_display_name(job.agent)} "
+                  "writes the message")
     if result is None:
         raise RuntimeError(f"Plan of job '{job.name}' ended without a result")
 

@@ -297,6 +297,11 @@ silently otherwise. The plan only runs when `parts` is not empty.
    chat history only (the model never sees them, `llm_history` is untouched) and reach open tabs at once as
    `message_added`. Durations from 60 s on are shown as minutes:seconds. Order in the history: start, part 1 ... part N,
    the closing turn's request, its answer, the count line.
+   **The session's debug console.** Every run, also one without parts, starts there with a header line ("⏰ Horarium job
+   '...' (id=N) starts · agent ... · N parts one after the other, then the closing turn" or "one turn", `_run_job`); the
+   engine reports each part as it starts ("▶ Part 1/4 starts: title (N positions)"), the scheduler its end ("✅ Part 1/4
+   '...' done after ..." or "❌ ... failed after ...: reason") and before the closing turn "⏰ All N parts ended · closing
+   turn: ...". Before, the console began with the sub-agent's first line and its system prompt, with no word of the job.
 7. **Notes.** The code enters new sources the parts reported (`neue_quellen`) as a dated section in the job's notes (only
    if the job keeps notes, `_keeps_notes`). `plan_record` accepts only single-line http(s) addresses in `neue_quellen`
    (it rejects anything else, `record_error_new_source`). `_append_new_sources` writes only those the notes do not name

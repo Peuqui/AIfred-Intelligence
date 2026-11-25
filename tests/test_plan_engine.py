@@ -248,7 +248,9 @@ def test_g_progress_work_and_artifacts_are_passed_on_but_not_the_session_result(
     assert "result" not in kinds
     assert kinds.count("work") == 2 and kinds.count("artifacts") == 2 and kinds[-1] == "plan_result"
     progress = [event["progress"] for event in events if "progress" in event]
-    assert progress and all(line.startswith(("Teil 1: ", "Teil 2: ")) for line in progress)
+    starts = [line for line in progress if line.startswith("▶")]
+    assert starts == ["▶ Part 1/2 starts: Teil 1 (2 positions)", "▶ Part 2/2 starts: Teil 2 (2 positions)"]
+    assert all(line.startswith(("Teil 1: ", "Teil 2: ")) for line in progress if line not in starts)
     assert any(line.endswith("plan_record") for line in progress)
 
 
@@ -304,7 +306,7 @@ def test_j_every_part_ends_with_its_own_event_before_the_next_part_starts(ctx: P
     # the part's event follows its own artifacts and precedes the next part's progress
     first_done = kinds.index("part_done")
     assert "artifacts" in kinds[:first_done] and "Teil 2" not in str([e for e in events[:first_done] if "progress" in e])
-    assert events[first_done + 1].get("progress", "Teil 2: ").startswith("Teil 2: ")
+    assert events[first_done + 1] == {"progress": "▶ Part 2/3 starts: Teil 2 (2 positions)"}
     # each part's transcripts are exactly the artifacts events of that part
     own = [event["artifacts"] for event in events[:first_done] if "artifacts" in event]
     assert dones[0].artifacts == [artifact for batch in own for artifact in batch] and len(dones[0].artifacts) == 1
