@@ -40,7 +40,7 @@ Jeder Dienst steht auf `off`, `read` oder `write` (gemeinsamer Baustein `aifred/
 
 Die Stufe setzt AIfred selbst durch, nicht Google:
 
-- **Aus:** keine Werkzeuge, keine Berechtigung bei Google; Drive aus nimmt Drive auch aus dem Dokumentenfenster.
+- **Aus:** keine Werkzeuge, keine Berechtigung bei Google; Drive aus nimmt Drive auch von der Dokumentenseite.
 - **Lesen:** nur die Lesewerkzeuge (`READ_TOOL_NAMES` in der `tools.py` des Dienstes). Die schreibenden stehen nicht im Werkzeugkasten; ruft das Modell trotzdem eines auf, lehnt die Ausführung es als unbekanntes Werkzeug ab. Drive im Dokumentenfenster: ansehen und herunterladen, kein Upload-Feld, und die Quelle lehnt `upload()` ab.
 - **Lesen und Schreiben:** alle Werkzeuge des Dienstes, Upload ins Drive.
 
@@ -229,48 +229,59 @@ er fehlt.
 - **Nichts außerhalb:** Jede `file_id` oder `folder_id` außerhalb des Agenten-Ordners wird mit einer Fehlermeldung abgewiesen. Ohne `folder_id` gilt der Agenten-Ordner. Die Suche liefert nur Treffer von innen.
 - Die Grenze wird bei jedem Aufbau des Toolkits neu bestimmt; eine umbenannte Einstellung oder ein inzwischen angelegter Ordner gilt ab dem nächsten Turn.
 - Gibt es mehrere gleichnamige Ordner in „Meine Ablage“, ist die Grenze nicht eindeutig und die Tools melden einen Fehler; ein leerer Einstellungswert ebenso.
-- Das **Dokumentenfenster** des Anwenders geht nicht durch diese Grenze: Es sieht das ganze Drive (siehe unten).
+- Die **Dokumentenseite** des Anwenders geht nicht durch diese Grenze: Es sieht das ganze Drive (siehe unten).
 
-## Drive im Dokumentenfenster
+## Drive auf der Dokumentenseite
 
-**Dateien:** `aifred/lib/document_sources.py`, `aifred/plugins/tools/google_suite/drive/source.py`, `aifred/state/_document_mixin.py`, `aifred/ui/modals/documents.py`, `aifred/lib/api/documents.py`
+**Dateien:** `aifred/lib/document_sources.py`, `aifred/plugins/tools/google_suite/drive/source.py`, `aifred/lib/file_areas.py`, `aifred/lib/source_ops.py`, `aifred/lib/api/files.py`
 
-Steht Drive mindestens auf „Lesen“ und ist Google mit dem Drive-Recht verbunden, erscheint im
-Dokumentenfenster neben dem lokalen Ordner eine zweite Quelle „Google Drive“
-(Umschalter oben). Es ist eine Live-Ansicht, kein Abbild des Drives.
+Steht Drive mindestens auf „Lesen“ und ist Google mit dem Drive-Recht verbunden, erscheint auf der
+Dokumentenseite neben dem lokalen Ordner eine zweite Quelle „Google Drive“
+(Auswahl oben). Es ist eine Live-Ansicht, kein Abbild des Drives. Die Seite zeigt sie wie jede
+Quelle im Datei-Browser (VueFinder) als Bereich `source-google_drive`, die Vorschau der angeklickten Datei steht rechts daneben.
 
 | Funktion | Verhalten |
 |----------|-----------|
-| Durchsuchen | Ordner öffnen, Pfad-Leiste, Hoch/Wurzel; Aktualisieren-Schaltfläche. Ohne Ordner-Auswahl beginnt die Ansicht in „Meine Ablage“ |
-| Suche | Eingabefeld in der Werkzeugleiste, durchsucht das ganze Drive nach Dateiname und Volltext (höchstens 100 Treffer, nach Relevanz) |
-| Download | Pfeil-Symbol je Datei; die Datei wird gestreamt; eine HTML-Seite wird mit den Bibliotheken, die sie lädt, zu einer eigenständigen Datei zusammengesetzt (`GET /api/documents/source/{key}/file/{id}`, Login-Cookie). 404 bei unbekannter Quelle, 502 bei Fehler der Quelle |
+| Durchsuchen | Ordner öffnen, Pfad-Leiste des Datei-Browsers. Die Ansicht beginnt in „Meine Ablage“ |
+| Suche | Suchfeld des Datei-Browsers, durchsucht das ganze Drive nach Dateiname und Volltext (höchstens 100 Treffer, nach Relevanz) |
+| Vorschau | Klick auf eine Datei zeigt sie rechts: Text, Markdown, Tabellen, Bild, PDF, HTML-Seite (im Sandkasten), Audio und Video; „In neuem Tab öffnen“ steht dabei. Die Quelle liefert die Datei gestreamt (`/api/files/source-google_drive/preview` und `/text`) |
+| Download | Kontextmenü des Datei-Browsers; die Datei wird gestreamt; eine HTML-Seite wird mit den Bibliotheken, die sie lädt, zu einer eigenständigen Datei zusammengesetzt (`GET /api/files/source-google_drive/download`, Login-Cookie). 404 bei unbekannter Quelle, 502 bei Fehler der Quelle |
 | Export | Googles eigene Formate haben keine Datei und werden exportiert: Docs → `.docx`, Sheets → `.xlsx`, Slides → `.pptx`, Zeichnungen → `.pdf`. Andere Google-Formate und Ordner sind nicht herunterladbar |
-| Upload | Nur bei Drive auf „Lesen und Schreiben“: Der Upload des Dokumentenfensters lädt in den gerade geöffneten Drive-Ordner (Wurzel: „Meine Ablage“); es gilt dieselbe Größenobergrenze wie lokal (`DOCUMENT_MAX_FILE_SIZE_MB`). Bei „Lesen“ fehlt das Upload-Feld, und die Quelle lehnt `upload()` ab |
+| Upload | Nur bei Drive auf „Lesen und Schreiben“: Der Upload des Datei-Browsers lädt in den gerade geöffneten Drive-Ordner (Wurzel: „Meine Ablage“), jede Dateiart, und indexiert nichts. Bei „Lesen“ fehlt der Upload, und die Quelle lehnt `upload()` ab |
+| Indexieren | Kontextmenü „Indexieren“ je Datei oder Ordner, wie bei jeder Quelle; am Symbol steht, wie viele Abschnitte der Datei im Index sind |
 
-Nicht verfügbar für Drive-Zeilen: Indexieren, Umbenennen, Löschen und Vorschau — das bleibt
-dem lokalen Ordner vorbehalten.
+Nicht verfügbar für Drive: Ordner anlegen, Umbenennen, Verschieben, Kopieren und Löschen. Drive
+erfüllt nur das Protokoll `DocumentSource`, nicht `EditableDocumentSource` (siehe unten); der
+Datei-Browser bietet diese Aktionen deshalb gar nicht erst an.
 
 ### Architektur: Dokumentenquellen
 
-Das Dokumentenfenster kennt keine Plugins. Ein Tool-Plugin bietet eine Quelle über das
+Die Dokumentenseite kennt keine Plugins. Ein Tool-Plugin bietet eine Quelle über das
 optionale Attribut `document_source` an (ein Objekt, das das Protokoll `DocumentSource` aus
 `aifred/lib/document_sources.py` erfüllt, oder `None`, solange das Plugin sie nicht anbietet).
 `document_sources()` sammelt sie bei den aktivierten, verfügbaren Plugins ein; ein
 deaktiviertes Plugin bietet schlicht keine Quelle an (Plugin-Atomarität, der Kern importiert
-kein Plugin).
+kein Plugin). Jede Quelle ist ein Bereich der Datei-API (`source-<key>`, `file_areas.file_area`); ihre
+Arbeit macht `SourceOps` (`aifred/lib/source_ops.py`), die erlaubten Aktionen leitet `source_actions` aus dem ab, was die
+Quelle selbst kann.
 
 | Teil | Aufgabe |
 |------|---------|
-| `key`, `label(lang)` | stabile Kennung (`google_drive`) und Name im Umschalter |
-| `writable` | `False`: das Dokumentenfenster zeigt kein Upload-Feld, `upload()` lehnt ab |
+| `key`, `label(lang)` | stabile Kennung (`google_drive`) und Name in der Quellenauswahl |
+| `writable` | `False`: kein Upload (und keine Änderungen), `upload()` lehnt ab |
 | `list_folder(folder_id)` | Ordnerinhalt; Ordner werden über IDs angesprochen, `""` = Wurzel |
 | `search(query)` | Suche über die ganze Quelle |
 | `download(file_id)` | gestreamter Download (`SourceDownload`) |
 | `upload(folder_id, name, data, mime)` | Datei hochladen (nur bei `writable`) |
 
-Quellen werfen nur `DocumentSourceError` (Meldung für den Anwender, erscheint als Toast).
-Der Zustand (aktive Quelle, Ordnerpfad, Suchbegriff) liegt in `_document_mixin.py`.
-Eine weitere Quelle (z. B. Nextcloud) braucht damit nur ein Plugin mit `document_source`.
+Dazu das Protokoll `EditableDocumentSource` für eine Quelle, die auch ändern kann: `create_folder`,
+`rename`, `delete`, `move`, `copy`, jede Methode antwortet mit der ID, die der Eintrag danach hat. Hat die Quelle diese Methoden und ist
+`writable`, bietet der Datei-Browser die Aktionen an (Nextcloud: alle), sonst nicht; der Kern führt keine Liste
+der Quellen, die das können. Der Suchindex zieht bei Umbenennen und Verschieben mit und verliert beim Löschen die Abschnitte.
+
+Quellen werfen nur `DocumentSourceError` (Meldung für den Anwender, HTTP 502).
+Die gewählte Quelle merkt sich der Store der Seite (`frontend/src/stores/documents.ts`); die Listen und Änderungen
+laufen über den Datei-Browser. Eine weitere Quelle (z. B. Nextcloud) braucht damit nur ein Plugin mit `document_source`.
 
 ### Parameter `google_drive_search`
 

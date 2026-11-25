@@ -178,7 +178,7 @@ test("the button indexes the folder shown: the path VueFinder reports, everythin
 });
 
 test("a source's folder goes to that source's index endpoint, and the area's own name is the source's label", async () => {
-  sources = [{ key: "local", label: "Dokumente", writable: true }, { key: "nextcloud_files", label: "Nextcloud", writable: true }];
+  sources = [{ key: "local", label: "Dokumente" }, { key: "nextcloud_files", label: "Nextcloud" }];
   const wrapper = await page(500);
   expect(wrapper.find(".browser").attributes("data-label")).toBe("Dokumente");
   await wrapper.find(".source select").setValue("nextcloud_files");
@@ -200,7 +200,7 @@ test("the second button opens the index care, which lists the folder again when 
 });
 
 test("the path is copied only in the local folder", async () => {
-  sources = [{ key: "local", label: "Dokumente", writable: true }, { key: "nextcloud_files", label: "Nextcloud", writable: true }];
+  sources = [{ key: "local", label: "Dokumente" }, { key: "nextcloud_files", label: "Nextcloud" }];
   const wrapper = await page(500);
   expect(wrapper.find(".browser").attributes("data-menu")).toBe("aifred_index,aifred_index_folder,aifred_deindex,aifred_copy_path");
   await wrapper.find(".source select").setValue("nextcloud_files");

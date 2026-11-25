@@ -1,119 +1,26 @@
-"""Documents for the Vue app's documents page: the local folder (data/documents/, lib.file_manager) and
-the further sources the enabled plugins offer (lib.document_sources, e.g. Nextcloud): browsing,
-uploading, indexing (lib.document_indexing, a server job the page asks about) and downloading.
+"""Documents for the Vue app's documents page: what the search index does with the files the file browser shows
+(the local documents folder, data/documents/, and the further sources the enabled plugins offer, lib.document_sources,
+e.g. Nextcloud). Browsing, uploading, previewing and downloading are the file API's (``/files/{area}``, api/files.py):
+this module has the list of the sources, indexing (lib.document_indexing, a server job the page asks about),
+taking files out of the index, and the care of the index.
 
-An upload into the local folder is indexed by itself; one into a source is not: a source's files sit
-behind a higher tier than the search, so indexing one stays the user's decision per file or folder.
-
-The document manager links to a source's file here (e.g. Google Drive); it streams through as it
-comes. Login cookie required like every API path (app middleware).
+Files indexed from a source stay at the source: they sit behind a higher tier than the search, so indexing one is the
+user's decision per file or folder. Login cookie required like every API path (app middleware).
 """
 import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
-from urllib.parse import quote
+from typing import Any
 
-from fastapi import Form, UploadFile
-from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import document_indexing
 from .. import file_manager as fm
-from ..document_sources import DocumentSource, DocumentSourceError, get_document_source
+from ..document_sources import DocumentSource, get_document_source
 from ..formatting import format_stamp
 from ..logging_utils import log_message
-from ..prompt_loader import get_language
-from ..user_error import Invalid, Missing, Unavailable
+from ..user_error import Unavailable
 from .app import api_app
-from .file_download import (
-    download_response,
-    source_response,
-    view_response,
-)
-from .file_preview import (
-    DocumentPreview,
-    preview_of_download,
-    preview_of_file,
-)
-
-
-@api_app.get("/documents/source/{source_key}/file/{file_id:path}", tags=["Documents"])
-async def document_source_file(source_key: str, file_id: str, inline: bool = False) -> Response:
-    """Download one file of a document source (409 plugin off, 404 unknown source, 502 source failed). The id may hold
-    slashes: Nextcloud's is the file's path. ``inline``: as the browser shows it (a page sandboxed, see view_response)."""
-    download = await get_document_source(source_key).download(file_id)
-    log_message(f"📄 Document {'view' if inline else 'download'} from {source_key}: {download.name}")
-    return await source_response(download, inline=inline)
-
-
-@api_app.get("/documents/local/download", tags=["Documents"])
-async def documents_download(path: str, inline: bool = False) -> Response:
-    """A file of the documents folder as a download; an HTML page as one standalone file with the libraries it loads
-    written into it, so it works opened anywhere. ``inline``: as the browser shows it (a page sandboxed)."""
-    file, problem = fm.safe_resolve(path)
-    if problem:
-        raise problem
-    assert file is not None
-    if not file.is_file():
-        raise Missing("file_not_found", path=path)
-    return await asyncio.to_thread(view_response if inline else download_response, file)
-
-
-# ── The local folder ─────────────────────────────────────────────────────
-
-
-class DocumentRow(BaseModel):
-    name: str
-    type: Literal["file", "folder"]
-    size: str
-    created: str
-    modified: str
-    indexed: bool
-    chunks: int = Field(description="Sections in the search index")
-    indexable: bool = Field(description="A file the search index has a parser for (false for a folder)")
-    file_count: int = Field(description="Files below a folder (0 for a file)")
-
-
-class DocumentFolder(BaseModel):
-    folder: str = Field(description='Relative to the documents folder, "" its root')
-    items: list[DocumentRow]
-
-
-class DocumentNewFolder(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    parent: str = ""
-    name: str
-
-
-class DocumentRenaming(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    folder: str = ""
-    old: str
-    new: str
-
-
-class DocumentDeletion(BaseModel):
-    """Files and folders of one folder, from the disk and/or from the search index."""
-
-    model_config = ConfigDict(extra="forbid")
-    folder: str = ""
-    files: list[str] = Field(default_factory=list)
-    folders: list[str] = Field(default_factory=list, description="Deleted with everything below")
-    from_disk: bool = True
-    from_index: bool = True
-
-
-class DocumentDeletionFailed(BaseModel):
-    name: str
-    reason: str
-
-
-class DocumentsDeleted(BaseModel):
-    deleted: int
-    chunks_removed: int
-    failed: list[DocumentDeletionFailed]
-    listing: DocumentFolder
 
 
 def _done(result: fm.FileOpResult) -> fm.FileOpResult:
@@ -124,77 +31,7 @@ def _done(result: fm.FileOpResult) -> fm.FileOpResult:
     return result
 
 
-async def _listing(folder: str) -> DocumentFolder:
-    result = _done(await asyncio.to_thread(fm.list_directory, folder))
-    return DocumentFolder(
-        folder=folder,
-        items=[DocumentRow(**item) for item in result.metadata["items"]],
-    )
-
-
-@api_app.get("/documents/local", response_model=DocumentFolder, tags=["Documents"])
-async def documents_local(folder: str = "") -> DocumentFolder:
-    """Files and subfolders of ``folder`` with their place in the search index."""
-    return await _listing(folder)
-
-
-@api_app.post("/documents/local/folders", response_model=DocumentFolder, tags=["Documents"])
-async def documents_new_folder(new: DocumentNewFolder) -> DocumentFolder:
-    """A new subfolder of ``parent``; answers with the parent's listing."""
-    _done(await asyncio.to_thread(fm.create_folder, new.parent, new.name))
-    return await _listing(new.parent)
-
-
-@api_app.post("/documents/local/rename", response_model=DocumentFolder, tags=["Documents"])
-async def documents_rename(renaming: DocumentRenaming) -> DocumentFolder:
-    """A file or folder renamed; the search index follows (what is indexed stays findable)."""
-    _done(await asyncio.to_thread(fm.rename, renaming.folder, renaming.old, renaming.new, sync_index=True))
-    return await _listing(renaming.folder)
-
-
-@api_app.post("/documents/local/delete", response_model=DocumentsDeleted, tags=["Documents"])
-async def documents_delete(deletion: DocumentDeletion) -> DocumentsDeleted:
-    """Every named file and folder of ``folder``, one by one: one that fails is reported and the rest
-    still goes. Answers with the folder's listing."""
-    failed: list[DocumentDeletionFailed] = []
-    chunks = 0
-    for name, is_folder in [(name, False) for name in deletion.files] + [(name, True) for name in deletion.folders]:
-        if is_folder:
-            result = await fm.delete_folder(
-                deletion.folder, name, recursive=True, from_disk=deletion.from_disk, from_index=deletion.from_index,
-            )
-        else:
-            result = await fm.delete_file(deletion.folder, name, from_disk=deletion.from_disk, from_index=deletion.from_index)
-        chunks += int(result.metadata.get("chunks_removed", 0))
-        if not result.success:
-            failed.append(DocumentDeletionFailed(name=name, reason=result.said(get_language())))
-    total = len(deletion.files) + len(deletion.folders)
-    log_message(f"🗑️ Documents: {total - len(failed)}/{total} deleted in {deletion.folder or '/'} ({chunks} sections from the index)")
-    return DocumentsDeleted(deleted=total - len(failed), chunks_removed=chunks, failed=failed, listing=await _listing(deletion.folder))
-
-
-@api_app.get("/documents/local/preview", response_model=DocumentPreview, tags=["Documents"])
-async def documents_preview(path: str) -> DocumentPreview:
-    """The text of a document as its parser reads it (the one the search index uses)."""
-    file, problem = fm.safe_resolve(path)
-    if problem:
-        raise problem
-    assert file is not None
-    if not file.is_file():
-        raise Missing("file_not_found", path=path)
-    return await preview_of_file(file)
-
-
-@api_app.get("/documents/source/{source_key}/preview/{file_id:path}", response_model=DocumentPreview, tags=["Documents"])
-async def document_source_preview(source_key: str, file_id: str) -> DocumentPreview:
-    """The text of a file of a document source as the search index's parser reads it (409 plugin off, 404 unknown
-    source, 502 source failed, 422 no parser or a damaged file)."""
-    download = await get_document_source(source_key).download(file_id)
-    log_message(f"📄 Document preview from {source_key}: {download.name}")
-    return await preview_of_download(download)
-
-
-# ── Uploading and indexing ───────────────────────────────────────────────
+# ── Indexing ─────────────────────────────────────────────────────────
 
 
 class DocumentIndexFailure(BaseModel):
@@ -214,18 +51,6 @@ class DocumentIndexProgress(BaseModel):
     failed: list[DocumentIndexFailure]
 
 
-class DocumentUploadRejected(BaseModel):
-    name: str
-    reason: str
-
-
-class DocumentsUploaded(BaseModel):
-    saved: list[str] = Field(description="Paths of the saved files; they are queued for indexing")
-    rejected: list[DocumentUploadRejected]
-    listing: DocumentFolder
-    indexing: DocumentIndexProgress
-
-
 class DocumentIndexing(BaseModel):
     """Files of one folder to index, and folders indexed with every readable file below them."""
 
@@ -235,6 +60,15 @@ class DocumentIndexing(BaseModel):
     folders: list[str] = Field(default_factory=list)
 
 
+class LocalDeindexing(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    files: list[str] = Field(description="Paths from the root of the documents folder")
+
+
+class Deindexed(BaseModel):
+    chunks_removed: int
+
+
 def _index_progress() -> DocumentIndexProgress:
     progress = document_indexing.progress()
     return DocumentIndexProgress(
@@ -242,25 +76,6 @@ def _index_progress() -> DocumentIndexProgress:
         indexed=progress.indexed, chunks=progress.chunks,
         failed=[DocumentIndexFailure(path=failure.path, reason=failure.reason) for failure in progress.failed],
     )
-
-
-@api_app.post("/documents/local/upload", response_model=DocumentsUploaded, tags=["Documents"])
-async def documents_upload(files: list[UploadFile], folder: str = Form("")) -> DocumentsUploaded:
-    """Files into ``folder`` (one there under the same name is replaced). Every saved file is queued
-    for indexing, so the search finds it; one that is refused (type, name) does not stop the rest."""
-    saved: list[str] = []
-    rejected: list[DocumentUploadRejected] = []
-    for file in files:
-        name = file.filename or ""
-        result = await asyncio.to_thread(fm.save_upload, folder, name, await file.read())
-        if result.success:
-            saved.append(result.metadata["rel_path"])
-        else:
-            rejected.append(DocumentUploadRejected(name=name, reason=result.said(get_language())))
-    log_message(f"📄 Documents: {len(saved)} uploaded to {folder or '/'}, {len(rejected)} refused")
-    if saved:
-        document_indexing.queue_files([document_indexing.local_item(path) for path in saved])
-    return DocumentsUploaded(saved=saved, rejected=rejected, listing=await _listing(folder), indexing=_index_progress())
 
 
 @api_app.post("/documents/local/index", response_model=DocumentIndexProgress, tags=["Documents"])
@@ -274,6 +89,17 @@ async def documents_index(indexing: DocumentIndexing) -> DocumentIndexProgress:
     if paths:
         document_indexing.queue_files([document_indexing.local_item(path) for path in paths])
     return _index_progress()
+
+
+@api_app.post("/documents/local/deindex", response_model=Deindexed, tags=["Documents"])
+async def documents_local_deindex(deindexing: LocalDeindexing) -> Deindexed:
+    """Files of the documents folder out of the search index; they stay on the disk."""
+    removed = 0
+    for path in deindexing.files:
+        result = _done(await fm.deindex_file(path))
+        removed += int(result.metadata.get("chunks_removed", 0))
+    log_message(f"📤 Documents: {len(deindexing.files)} local files out of the index ({removed} sections)")
+    return Deindexed(chunks_removed=removed)
 
 
 @api_app.get("/documents/index", response_model=DocumentIndexProgress, tags=["Documents"])
@@ -369,7 +195,7 @@ async def documents_index_overview() -> IndexOverview:
 @api_app.post("/documents/index/orphans/remove", response_model=IndexOverview, tags=["Documents"])
 async def documents_index_orphans_remove(removal: OrphansRemoval) -> IndexOverview:
     """Take orphaned entries out of the index. Only entries that are orphans right now: a file still on
-    disk is taken out of the index through the delete of the folder listing, not here."""
+    disk is taken out of the index through its area's deindex, not here."""
     orphans = {entry["filename"] for entry in _done(await asyncio.to_thread(fm.list_orphaned)).metadata["orphans"]}
     for filename in removal.filenames:
         if filename in orphans:
@@ -412,27 +238,6 @@ async def documents_index_clear() -> IndexCleared:
 class DocumentSourceInfo(BaseModel):
     key: str = Field(description='"local" for the documents folder, else the source of a plugin')
     label: str
-    writable: bool = Field(description="Takes uploads")
-
-
-class SourceRow(BaseModel):
-    id: str
-    name: str
-    type: Literal["file", "folder"]
-    size: str
-    modified: str
-    indexable: bool = Field(description="A file the search index has a parser for (false for a folder)")
-    indexed: bool
-    chunks: int
-    download_url: str
-
-
-class SourceListing(BaseModel):
-    source: str
-    folder_id: str = Field(description='The listed folder, "" the source\'s root')
-    query: str = Field(description="The search these are the hits of, empty for a folder listing")
-    writable: bool
-    items: list[SourceRow]
 
 
 class SourceFile(BaseModel):
@@ -454,15 +259,6 @@ class SourceDeindexing(BaseModel):
     file_ids: list[str]
 
 
-class SourceDeindexed(BaseModel):
-    chunks_removed: int
-
-
-class SourceUploaded(BaseModel):
-    saved: list[str] = Field(description="Names of the files the source took")
-    rejected: list[DocumentUploadRejected]
-
-
 def _source(key: str) -> DocumentSource:
     """The source of an enabled plugin; 409 when its plugin is off, 404 when none offers it (unknown or not connected)."""
     return get_document_source(key)
@@ -476,70 +272,16 @@ async def documents_sources() -> list[DocumentSourceInfo]:
     from ..prompt_loader import get_language
 
     lang = get_language()
-    return [DocumentSourceInfo(key="local", label=t("doc_source_local", lang=lang), writable=True)] + [
-        DocumentSourceInfo(key=key, label=source.label(lang), writable=source.writable)
+    return [DocumentSourceInfo(key="local", label=t("doc_source_local", lang=lang))] + [
+        DocumentSourceInfo(key=key, label=source.label(lang))
         for key, source in document_sources().items()
     ]
-
-
-@api_app.get("/documents/source/{source_key}", response_model=SourceListing, tags=["Documents"])
-async def documents_source_listing(source_key: str, folder_id: str = "", query: str = "") -> SourceListing:
-    """A folder of a source (``folder_id`` "" = its root), or the hits of a search over the whole source."""
-    source = _source(source_key)
-    entries = await (source.search(query) if query else source.list_folder(folder_id))
-    indexed = await asyncio.to_thread(fm.chunks_per_document)
-    rows = []
-    for entry in entries:
-        state = fm.source_index_state(source_key, entry, indexed)
-        rows.append(SourceRow(
-            id=entry.id, name=entry.name, type="folder" if entry.is_folder else "file",
-            size=fm.format_size(entry.size_bytes) if entry.size_bytes is not None else "",
-            modified=format_stamp(datetime.fromisoformat(entry.modified).timestamp()) if entry.modified else "",
-            indexable=state.indexable, indexed=state.chunks > 0, chunks=state.chunks,
-            download_url=f"/api/documents/source/{source_key}/file/{quote(entry.id, safe='/')}",
-        ))
-    return SourceListing(source=source_key, folder_id=folder_id, query=query, writable=source.writable, items=rows)
-
-
-@api_app.post("/documents/source/{source_key}/upload", response_model=SourceUploaded, tags=["Documents"])
-async def documents_source_upload(source_key: str, files: list[UploadFile], folder_id: str = Form("")) -> SourceUploaded:
-    """Files into a folder of a writable source (422 for one that is not). Nothing is indexed: that is
-    the user's decision per file. Only the types the search index reads are taken, as locally."""
-    import mimetypes
-
-    from ..config import DOCUMENT_ALLOWED_EXTENSIONS
-
-    source = _source(source_key)
-    if not source.writable:
-        raise Invalid("source_takes_no_uploads", source=source_key)
-    saved: list[str] = []
-    rejected: list[DocumentUploadRejected] = []
-    for file in files:
-        name = Path(file.filename or "").name
-        suffix = Path(name).suffix.lower()
-        if suffix not in DOCUMENT_ALLOWED_EXTENSIONS:
-            allowed = ", ".join(sorted(DOCUMENT_ALLOWED_EXTENSIONS))
-            refused = Invalid("type_not_allowed", name=name, type=suffix or "(none)", allowed=allowed)
-            rejected.append(DocumentUploadRejected(name=name, reason=refused.message(get_language())))
-            continue
-        data = await file.read()
-        mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
-        try:
-            await source.upload(folder_id, name, data, mime)
-        except DocumentSourceError as failed:
-            rejected.append(DocumentUploadRejected(name=name, reason=failed.message(get_language())))
-            continue
-        saved.append(name)
-    log_message(f"📄 Documents: {len(saved)} uploaded to {source_key}, {len(rejected)} refused")
-    return SourceUploaded(saved=saved, rejected=rejected)
 
 
 @api_app.post("/documents/source/{source_key}/index", response_model=DocumentIndexProgress, tags=["Documents"])
 async def documents_source_index(source_key: str, indexing: SourceIndexing) -> DocumentIndexProgress:
     """Queue files and folders of a source for indexing (folders with every file below them the index
     can read). The files stay at the source; the index keeps their text."""
-    from pathlib import Path
-
     from ..document_sources import files_below
     from ..document_store import PARSERS
 
@@ -556,8 +298,8 @@ async def documents_source_index(source_key: str, indexing: SourceIndexing) -> D
     return _index_progress()
 
 
-@api_app.post("/documents/source/{source_key}/deindex", response_model=SourceDeindexed, tags=["Documents"])
-async def documents_source_deindex(source_key: str, deindexing: SourceDeindexing) -> SourceDeindexed:
+@api_app.post("/documents/source/{source_key}/deindex", response_model=Deindexed, tags=["Documents"])
+async def documents_source_deindex(source_key: str, deindexing: SourceDeindexing) -> Deindexed:
     """Files of a source out of the search index; they stay at the source. Works with the plugin off too."""
     from ..document_sources import require_known_document_source, source_index_name
 
@@ -567,4 +309,4 @@ async def documents_source_deindex(source_key: str, deindexing: SourceDeindexing
         result = await fm.deindex_file(source_index_name(source_key, file_id))
         removed += int(result.metadata.get("chunks_removed", 0))
     log_message(f"📤 Documents: {len(deindexing.file_ids)} files of {source_key} out of the index ({removed} sections)")
-    return SourceDeindexed(chunks_removed=removed)
+    return Deindexed(chunks_removed=removed)

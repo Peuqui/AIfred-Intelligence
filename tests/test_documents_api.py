@@ -1,8 +1,7 @@
-"""The local documents folder over the API (Vue documents page, lib/file_manager.py): listing with the
-place in the search index, new folder, rename, delete from disk and/or index (one failing name does
-not stop the rest), preview through the index's parser, uploading and indexing as a server job
-(lib/document_indexing.py); nothing outside the folder. The folder is a temporary one, the search
-index a stand-in."""
+"""The search index of the local documents folder over the API (Vue documents page, lib/file_manager.py):
+indexing files and folders as a server job (lib/document_indexing.py), taking files out of the index while they stay
+on the disk, and the care of the index (orphans, clear). Browsing, uploading, previewing and downloading are the file
+API's (tests/test_files_api.py). The folder is a temporary one, the search index a stand-in."""
 
 from __future__ import annotations
 
@@ -75,57 +74,6 @@ def client(documents: tuple[Path, _Index]) -> Iterator[TestClient]:
         yield test_client
 
 
-def _names(listing: dict[str, object]) -> list[tuple[str, str]]:
-    items = listing["items"]
-    assert isinstance(items, list)
-    return [(item["name"], item["type"]) for item in items]
-
-
-def test_the_listing_shows_folders_first_and_what_is_indexed(client: TestClient) -> None:
-    listing = client.get("/documents/local").json()
-    assert _names(listing) == [("projekt", "folder"), ("bericht.txt", "file"), ("daten.xyz", "file")]
-    report = next(item for item in listing["items"] if item["name"] == "bericht.txt")
-    assert report["indexed"] and report["chunks"] == 3
-    inner = client.get("/documents/local", params={"folder": "projekt"}).json()
-    assert _names(inner) == [("plan.md", "file")]
-    assert client.get("/documents/local", params={"folder": "../"}).status_code == 422
-
-
-def test_a_new_folder_and_a_rename_answer_with_the_listing(client: TestClient, documents: tuple[Path, _Index]) -> None:
-    folder, index = documents
-    assert ("archiv", "folder") in _names(client.post("/documents/local/folders", json={"name": "archiv"}).json())
-    assert client.post("/documents/local/folders", json={"name": "../draußen"}).status_code == 422
-    listing = client.post("/documents/local/rename", json={"old": "bericht.txt", "new": "bericht-2026.txt"}).json()
-    assert ("bericht-2026.txt", "file") in _names(listing) and not (folder / "bericht.txt").exists()
-    assert index.chunks == {"bericht-2026.txt": 3}                          # the index followed
-    assert client.post("/documents/local/rename", json={"old": "fehlt.txt", "new": "x.txt"}).status_code == 422
-
-
-def test_a_deletion_goes_on_past_a_failing_name(client: TestClient, documents: tuple[Path, _Index]) -> None:
-    folder, index = documents
-    answer = client.post("/documents/local/delete", json={
-        "files": ["bericht.txt", "gibt-es-nicht.txt"], "folders": ["projekt"], "from_disk": True, "from_index": True,
-    }).json()
-    assert answer["deleted"] == 2 and answer["chunks_removed"] == 3
-    assert [failure["name"] for failure in answer["failed"]] == ["gibt-es-nicht.txt"]
-    assert _names(answer["listing"]) == [("daten.xyz", "file")] and not (folder / "projekt").exists()
-    assert index.chunks == {}                                                  # the report left the index too
-
-
-def test_only_the_index_forgets_a_file_kept_on_disk(client: TestClient, documents: tuple[Path, _Index]) -> None:
-    folder, index = documents
-    answer = client.post("/documents/local/delete", json={"files": ["bericht.txt"], "from_disk": False, "from_index": True}).json()
-    assert answer["deleted"] == 1 and (folder / "bericht.txt").is_file() and index.chunks == {}
-
-
-def test_the_preview_reads_what_the_index_reads(client: TestClient) -> None:
-    preview = client.get("/documents/local/preview", params={"path": "projekt/plan.md"}).json()
-    assert preview["name"] == "plan.md" and "Erst denken." in preview["text"]
-    assert client.get("/documents/local/preview", params={"path": "daten.xyz"}).status_code == 422      # no parser
-    assert client.get("/documents/local/preview", params={"path": "fehlt.txt"}).status_code == 404
-    assert client.get("/documents/local/preview", params={"path": "../../etc/passwd"}).status_code == 422
-
-
 def _run_ended(client: TestClient) -> dict[str, object]:
     """The indexing run's outcome, once the server has worked through its queue."""
     for _ in range(500):
@@ -136,22 +84,13 @@ def _run_ended(client: TestClient) -> dict[str, object]:
     raise AssertionError("the indexing run does not end")
 
 
-def test_an_upload_lands_in_the_open_folder_and_is_indexed(client: TestClient, documents: tuple[Path, _Index]) -> None:
+def test_deindexing_forgets_the_files_and_keeps_them_on_disk(client: TestClient, documents: tuple[Path, _Index]) -> None:
     folder, index = documents
-    answer = client.post("/documents/local/upload", data={"folder": "projekt"}, files=[
-        ("files", ("notiz.md", b"Zwei Worte", "text/markdown")),
-        ("files", ("../flucht.txt", b"Bleibt im Ordner", "text/plain")),    # the name loses its way out
-        ("files", ("programm.exe", b"MZ", "application/octet-stream")),
-    ]).json()
-    assert answer["saved"] == ["projekt/notiz.md", "projekt/flucht.txt"]
-    assert [rejected["name"] for rejected in answer["rejected"]] == ["programm.exe"]
-    assert ("notiz.md", "file") in _names(answer["listing"]) and not (folder.parent / "flucht.txt").exists()
-    progress = _run_ended(client)
-    assert (progress["indexed"], progress["failed"]) == (2, [])
-    assert index.chunks["projekt/notiz.md"] == 2 and index.chunks["projekt/flucht.txt"] == 3
-    assert client.post("/documents/local/upload", data={"folder": "../"}, files=[
-        ("files", ("x.txt", b"x", "text/plain")),
-    ]).status_code == 422
+    index.chunks["projekt/plan.md"] = 2
+    answer = client.post("/documents/local/deindex", json={"files": ["bericht.txt", "projekt/plan.md", "nie-indexiert.txt"]})
+    assert answer.status_code == 200 and answer.json() == {"chunks_removed": 5}
+    assert index.chunks == {}
+    assert (folder / "bericht.txt").is_file() and (folder / "projekt" / "plan.md").is_file()
 
 
 def test_a_damaged_file_does_not_stop_the_run_and_a_folder_brings_what_is_below(
@@ -178,68 +117,3 @@ def test_the_index_care_finds_orphans_and_removes_only_those(client: TestClient,
     after = client.post("/documents/index/orphans/remove", json={"filenames": ["weg.txt", "bericht.txt"]}).json()
     assert after["orphans"] == [] and index.chunks == {"bericht.txt": 3}     # the file on disk keeps its entry
     assert client.post("/documents/index/clear").json() == {"chunks_removed": 3} and index.chunks == {}
-
-
-# ── the download: an HTML page as one standalone file ──────────────
-
-def test_a_page_downloads_as_one_file_with_what_it_loads_from_the_vendor_folder(tmp_path, monkeypatch) -> None:
-    from starlette.testclient import TestClient
-
-    from aifred.lib import file_manager as fm
-    from aifred.lib.api.app import api_app
-    from aifred.lib.auth import USERNAME_COOKIE_NAME, sign_username
-
-    monkeypatch.setattr(fm, "DOCUMENTS_DIR", tmp_path)
-    (tmp_path / "seite.html").write_text('<script src="/vendor/three.min.js"></script><p id="x">3D</p>', encoding="utf-8")
-    (tmp_path / "notiz.txt").write_text("keine Seite", encoding="utf-8")
-    client = TestClient(api_app)
-    client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))
-
-    page = client.get("/documents/local/download", params={"path": "seite.html"})
-    assert page.status_code == 200 and page.headers["content-type"].startswith("text/html")
-    assert "attachment" in page.headers["content-disposition"] and "seite.html" in page.headers["content-disposition"]
-    assert "REVISION" in page.text and "/vendor/" not in page.text and '<p id="x">3D</p>' in page.text
-
-    note = client.get("/documents/local/download", params={"path": "notiz.txt"})
-    assert note.status_code == 200 and note.text == "keine Seite"
-    assert client.get("/documents/local/download", params={"path": "fehlt.html"}).status_code == 404
-    assert client.get("/documents/local/download", params={"path": "../README.md"}).status_code in (404, 422)
-
-
-def test_inline_shows_a_page_sandboxed_and_other_files_inline_with_their_type(tmp_path, monkeypatch) -> None:
-    from starlette.testclient import TestClient
-
-    from aifred.lib import file_manager as fm
-    from aifred.lib.api.app import api_app
-    from aifred.lib.config import PAGE_SANDBOX
-    from aifred.lib.auth import USERNAME_COOKIE_NAME, sign_username
-
-    monkeypatch.setattr(fm, "DOCUMENTS_DIR", tmp_path)
-    (tmp_path / "seite.html").write_text("<p>Hallo</p>", encoding="utf-8")
-    (tmp_path / "scan.pdf").write_bytes(b"%PDF-1.4 x")
-    client = TestClient(api_app)
-    client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))
-
-    page = client.get("/documents/local/download", params={"path": "seite.html", "inline": "true"})
-    assert page.text == "<p>Hallo</p>" and page.headers["content-security-policy"] == PAGE_SANDBOX
-    assert page.headers["content-disposition"].startswith("inline")
-    pdf = client.get("/documents/local/download", params={"path": "scan.pdf", "inline": "true"})
-    assert pdf.headers["content-type"] == "application/pdf" and pdf.headers["content-disposition"].startswith("inline")
-    assert "content-security-policy" not in client.get("/documents/local/download", params={"path": "scan.pdf"}).headers
-
-
-def test_a_text_type_without_an_index_parser_previews_as_its_raw_text(tmp_path, monkeypatch) -> None:
-    from starlette.testclient import TestClient
-
-    from aifred.lib import file_manager as fm
-    from aifred.lib.api.app import api_app
-    from aifred.lib.auth import USERNAME_COOKIE_NAME, sign_username
-
-    monkeypatch.setattr(fm, "DOCUMENTS_DIR", tmp_path)
-    (tmp_path / "skript.py").write_bytes("print('Grüße')\n".encode() + b"\xff")      # a byte that is no UTF-8 is replaced
-    (tmp_path / "seite.html").write_text("<p>Hallo</p>", encoding="utf-8")
-    client = TestClient(api_app)
-    client.cookies.set(USERNAME_COOKIE_NAME, sign_username("ki"))
-    script = client.get("/documents/local/preview", params={"path": "skript.py"}).json()
-    assert script["text"] == "print('Grüße')\n�"
-    assert client.get("/documents/local/preview", params={"path": "seite.html"}).json()["text"] == "<p>Hallo</p>"

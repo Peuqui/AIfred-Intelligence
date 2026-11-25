@@ -40,8 +40,8 @@ Each service is `off`, `read` or `write` (shared building block `aifred/lib/plug
 
 AIfred enforces the level itself, not Google:
 
-- **Off:** no tools, no permission at Google; Drive off also removes Drive from the document manager.
-- **Read:** only the read tools (`READ_TOOL_NAMES` in the service's `tools.py`). The writing ones are not in the toolkit; if the model calls one anyway, execution refuses it as an unknown tool. Drive in the document manager: browse and download, no upload zone, and the source refuses `upload()`.
+- **Off:** no tools, no permission at Google; Drive off also removes Drive from the documents page.
+- **Read:** only the read tools (`READ_TOOL_NAMES` in the service's `tools.py`). The writing ones are not in the toolkit; if the model calls one anyway, execution refuses it as an unknown tool. Drive on the documents page: browse, preview and download, no upload, and the source refuses `upload()`.
 - **Read and write:** all tools of the service, uploads to Drive.
 
 At Google, AIfred requests the full right for every service switched on, whatever its level:
@@ -227,47 +227,58 @@ folder is looked up directly under "My Drive" and created on first access if mis
 - **Nothing outside:** any `file_id` or `folder_id` outside the agent folder is rejected with an error. Without `folder_id` the agent folder applies. Search returns only hits from inside.
 - The boundary is resolved on every toolkit build; a renamed setting or a folder created meanwhile counts from the next turn.
 - If "My Drive" holds several folders of that name the boundary is ambiguous and the tools report an error; so do they for an empty setting value.
-- The user's **document manager** does not go through this boundary: it sees the whole Drive (see below).
+- The user's **documents page** does not go through this boundary: it sees the whole Drive (see below).
 
-## Drive in the Document Manager
+## Drive on the Documents Page
 
-**Files:** `aifred/lib/document_sources.py`, `aifred/plugins/tools/google_suite/drive/source.py`, `aifred/state/_document_mixin.py`, `aifred/ui/modals/documents.py`, `aifred/lib/api/documents.py`
+**Files:** `aifred/lib/document_sources.py`, `aifred/plugins/tools/google_suite/drive/source.py`, `aifred/lib/file_areas.py`, `aifred/lib/source_ops.py`, `aifred/lib/api/files.py`
 
 With Drive at least on "Read" and Google connected with the Drive right, the
-document manager shows a second source, "Google Drive", next to the local folder
-(switch at the top). It is a live view, not a mirror of the Drive.
+documents page shows a second source, "Google Drive", next to the local folder
+(choice at the top). It is a live view, not a mirror of the Drive. The page shows it like every
+source in the file browser (VueFinder) as the area `source-google_drive`; the preview of the file clicked stands beside it on the right.
 
 | Function | Behaviour |
 |----------|-----------|
-| Browsing | Open folders, path bar, up/root; refresh button. The view starts at "My Drive" |
-| Search | Input field in the toolbar, searches the whole Drive by file name and full text (at most 100 hits, by relevance) |
-| Download | Arrow icon per file; the file is streamed; an HTML page is put together with the libraries it loads into one standalone file (`GET /api/documents/source/{key}/file/{id}`, login cookie). 404 for an unknown source, 502 if the source fails |
+| Browsing | Open folders, the file browser's path bar. The view starts at "My Drive" |
+| Search | The file browser's search field, searches the whole Drive by file name and full text (at most 100 hits, by relevance) |
+| Preview | A click on a file shows it on the right: text, Markdown, tables, image, PDF, HTML page (sandboxed), audio and video; "Open in a new tab" is next to it. The source delivers the file as a stream (`/api/files/source-google_drive/preview` and `/text`) |
+| Download | The file browser's context menu; the file is streamed; an HTML page is put together with the libraries it loads into one standalone file (`GET /api/files/source-google_drive/download`, login cookie). 404 for an unknown source, 502 if the source fails |
 | Export | Google's own formats have no file and are exported: Docs → `.docx`, Sheets → `.xlsx`, Slides → `.pptx`, Drawings → `.pdf`. Other Google formats and folders cannot be downloaded |
-| Upload | Only with Drive on "Read and write": the document manager's upload goes into the currently open Drive folder (root: "My Drive"); the same size limit as locally applies (`DOCUMENT_MAX_FILE_SIZE_MB`). On "Read" the upload zone is hidden and the source refuses `upload()` |
+| Upload | Only with Drive on "Read and write": the file browser's upload goes into the currently open Drive folder (root: "My Drive"), any kind of file, and indexes nothing. On "Read" there is no upload and the source refuses `upload()` |
+| Indexing | Context menu "Index" per file or folder, as for every source; the icon shows how many sections of the file are in the index |
 
-Not available for Drive rows: indexing, renaming, deleting and preview — those stay with
-the local folder.
+Not available for Drive: creating folders, renaming, moving, copying and deleting. Drive
+satisfies only the `DocumentSource` protocol, not `EditableDocumentSource` (see below); the
+file browser therefore does not offer these actions at all.
 
 ### Architecture: Document Sources
 
-The document manager knows no plugins. A tool plugin offers a source through the optional
+The documents page knows no plugins. A tool plugin offers a source through the optional
 attribute `document_source` (an object satisfying the `DocumentSource` protocol in
 `aifred/lib/document_sources.py`, or `None` while it offers none). `document_sources()`
 collects them from the enabled, available plugins; a disabled plugin simply offers no
-source (plugin atomicity, the core imports no plugin).
+source (plugin atomicity, the core imports no plugin). Every source is an area of the file API (`source-<key>`,
+`file_areas.file_area`); its work is done by `SourceOps` (`aifred/lib/source_ops.py`), and `source_actions` derives the
+allowed actions from what the source itself can do.
 
 | Part | Purpose |
 |------|---------|
-| `key`, `label(lang)` | stable id (`google_drive`) and name in the switch |
-| `writable` | `False`: the document manager shows no upload zone, `upload()` refuses |
+| `key`, `label(lang)` | stable id (`google_drive`) and name in the source choice |
+| `writable` | `False`: no upload (and no changes), `upload()` refuses |
 | `list_folder(folder_id)` | folder contents; folders are addressed by id, `""` = root |
 | `search(query)` | search across the whole source |
 | `download(file_id)` | streamed download (`SourceDownload`) |
 | `upload(folder_id, name, data, mime)` | upload a file (only when `writable`) |
 
-Sources raise only `DocumentSourceError` (a message for the user, shown as a toast).
-The state (active source, folder trail, search term) lives in `_document_mixin.py`.
-A further source (e.g. Nextcloud) therefore needs only a plugin with `document_source`.
+Besides, the protocol `EditableDocumentSource` for a source that can also change what it holds: `create_folder`,
+`rename`, `delete`, `move`, `copy`, each answering with the id the item has afterwards. If the source has these methods and is
+`writable`, the file browser offers the actions (Nextcloud: all of them), otherwise not; the core keeps no list of the sources
+that can. The search index follows rename and move and loses the sections on delete.
+
+Sources raise only `DocumentSourceError` (a message for the user, HTTP 502).
+The page's store (`frontend/src/stores/documents.ts`) remembers the chosen source; listing and changes go through
+the file browser. A further source (e.g. Nextcloud) therefore needs only a plugin with `document_source`.
 
 ### Parameters `google_drive_search`
 

@@ -1,7 +1,7 @@
 """Further document sources over the API (Vue documents page, lib/document_sources.py): the list of sources,
-a folder and a search, downloading a file whose id holds slashes (Nextcloud's id is the path), uploading into a
-writable source without indexing, indexing files and folders as a server job (lib/document_indexing.py) and taking
-them out again. The source and the search index are stand-ins."""
+indexing files and folders as a server job (lib/document_indexing.py) and taking them out again. Browsing, uploading,
+previewing and downloading are the file API's (tests/test_files_source_area.py). The source and the search index are
+stand-ins."""
 
 from __future__ import annotations
 
@@ -118,57 +118,10 @@ def _run_ended(client: TestClient) -> dict[str, object]:
     raise AssertionError("the indexing run does not end")
 
 
-def _rows(listing: dict[str, object]) -> list[tuple[str, str, bool]]:
-    items = listing["items"]
-    assert isinstance(items, list)
-    return [(item["name"], item["type"], item["indexable"]) for item in items]
-
-
 def test_the_sources_list_the_local_folder_first(client: TestClient) -> None:
     sources = client.get("/documents/sources").json()
-    assert [(source["key"], source["writable"]) for source in sources] == [("local", True), ("stub", True)]
+    assert [source["key"] for source in sources] == ["local", "stub"]
     assert sources[1]["label"] == "Stellvertreter"
-
-
-def test_a_folder_a_search_and_a_download_by_a_path_id(client: TestClient, world: tuple[_Source, _Index]) -> None:
-    _source, index = world
-    index.chunks[source_index_name("stub", "Bericht.md")] = 5
-    root = client.get("/documents/source/stub").json()
-    assert _rows(root) == [("Projekt", "folder", False), ("Bericht.md", "file", True)]
-    report = root["items"][1]
-    assert (report["indexed"], report["chunks"]) == (True, 5)
-    inner = client.get("/documents/source/stub", params={"folder_id": "Projekt"}).json()
-    assert ("Bild.png", "file", False) in _rows(inner)                       # no parser for it
-    plan = next(item for item in inner["items"] if item["name"] == "Plan.txt")
-    assert plan["download_url"] == "/api/documents/source/stub/file/Projekt/Plan.txt"
-    download = client.get(plan["download_url"].removeprefix("/api"))
-    assert (download.status_code, download.text) == (200, "Erst denken")      # the id's slash does not break it
-    hits = client.get("/documents/source/stub", params={"query": "tief"}).json()
-    assert [item["id"] for item in hits["items"]] == ["Projekt/Unten/Tief.txt"] and hits["query"] == "tief"
-
-
-def test_a_missing_source_is_404_and_a_failing_one_502(client: TestClient) -> None:
-    assert client.get("/documents/source/weg").status_code == 404
-    failed = client.get("/documents/source/stub", params={"folder_id": "kaputt"})
-    assert failed.status_code == 502 and "HTTP 500" in failed.json()["detail"]
-
-
-def test_an_upload_goes_to_the_source_and_is_not_indexed(client: TestClient, world: tuple[_Source, _Index]) -> None:
-    source, index = world
-    answer = client.post("/documents/source/stub/upload", data={"folder_id": "Projekt"}, files=[
-        ("files", ("Neu.md", b"Neu hier", "text/markdown")),
-        ("files", ("programm.exe", b"MZ", "application/octet-stream")),
-    ]).json()
-    assert answer["saved"] == ["Neu.md"] and [rejected["name"] for rejected in answer["rejected"]] == ["programm.exe"]
-    assert source.uploaded == [("Projekt", "Neu.md")]
-    assert index.chunks == {} and client.get("/documents/index").json()["total"] == 0   # the user decides
-
-
-def test_a_source_without_uploads_refuses_them(client: TestClient, world: tuple[_Source, _Index]) -> None:
-    source, _index = world
-    source.writable = False
-    assert client.post("/documents/source/stub/upload", files=[("files", ("a.md", b"a", "text/markdown"))]).status_code == 422
-    assert source.uploaded == []
 
 
 def test_files_and_folders_of_a_source_are_indexed_past_a_failure_and_come_out_again(
@@ -182,45 +135,3 @@ def test_files_and_folders_of_a_source_are_indexed_past_a_failure_and_come_out_a
     assert set(index.chunks) == {source_index_name("stub", path) for path in ("Bericht.md", "Projekt/Plan.txt", "Projekt/Unten/Tief.txt")}
     removed = client.post("/documents/source/stub/deindex", json={"file_ids": ["Bericht.md", "Projekt/Plan.txt"]}).json()
     assert removed["chunks_removed"] == 5 + 2 and set(index.chunks) == {source_index_name("stub", "Projekt/Unten/Tief.txt")}
-
-
-def test_the_preview_of_a_source_file_reads_what_the_index_reads(client: TestClient) -> None:
-    preview = client.get("/documents/source/stub/preview/Projekt/Plan.txt")
-    assert preview.status_code == 200 and preview.json() == {"name": "Plan.txt", "text": "Erst denken"}
-    assert "Bericht" in client.get("/documents/source/stub/preview/Bericht.md").json()["text"]
-
-
-def test_a_source_file_without_a_parser_has_no_preview(client: TestClient) -> None:
-    refused = client.get("/documents/source/stub/preview/Projekt/Bild.png")
-    assert refused.status_code == 422 and ".png" in refused.json()["detail"]
-
-
-def test_a_failing_source_download_answers_the_preview_as_the_download(client: TestClient) -> None:
-    assert client.get("/documents/source/stub/file/kaputt.md").status_code == 502
-    failed = client.get("/documents/source/stub/preview/kaputt.md")
-    assert failed.status_code == 502 and "HTTP 500" in failed.json()["detail"]
-    assert client.get("/documents/source/weg/preview/Bericht.md").status_code == 404
-
-
-def test_a_damaged_source_file_has_a_reason_instead_of_a_preview(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    def damaged(_file: Path) -> str:
-        raise ValueError("kein gültiges Archiv")
-
-    monkeypatch.setitem(document_store.PARSERS, ".md", damaged)
-    refused = client.get("/documents/source/stub/preview/Bericht.md")
-    assert refused.status_code == 422 and "kein gültiges Archiv" in refused.json()["detail"]
-
-
-def test_a_source_file_is_viewed_inline_and_a_page_sandboxed(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    from aifred.lib.config import PAGE_SANDBOX
-
-    monkeypatch.setitem(FILES, "Seite.html", "<p>Hallo</p>")
-    monkeypatch.setitem(FILES, "skript.py", "print(1)")
-    page = client.get("/documents/source/stub/file/Seite.html", params={"inline": "true"})
-    assert page.text == "<p>Hallo</p>" and page.headers["content-security-policy"] == PAGE_SANDBOX
-    assert page.headers["content-disposition"].startswith("inline")
-    download = client.get("/documents/source/stub/file/Seite.html")
-    assert download.headers["content-disposition"].startswith("attachment") and "content-security-policy" not in download.headers
-    assert client.get("/documents/source/stub/file/skript.py", params={"inline": "true"}).headers["content-disposition"].startswith("inline")
-    assert client.get("/documents/source/stub/preview/skript.py").json() == {"name": "skript.py", "text": "print(1)"}   # raw text
-    assert client.get("/documents/source/stub/preview/Seite.html").json()["text"] == "<p>Hallo</p>"

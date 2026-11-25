@@ -20,7 +20,6 @@ Endpoints (all prefixed with /api):
 - GET  /tts/entries         - The TTS escalation list in order, with live status (Bearer token)
 - GET  /gpu/holders         - What AIfred holds on the GPUs (the face worker), for GPU-Orc (Bearer token)
 - POST /gpu/release         - Release it: end the face worker, proven by nvidia-smi (Bearer token)
-- GET  /documents/source/{key}/file/{id} - Download from a further document source (login cookie)
 - GET  /service-status     - Model, STT and TTS state with time left (login cookie)
 - GET  /backend             - Backend in use, the ones the GPUs can run, cloud providers, GPUs
 - PUT  /backend             - Switch the backend; PUT /backend/cloud-provider the cloud's provider

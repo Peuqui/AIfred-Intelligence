@@ -202,13 +202,13 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Umschaltlogik); die eigenen Endpunkte für Sprachausgabe und Diktat sind darin aufgegangen (Store
   `settings` als eine Quelle). Grenzen der Runden in `config.py` (`DEBATE_ROUNDS_MIN/_MAX`), auch für
   Reflex. Ein Reflex-Tab übernimmt beim Neuladen nun auch die Anrede.
-- **Dokumente, Teil 1 (erledigt 07.11.2026):** Seite `DocumentsView.vue` auf dem lokalen Ordner
+- **Dokumente, Teil 1 (erledigt 07.11.2026; die Tabelle und ihre Endpunkte sind seit 25.11.2026 durch Teil 4 abgelöst):** Seite `DocumentsView.vue` auf dem lokalen Ordner
   (`data/documents/`): Ordner mit Pfadleiste, anlegen, umbenennen (der Index zieht mit), löschen von der
   Platte und/oder aus dem Index (einzeln, Ordner rekursiv, Auswahl; ein scheiternder Name hält den Rest
   nicht auf), Vorschau über den Parser des Index, Herunterladen, Pfad für AIfred kopieren. Dünne Endpunkte
   über `lib/file_manager.py`. Die Testinstanz teilt ChromaDB mit der Produktion, indexiert aber in
   eigene Sammlungen (`serve_vue_test.py`, `vuetest_documents`).
-- **Dokumente, Teil 2 (erledigt 07.11.2026):** Hochladen per Knopf oder auf die Seite gezogen
+- **Dokumente, Teil 2 (erledigt 07.11.2026; Hochladen läuft seit 25.11.2026 über den Datei-Browser, siehe Teil 4):** Hochladen per Knopf oder auf die Seite gezogen
   (`file_manager.save_upload`, auch für Reflex: Name ohne Verzeichnisteil, nur Typen des Index), jede
   gespeicherte Datei wird indexiert. Indexieren je Datei, Auswahl oder ganzem Ordner (Unterordner mit),
   Deindexieren je Datei. Der Server indexiert in einer Warteschlange eine Datei nach der anderen
@@ -216,7 +216,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   ihn ein anderer Tab gestartet hat, und zeigt danach das Ergebnis mit den Gründen der Fehlschläge. Der
   Indexier-Knopf erscheint nur an Dateien, die der Index lesen kann (`indexable`). Der Reflex-State,
   der bis zum Wechsel selbst indexierte (über `file_manager.index_file`), ist entfernt.
-- **Dokumente, Teil 3 (erledigt 07.11.2026):** Weitere Quellen der eingeschalteten Plugins (Nextcloud,
+- **Dokumente, Teil 3 (erledigt 07.11.2026; `SourceBrowser.vue` und die Quellen-Endpunkte für Liste, Vorschau, Download und Hochladen sind seit 25.11.2026 durch Teil 4 abgelöst):** Weitere Quellen der eingeschalteten Plugins (Nextcloud,
   Google Drive) in der Quellwahl der Seite (`SourceBrowser.vue`): Ordner über IDs, Suche über die ganze
   Quelle, Download, Hochladen in beschreibbare Quellen **ohne** Indexieren (ihre Dateien liegen hinter
   einer höheren Stufe als die Suche, Indexieren bleibt die Entscheidung je Datei), Indexieren je Datei,
@@ -226,12 +226,26 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
   Prüfquelle anbieten (`AIFRED_TEST_SOURCE_DIR`). Fehlertexte nannten die Datei doppelt (der Indexer
   setzte den Dateinamen selbst ein, die Seite stellte ihn ebenfalls voran): erledigt am 18.11.2026, ein Fehlertext
   nennt nur noch den Grund (`file_manager._index_temp_copy`), den Namen setzt, wer ihn zeigt.
+- **Dokumente, Teil 4 (erledigt 25.11.2026):** VueFinder (`FileBrowser.vue`) ist die einzige Dateiansicht der
+  Dokumentenseite, links die Liste, rechts die Vorschau (`FilePreview.vue`, dieselbe Komponente wie der Dialog
+  `FileViewer.vue`: Text, Markdown, Tabellen, Bild, PDF, HTML-Seite im Sandkasten, Audio, Video, „In neuem Tab öffnen“),
+  dazwischen ein verschiebbarer Trenner (Breite je Gerät in `localStorage`); wo kein Platz für zwei Spalten ist (Regel der
+  Sitzungsspalte), öffnet ein Klick die Vorschau im Dialog. Die Quellen sind Bereiche der Datei-API (`source-<key>`,
+  `lib/source_ops.py`): Eine Quelle meldet selbst, was sie kann (`EditableDocumentSource`); Nextcloud mit vollem Umfang
+  (Ordner, Umbenennen, Verschieben, Kopieren, Löschen, Hochladen), der Suchindex zieht mit. Die Datei-API arbeitet über
+  `AreaOps` mit async-Methoden und den Lesewegen `view`, `download`, `text`. Der Suchindex steht im Datei-Browser: der
+  Indexstand je Datei (`indexable`, `index_chunks`) als Abzeichen „N Abschnitte“ am Symbol, im Kontextmenü Indexieren,
+  Ordner indexieren, Aus dem Index nehmen und Pfad für AIfred kopieren (lokal), in der Menüleiste „Diesen Ordner
+  indexieren“ und die Index-Pflege, in der Statusleiste der Fortschritt des Laufs. Weg sind die Archivum-Tabelle,
+  `SourceBrowser.vue`, die Endpunkte zum Auflisten, Anlegen, Umbenennen, Löschen, Vorschau, Hochladen und Herunterladen
+  unter `/api/documents/local` und `/api/documents/source/{key}` und der Store-Teil dazu. Es bleiben `/api/documents/sources`, die
+  Index-Endpunkte (`…/index`, `/api/documents/index`, `…/deindex`, Index-Pflege).
 - **Index-Pflege (erledigt 07.11.2026):** 🧹 auf der Dokumente-Seite öffnet `IndexCare.vue`: wie viele
   Dokumente und Abschnitte der Suchindex hält, die verwaisten Einträge (Datei im lokalen Ordner nicht
   mehr da) mit Abschnitten und Indexier-Zeitpunkt, einzeln oder alle aus dem Index zu nehmen, und den
   ganzen Index leeren nach einer Rückfrage (die Dateien bleiben). Der Server nimmt nur Einträge heraus,
-  die gerade verwaist sind; eine Datei, die noch da ist, verlässt den Index über das Löschen in der
-  Ordnerliste. Dünn über `file_manager.list_indexed/list_orphaned/deindex_file` und
+  die gerade verwaist sind; eine Datei, die noch da ist, verlässt den Index über „Aus dem Index nehmen“ im
+  Kontextmenü des Datei-Browsers. Dünn über `file_manager.list_indexed/list_orphaned/deindex_file` und
   `document_store.clear`, wie der Reflex-Tab.
 - **Mehrzahl in Texten (erledigt 07.11.2026):** `tCount(key, count)` in `frontend/src/i18n.ts` nimmt für
   eins den Schlüssel, sonst `<key>_plural`, wie `t(key, count=…)` des Servers („1 Abschnitt“, „2 Dateien“).
@@ -523,7 +537,7 @@ beschrieben), Diktat und Audio-Dateien, Inkognito je Sitzung. Offen:
       keine Links), „Diesen Ordner übernehmen“ für die Auswahl. Erster Bereich: die Audio-Sandbox, der Audio-Dialog wählt
       seine Quellen darüber (`/audio/sources/folders` ist weg). Weitere Bereiche: `voices` (Stimmenordner der TTS-Suite, „📁 Stimmen-Ordner“ auf der
       Audio-Seite, ohne Symlinks) und `sandbox-<sitzung>` (die Ergebnisse eines Chats, „📂“ in der Kopfleiste, nur für
-      den Besitzer der Sitzung, ansehen, herunterladen, umbenennen, löschen). Und `documents`: „📁 Explorer“ auf der Dokumente-Seite (die Tabelle bleibt für den Index); jede Änderung
+      den Besitzer der Sitzung, ansehen, herunterladen, umbenennen, löschen). Und `documents`: „📁 Explorer“ auf der Dokumente-Seite (seit 25.11.2026 ist der Explorer die Seite selbst, siehe Dokumente, Teil 4); jede Änderung
       geht über `file_manager` (`lib/file_ops.DocumentOps`), damit der Suchindex mitzieht, ein Upload wird indexiert. VueFinder lädt erst, wenn ein Requester aufgeht (eigene
       Chunks, `includeDependenciesRecursively: false`, sonst zog die Gruppe Vue mit). Im Browser geprüft.)
   Dazu (erledigt 08.11.): Der Zug gab dem Toolkit den Gesprächsverlauf nicht mit (`b6e15474`, der Reflex-Chat gab
