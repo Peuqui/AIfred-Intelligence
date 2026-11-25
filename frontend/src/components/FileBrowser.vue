@@ -15,6 +15,7 @@ import "vuefinder/dist/style.css";
 import finderDe from "vuefinder/dist/locales/de.js";
 import finderEn from "vuefinder/dist/locales/en.js";
 import { ApiError, api, apiUrl } from "../api/client";
+import { CLICK_SETTLE_MS, type Press, plainClick } from "../lib/plainClick";
 import type { FileAreaInfo } from "../api/types";
 import { language, t } from "../i18n";
 
@@ -75,9 +76,10 @@ const linkItem: Item = {
   order: 100,
 };
 
-// The menu entry "Preview" goes to the embedder, not to VueFinder's own.
+// The menu entry "Preview" goes to the embedder, not to VueFinder's own; "Preview as" (text/image) would open VueFinder's
+// own viewer, a second one beside ours, which picks the kind of a file itself.
 const menu = [
-  ...contextMenuItems.map((item) =>
+  ...contextMenuItems.filter((item) => item.id !== ContextMenuIds.openAs).map((item) =>
     item.id === ContextMenuIds.preview
       ? { ...item, action: (_app: unknown, items: DirEntry[]) => { if (items[0]) emit("open", items[0]); } }
       : item,
@@ -86,14 +88,51 @@ const menu = [
   ...(props.menuItems ?? []),
 ];
 
-function fileDoubleClick(event: { item: DirEntry; preventDefault: () => void }): void {
+// One click or tap on an entry opens it, the same on every device and in every embedder (Peuqui 25.11.2026): a folder
+// is entered, a file goes to the embedder's preview. VueFinder's own way (a click selects, a double click opens) is
+// off: its double click would act on the entry that lies under the second click once the folder has changed. Selecting
+// several stays with Ctrl/Shift and the frame; the right click and the long press (500 ms) bring the context menu and
+// open nothing. The click is read from the pointer, not from the selection: a second click on the selected file shows
+// it again.
+let selection: DirEntry[] = [];
+let press: Press | null = null;
+let folderOpenedAt = -Infinity;
+
+function pointerDown(event: PointerEvent): void {
+  press = { x: event.clientX, y: event.clientY, at: event.timeStamp, plain: event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey };
+}
+
+function pointerUp(event: PointerEvent): void {
+  const pressed = press;
+  press = null;
+  if (!pressed || !plainClick(pressed, event, folderOpenedAt)) return;
+  const key = (event.target as Element | null)?.closest<HTMLElement>("[data-key]")?.dataset.key;
+  if (!key) return;
+  // VueFinder selects the entry after the pointer is up (on a touch screen 100 ms later): open what it selected.
+  setTimeout(() => {
+    const [only, ...more] = selection;
+    if (!only || more.length || `${only.type}:${only.path}` !== key) return;
+    if (only.type === "dir") {
+      folderOpenedAt = performance.now();
+      void useVueFinder(finderId).open(only.path);
+    } else {
+      emit("open", only);
+    }
+  }, CLICK_SETTLE_MS);
+}
+
+function selected(items: DirEntry[]): void {
+  selection = items;
+  emit("select", items);
+}
+
+function doubleClick(event: { preventDefault: () => void }): void {
   event.preventDefault();
-  emit("open", event.item);
 }
 
 const passedSlots = Object.keys(useSlots()).filter((name) => name !== "status-bar");
 
-defineExpose({ refresh: () => useVueFinder(finderId).refresh(), clearSelection: () => useVueFinder(finderId).clearSelection() });
+defineExpose({ refresh: () => useVueFinder(finderId).refresh() });
 
 onMounted(async () => {
   try {
@@ -106,7 +145,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="browser" :class="{ labelled: label }">
+  <div class="browser" :class="{ labelled: label }" @pointerdown.capture="pointerDown" @pointerup.capture="pointerUp" @pointercancel.capture="press = null">
     <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
     <VueFinder
       v-if="info"
@@ -116,8 +155,9 @@ onMounted(async () => {
       :locale="language"
       :config="{ theme: 'midnight', persist: false, initialPath: `${area}://`, listItemHeight: 48 }"
       :context-menu-items="menu"
-      @file-dclick="fileDoubleClick"
-      @select="(items: DirEntry[]) => emit('select', items)"
+      @file-dclick="doubleClick"
+      @folder-dclick="doubleClick"
+      @select="selected"
       @path-change="(path: string) => emit('pathChange', path)"
       @upload-complete="emit('uploaded')"
     >

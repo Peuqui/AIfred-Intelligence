@@ -37,7 +37,7 @@ const area = computed(() => (local.value ? "documents" : `source-${docs.source}`
 const sourceLabel = computed(() => docs.sources.find((offered) => offered.key === docs.source)?.label);
 const sideBySide = useSessionsColumn().possible;
 const previewed = ref<ViewPlace | null>(null);
-const browser = ref<{ clearSelection: () => void; refresh: () => Promise<void> } | null>(null);
+const browser = ref<{ refresh: () => Promise<void> } | null>(null);
 const folderShown = ref("");
 watch(area, () => {
   previewed.value = null;
@@ -45,22 +45,11 @@ watch(area, () => {
   folderShown.value = "";
 });
 
-// A file shows beside the list, or in the dialog when there is no room beside it. In the dialog the selection is
-// cleared again: the same file tapped once more must show again.
+// A file shows beside the list, or in the dialog when there is no room beside it.
 function show(entry: DirEntry): void {
   const place = areaPlace(area.value, entry);
-  if (sideBySide.value) {
-    previewed.value = place;
-    return;
-  }
-  viewFile(place);
-  browser.value?.clearSelection();
-}
-
-// One file selected is a click on it: the preview follows (a folder or several files leave it as it is).
-function selected(items: DirEntry[]): void {
-  const [only] = items;
-  if (items.length === 1 && only?.type === "file") show(only);
+  if (sideBySide.value) previewed.value = place;
+  else viewFile(place);
 }
 
 // The reason a file was refused on upload (the server names the file in it); the same reason shows once.
@@ -151,7 +140,6 @@ function nudgeDivider(event: KeyboardEvent): void {
           :area="area"
           :label="sourceLabel"
           :menu-items="menuItems"
-          @select="selected"
           @open="show"
           @path-change="(path: string) => (folderShown = path)"
           @uploaded="docs.watchIndexing()"

@@ -20,9 +20,8 @@ vi.mock("../api/client", () => ({
   api: (path: string, options?: { body?: string }) => api(path, options),
   apiUrl: (path: string) => `/api/${path}`,
 }));
-// VueFinder itself is not under test: a stand-in that reports a file as selected, on a button, and shows what the page
+// VueFinder itself is not under test: a stand-in that opens a file (a click on it), on a button, and shows what the page
 // puts into its slots (menu bar, status bar), the label and the ids of the extra menu entries it was given.
-const clearSelection = vi.fn();
 const refresh = vi.fn();
 vi.mock("../components/FileBrowser.vue", () => ({
   __esModule: true,
@@ -30,11 +29,10 @@ vi.mock("../components/FileBrowser.vue", () => ({
     props: { area: { type: String, required: true }, label: { type: String, default: "" }, menuItems: { type: Array, default: () => [] } },
     emits: ["select", "open", "pathChange", "refused", "uploaded"],
     setup: (props, { emit, expose, slots }) => {
-      expose({ clearSelection, refresh });
+      expose({ refresh });
       const file = { type: "file", basename: "Bericht.pdf", path: `${props.area}://Bericht.pdf` };
       return () => h("div", { class: "browser", "data-label": props.label, "data-menu": (props.menuItems as { id: string }[]).map((item) => item.id).join(",") }, [
-        h("button", { class: "pick-file", onClick: () => emit("select", [file]) }),
-        h("button", { class: "pick-folder", onClick: () => emit("select", [{ type: "dir", basename: "d", path: "d" }]) }),
+        h("button", { class: "pick-file", onClick: () => emit("open", file) }),
         h("button", { class: "go-folder", onClick: () => emit("pathChange", `${props.area}://Unter`) }),
         h("button", { class: "refuse", onClick: () => emit("refused", "x.exe", "x.exe: Dateityp nicht erlaubt") }),
         h("button", { class: "uploaded", onClick: () => emit("uploaded") }),
@@ -69,7 +67,6 @@ async function page(sessionsColumnMinPx: number) {
 beforeEach(() => {
   setActivePinia(createPinia());
   viewed.value = null;
-  clearSelection.mockReset();
   refresh.mockReset();
   api.mockClear();
   sources = [];
@@ -77,23 +74,20 @@ beforeEach(() => {
   Object.defineProperty(window, "innerWidth", { value: 1000, configurable: true });
 });
 
-test("with room, a click on a file shows it beside the list and opens no dialog; a folder leaves the preview as it is", async () => {
+test("with room, a click on a file shows it beside the list and opens no dialog", async () => {
   const wrapper = await page(500);
   expect(wrapper.find(".none").exists()).toBe(true);
   await wrapper.find(".pick-file").trigger("click");
   expect(wrapper.find(".preview").text()).toBe("Bericht.pdf");
-  await wrapper.find(".pick-folder").trigger("click");
-  expect(wrapper.find(".preview").text()).toBe("Bericht.pdf");
   expect(viewed.value).toBeNull();
 });
 
-test("without room there is no second column: a click opens the dialog and frees the selection", async () => {
+test("without room there is no second column: a click opens the dialog", async () => {
   const wrapper = await page(5000);
   expect(wrapper.find(".divider-handle").exists()).toBe(false);
   expect(wrapper.find(".side").exists()).toBe(false);
   await wrapper.find(".pick-file").trigger("click");
   expect(viewed.value?.name).toBe("Bericht.pdf");
-  expect(clearSelection).toHaveBeenCalledOnce();
 });
 
 test("dragging the divider sets the share of the list, held between its bounds, and the keys move it by steps", async () => {
