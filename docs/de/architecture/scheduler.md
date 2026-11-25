@@ -86,6 +86,7 @@ CREATE TABLE jobs (
     schedule_type TEXT NOT NULL,     -- 'cron', 'interval', 'once'
     schedule_expr TEXT NOT NULL,     -- Cron-Expr, Sekunden, oder ISO-Timestamp
     payload TEXT NOT NULL,           -- JSON: message, agent, delivery, channel, ...
+    keeps_notes INTEGER NOT NULL,    -- Schalter „Akte führen“ (0/1), siehe „Akte führen“
     max_tier INTEGER NOT NULL,       -- Security-Tier (siehe security-architecture.md)
     enabled INTEGER NOT NULL,
     created_at TEXT,
@@ -112,6 +113,28 @@ CREATE TABLE jobs (
 
 Optional dazu die Plan-Felder `frame`, `parts`, `columns` (siehe „Jobs mit Teilaufträgen“).
 
+### Akte führen (`keeps_notes`)
+
+Jeder Job hat einen Schalter „Akte führen“, eine eigene Spalte der Tabelle `jobs` (wie `max_tier` und `ends_at`, nicht im
+Payload). Die Akte ist die Notizdatei des Jobs im Arbeitsbereich (`lib/job_notes.py`, Ordner `jobs/<name>_job-<id>`), in
+der der Job festhält, was er bei späteren Läufen wissen muss: Beobachtungen über Wochen, Preisverläufe, schon Verwendetes,
+das sich nicht wiederholen soll. Sie lohnt sich, wenn der Job über Läufe hinweg etwas wissen muss, nicht, wenn jeder Lauf
+alles frisch holt (etwa eine Tagesübersicht aus Kalender und Mails).
+
+`_keeps_notes(job)` entscheidet für jeden Lauf an einer Stelle: Der Schalter ist an **und** der Job hat die Stufe
+`TIER_WRITE_DATA` **und** sein Agent hat `read_file` und `write_file` (`job_notes.agent_can_keep_notes`). Nur dann bekommt
+der Lauf den Notiz-Prompt (`scheduler/notes` bzw. `scheduler/notes_new`, bei Jobs mit Teilen `scheduler/plan_notes_hint`),
+wird der Job-Ordner angelegt bzw. nach dem Job-Namen umbenannt (`job_notes.sync`) und trägt der Code neue Quellen in die
+Akte ein (`_append_new_sources`). Ist der Schalter aus, geschieht nichts davon: kein Notiz-Prompt, kein `sync`, kein
+Anhängen. Schaltet man ihn aus, bleibt eine vorhandene Akte unberührt liegen; das Löschen des Jobs löscht den Ordner wie
+bisher.
+
+`keeps_notes` hat keinen Standardwert: `JobStore.add` und `update` verlangen es, ebenso die API (`JobWrite`) und das
+Werkzeug `horarium_create` (Pflicht beim Anlegen, damit das Modell entscheidet oder den Benutzer fragt; bei
+`horarium_update` optional). Eine Datenbank aus der Zeit davor bekommt die Spalte einmal beim Start (`_ensure_schema`);
+dabei werden alle vorhandenen Jobs ausdrücklich auf an gesetzt, denn bisher führte jeder Job, der die Stufe und die
+Werkzeuge hatte, eine Akte. Das Verhalten bestehender Jobs bleibt damit gleich.
+
 ### API
 
 ```python
@@ -125,6 +148,7 @@ job = store.add(
     schedule_type="cron",
     schedule_expr="0 8 * * *",
     payload={"message": "Fasse meine E-Mails zusammen", "delivery": "announce", "channel": "discord"},
+    keeps_notes=False,   # Pflicht: Akte führen ja oder nein
     max_tier=1,
 )
 
@@ -271,7 +295,7 @@ zuerst `_run_plan_parts`, dann den Abschluss.
    Termin rückt weiter); die Scheduler-Schleife läuft weiter. Der Abschlusszug läuft inline in diesem Task und lässt die
    Eintragung stehen (`turn_service.run_turn`).
 2. **Teile nacheinander.** Die Plan-Engine startet je Teil einen Sub-Agenten mit frischem Kontext (Rahmen und Teil, dazu,
-   wenn der Job Notizen führt, der Hinweis auf die Notizdatei). Er läuft als
+   wenn der Job eine Akte führt, der Hinweis auf die Notizdatei). Er läuft als
    Agent des Jobs, ohne Persona, mit den Stufen des Jobs, aber ohne Senden: erlaubt sind alle Stufen bis `max_tier` des
    Jobs außer `TIER_COMMUNICATE`. Die Plugin-Einstellung „Erlaubte Tiers“ des Sub-Agent-Plugins gilt hier nicht.
    Zugestellt wird allein vom Horarium.
@@ -305,7 +329,7 @@ zuerst `_run_plan_parts`, dann den Abschluss.
    '…' done after …“ bzw. „❌ … failed after …: Grund“) und vor dem Abschluss „⏰ All N parts ended · closing turn: …“.
    Vorher begann die Konsole mit der ersten Zeile des Sub-Agenten und seinem Systemprompt, ohne Hinweis auf den Job.
 7. **Notizen.** Neue Quellen, die die Teile gemeldet haben (`neue_quellen`), trägt der Code als Abschnitt mit Datum in
-   die Job-Notizen ein (nur wenn der Job Notizen führt, `_keeps_notes`). `plan_record` nimmt in `neue_quellen` nur
+   die Job-Notizen ein (nur wenn der Job eine Akte führt, `_keeps_notes`: Schalter `keeps_notes` an und Stufe und Werkzeuge vorhanden). `plan_record` nimmt in `neue_quellen` nur
    einzeilige http(s)-Adressen an (alles andere lehnt es ab, `record_error_new_source`). `_append_new_sources` schreibt
    davon nur die, die in den Notizen noch nicht stehen (verglichen in der Form von `normalize_url`), und nur an
    bestehende Notizen; eine Datei, die es noch nicht gibt, legt das Modell am Ende seines Laufs selbst an

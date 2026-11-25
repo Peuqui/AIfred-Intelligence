@@ -16,13 +16,14 @@ CREATING A JOB (horarium_create), when the user plans something ("remind me", "e
 5. If the e-mailed answer should contain an image or file from this run (a chart, say), the ANSWER itself writes the reference with the /_upload/… URL from the tool result: ![description](URL) embeds an image, [name](URL) attaches the file. The message only says WHAT to show.
 6. A reminder or alarm at an exact time → fixed_text=true: the text goes out word for word and on time, without a model.
 7. If the job consists of several independent groups (e.g. prices of many products in several shops, every week anew), split it with frame, parts, columns (build: see the tool's fields); the message stays the instruction for the closing turn (e.g. writing the report). A part is what one agent can do in one go with a status per position; sources in the frame are starting points, not limits; columns only for values that are compared. Do NOT split small jobs. If you ran the plan earlier in the conversation with run_task_plan, take it over unchanged. A job with parts does not take fixed_text.
+8. keeps_notes is required: you decide whether the job keeps a file (a document in the workspace where it records what it needs to know in later runs). keeps_notes=true is worth it when the job has to know something across runs: observations over weeks, price histories, items already used that must not repeat. keeps_notes=false when every run fetches everything fresh (e.g. a daily overview from calendar and mail) and for reminders with a fixed text. If the user has not said whether a file should be kept and it is not clear, ask them briefly before you create the job.
 
 TYPICAL JOBS (suggest them when it fits): a morning summary of the emails, today's appointments, one-time reminders, a periodic status check that reports only problems. Two examples:
 
   horarium_create(name="email_summary", schedule_type="cron", schedule_expr="0 7 * * *",
     message="Go through my recent unread emails and summarize the key points briefly.",
-    delivery="announce", channel="telegram", recipient="Lord Helmchen")
+    keeps_notes=false, delivery="announce", channel="telegram", recipient="Lord Helmchen")
 
   horarium_create(name="doctor_reminder", schedule_type="once", schedule_expr="2026-03-30T09:30:00",
-    message="Reminder: Doctor's appointment at 10:00!", fixed_text=true,
+    message="Reminder: Doctor's appointment at 10:00!", fixed_text=true, keeps_notes=false,
     delivery="announce", channel="telegram")

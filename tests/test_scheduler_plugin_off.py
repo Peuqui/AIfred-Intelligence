@@ -30,10 +30,10 @@ def _due(store: JobStore, job_id: int, ago: timedelta = timedelta(hours=2)) -> N
 
 
 def test_missed_appointments_lapse_without_a_run(store: JobStore) -> None:
-    recurring = store.add("morning", "cron", "0 7 * * *", {"message": "x"})
-    ended = store.add("ends", "interval", "600", {"message": "x"}, ends_at=(datetime.now() + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%S"))
-    once = store.add("once", "once", (datetime.now() + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S"), {"message": "x"})
-    later = store.add("later", "interval", "86400", {"message": "x"})
+    recurring = store.add("morning", "cron", "0 7 * * *", {"message": "x"}, keeps_notes=True)
+    ended = store.add("ends", "interval", "600", {"message": "x"}, ends_at=(datetime.now() + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%S"), keeps_notes=True)
+    once = store.add("once", "once", (datetime.now() + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S"), {"message": "x"}, keeps_notes=True)
+    later = store.add("later", "interval", "86400", {"message": "x"}, keeps_notes=True)
     for job in (recurring, ended, once):
         _due(store, job.job_id)
     with sqlite3.connect(store._db_path) as conn:           # the end of "ends" fell into the time off
@@ -56,7 +56,7 @@ def test_missed_appointments_lapse_without_a_run(store: JobStore) -> None:
 def test_the_plugin_lets_missed_appointments_lapse_when_switched_on(store: JobStore) -> None:
     from aifred.plugins.tools.horarium import plugin
 
-    job = store.add("morning", "cron", "0 7 * * *", {"message": "x"})
+    job = store.add("morning", "cron", "0 7 * * *", {"message": "x"}, keeps_notes=True)
     _due(store, job.job_id)
     plugin.on_switched_on()
     assert store.get_due_jobs(_now_iso()) == []
@@ -72,7 +72,7 @@ def test_the_scheduler_is_a_background_part_of_its_plugin() -> None:
 def test_a_running_job_finishes_when_the_loop_is_cancelled(store: JobStore, monkeypatch: pytest.MonkeyPatch) -> None:
     """The plugin is switched off while a job runs: the loop stops starting jobs, the job runs to its end and marks
     itself. (Until 14.11.2026 the cancellation went into the job.)"""
-    job = store.add("long", "interval", "3600", {"message": "x"})
+    job = store.add("long", "interval", "3600", {"message": "x"}, keeps_notes=True)
     _due(store, job.job_id)
     started, release = asyncio.Event(), asyncio.Event()
     runs: list[int] = []
@@ -120,7 +120,7 @@ def test_claim_takes_a_job_once_and_frees_it() -> None:
 
 def test_the_loop_skips_a_job_claimed_elsewhere(store: JobStore, monkeypatch: pytest.MonkeyPatch) -> None:
     """The run-now endpoint holds the claim while the job is due: the loop does not start it again."""
-    job = store.add("evening", "interval", "3600", {"message": "x"})
+    job = store.add("evening", "interval", "3600", {"message": "x"}, keeps_notes=True)
     _due(store, job.job_id)
     assert sched.claim_job(job.job_id)
     runs: list[int] = []

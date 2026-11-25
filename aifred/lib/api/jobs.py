@@ -69,6 +69,7 @@ class JobRow(BaseModel):
     fixed_text: bool
     audio_type: str
     max_tier: int
+    keeps_notes: bool = Field(description="The job keeps a file (Akte): its notes across runs; only with the tier and tools it takes")
     enabled: bool
     last_run: str
     next_run: str | None
@@ -93,6 +94,7 @@ class JobWrite(BaseModel):
     fixed_text: bool = False
     audio_type: str = "notification"
     max_tier: int = Field(JOB_DEFAULT_TIER, ge=TIER_READONLY, le=TIER_ADMIN)
+    keeps_notes: bool = Field(description="Keep a file (Akte): the job's notes across runs; only with the tier and tools it takes")
     ends_at: str = Field("", description="YYYY-MM-DD (that day still runs) or YYYY-MM-DDTHH:MM; empty = no end")
     frame: str = ""
     parts: list[PlanPartModel] = []
@@ -131,7 +133,7 @@ def _row(job: Job) -> JobRow:
         message=payload.get("message", ""), agent=payload.get("agent", "aifred"), delivery=payload.get("delivery", "review"),
         channel=payload.get("channel", ""), recipient=payload.get("recipient", ""), webhook_url=payload.get("webhook_url", ""),
         fixed_text=bool(payload.get("fixed_text")), audio_type=payload.get("audio_type", "notification"),
-        max_tier=job.max_tier, enabled=job.enabled, last_run=job.last_run or "", next_run=job.next_run or None,
+        max_tier=job.max_tier, keeps_notes=job.keeps_notes, enabled=job.enabled, last_run=job.last_run or "", next_run=job.next_run or None,
         retry_count=job.retry_count, ends_at=job.ends_at,
         frame=payload.get("frame", ""), parts=payload.get("parts", []), columns=payload.get("columns", []),
     )
@@ -212,7 +214,8 @@ async def jobs_create(job: JobWrite) -> JobRow:
     from ..scheduler import get_job_store
 
     payload = _payload(job)
-    created = get_job_store().add(job.name, job.schedule_type, job.schedule_expr, payload, job.max_tier, job.ends_at)
+    created = get_job_store().add(job.name, job.schedule_type, job.schedule_expr, payload, keeps_notes=job.keeps_notes,
+                                    max_tier=job.max_tier, ends_at=job.ends_at)
     return _row(created)
 
 
@@ -223,7 +226,8 @@ async def jobs_change(job_id: int, job: JobWrite) -> JobRow:
 
     _job(job_id)
     payload = _payload(job)
-    changed = get_job_store().update(job_id, job.name, job.schedule_type, job.schedule_expr, payload, job.max_tier, job.ends_at)
+    changed = get_job_store().update(job_id, job.name, job.schedule_type, job.schedule_expr, payload,
+                                     keeps_notes=job.keeps_notes, max_tier=job.max_tier, ends_at=job.ends_at)
     if changed is None:   # deleted meanwhile
         raise Missing("no_job", job=job_id)
     return _row(changed)

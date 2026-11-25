@@ -100,7 +100,7 @@ langen Werkzeugergebnisses schneidet den Schwanz ab, und der Hinweis auf nicht G
 ## Zwei Aufrufer
 
 **Horarium.** `_run_plan_parts` in `lib/scheduler.py` ruft `run_plan` für einen Job mit `parts` auf: mit den Stufen des
-Jobs ohne Senden und dem Notizen-Hinweis, trägt neue Quellen in die Job-Notizen ein und lässt anschließend den Abschluss mit den Ergebnissen laufen. Der ganze Lauf ist die Pipeline der Sitzung des Jobs (Warteschlange für Chat-Nachrichten, Stopp, „läuft“); scheitert der Abschluss, werden die Ergebnisse der Teile trotzdem zugestellt. Einzelheiten: [Scheduler](scheduler.md#jobs-mit-teilaufträgen).
+Jobs ohne Senden und (nur bei einem Job mit Akte, `keeps_notes`) dem Notizen-Hinweis, trägt neue Quellen in die Job-Notizen ein und lässt anschließend den Abschluss mit den Ergebnissen laufen. Der ganze Lauf ist die Pipeline der Sitzung des Jobs (Warteschlange für Chat-Nachrichten, Stopp, „läuft“); scheitert der Abschluss, werden die Ergebnisse der Teile trotzdem zugestellt. Einzelheiten: [Scheduler](scheduler.md#jobs-mit-teilaufträgen).
 
 **Chat-Werkzeug `run_task_plan`.** Es gehört dem Sub-Agent-Plugin, steht auf jedem Kanal zur Verfügung, der das Plugin
 nutzt (Browser, Telegram, E-Mail, Discord, FreeEcho, alles, was durch `process_inbound` läuft), und nutzt die Stufen-

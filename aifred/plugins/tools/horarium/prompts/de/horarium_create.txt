@@ -16,13 +16,14 @@ JOB ANLEGEN (horarium_create), wenn der Benutzer etwas plant ("erinnere mich", "
 5. Soll die Antwort per E-Mail ein Bild oder eine Datei aus diesem Lauf enthalten (etwa ein Diagramm), schreibt die ANTWORT selbst den Verweis mit der /_upload/…-URL aus dem Werkzeug-Ergebnis: ![Beschreibung](URL) bettet ein Bild ein, [Name](URL) hängt die Datei an. Die message nennt nur, WAS gezeigt werden soll.
 6. Erinnerung oder Wecker zu einer genauen Uhrzeit → fixed_text=true: Der Text geht wörtlich und pünktlich hinaus, ohne Modell.
 7. Besteht der Job aus mehreren unabhängigen Gruppen (z. B. Preise vieler Produkte in mehreren Shops, jede Woche neu), zerlege ihn mit frame, parts, columns (Aufbau siehe die Felder des Werkzeugs); die message bleibt die Anweisung für den Abschluss (z. B. den Bericht schreiben). Ein Teil ist, was ein Agent in einem Zug mit einem Status je Position schafft; Quellen im Rahmen sind Startpunkte, keine Grenze; Spalten nur für Werte, die verglichen werden. Kleine Aufträge NICHT zerlegen. Hast du den Plan zuvor im Gespräch mit run_task_plan ausgeführt, übernimm ihn unverändert. Ein Job mit Teilen verträgt kein fixed_text.
+8. keeps_notes ist Pflicht: Du entscheidest, ob der Job eine Akte führt (eine Datei im Arbeitsbereich, in der er festhält, was er bei späteren Läufen wissen muss). keeps_notes=true lohnt sich, wenn der Job über Läufe hinweg etwas wissen muss: Beobachtungen über Wochen, Preisverläufe, schon Verwendetes, das sich nicht wiederholen soll. keeps_notes=false, wenn jeder Lauf alles frisch holt (z. B. eine Tagesübersicht aus Kalender und Mails) und Erinnerungen mit festem Text. Hat der Benutzer nicht gesagt, ob eine Akte geführt werden soll, und ist es nicht eindeutig, fragst du ihn kurz, bevor du den Job anlegst.
 
 TYPISCHE JOBS (schlage sie vor, wenn es passt): morgendliche Zusammenfassung der E-Mails, Termine des Tages, einmalige Erinnerungen, ein regelmäßiger Status-Check, der nur Probleme meldet. Zwei Beispiele:
 
   horarium_create(name="email_summary", schedule_type="cron", schedule_expr="0 7 * * *",
     message="Sieh meine letzten ungelesenen E-Mails durch und fasse die wichtigsten Punkte kurz zusammen.",
-    delivery="announce", channel="telegram", recipient="Lord Helmchen")
+    keeps_notes=false, delivery="announce", channel="telegram", recipient="Lord Helmchen")
 
   horarium_create(name="arzttermin_reminder", schedule_type="once", schedule_expr="2026-03-30T09:30:00",
-    message="Erinnerung: Arzttermin um 10:00 Uhr!", fixed_text=true,
+    message="Erinnerung: Arzttermin um 10:00 Uhr!", fixed_text=true, keeps_notes=false,
     delivery="announce", channel="telegram")

@@ -28,7 +28,7 @@ const PLAN = {
 };
 const job = (extra: Partial<JobRow> = {}): JobRow =>
   ({ job_id: 7, name: "Suche", agent: "aifred", message: "Fasse zusammen", delivery: "review", channel: "", recipient: "", webhook_url: "",
-    fixed_text: false, audio_type: "notification", max_tier: 1, schedule_type: "cron", schedule_expr: "0 8 * * *", ends_at: "",
+    fixed_text: false, audio_type: "notification", max_tier: 1, keeps_notes: false, schedule_type: "cron", schedule_expr: "0 8 * * *", ends_at: "",
     frame: "", parts: [], columns: [], ...extra }) as unknown as JobRow;
 const withPlan = (): JobRow => job(PLAN as unknown as Partial<JobRow>);
 

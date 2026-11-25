@@ -94,7 +94,7 @@ of the result (the cap of a long tool result cuts the tail, and the note on what
 ## Two callers
 
 **Horarium.** `_run_plan_parts` in `lib/scheduler.py` calls `run_plan` for a job with `parts`: with the job's tiers
-without sending and the notes pointer, enters new sources in the job's notes and
+without sending and (only for a job with a file, `keeps_notes`) the notes pointer, enters new sources in the job's notes and
 then lets the closing turn run with the results. The whole run is the pipeline of the job's session (a queue for chat messages, the stop, "running"); if the closing turn fails, the results of the parts are delivered anyway. Details: [scheduler](scheduler.md#jobs-with-sub-tasks).
 
 **Chat tool `run_task_plan`.** It belongs to the sub-agent plugin, is available on every channel that uses the plugin

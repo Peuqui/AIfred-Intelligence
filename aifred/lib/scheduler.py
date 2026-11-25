@@ -113,6 +113,7 @@ class Job:
     schedule_type: str          # "cron", "interval", "once"
     schedule_expr: str          # Cron expr, seconds, or ISO timestamp
     payload: dict[str, Any]     # What to do: {"message": "...", "agent": "aifred", ...}
+    keeps_notes: bool           # The owner's switch "keep a file" (Akte); see _keeps_notes for what else it takes
     max_tier: int = JOB_DEFAULT_TIER  # Security tier for this job
     enabled: bool = True
     created_at: str = ""
@@ -164,12 +165,20 @@ class JobStore:
                     last_run TEXT,
                     next_run TEXT,
                     retry_count INTEGER NOT NULL DEFAULT 0,
-                    ends_at TEXT
+                    ends_at TEXT,
+                    keeps_notes INTEGER NOT NULL
                 )
             """)
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
             # A database from before the end of a schedule: the column is added once, the jobs stay as they are.
-            if "ends_at" not in {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}:
+            if "ends_at" not in columns:
                 conn.execute("ALTER TABLE jobs ADD COLUMN ends_at TEXT")
+            # A database from before the switch "keep a file": every job so far kept one if its tier and tools allowed
+            # it, so the existing jobs are set on, explicitly, once; from then on every insert and update sets it.
+            # The column has no default (SQLite would need one for NOT NULL), the writes below always give the value.
+            if "keeps_notes" not in columns:
+                conn.execute("ALTER TABLE jobs ADD COLUMN keeps_notes INTEGER")
+                conn.execute("UPDATE jobs SET keeps_notes = 1")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS job_runs (
                     run_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -216,6 +225,7 @@ class JobStore:
             schedule_type=row["schedule_type"],
             schedule_expr=row["schedule_expr"],
             payload=json.loads(row["payload"]),
+            keeps_notes=bool(row["keeps_notes"]),
             max_tier=row["max_tier"],
             enabled=bool(row["enabled"]),
             created_at=row["created_at"] or "",
@@ -242,6 +252,8 @@ class JobStore:
         schedule_type: str,
         schedule_expr: str,
         payload: dict[str, Any],
+        *,
+        keeps_notes: bool,
         max_tier: int = JOB_DEFAULT_TIER,
         ends_at: str = "",
     ) -> Job:
@@ -253,9 +265,9 @@ class JobStore:
         next_run = self._first_run(schedule_type, schedule_expr, _now_iso(), ends_at)
         with self._connect() as conn:
             cursor = conn.execute(
-                """INSERT INTO jobs (name, schedule_type, schedule_expr, payload, max_tier, next_run, ends_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (name, schedule_type, schedule_expr, json.dumps(payload), max_tier, next_run, ends_at or None),
+                """INSERT INTO jobs (name, schedule_type, schedule_expr, payload, keeps_notes, max_tier, next_run, ends_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (name, schedule_type, schedule_expr, json.dumps(payload), keeps_notes, max_tier, next_run, ends_at or None),
             )
             conn.commit()
             self._changed()
@@ -270,6 +282,8 @@ class JobStore:
         schedule_type: str,
         schedule_expr: str,
         payload: dict[str, Any],
+        *,
+        keeps_notes: bool,
         max_tier: int = JOB_DEFAULT_TIER,
         ends_at: str = "",
     ) -> Job | None:
@@ -288,9 +302,9 @@ class JobStore:
         with self._connect() as conn:
             cursor = conn.execute(
                 """UPDATE jobs SET name = ?, schedule_type = ?, schedule_expr = ?,
-                       payload = ?, max_tier = ?, next_run = ?, retry_count = 0, ends_at = ?
+                       payload = ?, keeps_notes = ?, max_tier = ?, next_run = ?, retry_count = 0, ends_at = ?
                    WHERE job_id = ?""",
-                (name, schedule_type, schedule_expr, json.dumps(payload),
+                (name, schedule_type, schedule_expr, json.dumps(payload), keeps_notes,
                  max_tier, next_run, ends_at or None, job_id),
             )
             conn.commit()
@@ -967,12 +981,12 @@ def build_job_prompt(job: Job, store: JobStore, plan_block: str = "") -> str:
 
 
 def _keeps_notes(job: Job) -> bool:
-    """Does the job keep notes? Not a job that may not write data (below the tier of the owner's), nor one whose agent
-    lacks the tools to read and write them."""
+    """Does the job keep notes? Only when its owner switched it on (``keeps_notes``) and the job can: not a job that may
+    not write data (below the tier of the owner's), nor one whose agent lacks the tools to read and write them."""
     from . import job_notes
     from .security import TIER_WRITE_DATA
 
-    return job.max_tier >= TIER_WRITE_DATA and job_notes.agent_can_keep_notes(job.agent)
+    return job.keeps_notes and job.max_tier >= TIER_WRITE_DATA and job_notes.agent_can_keep_notes(job.agent)
 
 
 def _notes_text(job: Job, lang: str) -> str:

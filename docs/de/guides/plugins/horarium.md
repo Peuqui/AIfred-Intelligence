@@ -25,6 +25,7 @@ das Ergebnis an den konfigurierten Delivery-Modus übergeben.
 | `schedule_type` | ja | Einer von `cron`, `interval`, `once` |
 | `schedule_expr` | ja | Cron-Ausdruck, Intervall in Sekunden oder ISO-Timestamp |
 | `message` | ja | Der Prompt, den AIfred zum geplanten Zeitpunkt verarbeitet |
+| `keeps_notes` | ja | Ob der Job eine Akte führt, eine Notizdatei im Arbeitsbereich, in der er festhält, was er bei späteren Läufen wissen muss. `true`, wenn der Job über Läufe hinweg etwas wissen muss (Beobachtungen über Wochen, Preisverläufe, schon Verwendetes, das sich nicht wiederholen soll); `false`, wenn jeder Lauf alles frisch holt (z. B. eine Tagesübersicht aus Kalender und Mails). Hat der Benutzer es nicht gesagt und ist es nicht eindeutig, fragt AIfred vor dem Anlegen kurz nach. Die Akte braucht zusätzlich die Stufe 2 und einen Agenten mit `read_file` und `write_file` |
 | `agent` | nein | Zu verwendender Agent (Standard: `aifred`) |
 | `delivery` | nein | `review`, `announce`, `webhook` (Standard: `review`) |
 | `channel` | nein | Zielkanal für `announce` (z.B. `telegram`, `discord`, `email`, `freeecho2`; auf `freeecho2` wird die Antwort in den Räumen vorgelesen) |
@@ -51,6 +52,7 @@ Nur `job_id` ist Pflicht; was fehlt, bleibt, wie es ist. Dieselben Felder wie be
 | `enabled` | `true` schaltet den Job ein, `false` aus |
 | `end_date` | Setzt oder verschiebt das Ende; ein leerer Wert entfernt es |
 | `max_tier` | Neue Stufe; ohne Angabe bleibt sie |
+| `keeps_notes` | Schaltet die Akte ein oder aus (hier nicht Pflicht; ohne Angabe bleibt es). Ausschalten lässt eine vorhandene Akte unberührt im Arbeitsbereich liegen |
 | `frame` | Ersetzt den Rahmen des Plans ganz |
 | `columns` | Ersetzt die Spalten ganz (leere Liste = keine Spalten) |
 | `part_add` | Fügt einen Teil an (`id`, `title`, `task`, `positions`); die `id` darf noch nicht vorkommen |
@@ -65,6 +67,7 @@ und bei einem Fehler wird nichts gespeichert.
 - **Drei Schedule-Typen:** `cron` (Cron-Ausdruck, z.B. `0 8 * * *` = täglich 8 Uhr), `interval` (Sekunden, z.B. `3600` = stündlich), `once` (ISO-Timestamp, z.B. `2026-03-30T10:00:00`)
 - **Delivery-Modi:** `review` (Standard, in UI anzeigen), `announce` (an einen Kanal senden), `webhook` (HTTP POST); zugestellt wird die ganze Antwort wie im Browser (ohne Denkblöcke), der Agent verschickt nichts selbst
 - **Historie pro Job:** Das Laufprotokoll hält, was die letzten Läufe zugestellt haben (die Jobs-Seite zeigt es); der Lauf selbst erfährt davon nur die Zeiten der letzten Läufe, nicht die Texte
+- **Akte führen:** Jeder Job hat den Schalter `keeps_notes`. Nur wenn er an ist und der Job die Stufe 2 und einen Agenten mit `read_file` und `write_file` hat, bekommt der Lauf den Notiz-Prompt, legt das Horarium den Job-Ordner an und trägt neue Quellen in die Akte ein. `horarium_list` zeigt den Schalter je Job, die Jobs-Seite hat dafür die Option „Akte führen“. Einzelheiten: [Scheduler](../../architecture/scheduler.md#akte-führen-keeps_notes)
 - **Tier-Begrenzung:** Jobs laufen standardmäßig mit der Stufe des Besitzers (`JOB_DEFAULT_TIER`); mit `max_tier` lässt sich beim Anlegen und beim Ändern eine andere festlegen, auch eine niedrigere oder eine höhere als der Standard, aber höchstens bis zur eigenen Stufe (`_job_tier`). Teilaufträge senden nie selbst (ohne `TIER_COMMUNICATE`), die Zustellung macht das Horarium
 - **Isolierte Ausführung:** Jeder Job läuft aus seinem eigenen gespeicherten Payload
 - **Persistent:** Jobs werden im Job-Store abgelegt und überleben Neustarts des Services; was beim Neustart überfällig ist, läuft nach
@@ -83,7 +86,7 @@ unverändert als Job. Mit festem Text (`fixed_text`) lassen sich Teile nicht kom
 
 - Die Teile laufen nacheinander, jeder als eigener Sub-Agent. Sie suchen frei; genannte Quellen sind Startpunkte, keine
   Grenze. Für jede Position tragen sie einen Eintrag ein (gefunden, nicht gefunden, Fehler), ein Fund zählt nur mit einer
-  Quelle, die wirklich abgerufen wurde. Neu entdeckte Quellen hängt das Horarium an die Notizen des Jobs an.
+  Quelle, die wirklich abgerufen wurde. Neu entdeckte Quellen hängt das Horarium an die Notizen des Jobs an (nur wenn der Job eine Akte führt).
 - Fehlt nach einem Teil noch eine Position, wird der Teil genau einmal nachgefragt; danach gilt sie als „nicht geprüft“.
 - Scheitert ein Teil, läuft der Rest trotzdem. In der Nachricht steht, welcher Teil gescheitert ist und warum. Ein Teil hat
   ein Zeitlimit von 30:00 min (`PLAN_PART_TIMEOUT_SECONDS`, per Umgebung änderbar); überschreitet er es, scheitert er mit

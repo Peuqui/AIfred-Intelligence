@@ -86,6 +86,7 @@ CREATE TABLE jobs (
     schedule_type TEXT NOT NULL,     -- 'cron', 'interval', 'once'
     schedule_expr TEXT NOT NULL,     -- Cron expr, seconds, or ISO timestamp
     payload TEXT NOT NULL,           -- JSON: message, agent, delivery, channel, ...
+    keeps_notes INTEGER NOT NULL,    -- the switch "keep a file" (0/1), see "Keeping a file"
     max_tier INTEGER NOT NULL,       -- Security tier (see security-architecture.md)
     enabled INTEGER NOT NULL,
     created_at TEXT,
@@ -112,6 +113,26 @@ CREATE TABLE jobs (
 
 Optionally the plan fields `frame`, `parts`, `columns` (see "Jobs with sub-tasks").
 
+### Keeping a file (`keeps_notes`)
+
+Every job has a switch "keep a file" (Akte), a column of its own in the `jobs` table (like `max_tier` and `ends_at`, not
+in the payload). The file is the job's notes file in the workspace (`lib/job_notes.py`, folder `jobs/<name>_job-<id>`)
+where the job records what it needs to know in later runs: observations over weeks, price histories, items already used
+that must not repeat. It is worth it when the job has to know something across runs, not when every run fetches
+everything fresh (a daily overview from calendar and mail, say).
+
+`_keeps_notes(job)` decides for every run in one place: the switch is on **and** the job has the tier `TIER_WRITE_DATA`
+**and** its agent has `read_file` and `write_file` (`job_notes.agent_can_keep_notes`). Only then does the run get the notes
+prompt (`scheduler/notes` or `scheduler/notes_new`, `scheduler/plan_notes_hint` for jobs with parts), is the job folder
+made or renamed after the job's name (`job_notes.sync`), and does the code enter new sources in the file
+(`_append_new_sources`). With the switch off none of this happens: no notes prompt, no `sync`, nothing appended. Switching
+it off leaves an existing file untouched; deleting the job deletes the folder as before.
+
+`keeps_notes` has no default value: `JobStore.add` and `update` require it, and so do the API (`JobWrite`) and the tool
+`horarium_create` (required when creating, so the model decides or asks the user; optional in `horarium_update`). A
+database from before gets the column once at startup (`_ensure_schema`); all existing jobs are explicitly set on, because
+until then every job with the tier and the tools kept a file. The behavior of existing jobs stays the same.
+
 ### API
 
 ```python
@@ -125,6 +146,7 @@ job = store.add(
     schedule_type="cron",
     schedule_expr="0 8 * * *",
     payload={"message": "Summarize my emails", "delivery": "announce", "channel": "discord"},
+    keeps_notes=False,   # required: keep a file or not
     max_tier=1,
 )
 
@@ -269,7 +291,7 @@ silently otherwise. The plan only runs when `parts` is not empty.
    counts as a failure (`mark_failed`, the next appointment moves on); the scheduler loop goes on. The closing turn runs
    inline in this task and leaves the registration alone (`turn_service.run_turn`).
 2. **Parts one after the other.** For each part the plan engine starts a sub-agent with fresh context (frame and part,
-   plus, if the job keeps notes, the pointer to the notes file). It runs as the job's
+   plus, if the job keeps a file, the pointer to the notes file). It runs as the job's
    agent, without persona, with the job's tiers but without sending: all tiers up to the job's `max_tier` except
    `TIER_COMMUNICATE` are allowed. The sub-agent plugin's setting "allowed tiers" does not apply here. Only the Horarium
    delivers.
@@ -303,7 +325,7 @@ silently otherwise. The plan only runs when `parts` is not empty.
    '...' done after ..." or "❌ ... failed after ...: reason") and before the closing turn "⏰ All N parts ended · closing
    turn: ...". Before, the console began with the sub-agent's first line and its system prompt, with no word of the job.
 7. **Notes.** The code enters new sources the parts reported (`neue_quellen`) as a dated section in the job's notes (only
-   if the job keeps notes, `_keeps_notes`). `plan_record` accepts only single-line http(s) addresses in `neue_quellen`
+   if the job keeps a file, `_keeps_notes`: the switch `keeps_notes` is on and the tier and tools are there). `plan_record` accepts only single-line http(s) addresses in `neue_quellen`
    (it rejects anything else, `record_error_new_source`). `_append_new_sources` writes only those the notes do not name
    yet (compared in the form of `normalize_url`), and only to notes that exist; a file that does not exist yet is made by
    the model at the end of its run (`scheduler/notes_new`), because a file holding nothing but addresses would count as

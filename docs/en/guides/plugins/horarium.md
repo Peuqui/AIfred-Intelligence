@@ -25,6 +25,7 @@ result is handed to the configured delivery mode.
 | `schedule_type` | yes | One of `cron`, `interval`, `once` |
 | `schedule_expr` | yes | Cron expression, interval in seconds, or ISO timestamp |
 | `message` | yes | The prompt AIfred processes at the scheduled time |
+| `keeps_notes` | yes | Whether the job keeps a file (Akte), a notes file in the workspace where it records what it needs to know in later runs. `true` when the job has to know something across runs (observations over weeks, price histories, items already used that must not repeat); `false` when every run fetches everything fresh (e.g. a daily overview from calendar and mail). If the user has not said and it is not clear, AIfred asks briefly before creating the job. The file also needs tier 2 and an agent with `read_file` and `write_file` |
 | `agent` | no | Agent to use (default: `aifred`) |
 | `delivery` | no | `review`, `announce`, `webhook` (default: `review`) |
 | `channel` | no | Target channel for `announce` (e.g. `telegram`, `discord`, `email`, `freeecho2`; on `freeecho2` the answer is read out loud in the rooms) |
@@ -51,6 +52,7 @@ Only `job_id` is required; what is left out stays as it is. The same fields as `
 | `enabled` | `true` switches the job on, `false` off |
 | `end_date` | Sets or moves the end; an empty value removes it |
 | `max_tier` | New tier; left out, it stays |
+| `keeps_notes` | Switches the file on or off (not required here; left out, it stays). Switching it off leaves an existing file untouched in the workspace |
 | `frame` | Replaces the plan's frame completely |
 | `columns` | Replaces the columns completely (empty list = no columns) |
 | `part_add` | Adds one part (`id`, `title`, `task`, `positions`); the `id` must not exist yet |
@@ -65,6 +67,7 @@ when it is wrong.
 - **Three schedule types:** `cron` (cron expression, e.g. `0 8 * * *` = daily 8am), `interval` (seconds, e.g. `3600` = every hour), `once` (ISO timestamp, e.g. `2026-03-30T10:00:00`)
 - **Delivery modes:** `review` (default, show in UI), `announce` (send to a channel), `webhook` (HTTP POST); the whole answer is delivered as the browser shows it (without thinking), the agent sends nothing itself
 - **History per job:** the run log keeps what the last runs delivered (the jobs page shows it); the run itself learns only the times of the last runs, not the texts
+- **Keeping a file:** Every job has the switch `keeps_notes`. Only when it is on and the job has tier 2 and an agent with `read_file` and `write_file` does the run get the notes prompt, does the Horarium make the job folder and enter new sources in the file. `horarium_list` shows the switch per job; the jobs page has the option "Keep a file". Details: [Scheduler](../../architecture/scheduler.md#keeping-a-file-keeps_notes)
 - **Tier limit:** jobs run with the owner's tier by default (`JOB_DEFAULT_TIER`); `max_tier` sets another one at creation and when changing, lower or higher than the default, but at most the creator's own tier (`_job_tier`). Sub-tasks never send themselves (no `TIER_COMMUNICATE`); the Horarium delivers
 - **Isolated execution:** Each job runs from its own stored payload
 - **Persistent:** Jobs are stored via the job store and survive service restarts; what is overdue at a restart runs afterwards
@@ -83,7 +86,7 @@ with fixed text (`fixed_text`).
 
 - The parts run one after the other, each as its own sub-agent. They search freely; sources named are starting points,
   not limits. For every position they enter an entry (found, not found, error); a find counts only with a source that
-  was really retrieved. New sources they discover are appended by the Horarium to the job's notes.
+  was really retrieved. New sources they discover are appended by the Horarium to the job's notes (only if the job keeps a file).
 - If a position is still missing after a part, the part is asked exactly once more; after that it counts as "not checked".
 - If a part fails, the rest runs anyway. The message says which part failed and why. A part has a time limit of 30:00 min
   (`PLAN_PART_TIMEOUT_SECONDS`, changeable through the environment); if it exceeds it, it fails with the reason "Time

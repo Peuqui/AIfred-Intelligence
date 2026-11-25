@@ -184,6 +184,6 @@ class TestScheduledMail:
 
         monkeypatch.setattr(message_processor, "announce_to_channel", announce)
         job = Job(job_id=1, name="Heizöl", schedule_type="once", schedule_expr="2026-11-06T10:00:00",
-                  payload={"delivery": "announce", "channel": "email", "recipient": "Lord Helmchen"})
+                  payload={"delivery": "announce", "channel": "email", "recipient": "Lord Helmchen"}, keeps_notes=False)
         asyncio.run(scheduler._deliver_announce(job, "Text", SID))
         assert calls == [{"subject": "Heizöl", "source": "scheduler"}]

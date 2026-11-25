@@ -158,6 +158,7 @@ class HorariumPlugin:
             schedule_type: str,
             schedule_expr: str,
             message: str,
+            keeps_notes: Any = None,
             agent: str = "aifred",
             delivery: str = "review",
             channel: str = "",
@@ -174,6 +175,13 @@ class HorariumPlugin:
             """Create a new scheduled job."""
             from ....lib.scheduler import get_job_store
 
+            # Not a default: the model decides it (or asks the user), so a job never gets a file by accident.
+            if keeps_notes is None:
+                return json.dumps({"error": str(Invalid("keeps_notes_required"))})
+            try:
+                keeps_notes = parse_bool(keeps_notes, "keeps_notes")
+            except InvalidValue as exc:
+                return json.dumps({"error": str(exc)})
             store = get_job_store()
             payload: dict[str, Any] = {
                 "message": message,
@@ -210,6 +218,7 @@ class HorariumPlugin:
                     schedule_type=schedule_type,
                     schedule_expr=schedule_expr,
                     payload=payload,
+                    keeps_notes=keeps_notes,
                     max_tier=job_tier,
                     ends_at=end_date,
                 )
@@ -228,6 +237,7 @@ class HorariumPlugin:
                 "next_run": job.next_run,
                 "end_date": job.ends_at,
                 "delivery": delivery,
+                "keeps_notes": job.keeps_notes,
             })
 
         async def _list() -> str:
@@ -250,6 +260,7 @@ class HorariumPlugin:
                         "last_run": j.last_run,
                         "end_date": j.ends_at,
                         "delivery": j.payload.get("delivery", "review"),
+                        "keeps_notes": j.keeps_notes,
                         **{k: j.payload[k] for k in self._PAYLOAD_FIELDS
                            if k != "delivery" and j.payload.get(k)},
                         **self._plan_summary(j.payload),
@@ -271,6 +282,7 @@ class HorariumPlugin:
             webhook_url: str = "",
             enabled: bool | None = None,
             fixed_text: bool | None = None,
+            keeps_notes: Any = None,
             audio_type: str = "",
             end_date: str | None = None,
             max_tier: int | None = None,
@@ -307,6 +319,7 @@ class HorariumPlugin:
             try:
                 if fixed_text is not None:
                     payload["fixed_text"] = parse_bool(fixed_text, "fixed_text")
+                new_keeps_notes = job.keeps_notes if keeps_notes is None else parse_bool(keeps_notes, "keeps_notes")
             except InvalidValue as exc:
                 return json.dumps({"error": str(exc)})
             new_end = job.ends_at if end_date is None else end_date
@@ -321,7 +334,8 @@ class HorariumPlugin:
             try:
                 updated = store.update(
                     job_id, name or job.name, new_type,
-                    schedule_expr or job.schedule_expr, payload, new_tier, new_end,
+                    schedule_expr or job.schedule_expr, payload,
+                    keeps_notes=new_keeps_notes, max_tier=new_tier, ends_at=new_end,
                 )
             except ValueError as exc:
                 return json.dumps({"error": f"{exc} — job {job_id} unchanged"})
@@ -346,6 +360,7 @@ class HorariumPlugin:
                 "next_run": updated.next_run,
                 "end_date": updated.ends_at,
                 "delivery": updated.payload.get("delivery", "review"),
+                "keeps_notes": updated.keeps_notes,
             })
 
         async def _delete(job_id: Any) -> str:

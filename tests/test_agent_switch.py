@@ -101,6 +101,7 @@ def test_a_job_of_an_agent_switched_off_fails_out_loud(agents_file: Path, monkey
     monkeypatch.setattr("aifred.lib.message_processor.process_inbound", must_not_run)
     job = scheduler.Job(
         job_id=1, name="Morgengruß", schedule_type="once", schedule_expr="", payload={"message": "Guten Morgen", "agent": "sokrates"},
+        keeps_notes=False,
     )
     with pytest.raises(RuntimeError, match="'sokrates' is switched off"):
         asyncio.run(scheduler._execute_job(job))

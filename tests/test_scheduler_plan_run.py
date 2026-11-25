@@ -120,8 +120,8 @@ class Run:
         self.delivered.append((text, session_id))
 
 
-def _job(max_tier: int = TIER_WRITE_DATA, **payload: Any) -> sched.Job:
-    return sched.get_job_store().add("Preise", "interval", "60", {**PAYLOAD, **payload}, max_tier=max_tier)
+def _job(max_tier: int = TIER_WRITE_DATA, keeps_notes: bool = True, **payload: Any) -> sched.Job:
+    return sched.get_job_store().add("Preise", "interval", "60", {**PAYLOAD, **payload}, max_tier=max_tier, keeps_notes=keeps_notes)
 
 
 def test_the_run_goes_session_parts_bubble_closing_and_delivers_with_the_coverage_line(monkeypatch) -> None:
@@ -227,9 +227,26 @@ def test_a_job_without_notes_gets_no_hint_and_no_notes_file(monkeypatch) -> None
     assert not job_notes.has_notes(notes_file)
 
 
+def test_a_plan_job_with_the_switch_off_gets_no_hint_no_folder_and_no_new_sources_in_its_old_notes(monkeypatch) -> None:
+    job = _job(keeps_notes=False)
+    _write_notes(job, "# Akte\n- https://alt.example/\n")   # notes from the time the switch was on
+    before = _notes_of(job)
+    run = Run(monkeypatch, new_sources={"https://neu.example"})
+    asyncio.run(sched._execute_job(job))
+    assert run.seen["notes_hint"] == ""
+    assert "Die Akte dieses Jobs" not in run.seen["msg"].text
+    assert _notes_of(job) == before
+
+
+def test_a_plan_job_with_the_switch_off_and_no_notes_makes_no_folder(monkeypatch) -> None:
+    Run(monkeypatch, new_sources={"https://neu.example"})
+    asyncio.run(sched._execute_job(_job(keeps_notes=False)))
+    assert not (file_manager.DOCUMENTS_DIR / SCHEDULER_JOBS_FOLDER).exists()
+
+
 def test_a_job_without_parts_runs_as_before(monkeypatch) -> None:
     run = Run(monkeypatch)
-    job = sched.get_job_store().add("News", "interval", "60", {"message": "Nachrichten"})
+    job = sched.get_job_store().add("News", "interval", "60", {"message": "Nachrichten"}, keeps_notes=True)
     asyncio.run(sched._execute_job(job))
     assert run.order == ["session", "closing"]   # the session first: the run is its pipeline
     assert run.delivered == [("Bericht.", SESSION_ID)]
@@ -542,6 +559,6 @@ def test_a_job_without_parts_says_in_the_debug_console_that_it_is_one_turn(monke
     lines: list[str] = []
     monkeypatch.setattr("aifred.lib.debug_bus.debug", lines.append)
     Run(monkeypatch)
-    job = sched.get_job_store().add("Gruß", "interval", "60", {"message": "Sag hallo."})
+    job = sched.get_job_store().add("Gruß", "interval", "60", {"message": "Sag hallo."}, keeps_notes=True)
     asyncio.run(sched._execute_job(job))
     assert lines == [f"⏰ Horarium job 'Gruß' (id={job.job_id}) starts · agent Agent · one turn"]

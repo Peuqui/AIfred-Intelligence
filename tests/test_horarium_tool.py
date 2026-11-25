@@ -86,7 +86,7 @@ class TestSchedulerCreate:
             name="test_job",
             schedule_type="interval",
             schedule_expr="3600",
-            message="Check emails",
+            message="Check emails", keeps_notes=True,
         ))
         data = json.loads(result)
         assert data["success"] is True
@@ -102,7 +102,7 @@ class TestSchedulerCreate:
             schedule_expr="0 8 * * *",
             message="Summarize emails",
             delivery="announce",
-            channel="telegram",
+            channel="telegram", keeps_notes=True,
         ))
         data = json.loads(result)
         assert data["success"] is True
@@ -115,7 +115,7 @@ class TestSchedulerCreate:
             schedule_type="once",
             schedule_expr="2026-04-01T10:00:00",
             message="Arzttermin!",
-            delivery="review",
+            delivery="review", keeps_notes=True,
         ))
         data = json.loads(result)
         assert data["success"] is True
@@ -127,7 +127,7 @@ class TestSchedulerCreate:
             name="bad",
             schedule_type="invalid",
             schedule_expr="foo",
-            message="test",
+            message="test", keeps_notes=True,
         ))
         data = json.loads(result)
         assert "error" in data
@@ -144,7 +144,7 @@ class TestJobTier:
     @staticmethod
     def _create(tools, **extra):
         return json.loads(_run(tools["horarium_create"].executor(
-            name="j", schedule_type="interval", schedule_expr="3600", message="x", **extra,
+            name="j", schedule_type="interval", schedule_expr="3600", message="x", **extra, keeps_notes=True,
         )))
 
     def _tier(self, data):
@@ -180,7 +180,7 @@ class TestFixedText:
     def _create(self, plugin, ctx, **arguments):
         tool = next(t for t in plugin.get_tools(ctx) if t.name == "horarium_create")
         return json.loads(_run(tool.executor(
-            name="Wecker", schedule_type="cron", schedule_expr="0 7 * * *", message="Guten Morgen", **arguments,
+            name="Wecker", schedule_type="cron", schedule_expr="0 7 * * *", message="Guten Morgen", **arguments, keeps_notes=True,
         )))
 
     def test_a_fixed_text_on_the_pucks(self, plugin, ctx):
@@ -229,10 +229,10 @@ class TestSchedulerList:
     def test_list_after_create(self, plugin, ctx):
         tools = {t.name: t for t in plugin.get_tools(ctx)}
         _run(tools["horarium_create"].executor(
-            name="job1", schedule_type="interval", schedule_expr="60", message="test1",
+            name="job1", schedule_type="interval", schedule_expr="60", message="test1", keeps_notes=True,
         ))
         _run(tools["horarium_create"].executor(
-            name="job2", schedule_type="cron", schedule_expr="0 8 * * *", message="test2",
+            name="job2", schedule_type="cron", schedule_expr="0 8 * * *", message="test2", keeps_notes=True,
         ))
         result = _run(tools["horarium_list"].executor())
         data = json.loads(result)
@@ -246,7 +246,7 @@ class TestSchedulerUpdate:
     def _create(self, tools):
         return json.loads(_run(tools["horarium_create"].executor(
             name="report", schedule_type="cron", schedule_expr="15 7 * * *",
-            message="Original text", delivery="announce", channel="email",
+            message="Original text", delivery="announce", channel="email", keeps_notes=True,
         )))["job_id"]
 
     def test_list_shows_message(self, plugin, ctx):
@@ -310,7 +310,7 @@ class TestSchedulerDelete:
     def test_delete_existing(self, plugin, ctx):
         tools = {t.name: t for t in plugin.get_tools(ctx)}
         create_result = _run(tools["horarium_create"].executor(
-            name="to_delete", schedule_type="interval", schedule_expr="60", message="test",
+            name="to_delete", schedule_type="interval", schedule_expr="60", message="test", keeps_notes=True,
         ))
         job_id = json.loads(create_result)["job_id"]
 
@@ -358,7 +358,7 @@ class TestScheduleEndInTheTool:
         create = self._tool(plugin, ctx, "horarium_create")
         result = json.loads(_run(create(
             name="deals", schedule_type="cron", schedule_expr="0 8,14,20 * * *", message="Prüfe die Angebote",
-            end_date="2099-11-30",
+            end_date="2099-11-30", keeps_notes=True,
         )))
         assert result["success"] is True and result["end_date"] == "2099-11-30"
         stored = get_job_store().get(result["job_id"])
@@ -366,31 +366,31 @@ class TestScheduleEndInTheTool:
 
     def test_without_an_end_the_job_has_none(self, plugin, ctx):
         create = self._tool(plugin, ctx, "horarium_create")
-        result = json.loads(_run(create(name="x", schedule_type="cron", schedule_expr="0 8 * * *", message="m")))
+        result = json.loads(_run(create(name="x", schedule_type="cron", schedule_expr="0 8 * * *", message="m", keeps_notes=True)))
         assert result["end_date"] == ""
 
     @pytest.mark.parametrize("bad", ["30.11.2026", "morgen", "2026-11-30 18:00"])
     def test_a_bad_end_is_refused_in_english(self, plugin, ctx, bad):
         create = self._tool(plugin, ctx, "horarium_create")
-        result = json.loads(_run(create(name="x", schedule_type="cron", schedule_expr="0 8 * * *", message="m", end_date=bad)))
+        result = json.loads(_run(create(name="x", schedule_type="cron", schedule_expr="0 8 * * *", message="m", end_date=bad, keeps_notes=True)))
         assert result["error"] == t("error_invalid_ends_at", lang="en", value=bad)
         assert get_job_store().list_all() == []
 
     def test_a_one_shot_job_takes_no_end(self, plugin, ctx):
         create = self._tool(plugin, ctx, "horarium_create")
         result = json.loads(_run(create(
-            name="x", schedule_type="once", schedule_expr="2099-01-01T10:00:00", message="m", end_date="2099-02-01",
+            name="x", schedule_type="once", schedule_expr="2099-01-01T10:00:00", message="m", end_date="2099-02-01", keeps_notes=True,
         )))
         assert result["error"] == t("error_ends_at_not_for_once", lang="en")
 
     def test_an_end_before_the_first_run_is_refused(self, plugin, ctx):
         create = self._tool(plugin, ctx, "horarium_create")
-        result = json.loads(_run(create(name="x", schedule_type="cron", schedule_expr="0 8 * * *", message="m", end_date="2020-01-01")))
+        result = json.loads(_run(create(name="x", schedule_type="cron", schedule_expr="0 8 * * *", message="m", end_date="2020-01-01", keeps_notes=True)))
         assert "never run" in result["error"] and "job not created" in result["error"]
 
     def test_update_sets_keeps_and_removes_the_end(self, plugin, ctx):
         create, update, listing = (self._tool(plugin, ctx, name) for name in ("horarium_create", "horarium_update", "horarium_list"))
-        job_id = json.loads(_run(create(name="x", schedule_type="cron", schedule_expr="0 8 * * *", message="m")))["job_id"]
+        job_id = json.loads(_run(create(name="x", schedule_type="cron", schedule_expr="0 8 * * *", message="m", keeps_notes=True)))["job_id"]
         assert json.loads(_run(update(job_id=job_id, end_date="2099-12-31")))["end_date"] == "2099-12-31"
         assert json.loads(_run(update(job_id=job_id, message="neu")))["end_date"] == "2099-12-31"      # left out: stays
         assert json.loads(_run(listing()))["jobs"][0]["end_date"] == "2099-12-31"
@@ -433,7 +433,7 @@ def _call(tool, **arguments) -> dict[str, Any]:
 def _create_plan_job(plugin, ctx, **more) -> int:
     data = _call(
         _tools_of(plugin, ctx)["horarium_create"], name="preise", schedule_type="cron", schedule_expr="0 7 * * *",
-        message="Berichte", **{**PLAN, **more},
+        message="Berichte", keeps_notes=True, **{**PLAN, **more},
     )
     assert data["success"] is True, data
     return int(data["job_id"])
@@ -447,7 +447,7 @@ class TestPlanCreate:
 
     def test_a_job_without_plan_has_no_plan_fields(self, plugin, ctx):
         data = _call(_tools_of(plugin, ctx)["horarium_create"], name="x", schedule_type="interval",
-                     schedule_expr="3600", message="m")
+                     schedule_expr="3600", message="m", keeps_notes=True)
         assert not {"frame", "parts", "columns"} & set(_stored_payload(data["job_id"]))
 
     @pytest.mark.parametrize("broken", [
@@ -461,7 +461,7 @@ class TestPlanCreate:
     def test_an_invalid_plan_is_refused_and_nothing_stored(self, plugin, ctx, broken):
         data = _call(
             _tools_of(plugin, ctx)["horarium_create"], name="x", schedule_type="cron", schedule_expr="0 7 * * *",
-            message="m", **{**PLAN, **broken},
+            message="m", keeps_notes=True, **{**PLAN, **broken},
         )
         assert "error" in data
         assert get_job_store().list_all() == []
@@ -469,7 +469,7 @@ class TestPlanCreate:
     def test_parts_with_a_fixed_text_are_refused(self, plugin, ctx):
         data = _call(
             _tools_of(plugin, ctx)["horarium_create"], name="x", schedule_type="cron", schedule_expr="0 7 * * *",
-            message="m", fixed_text=True, delivery="announce", channel="telegram", **PLAN,
+            message="m", keeps_notes=True, fixed_text=True, delivery="announce", channel="telegram", **PLAN,
         )
         assert "error" in data
 
@@ -572,7 +572,7 @@ class TestPlanList:
 
     def test_a_job_without_plan_shows_none(self, plugin, ctx):
         _call(_tools_of(plugin, ctx)["horarium_create"], name="x", schedule_type="interval", schedule_expr="3600",
-              message="m")
+              message="m", keeps_notes=True)
         job = _call(_tools_of(plugin, ctx)["horarium_list"])["jobs"][0]
         assert not {"frame", "parts", "columns"} & set(job)
 
@@ -664,3 +664,73 @@ class TestJobIdReachesTheToolContext:
             metadata=origin.metadata, trust=origin.trust,
         ))
         assert [(c.source, c.metadata["job_id"]) for c in seen] == [("scheduler", 42)]
+
+
+class TestKeepsNotes:
+    """The switch "keep a file" (Akte): the model must decide it when it creates a job, and may change it later."""
+
+    @staticmethod
+    def _tools(plugin, ctx):
+        return {t.name: t for t in plugin.get_tools(ctx)}
+
+    def _create(self, plugin, ctx, **arguments):
+        return json.loads(_run(self._tools(plugin, ctx)["horarium_create"].executor(
+            name="j", schedule_type="interval", schedule_expr="3600", message="x", **arguments,
+        )))
+
+    @staticmethod
+    def _keeps(job_id):
+        job = get_job_store().get(job_id)
+        assert job is not None
+        return job.keeps_notes
+
+    def test_a_job_made_without_saying_is_refused_and_the_model_is_told_to_decide_or_ask(self, plugin, ctx):
+        data = self._create(plugin, ctx)
+        assert data["error"] == t("error_keeps_notes_required", lang="en")
+        assert get_job_store().list_all() == []
+
+    def test_the_switch_is_stored_as_given(self, plugin, ctx):
+        assert self._keeps(self._create(plugin, ctx, keeps_notes=True)["job_id"]) is True
+        assert self._keeps(self._create(plugin, ctx, keeps_notes=False)["job_id"]) is False
+        assert self._keeps(self._create(plugin, ctx, keeps_notes="false")["job_id"]) is False   # models send the word
+
+    def test_nonsense_is_refused(self, plugin, ctx):
+        assert "keeps_notes" in self._create(plugin, ctx, keeps_notes="vielleicht")["error"]
+        assert get_job_store().list_all() == []
+
+    def test_create_answers_with_the_switch(self, plugin, ctx):
+        assert self._create(plugin, ctx, keeps_notes=False)["keeps_notes"] is False
+
+    def test_update_changes_it_only_when_given(self, plugin, ctx):
+        tools = self._tools(plugin, ctx)
+        job_id = self._create(plugin, ctx, keeps_notes=False)["job_id"]
+        _run(tools["horarium_update"].executor(job_id=job_id, name="neu"))
+        assert self._keeps(job_id) is False
+        answer = json.loads(_run(tools["horarium_update"].executor(job_id=job_id, keeps_notes=True)))
+        assert answer["keeps_notes"] is True and self._keeps(job_id) is True
+        _run(tools["horarium_update"].executor(job_id=job_id, keeps_notes="false"))
+        assert self._keeps(job_id) is False
+
+    def test_update_refuses_nonsense_and_leaves_the_job_as_it_was(self, plugin, ctx):
+        job_id = self._create(plugin, ctx, keeps_notes=True)["job_id"]
+        answer = json.loads(_run(self._tools(plugin, ctx)["horarium_update"].executor(job_id=job_id, keeps_notes="vielleicht")))
+        assert "keeps_notes" in answer["error"] and self._keeps(job_id) is True
+
+    def test_list_shows_it(self, plugin, ctx):
+        self._create(plugin, ctx, keeps_notes=True)
+        self._create(plugin, ctx, keeps_notes=False)
+        listed = json.loads(_run(self._tools(plugin, ctx)["horarium_list"].executor()))
+        assert [job["keeps_notes"] for job in listed["jobs"]] == [True, False]
+
+    def test_the_parameter_is_required_when_creating_and_optional_when_changing(self, plugin, ctx):
+        tools = self._tools(plugin, ctx)
+        create, update = tools["horarium_create"].parameters, tools["horarium_update"].parameters
+        assert "keeps_notes" in create["required"] and "keeps_notes" not in update["required"]
+        for schema in (create, update):
+            assert schema["properties"]["keeps_notes"]["type"] == "boolean"
+            assert "across runs" in schema["properties"]["keeps_notes"]["description"]
+
+    def test_the_instructions_tell_the_model_to_ask_when_it_is_not_clear(self, plugin):
+        for lang, phrase in (("de", "fragst du"), ("en", "ask")):
+            assert "keeps_notes" in plugin.get_prompt_instructions(lang, {"horarium_create"})
+            assert phrase in plugin.get_prompt_instructions(lang, {"horarium_create"})

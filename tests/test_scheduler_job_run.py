@@ -47,7 +47,7 @@ def _tool(name: str, **kwargs) -> Tool:
 class TestRunHistory:
     def test_recent_runs_newest_first_and_limited(self):
         store = sched.get_job_store()
-        job = store.add("news", "interval", "60", {"message": "x"})
+        job = store.add("news", "interval", "60", {"message": "x"}, keeps_notes=True)
         for i in range(3):
             store.add_run(job.job_id, f"s{i}", f"run {i}")
         assert [text for _, text in store.recent_runs(job.job_id, 2)] == ["run 2", "run 1"]
@@ -55,8 +55,8 @@ class TestRunHistory:
     def test_only_the_newest_runs_are_kept(self, monkeypatch):
         monkeypatch.setattr("aifred.lib.config.SCHEDULER_HISTORY_RUNS", 3)
         store = sched.get_job_store()
-        job = store.add("news", "interval", "60", {"message": "x"})
-        other = store.add("other", "interval", "60", {"message": "x"})
+        job = store.add("news", "interval", "60", {"message": "x"}, keeps_notes=True)
+        other = store.add("other", "interval", "60", {"message": "x"}, keeps_notes=True)
         store.add_run(other.job_id, "s", "untouched")
         for i in range(5):
             store.add_run(job.job_id, f"s{i}", f"run {i}")
@@ -65,8 +65,8 @@ class TestRunHistory:
 
     def test_runs_are_per_job_and_deleted_with_the_job(self):
         store = sched.get_job_store()
-        a = store.add("a", "interval", "60", {"message": "x"})
-        b = store.add("b", "interval", "60", {"message": "x"})
+        a = store.add("a", "interval", "60", {"message": "x"}, keeps_notes=True)
+        b = store.add("b", "interval", "60", {"message": "x"}, keeps_notes=True)
         store.add_run(a.job_id, "s", "from a")
         assert store.recent_runs(b.job_id, 10) == []
         store.delete(a.job_id)
@@ -78,7 +78,7 @@ class TestRunHistory:
 class TestJobPrompt:
     def test_first_run(self):
         store = sched.get_job_store()
-        job = store.add("Gebet", "interval", "60", {"message": "Schreib ein Gebet.", "delivery": "review"})
+        job = store.add("Gebet", "interval", "60", {"message": "Schreib ein Gebet.", "delivery": "review"}, keeps_notes=True)
         prompt = sched.build_job_prompt(job, store)
         assert "[Geplanter Job: Gebet]" in prompt
         assert "zur Durchsicht" in prompt
@@ -91,7 +91,7 @@ class TestJobPrompt:
         job = store.add("News", "interval", "60", {
             "message": "Nachrichten", "delivery": "announce",
             "channel": "telegram", "recipient": "Peuqui",
-        })
+        }, keeps_notes=True)
         store.add_run(job.job_id, "s1", "Heute Psalm 23. " + "Noch ein Satz. " * 100)
         prompt = sched.build_job_prompt(job, store)
         assert "über Telegram an Peuqui" in prompt
@@ -100,7 +100,7 @@ class TestJobPrompt:
 
     def test_the_run_is_told_where_the_notes_are(self):
         store = sched.get_job_store()
-        job = store.add("Black Week", "interval", "60", {"message": "x"})
+        job = store.add("Black Week", "interval", "60", {"message": "x"}, keeps_notes=True)
         prompt = sched.build_job_prompt(job, store)
         assert f"`jobs/black-week_job-{job.job_id}/black-week_job-{job.job_id}.md`" in prompt
         assert "gibt es noch nicht" in prompt
@@ -115,7 +115,7 @@ class TestJobPrompt:
 
         monkeypatch.setattr("aifred.lib.config.DOCUMENTS_DIR", file_manager.DOCUMENTS_DIR)   # what the mail resolves against
         store = sched.get_job_store()
-        job = store.add("Black Week", "interval", "60", {"message": "x"})
+        job = store.add("Black Week", "interval", "60", {"message": "x"}, keeps_notes=True)
         prompt = sched.build_job_prompt(job, store)
         url = f"/_upload/documents/jobs/black-week_job-{job.job_id}"
         assert f"`{url}/<Dateiname>`" in prompt
@@ -128,15 +128,30 @@ class TestJobPrompt:
         from aifred.lib.agent_config import AgentConfig
 
         store = sched.get_job_store()
-        job = store.add("Gebet", "interval", "60", {"message": "x", "agent": "pater"})
+        job = store.add("Gebet", "interval", "60", {"message": "x", "agent": "pater"}, keeps_notes=True)
         for tools, told in ((["web_search", "read_file"], False), (["read_file", "write_file"], True), (None, True)):
             config = AgentConfig(display_name="Pater", emoji="", description="", role="agent", color="#000000", tools=tools)
             monkeypatch.setattr("aifred.lib.agent_config.get_agent_config", lambda agent_id, config=config: config)
             assert ("Die Akte dieses Jobs" in sched.build_job_prompt(job, store)) is told, tools
 
+    def test_a_job_with_the_switch_off_has_no_notes_and_no_folder(self):
+        store = sched.get_job_store()
+        job = store.add("Frisch", "interval", "60", {"message": "x"}, keeps_notes=False)
+        assert sched._keeps_notes(job) is False
+        prompt = sched.build_job_prompt(job, store)
+        assert "Die Akte dieses Jobs" not in prompt and "gibt es noch nicht" not in prompt
+        assert not (file_manager.DOCUMENTS_DIR / "jobs").exists()
+
+    def test_the_switch_on_still_needs_the_tier_and_the_tools(self, monkeypatch):
+        store = sched.get_job_store()
+        assert sched._keeps_notes(store.add("a", "interval", "60", {"message": "x"}, keeps_notes=True)) is True
+        assert sched._keeps_notes(store.add("b", "interval", "60", {"message": "x"}, max_tier=TIER_COMMUNICATE, keeps_notes=True)) is False
+        monkeypatch.setattr("aifred.lib.job_notes.agent_can_keep_notes", lambda agent_id: False)
+        assert sched._keeps_notes(store.add("c", "interval", "60", {"message": "x"}, keeps_notes=True)) is False
+
     def test_a_job_below_the_tier_of_data_has_no_notes(self):
         store = sched.get_job_store()
-        job = store.add("Lesen", "interval", "60", {"message": "x"}, max_tier=TIER_COMMUNICATE)
+        job = store.add("Lesen", "interval", "60", {"message": "x"}, max_tier=TIER_COMMUNICATE, keeps_notes=True)
         prompt = sched.build_job_prompt(job, store)
         assert "Die Akte dieses Jobs" not in prompt
         assert not (file_manager.DOCUMENTS_DIR / "jobs").exists()
@@ -146,7 +161,7 @@ class TestJobPrompt:
 
 class TestExecuteJob:
     def _job(self):
-        return sched.get_job_store().add("News", "interval", "60", {"message": "Nachrichten"})
+        return sched.get_job_store().add("News", "interval", "60", {"message": "Nachrichten"}, keeps_notes=True)
 
     def test_delivers_and_records_whole_answer(self, monkeypatch):
         # The reply process_inbound hands back goes out and into the run history as it is: the scheduler
@@ -184,7 +199,7 @@ class TestExecuteJob:
 
 class TestLoopAndCancellation:
     def _due_job(self) -> sched.Job:
-        job = sched.get_job_store().add("News", "interval", "3600", {"message": "Nachrichten"})
+        job = sched.get_job_store().add("News", "interval", "3600", {"message": "Nachrichten"}, keeps_notes=True)
         past = (datetime.now() - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S")
         with sqlite3.connect(sched.get_job_store()._db_path) as conn:
             conn.execute("UPDATE jobs SET next_run = ? WHERE job_id = ?", (past, job.job_id))
@@ -323,14 +338,14 @@ class TestNoSelfSending:
         monkeypatch.setattr(sched, "_deliver_result", delivered)
         job = sched.get_job_store().add("Bericht", "interval", "60", {
             "message": "Los", "delivery": "announce", "channel": "email",
-        })
+        }, keeps_notes=True)
         asyncio.run(sched._execute_job(job))
         assert seen["delivery_channel"] == "email"
 
     def test_review_has_no_delivery_channel(self):
         job = sched.get_job_store().add("Bericht", "interval", "60", {
             "message": "Los", "delivery": "review", "channel": "email",
-        })
+        }, keeps_notes=True)
         assert sched._delivery_channel(job) == ""
 
 
@@ -362,7 +377,7 @@ def rooms(monkeypatch):
 def _echo_job(**payload):
     return sched.get_job_store().add("Wecker", "cron", "0 7 * * *", {
         "message": "Guten Morgen", "delivery": "announce", "channel": "freeecho2", **payload,
-    })
+    }, keeps_notes=True)
 
 
 class TestRooms:
@@ -393,7 +408,7 @@ class TestRooms:
     def test_other_channels_keep_their_session(self, rooms):
         job = sched.get_job_store().add("Bericht", "interval", "60", {
             "message": "Los", "delivery": "announce", "channel": "email", "recipient": "x",
-        })
+        }, keeps_notes=True)
         asyncio.run(sched._deliver_announce(job, "Text", "sitzung"))
         assert rooms["to_channel"][0][3] == "sitzung" and rooms["into_rooms"] == []
 
@@ -405,7 +420,7 @@ class TestSpokenPrompt:
         assert "laut vorgelesen" in prompt and "FreeEcho" in prompt
 
     def test_the_prompt_allows_other_channels_only_on_request(self):
-        job = sched.get_job_store().add("Gebet", "interval", "60", {"message": "x", "delivery": "review"})
+        job = sched.get_job_store().add("Gebet", "interval", "60", {"message": "x", "delivery": "review"}, keeps_notes=True)
         prompt = sched.build_job_prompt(job, sched.get_job_store())
         assert "ausdrücklich verlangt" in prompt and "keine Sende-Werkzeuge" not in prompt
 
@@ -428,7 +443,7 @@ class TestFixedText:
         self._no_model(monkeypatch)
         job = sched.get_job_store().add("Erinnerung", "once", "2030-01-01T08:00:00", {
             "message": "Müll raus", "delivery": "announce", "channel": "telegram", "fixed_text": True,
-        })
+        }, keeps_notes=True)
         asyncio.run(sched._execute_job(job))
         assert rooms["to_channel"][0][:4] == ("telegram", "", "Müll raus", None)
 

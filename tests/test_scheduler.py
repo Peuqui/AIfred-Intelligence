@@ -19,7 +19,7 @@ def store(tmp_path):
 
 class TestJobStoreCRUD:
     def test_add_and_get(self, store):
-        job = store.add("test", "interval", "300", {"message": "hi"}, max_tier=1)
+        job = store.add("test", "interval", "300", {"message": "hi"}, max_tier=1, keeps_notes=True)
         assert job.job_id is not None
         assert job.name == "test"
         assert job.schedule_type == "interval"
@@ -34,27 +34,27 @@ class TestJobStoreCRUD:
         assert store.get(9999) is None
 
     def test_list_all(self, store):
-        store.add("job1", "interval", "60", {})
-        store.add("job2", "cron", "0 8 * * *", {})
-        store.add("job3", "once", "2026-04-01T10:00:00", {})
+        store.add("job1", "interval", "60", {}, keeps_notes=True)
+        store.add("job2", "cron", "0 8 * * *", {}, keeps_notes=True)
+        store.add("job3", "once", "2026-04-01T10:00:00", {}, keeps_notes=True)
         assert len(store.list_all()) == 3
 
     def test_list_enabled_only(self, store):
-        store.add("active", "interval", "60", {})
-        j2 = store.add("disabled", "interval", "60", {})
+        store.add("active", "interval", "60", {}, keeps_notes=True)
+        j2 = store.add("disabled", "interval", "60", {}, keeps_notes=True)
         store.enable(j2.job_id, enabled=False)
         enabled = store.list_all(enabled_only=True)
         assert len(enabled) == 1
         assert enabled[0].name == "active"
 
     def test_delete(self, store):
-        job = store.add("to_delete", "interval", "60", {})
+        job = store.add("to_delete", "interval", "60", {}, keeps_notes=True)
         assert store.delete(job.job_id) is True
         assert store.get(job.job_id) is None
         assert store.delete(job.job_id) is False  # Already deleted
 
     def test_enable_disable(self, store):
-        job = store.add("toggle", "interval", "60", {})
+        job = store.add("toggle", "interval", "60", {}, keeps_notes=True)
         assert job.enabled is True
 
         store.enable(job.job_id, enabled=False)
@@ -68,13 +68,13 @@ class TestJobStoreCRUD:
 
 class TestDueJobs:
     def test_no_due_jobs_initially(self, store):
-        store.add("future", "interval", "3600", {"message": "later"})
+        store.add("future", "interval", "3600", {"message": "later"}, keeps_notes=True)
         due = store.get_due_jobs(_now_iso())
         assert len(due) == 0
 
     def test_due_job_detected(self, store):
         # Add job with next_run in the past
-        job = store.add("past", "interval", "60", {"message": "now"})
+        job = store.add("past", "interval", "60", {"message": "now"}, keeps_notes=True)
         past = (datetime.now() - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%S")
         # Manually set next_run to past
         import sqlite3
@@ -88,7 +88,7 @@ class TestDueJobs:
         assert due[0].name == "past"
 
     def test_disabled_jobs_not_due(self, store):
-        job = store.add("disabled", "interval", "60", {})
+        job = store.add("disabled", "interval", "60", {}, keeps_notes=True)
         past = (datetime.now() - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%S")
         import sqlite3
         conn = sqlite3.connect(str(store._db_path))
@@ -103,7 +103,7 @@ class TestDueJobs:
 
 class TestMarkExecuted:
     def test_interval_reschedules(self, store):
-        job = store.add("repeat", "interval", "300", {})
+        job = store.add("repeat", "interval", "300", {}, keeps_notes=True)
         store.mark_executed(job.job_id)
         updated = store.get(job.job_id)
         assert updated.last_run != ""
@@ -112,14 +112,14 @@ class TestMarkExecuted:
         assert updated.retry_count == 0
 
     def test_once_disables_after_execution(self, store):
-        job = store.add("onetime", "once", "2026-04-01T10:00:00", {})
+        job = store.add("onetime", "once", "2026-04-01T10:00:00", {}, keeps_notes=True)
         store.mark_executed(job.job_id)
         updated = store.get(job.job_id)
         assert updated.enabled is False
         assert updated.next_run == ""
 
     def test_mark_failed_increments_retry(self, store):
-        job = store.add("failing", "interval", "60", {})
+        job = store.add("failing", "interval", "60", {}, keeps_notes=True)
         assert job.retry_count == 0
         store.mark_failed(job.job_id)
         assert store.get(job.job_id).retry_count == 1
@@ -165,19 +165,19 @@ class TestJobPayload:
             "delivery": "announce",
             "channel": "discord",
         }
-        job = store.add("complex", "cron", "0 8 * * *", payload, max_tier=1)
+        job = store.add("complex", "cron", "0 8 * * *", payload, max_tier=1, keeps_notes=True)
         fetched = store.get(job.job_id)
         assert fetched.payload == payload
         assert fetched.max_tier == 1
 
     def test_max_tier_stored(self, store):
-        job = store.add("admin_job", "interval", "60", {}, max_tier=4)
+        job = store.add("admin_job", "interval", "60", {}, max_tier=4, keeps_notes=True)
         assert store.get(job.job_id).max_tier == 4
 
 
 class TestEnableRecalculatesNextRun:
     def test_enable_moves_stale_next_run_to_future(self, store):
-        job = store.add("gebet", "cron", "45 6 * * *", {"message": "x"})
+        job = store.add("gebet", "cron", "45 6 * * *", {"message": "x"}, keeps_notes=True)
         store.enable(job.job_id, enabled=False)
         with store._connect() as conn:  # stale slot from before the job was switched off
             conn.execute("UPDATE jobs SET next_run = '2026-10-06T06:45:00' WHERE job_id = ?", (job.job_id,))
@@ -189,7 +189,7 @@ class TestEnableRecalculatesNextRun:
         assert store.get_due_jobs(_now_iso()) == []
 
     def test_disable_keeps_next_run(self, store):
-        job = store.add("gebet", "cron", "45 6 * * *", {"message": "x"})
+        job = store.add("gebet", "cron", "45 6 * * *", {"message": "x"}, keeps_notes=True)
         store.enable(job.job_id, enabled=False)
         disabled = store.get(job.job_id)
         assert disabled is not None and disabled.next_run == job.next_run
@@ -224,22 +224,22 @@ class TestParseEndsAt:
 
 class TestScheduleEnd:
     def test_the_end_is_stored_and_read_back(self, store):
-        job = store.add("t", "cron", "0 8,14,20 * * *", {}, ends_at=_days(30))
+        job = store.add("t", "cron", "0 8,14,20 * * *", {}, ends_at=_days(30), keeps_notes=True)
         assert store.get(job.job_id).ends_at == _days(30)
-        assert store.add("open", "cron", "0 8 * * *", {}).ends_at == ""
+        assert store.add("open", "cron", "0 8 * * *", {}, keeps_notes=True).ends_at == ""
 
     def test_a_first_run_after_the_end_is_refused(self, store):
         with pytest.raises(Invalid) as refused:
-            store.add("t", "cron", "0 8 * * *", {}, ends_at=_days(-1))
+            store.add("t", "cron", "0 8 * * *", {}, ends_at=_days(-1), keeps_notes=True)
         assert refused.value.key == "ends_before_first_run"
         assert store.list_all() == []
 
     def test_update_sets_moves_and_removes_the_end(self, store):
-        job = store.add("t", "cron", "0 8 * * *", {})
-        assert store.update(job.job_id, "t", "cron", "0 8 * * *", {}, ends_at=_days(10)).ends_at == _days(10)
-        assert store.update(job.job_id, "t", "cron", "0 8 * * *", {}, ends_at="").ends_at == ""
+        job = store.add("t", "cron", "0 8 * * *", {}, keeps_notes=True)
+        assert store.update(job.job_id, "t", "cron", "0 8 * * *", {}, ends_at=_days(10), keeps_notes=True).ends_at == _days(10)
+        assert store.update(job.job_id, "t", "cron", "0 8 * * *", {}, ends_at="", keeps_notes=True).ends_at == ""
         with pytest.raises(Invalid):
-            store.update(job.job_id, "t", "cron", "0 8 * * *", {}, ends_at=_days(-1))
+            store.update(job.job_id, "t", "cron", "0 8 * * *", {}, ends_at=_days(-1), keeps_notes=True)
         assert store.get(job.job_id).ends_at == ""      # the refused change left it as it was
 
     @staticmethod
@@ -254,32 +254,32 @@ class TestScheduleEnd:
         return (datetime.now() + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M")
 
     def test_the_last_run_before_the_end_switches_the_job_off(self, store):
-        job = store.add("t", "interval", "3600", {}, ends_at=_days(5))
+        job = store.add("t", "interval", "3600", {}, ends_at=_days(5), keeps_notes=True)
         self._time_passes_to(store, job.job_id, self._in_half_an_hour())
         store.mark_executed(job.job_id)
         ended = store.get(job.job_id)
         assert (ended.enabled, ended.next_run, bool(ended.last_run)) == (False, "", True)
 
     def test_a_run_inside_the_schedule_goes_on(self, store):
-        job = store.add("t", "interval", "3600", {}, ends_at=_days(5))
+        job = store.add("t", "interval", "3600", {}, ends_at=_days(5), keeps_notes=True)
         store.mark_executed(job.job_id)
         assert store.get(job.job_id).enabled is True and store.get(job.job_id).next_run
 
     def test_a_failed_last_run_ends_the_job_too(self, store):
-        job = store.add("t", "interval", "3600", {}, ends_at=_days(5))
+        job = store.add("t", "interval", "3600", {}, ends_at=_days(5), keeps_notes=True)
         self._time_passes_to(store, job.job_id, self._in_half_an_hour())
         store.mark_failed(job.job_id)
         ended = store.get(job.job_id)
         assert (ended.enabled, ended.next_run, ended.retry_count) == (False, "", 1)
 
     def test_an_ended_job_is_not_switched_on_before_a_later_end(self, store):
-        job = store.add("t", "interval", "3600", {}, ends_at=_days(5))
+        job = store.add("t", "interval", "3600", {}, ends_at=_days(5), keeps_notes=True)
         self._time_passes_to(store, job.job_id, self._in_half_an_hour())
         store.mark_executed(job.job_id)
         with pytest.raises(Invalid) as refused:
             store.enable(job.job_id, True)
         assert refused.value.key == "job_ended"
-        store.update(job.job_id, "t", "interval", "3600", {}, ends_at=_days(5))
+        store.update(job.job_id, "t", "interval", "3600", {}, ends_at=_days(5), keeps_notes=True)
         store.enable(job.job_id, True)
         assert store.get(job.job_id).enabled is True
 
@@ -296,3 +296,56 @@ class TestScheduleEnd:
         reopened = JobStore(path)
         assert [(job.name, job.ends_at) for job in reopened.list_all()] == [("alt", "")]
         JobStore(path)      # a second start does not add the column again
+
+
+class TestKeepsNotes:
+    """The switch "keep a file" (Akte) of a job: a column of the job, set at every add and update."""
+
+    def test_the_switch_is_stored_read_back_and_changed_by_update(self, store):
+        kept = store.add("mit", "interval", "60", {}, keeps_notes=True)
+        unkept = store.add("ohne", "interval", "60", {}, keeps_notes=False)
+        assert store.get(kept.job_id).keeps_notes is True
+        assert store.get(unkept.job_id).keeps_notes is False
+        assert store.update(kept.job_id, "mit", "interval", "60", {}, keeps_notes=False).keeps_notes is False
+        assert store.update(unkept.job_id, "ohne", "interval", "60", {}, keeps_notes=True).keeps_notes is True
+        assert [job.keeps_notes for job in store.list_all()] == [False, True]
+
+    def test_the_switch_is_not_optional(self, store):
+        with pytest.raises(TypeError):
+            store.add("t", "interval", "60", {})
+        with pytest.raises(TypeError):
+            store.update(1, "t", "interval", "60", {})
+
+    @staticmethod
+    def _database_before_the_switch(path):
+        import sqlite3
+
+        with sqlite3.connect(path) as conn:
+            conn.execute("""CREATE TABLE jobs (job_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+                schedule_type TEXT NOT NULL CHECK(schedule_type IN ('cron', 'interval', 'once')), schedule_expr TEXT NOT NULL,
+                payload TEXT NOT NULL DEFAULT '{}', max_tier INTEGER NOT NULL DEFAULT 1, enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT, last_run TEXT, next_run TEXT, retry_count INTEGER NOT NULL DEFAULT 0, ends_at TEXT)""")
+            for name in ("alt", "älter"):
+                conn.execute("INSERT INTO jobs (name, schedule_type, schedule_expr, next_run) "
+                             f"VALUES ('{name}', 'cron', '0 8 * * *', '2030-01-01T08:00:00')")
+
+    def test_a_database_from_before_the_switch_gets_it_set_on_for_every_job_once(self, tmp_path):
+        path = tmp_path / "old.db"
+        self._database_before_the_switch(path)
+        reopened = JobStore(path)
+        assert [(job.name, job.keeps_notes) for job in reopened.list_all()] == [("alt", True), ("älter", True)]
+        # A second start does not set it on again: what the owner switched off since stays off.
+        reopened.update(1, "alt", "cron", "0 8 * * *", {}, keeps_notes=False)
+        assert [job.keeps_notes for job in JobStore(path).list_all()] == [False, True]
+
+    def test_the_oldest_database_gets_both_columns(self, tmp_path):
+        import sqlite3
+
+        path = tmp_path / "oldest.db"
+        with sqlite3.connect(path) as conn:
+            conn.execute("""CREATE TABLE jobs (job_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+                schedule_type TEXT NOT NULL CHECK(schedule_type IN ('cron', 'interval', 'once')), schedule_expr TEXT NOT NULL,
+                payload TEXT NOT NULL DEFAULT '{}', max_tier INTEGER NOT NULL DEFAULT 1, enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT, last_run TEXT, next_run TEXT, retry_count INTEGER NOT NULL DEFAULT 0)""")
+            conn.execute("INSERT INTO jobs (name, schedule_type, schedule_expr, next_run) VALUES ('alt', 'cron', '0 8 * * *', '2030-01-01T08:00:00')")
+        assert [(job.ends_at, job.keeps_notes) for job in JobStore(path).list_all()] == [("", True)]

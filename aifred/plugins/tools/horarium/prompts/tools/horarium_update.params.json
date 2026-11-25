@@ -51,6 +51,10 @@
       "type": "boolean",
       "description": "true = no model run: 'message' goes out word for word at the exact scheduled time. Needs delivery 'announce'. For alarms and plain reminders."
     },
+    "keeps_notes": {
+      "type": "boolean",
+      "description": "true = the job keeps a file (Akte) across runs (observations over weeks, price histories, items already used that must not repeat); false = every run fetches everything fresh. Left out, it stays as it is. Switching it off leaves an existing file in the workspace untouched; the job just no longer uses it."
+    },
     "audio_type": {
       "type": "string",
       "enum": [

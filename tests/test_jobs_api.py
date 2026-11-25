@@ -17,7 +17,7 @@ from starlette.testclient import TestClient
 from aifred.lib import agent_config, scheduler
 from aifred.lib.i18n import t
 
-CRON = {"name": "Morgengruß", "schedule_type": "cron", "schedule_expr": "0 8 * * *", "message": "Guten Morgen", "agent": "aifred"}
+CRON = {"name": "Morgengruß", "schedule_type": "cron", "schedule_expr": "0 8 * * *", "message": "Guten Morgen", "agent": "aifred", "keeps_notes": True}
 
 
 @pytest.fixture
@@ -67,6 +67,25 @@ def test_a_job_keeps_the_fields_of_its_delivery_only(client: TestClient, store: 
     }
     sent = client.post("/jobs", json={**CRON, "delivery": "announce", "channel": "telegram", "recipient": "123", "audio_type": "alarm"}).json()
     assert "audio_type" not in store.get(sent["job_id"]).payload  # type: ignore[union-attr]  # no rooms on Telegram
+
+
+def test_the_switch_keeps_notes_is_taken_stored_changed_and_listed(client: TestClient, store: scheduler.JobStore) -> None:
+    off = client.post("/jobs", json={**CRON, "keeps_notes": False})
+    assert off.status_code == 201 and off.json()["keeps_notes"] is False
+    job_id = off.json()["job_id"]
+    assert store.get(job_id).keeps_notes is False  # type: ignore[union-attr]
+    assert "keeps_notes" not in store.get(job_id).payload  # type: ignore[union-attr]   # a column like max_tier, not a payload field
+    on = client.put(f"/jobs/{job_id}", json={**CRON, "keeps_notes": True}).json()
+    assert on["keeps_notes"] is True and store.get(job_id).keeps_notes is True  # type: ignore[union-attr]
+    assert [row["keeps_notes"] for row in client.get("/jobs").json()] == [True]
+
+
+def test_a_job_without_the_switch_is_refused(client: TestClient, store: scheduler.JobStore) -> None:
+    without = {key: value for key, value in CRON.items() if key != "keeps_notes"}
+    assert client.post("/jobs", json=without).status_code == 422
+    job_id = client.post("/jobs", json=CRON).json()["job_id"]
+    assert client.put(f"/jobs/{job_id}", json=without).status_code == 422
+    assert len(store.list_all()) == 1
 
 
 @pytest.mark.parametrize(("change", "key", "values"), [

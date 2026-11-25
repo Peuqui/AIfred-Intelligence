@@ -18,6 +18,10 @@
       "type": "string",
       "description": "The prompt/message AIfred will process at the scheduled time"
     },
+    "keeps_notes": {
+      "type": "boolean",
+      "description": "Whether the job keeps a file (Akte): a notes file in the workspace where it records what it needs to know across runs. true = worth it when the job has to know something across runs (observations over weeks, price histories, items already used that must not repeat); false = every run fetches everything fresh (e.g. a daily overview from calendar and mail). Required: if the user did not say and it is not clear, ask them briefly before you create the job. The file also needs a job tier of 2 or more."
+    },
     "agent": {
       "type": "string",
       "description": "Agent to use (default: aifred)",
@@ -67,6 +71,7 @@
     "name",
     "schedule_type",
     "schedule_expr",
-    "message"
+    "message",
+    "keeps_notes"
   ]
 }

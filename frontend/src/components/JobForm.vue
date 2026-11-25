@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // A scheduled job, new or changed: name, agent, what it says, when (a cron template or the five fields, an
 // interval, a point in time; the server says when it fires next before saving) and where the result goes
-// (review, sent through a channel, possibly as a fixed text without a model, or a webhook) with its tier.
+// (review, sent through a channel, possibly as a fixed text without a model, or a webhook) with its tier, and whether
+// the job keeps a file (its notes across runs).
 import { Bell, Clock, Plus, TriangleAlert } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
 import type { JobOptions, JobRow, JobWrite } from "../api/types";
@@ -35,6 +36,8 @@ const form = ref({
   fixed_text: props.job?.fixed_text ?? false,
   audio_type: props.job?.audio_type ?? "notification",
   max_tier: props.job?.max_tier ?? props.options.default_tier,
+  // A new job starts without a file: the owner decides it (what it is for stands under the checkbox).
+  keeps_notes: props.job?.keeps_notes ?? false,
 });
 // The sub-tasks: shown for a job that has a plan, or once the user asks for them.
 const plan = ref(planFormOf(props.job));
@@ -92,6 +95,12 @@ async function save(): Promise<void> {
           <option v-for="tier in options.tiers" :key="tier" :value="tier">{{ tier }} · {{ t(`sched_tip_tier_${tier}`) }}</option>
         </select>
       </label>
+      <div class="wide">
+        <label class="check">
+          <input v-model="form.keeps_notes" type="checkbox" data-test="keeps-notes" /> {{ t("sched_label_keeps_notes") }}
+        </label>
+        <p class="hint" data-test="keeps-notes-hint">{{ t("sched_hint_keeps_notes") }}</p>
+      </div>
 
       <fieldset class="wide">
         <legend>{{ t("sched_label_schedule") }}</legend>

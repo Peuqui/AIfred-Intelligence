@@ -113,6 +113,7 @@ async def trigger_agent(request: AgentTriggerRequest, background_tasks: Backgrou
             name="webhook_trigger",
             schedule_type="once",
             schedule_expr="",
+            keeps_notes=False,   # a delivery only: nothing runs, so there is no file to keep
             payload={
                 "delivery": request.delivery,
                 "channel": request.channel,

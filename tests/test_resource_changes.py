@@ -80,9 +80,9 @@ class TestJobsAnnounceEveryChange:
         return scheduler.JobStore(tmp_path / "jobs.db")
 
     def test_add_update_enable_run_fail_and_delete(self, store: scheduler.JobStore, told: list[str]) -> None:
-        job = store.add("t", "interval", "3600", {})
+        job = store.add("t", "interval", "3600", {}, keeps_notes=True)
         assert told == ["jobs"]
-        store.update(job.job_id, "t2", "interval", "3600", {})
+        store.update(job.job_id, "t2", "interval", "3600", {}, keeps_notes=True)
         store.enable(job.job_id, False)
         store.enable(job.job_id, True)
         store.add_run(job.job_id, "s", "text")
@@ -92,7 +92,7 @@ class TestJobsAnnounceEveryChange:
         assert told == ["jobs"] * 8
 
     def test_a_change_that_did_not_happen_is_not_announced(self, store: scheduler.JobStore, told: list[str]) -> None:
-        assert store.update(999, "x", "interval", "3600", {}) is None
+        assert store.update(999, "x", "interval", "3600", {}, keeps_notes=True) is None
         assert told == []
 
 
