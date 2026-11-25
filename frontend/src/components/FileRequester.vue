@@ -125,7 +125,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <ModalDialog @close="emit('close')">
+  <ModalDialog full @close="emit('close')">
     <div class="requester">
       <header class="head">
         <strong><FolderOpen :size="16" /> {{ title }}</strong>
@@ -169,7 +169,7 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.requester { width: var(--file-dialog-width); height: var(--dialog-content-height); display: flex; flex-direction: column; gap: 10px; }
+.requester { width: var(--file-dialog-width); flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
 .head { display: flex; align-items: center; gap: 12px; }
 .root { color: var(--aifred-text-secondary); font-size: 0.8rem; margin-right: auto; }
 .close { background: none; border: none; color: inherit; font-size: 1.3rem; cursor: pointer; }

@@ -2,8 +2,8 @@
 // The dialog of the viewer (lib/fileViewer.ts), mounted once in the shell: a file's text, from whichever page. Markdown
 // shows formatted, by the renderer of the chat's answers, and so do CSV and Excel files: the server's preview gives them
 // as Markdown tables (the index's parser, document_store._markdown_table). An image shows in the one picture view of the
-// app (ImageLightbox, also the chat's and the cameras'). The box is as wide as the page (--file-dialog-width, App.vue) and as high as
-// its text, up to the dialog's height (ModalDialog); a wide table scrolls sideways under a header that stays.
+// app (ImageLightbox, also the chat's and the cameras'). The box is as wide as the page (--file-dialog-width, App.vue) and fills the whole
+// height of the dialog (ModalDialog full: it does not jump with every file); a wide table scrolls sideways under a header that stays.
 import { FileText } from "lucide-vue-next";
 import { computed } from "vue";
 import { t } from "../i18n";
@@ -26,7 +26,7 @@ const markdown = computed(() =>
     :pictures="() => [viewed?.imageUrl ?? '']"
     @close="viewed = null"
   />
-  <ModalDialog v-else-if="viewed" @close="viewed = null">
+  <ModalDialog v-else-if="viewed" full @close="viewed = null">
     <header class="viewer-head">
       <strong><FileText :size="16" /> {{ viewed.name }}</strong>
       <button :title="t('dialog_close')" @click="viewed = null">×</button>
@@ -40,7 +40,7 @@ const markdown = computed(() =>
 <style scoped>
 .viewer-head { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
 .viewer-head button { background: none; border: none; font-size: 1.2rem; }
-.viewer-box { margin: 0; width: var(--file-dialog-width); overflow: auto; background: var(--aifred-page-bg); padding: 12px; border-radius: 8px; }
+.viewer-box { margin: 0; width: var(--file-dialog-width); flex: 1; min-height: 0; overflow: auto; background: var(--aifred-page-bg); padding: 12px; border-radius: 8px; }
 .viewer-text { white-space: pre-wrap; font-size: 0.85rem; }
 .viewer-markdown { font-size: 0.95rem; line-height: 1.5; }
 /* Tables (CSV, Excel, Markdown): the header stays on top while the rows scroll, every second row a shade darker. */
