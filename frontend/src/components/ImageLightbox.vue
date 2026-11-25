@@ -44,7 +44,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", key));
 </template>
 
 <style scoped>
-.lightbox { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0.88); display: flex; align-items: center; justify-content: center; }
+/* Above every dialog (the viewer's is at 100): a picture of the preview opens from inside it. */
+.lightbox { position: fixed; inset: 0; z-index: 120; background: rgba(0, 0, 0, 0.88); display: flex; align-items: center; justify-content: center; }
 .pictures { display: flex; gap: 10px; align-items: center; justify-content: center; }
 img { display: block; max-width: calc(92 * var(--vw)); max-height: calc(88 * var(--dvh)); border-radius: 6px; }
 .pair img { max-width: calc(44 * var(--vw)); }

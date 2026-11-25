@@ -4,17 +4,21 @@
 // index's parser, document_store._markdown_table; Markdown formatted by the renderer of the chat's answers), an
 // image as a picture, a PDF and an HTML page embedded in a frame (the server sends a page sandboxed), audio and video
 // in the browser's player. A button always opens the file in a tab of its own (the browser's own PDF viewer and
-// player; on a phone often the better view).
-import { ExternalLink, FileText, TriangleAlert } from "lucide-vue-next";
+// player; on a phone often the better view). A click on an image opens it large (ImageLightbox, as in the chat). An HTML
+// page carries the hint how to save it as a file of its own.
+import { Download, ExternalLink, FileText, TriangleAlert } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
 import { ApiError } from "../api/client";
 import { t } from "../i18n";
 import { type ViewPlace, fileKind } from "../lib/fileViewer";
 import { renderMarkdown } from "../lib/markdown";
+import ImageLightbox from "./ImageLightbox.vue";
 
 const props = defineProps<{ place: ViewPlace }>();
 
 const kind = computed(() => fileKind(props.place.name));
+const enlarged = ref(false);
+watch(() => props.place, () => (enlarged.value = false));
 const loading = ref(false);
 const error = ref("");
 const text = ref("");
@@ -53,6 +57,7 @@ const markdown = computed(() => (MARKDOWN_FILE.test(props.place.name) ? renderMa
       <a class="tab" :href="place.viewUrl" target="_blank" rel="noopener"><ExternalLink :size="16" /> {{ t("doc_open_page") }}</a>
       <slot name="actions" />
     </header>
+    <p v-if="kind === 'page'" class="hint"><Download :size="16" /> {{ t("doc_page_hint") }}</p>
     <p v-if="error" class="notice"><TriangleAlert :size="16" /> {{ error }}</p>
     <template v-else-if="kind === 'text'">
       <p v-if="loading" class="loading">{{ t("preview_loading") }}</p>
@@ -60,10 +65,11 @@ const markdown = computed(() => (MARKDOWN_FILE.test(props.place.name) ? renderMa
       <div v-else-if="markdown !== null" class="box markdown-box markdown" v-html="markdown" />
       <pre v-else class="box text-box">{{ text }}</pre>
     </template>
-    <img v-else-if="kind === 'image'" class="box picture" :src="place.viewUrl" :alt="place.name" />
+    <img v-else-if="kind === 'image'" class="box picture" :src="place.viewUrl" :alt="place.name" @click="enlarged = true" />
     <iframe v-else-if="kind === 'pdf' || kind === 'page'" class="frame" :src="place.viewUrl" :title="place.name" />
     <div v-else-if="kind === 'audio'" class="box player"><audio controls :src="place.viewUrl" /></div>
     <div v-else class="box player"><video controls :src="place.viewUrl" /></div>
+    <ImageLightbox v-if="enlarged" :count="1" :start="0" :pictures="() => [place.viewUrl]" @close="enlarged = false" />
   </section>
 </template>
 
@@ -76,7 +82,8 @@ const markdown = computed(() => (MARKDOWN_FILE.test(props.place.name) ? renderMa
 .box { margin: 0; flex: 1; min-height: 0; overflow: auto; background: var(--aifred-page-bg); padding: 12px; border-radius: 8px; }
 .text-box { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.85rem; }
 .markdown-box { font-size: 0.95rem; line-height: 1.5; }
-.picture { object-fit: contain; width: 100%; box-sizing: border-box; }
+.picture { object-fit: contain; width: 100%; box-sizing: border-box; cursor: zoom-in; }
+.hint { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 8px 10px; font-size: 0.8rem; color: var(--aifred-text-secondary); background: var(--aifred-input-bg); border: 1px solid var(--aifred-border); border-radius: 8px; --icon-own: currentColor; }
 .player { display: flex; align-items: center; justify-content: center; }
 .player audio { width: 100%; }
 .player video { max-width: 100%; max-height: 100%; }

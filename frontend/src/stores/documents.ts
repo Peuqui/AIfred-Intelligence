@@ -1,8 +1,8 @@
 // The documents page: the local documents folder (data/documents/) and the further sources the enabled
 // plugins offer (Nextcloud …), each with the place of every file in the search index, and what the page
 // does to them. Every change of the local folder answers with its listing again. Indexing is a job of
-// the server: the store asks how far it is while it runs (whoever started it) and lists the open
-// folder again when it has ended. An upload into a source is not indexed: the user decides per file.
+// the server: the store asks how far it is while it runs (whoever started it); the page lists its folder again when
+// it has ended. An upload into a source is not indexed: the user decides per file.
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { ApiError, PROGRESS_POLL_MS, api } from "../api/client";
@@ -17,6 +17,7 @@ import type {
   SourceListing,
   SourceUploaded,
 } from "../api/types";
+import { type IndexTarget, relPath } from "../lib/documentIndex";
 import { onResourceChanged } from "../lib/resourceChanges";
 
 export const LOCAL = "local";
@@ -72,18 +73,6 @@ export const useDocuments = defineStore("documents", () => {
     if (opened) listing.value = opened;
   }
 
-  async function remove(files: string[], folders: string[], fromDisk: boolean, fromIndex: boolean): Promise<DocumentDeleted | null> {
-    const folder = listing.value?.folder ?? "";
-    const deleted = await call(() =>
-      post<DocumentDeleted>("documents/local/delete", { folder, files, folders, from_disk: fromDisk, from_index: fromIndex }),
-    );
-    if (deleted) {
-      listing.value = deleted.listing;
-      if (deleted.failed.length) notice.value = deleted.failed.map((failure) => `${failure.name}: ${failure.reason}`).join(" · ");
-    }
-    return deleted;
-  }
-
   function preview(path: string): Promise<DocumentPreview | null> {
     return call(() => api<DocumentPreview>(`documents/local/preview?path=${encodeURIComponent(path)}`));
   }
@@ -93,13 +82,11 @@ export const useDocuments = defineStore("documents", () => {
     return call(() => api<DocumentPreview>(`${sourcePath()}/preview/${fileId.split("/").map(encodeURIComponent).join("/")}`));
   }
 
-  // While the run goes on it is asked again; at its end the open folder is listed anew (indexed counts).
+  // While the run goes on it is asked again. Whoever shows the list lists it anew when the run has ended (the counts
+  // of indexed sections), it sees that in ``indexing.running``.
   async function follow(progress: DocumentIndexProgress): Promise<void> {
     indexing.value = progress;
-    if (!progress.running) {
-      await reload();
-      return;
-    }
+    if (!progress.running) return;
     polling ??= window.setTimeout(async () => {
       polling = null;
       try {
@@ -127,10 +114,36 @@ export const useDocuments = defineStore("documents", () => {
     if (uploaded.saved.length) await follow(uploaded.indexing);
   }
 
-  async function index(files: string[], folders: string[]): Promise<void> {
-    const folder = listing.value?.folder ?? "";
-    const progress = await call(() => post<DocumentIndexProgress>("documents/local/index", { folder, files, folders }));
+  // The open source's index endpoints take paths (a source's ids) from its root, as VueFinder's entries carry them.
+  async function index(targets: IndexTarget[]): Promise<void> {
+    const files = targets.filter((target) => target.type === "file" && target.indexable);
+    const folders = targets.filter((target) => target.type === "dir").map(relPath);
+    const progress = await call(() =>
+      source.value === LOCAL
+        ? post<DocumentIndexProgress>("documents/local/index", { folder: "", files: files.map(relPath), folders })
+        : post<DocumentIndexProgress>(`${sourcePath()}/index`, { files: files.map((file) => ({ id: relPath(file), name: file.basename })), folders }),
+    );
     if (progress) await follow(progress);
+  }
+
+  // Files out of the index, the files stay where they are. The local delete takes one folder and names in it.
+  async function deindex(files: IndexTarget[]): Promise<void> {
+    if (source.value !== LOCAL) {
+      await call(() => post<SourceDeindexed>(`${sourcePath()}/deindex`, { file_ids: files.map(relPath) }));
+      return;
+    }
+    const byFolder = new Map<string, string[]>();
+    for (const file of files) {
+      const rel = relPath(file);
+      const folder = rel.split("/").slice(0, -1).join("/");
+      byFolder.set(folder, [...(byFolder.get(folder) ?? []), file.basename]);
+    }
+    for (const [folder, names] of byFolder) {
+      const deleted = await call(() =>
+        post<DocumentDeleted>("documents/local/delete", { folder, files: names, folders: [], from_disk: false, from_index: true }),
+      );
+      if (deleted?.failed.length) notice.value = deleted.failed.map((failure) => `${failure.name}: ${failure.reason}`).join(" · ");
+    }
   }
 
   // ── Further sources ──────────────────────────────────────────────────
@@ -157,17 +170,12 @@ export const useDocuments = defineStore("documents", () => {
     remote.value = listed;
   }
 
-  // The open folder of whichever source is open.
-  function reload(): Promise<void> {
-    return source.value === LOCAL ? open(listing.value?.folder ?? "") : listRemote();
-  }
-
   async function openSource(key: string): Promise<void> {
     source.value = key;
     trail.value = [];
     query.value = "";
     remote.value = null;
-    await reload();
+    await (source.value === LOCAL ? open(listing.value?.folder ?? "") : listRemote());
   }
 
   async function enterRemote(id: string, name: string): Promise<void> {
@@ -197,18 +205,8 @@ export const useDocuments = defineStore("documents", () => {
     await listRemote();
   }
 
-  async function indexRemote(files: { id: string; name: string }[], folders: string[]): Promise<void> {
-    const progress = await call(() => post<DocumentIndexProgress>(`${sourcePath()}/index`, { files, folders }));
-    if (progress) await follow(progress);
-  }
-
-  async function deindexRemote(fileIds: string[]): Promise<void> {
-    if (await call(() => post<SourceDeindexed>(`${sourcePath()}/deindex`, { file_ids: fileIds }))) await listRemote();
-  }
-
   return {
-    listing, notice, busy, indexing, rejected, open, newFolder, rename, remove, preview, previewRemote, upload, index, watchIndexing,
+    listing, notice, busy, indexing, rejected, open, newFolder, rename, preview, previewRemote, upload, index, deindex, watchIndexing,
     sources, source, remote, trail, query, loadSources, openSource, enterRemote, backRemote, searchRemote, uploadRemote,
-    indexRemote, deindexRemote, reload,
   };
 });

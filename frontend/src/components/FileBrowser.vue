@@ -3,11 +3,13 @@
 // the area's actions as its features, AIfred's colours and the context menu, in which "create link" is added (VueFinder
 // has none) and "Preview" goes to whoever embeds the browser (``open``: the file requester shows the dialog, the documents
 // page the preview beside the list). It offers what the area allows — browse, folders, rename, delete, copy, move,
-// upload, download, search. The slots of VueFinder (icon, toolbar-items, status-bar …) pass through.
+// upload, download, search. The slots of VueFinder (icon, menubar-end, status-bar …) pass through; the embedder may add
+// entries to the context menu (``menuItems``) and show the area under a name of its own (``label``: VueFinder's status
+// bar names the area by its technical name, "source-nextcloud_files").
 import { TriangleAlert } from "lucide-vue-next";
-import { computed, getCurrentInstance, onMounted, ref } from "vue";
+import { computed, getCurrentInstance, onMounted, ref, useSlots } from "vue";
 import {
-  ContextMenuIds, type DirEntry, type FeaturesConfig, type Item, RemoteDriver, VueFinder, VueFinderPlugin, contextMenuItems, useVueFinder,
+  ContextMenuIds, type DirEntry, type FeaturesConfig, type Item, RemoteDriver, VueFinder, VueFinderPlugin, contextMenuItems, parseBackendError, useVueFinder,
 } from "vuefinder";
 import "vuefinder/dist/style.css";
 import finderDe from "vuefinder/dist/locales/de.js";
@@ -16,21 +18,36 @@ import { ApiError, api, apiUrl } from "../api/client";
 import type { FileAreaInfo } from "../api/types";
 import { language, t } from "../i18n";
 
-const props = defineProps<{ area: string }>();
+const props = defineProps<{ area: string; menuItems?: Item[]; label?: string }>();
 const emit = defineEmits<{
   info: [info: FileAreaInfo];
   select: [items: DirEntry[]];
   pathChange: [path: string];
   open: [entry: DirEntry];
   link: [folder: DirEntry];
+  uploaded: [];
+  refused: [name: string, reason: string];
 }>();
 
 // VueFinder with its translations, installed on first use (the page loads this component only when it is needed: VueFinder
 // and its libraries are about 1 MB); a second use leaves the installed plugin as it is.
 getCurrentInstance()?.appContext.app.use(VueFinderPlugin, { i18n: { de: finderDe, en: finderEn } });
 
+// Uppy only says "network error" for a file the server refused (a type, a name); the server's reason sits in the body of
+// its answer, and the embedder is told it (``refused``): VueFinder's dialog closes before anyone has read anything.
+type Uploader = Parameters<RemoteDriver["configureUploader"]>;
+class AreaDriver extends RemoteDriver {
+  configureUploader(uppy: Uploader[0], context: Uploader[1]): void {
+    super.configureUploader(uppy, context);
+    uppy.on("upload-error", (file, error) => {
+      const answer = (error as { request?: XMLHttpRequest }).request;
+      if (file && answer) emit("refused", file.name ?? "", parseBackendError(answer.responseText, answer.status, answer.statusText));
+    });
+  }
+}
+
 const finderId = `files-${props.area}`;
-const driver = new RemoteDriver({ baseURL: apiUrl(`files/${props.area}`) });
+const driver = new AreaDriver({ baseURL: apiUrl(`files/${props.area}`) });
 const info = ref<FileAreaInfo | null>(null);
 const notice = ref("");
 
@@ -66,12 +83,15 @@ const menu = [
       : item,
   ),
   linkItem,
+  ...(props.menuItems ?? []),
 ];
 
 function fileDoubleClick(event: { item: DirEntry; preventDefault: () => void }): void {
   event.preventDefault();
   emit("open", event.item);
 }
+
+const passedSlots = Object.keys(useSlots()).filter((name) => name !== "status-bar");
 
 defineExpose({ refresh: () => useVueFinder(finderId).refresh(), clearSelection: () => useVueFinder(finderId).clearSelection() });
 
@@ -86,7 +106,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="browser">
+  <div class="browser" :class="{ labelled: label }">
     <p v-if="notice" class="notice"><TriangleAlert :size="16" /> {{ notice }}</p>
     <VueFinder
       v-if="info"
@@ -99,8 +119,13 @@ onMounted(async () => {
       @file-dclick="fileDoubleClick"
       @select="(items: DirEntry[]) => emit('select', items)"
       @path-change="(path: string) => emit('pathChange', path)"
+      @upload-complete="emit('uploaded')"
     >
-      <template v-for="(_, name) in $slots" #[name]="slotProps"><slot :name="name" v-bind="slotProps ?? {}" /></template>
+      <template v-for="name in passedSlots" :key="name" #[name]="slotProps"><slot :name="name" v-bind="slotProps ?? {}" /></template>
+      <template #status-bar="slotProps">
+        <span v-if="label" class="area-label">{{ label }}</span>
+        <slot name="status-bar" v-bind="slotProps ?? {}" />
+      </template>
     </VueFinder>
   </div>
 </template>
@@ -108,6 +133,16 @@ onMounted(async () => {
 <style scoped>
 .browser { height: 100%; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .notice { margin: 0; color: var(--aifred-accent-amber); --icon-own: currentColor; }
+.area-label { color: var(--aifred-text-secondary); margin-right: 10px; }
+/* With a name of our own the status bar's storage selector (the technical name) is left out. */
+.labelled :deep(.vuefinder__status-bar__storage-container) { display: none; }
+/* What the embedder puts into the status bar (a run's progress, its failures) may be longer than one line: it takes the
+   rest of the bar and wraps. */
+/* Buttons the embedder adds to the menu bar (menubar-end) go to a second row where the bar has no room for them (phone). */
+.browser :deep(.vuefinder__menubar) { flex: none; }
+.browser :deep(.vuefinder__menubar__container) { flex-wrap: wrap; height: auto; }
+.browser :deep(.vuefinder__status-bar__wrapper) { flex-wrap: wrap; gap: 0 8px; }
+.browser :deep(.vuefinder__status-bar__actions) { flex: 1 1 12rem; min-width: 0; flex-wrap: wrap; text-align: right; }
 </style>
 
 <style>

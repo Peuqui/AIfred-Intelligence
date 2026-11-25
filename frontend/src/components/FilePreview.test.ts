@@ -10,6 +10,15 @@ vi.mock("../i18n", async () => {
 vi.mock("../api/client", () => ({ ApiError: class extends Error { detail = "serverseitiger Grund"; } }));
 const failure = async (): Promise<never> => { const { ApiError } = await import("../api/client"); throw new (ApiError as unknown as new () => Error)(); };
 
+// The image view itself is not under test: a stand-in that shows which picture it was given and closes on a click.
+vi.mock("./ImageLightbox.vue", () => ({
+  default: {
+    props: ["pictures"],
+    emits: ["close"],
+    template: "<i class='lightbox-stub' :data-url='pictures()[0]' @click=\"$emit('close')\" />",
+  },
+}));
+
 const { default: FilePreview } = await import("./FilePreview.vue");
 
 const place = (name: string, text?: ViewPlace["text"]): ViewPlace => ({ name, viewUrl: `/v/${name}`, text });
@@ -63,4 +72,20 @@ test("the next file replaces the shown one, and a slower answer of the earlier o
   release({ name: "a.txt", text: "erste" });
   await flushPromises();
   expect(wrapper.find("pre").text()).toBe("zweite");
+});
+
+test("a click on an image opens the app's image view with that picture; other kinds have none", async () => {
+  const image = await show(place("a.png"));
+  expect(image.find(".lightbox-stub").exists()).toBe(false);
+  await image.find("img").trigger("click");
+  expect(image.find(".lightbox-stub").attributes("data-url")).toBe("/v/a.png");
+  await image.find(".lightbox-stub").trigger("click");
+  expect(image.find(".lightbox-stub").exists()).toBe(false);
+  expect((await show(place("a.pdf"))).find("img").exists()).toBe(false);
+});
+
+test("an HTML page carries the hint how to save it, other files do not", async () => {
+  expect((await show(place("a.html"))).find(".hint").text()).toContain("doc_page_hint");
+  expect((await show(place("a.pdf"))).find(".hint").exists()).toBe(false);
+  expect((await show(place("a.md", async () => ({ name: "a.md", text: "x" })))).find(".hint").exists()).toBe(false);
 });

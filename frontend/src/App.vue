@@ -246,6 +246,9 @@ h1, h2, h3, input, textarea, select { color: var(--aifred-text-primary); }
 /* Only the exit sign, everywhere: the tooltip names it. */
 .logout { display: inline-flex; align-items: center; padding: 4px 6px; background: none; border: none; }
 .page { flex: 1; }
+/* A page that lays its content out in the rest of the window (the documents: list and preview scroll inside) needs the shell
+   exactly as high as the window; the other pages grow with their content. */
+.app:has(> .documents) { height: 100dvh; min-height: 0; }
 @media (max-width: 760px) {
   .app { padding: 0 8px; }
   .top { padding: 8px 10px; gap: 8px; }
