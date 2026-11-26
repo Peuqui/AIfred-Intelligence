@@ -29,6 +29,7 @@ from .config import (
 from .document_search_index import DocumentSearchIndex
 from .embeddings import OLLAMA_EMBEDDING_MODEL, OllamaEmbeddingFunction
 from .logging_utils import log_message
+from .lxml_thread import run_in_lxml_thread, run_in_lxml_thread_freeing_cycles
 
 
 def _read_text_file(file_path: Path) -> str:
@@ -148,8 +149,15 @@ def _read_csv(file_path: Path) -> str:
     return _markdown_table(rows) if rows else ""
 
 
+# python-docx, openpyxl and python-pptx parse with lxml: open and read out in the lxml thread
+# (see lxml_thread), no document object leaves it. python-docx and python-pptx keep their trees in
+# reference cycles, so those are freed there as well.
 def _read_docx(file_path: Path) -> str:
     """Extract text from a .docx file."""
+    return run_in_lxml_thread_freeing_cycles(_docx_text, file_path)
+
+
+def _docx_text(file_path: Path) -> str:
     from docx import Document
     doc = Document(str(file_path))
     return "\n\n".join(p.text for p in doc.paragraphs if p.text.strip())
@@ -157,6 +165,10 @@ def _read_docx(file_path: Path) -> str:
 
 def _read_xlsx(file_path: Path) -> str:
     """Extract text from a .xlsx file as markdown tables (one per sheet)."""
+    return run_in_lxml_thread(_xlsx_text, file_path)
+
+
+def _xlsx_text(file_path: Path) -> str:
     from openpyxl import load_workbook
     wb = load_workbook(str(file_path), read_only=True, data_only=True)
     parts: list[str] = []
@@ -172,6 +184,10 @@ def _read_xlsx(file_path: Path) -> str:
 
 def _read_pptx(file_path: Path) -> str:
     """Extract text from a .pptx file."""
+    return run_in_lxml_thread_freeing_cycles(_pptx_text, file_path)
+
+
+def _pptx_text(file_path: Path) -> str:
     from pptx import Presentation
     prs = Presentation(str(file_path))
     parts: list[str] = []

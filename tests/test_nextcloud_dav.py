@@ -65,22 +65,18 @@ def test_collections_report_kind_components_and_rights(client):
     assert read_only  # Nextcloud's system address books are not writable
 
 
-def test_event_roundtrip_expansion_and_change_tracking(client):
+def test_event_roundtrip_and_expansion(client):
     calendar = _collection(client, CALENDAR)
     uid = f"aifred-test-{uuid.uuid4()}"
     href = f"{calendar.href}{uid}.ics"
-    token = calendar.sync_token
-    assert token is not None
     client.create(href, _event(uid, "Serie Grüße", "FREQ=WEEKLY;COUNT=3"), "text/calendar; charset=utf-8")
     try:
         found = [o for o in client.calendar_objects(calendar.href, "VEVENT", datetime(2026, 11, 1), datetime(2026, 12, 1))
                  if uid in o.data]
         assert len(found) == 1 and found[0].data.count("BEGIN:VEVENT") == 3
         assert "Serie Grüße" in found[0].data
-        assert href in client.changes(calendar.href, token).changed
     finally:
         client.delete(client.get(href))
-    assert href in client.changes(calendar.href, token).removed
 
 
 def test_stale_write_is_refused(client):

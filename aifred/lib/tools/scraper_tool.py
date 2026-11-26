@@ -20,11 +20,28 @@ from trafilatura.settings import DEFAULT_CONFIG
 
 from ..config import PLAYWRIGHT_FALLBACK_THRESHOLD
 from ..logging_utils import log_message
+from ..lxml_thread import run_in_lxml_thread
 from ..security import UnsafeURLError, validate_external_url
 from .base import BaseTool
 
 # Logging Setup
 logger = logging.getLogger(__name__)
+
+
+def _extract_text_and_title(html_source: str) -> tuple[str | None, str]:
+    """Parse and read out in one go: no trafilatura/lxml object may leave the lxml thread."""
+    text = trafilatura.extract(
+        html_source,
+        include_comments=False,  # No comments
+        include_tables=True,     # Keep tables (important for weather!)
+        no_fallback=False,       # Fallback to basic extraction if needed
+        favor_precision=True,    # Less content, but more precise (filters more ads)
+        output_format='txt'      # Plain text (not JSON/XML)
+    )
+    if not text:
+        return None, ''
+    metadata = trafilatura.extract_metadata(html_source)
+    return text, metadata.title if metadata and metadata.title else ''
 
 
 class _PinnedHostAdapter(HTTPAdapter):
@@ -289,15 +306,8 @@ class WebScraperTool(BaseTool):
                     'retry_attempts': retry_attempt
                 }
 
-            # Extract clean content
-            text = trafilatura.extract(
-                downloaded,
-                include_comments=False,  # No comments
-                include_tables=True,     # Keep tables (important for weather!)
-                no_fallback=False,       # Fallback to basic extraction if needed
-                favor_precision=True,    # Less content, but more precise (filters more ads)
-                output_format='txt'      # Plain text (not JSON/XML)
-            )
+            # Extract clean content and title in the one lxml thread (see lxml_thread)
+            text, title = run_in_lxml_thread(_extract_text_and_title, downloaded)
 
             if not text:
                 logger.warning("⚠️ trafilatura: No content extracted")
@@ -307,10 +317,6 @@ class WebScraperTool(BaseTool):
                     'source': url,
                     'error': 'No content extracted'
                 }
-
-            # Extract title (optional, trafilatura can do this too)
-            metadata = trafilatura.extract_metadata(downloaded)
-            title = metadata.title if metadata and metadata.title else ''
 
             # Clean text
             text = self._clean_text(text)

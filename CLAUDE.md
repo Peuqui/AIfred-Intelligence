@@ -138,6 +138,15 @@ Trigger liegt, beendet die Werkzeugphase (Prompt `utility/context_guard`).
   yield f"Model: {size_mb / 1024:.1f} GB"
   ```
 
+### lxml nur im lxml-Thread (seit 26.11.2026)
+Alle Arbeit mit libxml2 (lxml, trafilatura, python-docx, openpyxl, python-pptx …) läuft in EINEM Thread:
+`lib/lxml_thread.run_in_lxml_thread(func, …)` (synchron, aus einem Arbeits-Thread, nie auf einem Event-Loop).
+`func` parst und liest fertig aus und gibt nur reine Python-Daten zurück; kein lxml-Objekt verlässt den Thread.
+Hält eine Bibliothek ihre Bäume in Referenzzyklen (python-docx, python-pptx), nimmt man
+`run_in_lxml_thread_freeing_cycles`, die die Zyklen noch im lxml-Thread freigibt. Netzwerk-I/O gehört nicht hinein.
+Grund: Absturz mit SIGSEGV am 26.11. (zwei Threads gleichzeitig in libxml2). `tests/test_lxml_thread.py` meldet
+jedes Modul, das eine solche Bibliothek importiert, ohne den lxml-Thread zu benutzen.
+
 ### Stellvertreter in Tests
 Eine kleine Klasse statt des echten Objekts erbt für mypy von der echten Klasse und zur Laufzeit von
 `object`, wenn eine echte Unterklasse nicht geht (sie hätte Methoden, die der Stellvertreter verweigern

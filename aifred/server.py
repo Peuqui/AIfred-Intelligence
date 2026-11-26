@@ -10,6 +10,7 @@ One process; when it dies, systemd starts it again (``Restart=always``).
 from __future__ import annotations
 
 import contextlib
+import faulthandler
 from collections.abc import AsyncIterator, Callable, Sequence
 
 from fastapi import FastAPI
@@ -46,6 +47,10 @@ def create_app(lifespans: Sequence[Lifespan]) -> FastAPI:
 
 
 def main() -> None:
+    # A crash in C code (SIGSEGV in lxml, 26.11.2026) left only C frames in the core dump; with this the Python stack
+    # of every thread lands on stderr, that is in the journal, before the process dies.
+    faulthandler.enable(all_threads=True)
+
     from .lib.config import AIFRED_SERVER_HOST, AIFRED_SERVER_PORT
     from .lib.server_shutdown import serve
     from .lib.server_startup import SERVER_LIFESPANS

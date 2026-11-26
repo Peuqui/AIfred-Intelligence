@@ -1,5 +1,5 @@
 """WebDAV access to Nextcloud: discovery, collections and their rights,
-calendar and address book queries, conditional writes, change tracking, files.
+calendar and address book queries, conditional writes, files.
 
 Synchronous httpx; the tool layer runs it in a worker thread. Every write is
 conditional — If-Match with the object's ETag, If-None-Match for a new one —
@@ -17,6 +17,8 @@ from xml.sax.saxutils import escape
 
 import httpx
 from lxml import etree
+
+from ....lib.lxml_thread import run_in_lxml_thread
 
 NS = {
     "d": "DAV:",
@@ -49,7 +51,6 @@ class DavCollection:
     # Granted by the server for the logged-in user (a calendar shared
     # read-only lacks it); the plugin's own setting comes on top.
     writable: bool
-    sync_token: str | None
 
     @property
     def plain_name(self) -> str:
@@ -79,13 +80,6 @@ class DavFile:
         return self.path.rsplit("/", 1)[-1]
 
 
-@dataclass(frozen=True)
-class DavChanges:
-    sync_token: str
-    changed: list[str]
-    removed: list[str]
-
-
 def _utc(value: datetime) -> str:
     """Naive values are local wall-clock time."""
     return value.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -93,6 +87,66 @@ def _utc(value: datetime) -> str:
 
 def _text(element: "etree._Element | None") -> str | None:
     return None if element is None or element.text is None else element.text
+
+
+def _read_multistatus[Read](content: bytes, read: Callable[[str, "etree._Element"], Read]) -> list[Read]:
+    """Parse the answer and hand each (href, prop) to ``read``; runs in the lxml thread, so ``read``
+    must return plain data, never an element."""
+    root = etree.fromstring(content)
+    out: list[Read] = []
+    for resp in root.findall("d:response", NS):
+        resp_href = resp.findtext("d:href", namespaces=NS)
+        for propstat in resp.findall("d:propstat", NS):
+            if " 200 " in (propstat.findtext("d:status", namespaces=NS) or ""):
+                prop = propstat.find("d:prop", NS)
+                if resp_href and prop is not None:
+                    out.append(read(resp_href, prop))
+    return out
+
+
+def _read_principal(_href: str, prop: "etree._Element") -> str | None:
+    return _text(prop.find("d:current-user-principal/d:href", NS))
+
+
+def _read_homes(_href: str, prop: "etree._Element") -> tuple[str | None, str | None]:
+    return (_text(prop.find("cal:calendar-home-set/d:href", NS)),
+            _text(prop.find("card:addressbook-home-set/d:href", NS)))
+
+
+def _read_collection(href: str, prop: "etree._Element") -> DavCollection | None:
+    """None for what is neither a calendar nor an address book."""
+    types = prop.find("d:resourcetype", NS)
+    if types is None:
+        return None
+    if types.find("cal:calendar", NS) is not None:
+        kind = CALENDAR
+    elif types.find("card:addressbook", NS) is not None:
+        kind = ADDRESSBOOK
+    else:
+        return None
+    privileges = prop.find("d:current-user-privilege-set", NS)
+    writable = privileges is not None and (
+        privileges.find("d:privilege/d:write", NS) is not None
+        or privileges.find("d:privilege/d:write-content", NS) is not None)
+    components = frozenset(c.get("name", "") for c in prop.findall("cal:supported-calendar-component-set/cal:comp", NS))
+    return DavCollection(
+        href=href, kind=kind, name=_text(prop.find("d:displayname", NS)) or href.rstrip("/").rsplit("/", 1)[-1],
+        owner=_text(prop.find("nc:owner-displayname", NS)) or "",
+        components=components, writable=writable)
+
+
+def _read_file(files_root: str, href: str, prop: "etree._Element") -> DavFile:
+    types = prop.find("d:resourcetype", NS)
+    size = _text(prop.find("d:getcontentlength", NS))
+    modified = _text(prop.find("d:getlastmodified", NS))
+    return DavFile(
+        path=unquote(href).removeprefix(unquote(files_root)).strip("/"),
+        is_folder=types is not None and types.find("d:collection", NS) is not None,
+        size=int(size) if size is not None else None,
+        modified=parsedate_to_datetime(modified).isoformat() if modified else "",
+        mime=_text(prop.find("d:getcontenttype", NS)) or "",
+        etag=_text(prop.find("d:getetag", NS)) or "",
+    )
 
 
 class DavClient:
@@ -127,37 +181,30 @@ class DavClient:
             raise DavError(response.status_code, f"{method} {href}")
         return response
 
-    def _multistatus(self, method: str, href: str, depth: str, body: str) -> list[tuple[str, "etree._Element"]]:
-        """(href, prop) per response, taken from the propstat with status 200."""
+    def _multistatus[Read](self, method: str, href: str, depth: str, body: str,
+                           read: Callable[[str, "etree._Element"], Read]) -> list[Read]:
+        """``read(href, prop)`` per response, taken from the propstat with status 200. The request
+        runs here, parsing and reading in the lxml thread (no element leaves it)."""
         response = self._request(method, href, expect=(207,), body=body, headers={**_XML, "Depth": depth})
-        root = etree.fromstring(response.content)
-        out = []
-        for resp in root.findall("d:response", NS):
-            resp_href = resp.findtext("d:href", namespaces=NS)
-            for propstat in resp.findall("d:propstat", NS):
-                if " 200 " in (propstat.findtext("d:status", namespaces=NS) or ""):
-                    prop = propstat.find("d:prop", NS)
-                    if resp_href and prop is not None:
-                        out.append((resp_href, prop))
-        return out
+        return run_in_lxml_thread(_read_multistatus, response.content, read)
 
     # ── discovery ─────────────────────────────────────────────────
 
     def homes(self) -> tuple[str, str]:
         """Calendar home and address book home of the logged-in user."""
         found = self._multistatus("PROPFIND", self._root, "0",
-                                  '<d:propfind xmlns:d="DAV:"><d:prop><d:current-user-principal/></d:prop></d:propfind>')
-        principal = _text(found[0][1].find("d:current-user-principal/d:href", NS)) if found else None
+                                  '<d:propfind xmlns:d="DAV:"><d:prop><d:current-user-principal/></d:prop></d:propfind>',
+                                  _read_principal)
+        principal = found[0] if found else None
         if principal is None:
             raise DavError(207, "no current-user-principal")
-        found = self._multistatus(
+        homes = self._multistatus(
             "PROPFIND", principal, "0",
             '<d:propfind xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" '
             'xmlns:card="urn:ietf:params:xml:ns:carddav"><d:prop><cal:calendar-home-set/>'
-            '<card:addressbook-home-set/></d:prop></d:propfind>')
-        prop = found[0][1]
-        calendar_home = _text(prop.find("cal:calendar-home-set/d:href", NS))
-        addressbook_home = _text(prop.find("card:addressbook-home-set/d:href", NS))
+            '<card:addressbook-home-set/></d:prop></d:propfind>',
+            _read_homes)
+        calendar_home, addressbook_home = homes[0]
         if calendar_home is None or addressbook_home is None:
             raise DavError(207, "the principal names no calendar or address book home")
         return calendar_home, addressbook_home
@@ -165,28 +212,10 @@ class DavClient:
     def collections(self) -> list[DavCollection]:
         body = ('<d:propfind xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:nc="http://nextcloud.com/ns"><d:prop>'
                 '<d:displayname/><nc:owner-displayname/><d:resourcetype/><cal:supported-calendar-component-set/>'
-                '<d:current-user-privilege-set/><d:sync-token/></d:prop></d:propfind>')
-        out = []
+                '<d:current-user-privilege-set/></d:prop></d:propfind>')
+        out: list[DavCollection] = []
         for home in self.homes():
-            for href, prop in self._multistatus("PROPFIND", home, "1", body):
-                types = prop.find("d:resourcetype", NS)
-                if types is None:
-                    continue
-                if types.find("cal:calendar", NS) is not None:
-                    kind = CALENDAR
-                elif types.find("card:addressbook", NS) is not None:
-                    kind = ADDRESSBOOK
-                else:
-                    continue
-                privileges = prop.find("d:current-user-privilege-set", NS)
-                writable = privileges is not None and (
-                    privileges.find("d:privilege/d:write", NS) is not None
-                    or privileges.find("d:privilege/d:write-content", NS) is not None)
-                components = frozenset(c.get("name", "") for c in prop.findall("cal:supported-calendar-component-set/cal:comp", NS))
-                out.append(DavCollection(
-                    href=href, kind=kind, name=_text(prop.find("d:displayname", NS)) or href.rstrip("/").rsplit("/", 1)[-1],
-                    owner=_text(prop.find("nc:owner-displayname", NS)) or "",
-                    components=components, writable=writable, sync_token=_text(prop.find("d:sync-token", NS))))
+            out.extend(c for c in self._multistatus("PROPFIND", home, "1", body, _read_collection) if c is not None)
         return out
 
     # ── reading ───────────────────────────────────────────────────
@@ -213,34 +242,16 @@ class DavClient:
         return self._objects("REPORT", href, body, "card:address-data")
 
     def _objects(self, method: str, href: str, body: str, data_path: str) -> list[DavObject]:
-        out = []
-        for obj_href, prop in self._multistatus(method, href, "1", body):
+        def read(obj_href: str, prop: "etree._Element") -> DavObject | None:
             data = _text(prop.find(data_path, NS))
             etag = _text(prop.find("d:getetag", NS))
-            if data is not None and etag is not None:
-                out.append(DavObject(obj_href, etag, data))
-        return out
+            return DavObject(obj_href, etag, data) if data is not None and etag is not None else None
+
+        return [obj for obj in self._multistatus(method, href, "1", body, read) if obj is not None]
 
     def get(self, href: str) -> DavObject:
         response = self._request("GET", href, expect=(200,))
         return DavObject(href, response.headers["ETag"], response.text)
-
-    def changes(self, href: str, sync_token: str) -> DavChanges:
-        """What changed in a collection since ``sync_token`` (RFC 6578)."""
-        body = ('<d:sync-collection xmlns:d="DAV:"><d:sync-token>' + sync_token +
-                '</d:sync-token><d:sync-level>1</d:sync-level><d:prop><d:getetag/></d:prop></d:sync-collection>')
-        response = self._request("REPORT", href, expect=(207,), body=body, headers={**_XML, "Depth": "1"})
-        root = etree.fromstring(response.content)
-        changed: list[str] = []
-        removed: list[str] = []
-        for resp in root.findall("d:response", NS):
-            obj = resp.findtext("d:href", namespaces=NS) or ""
-            status = resp.findtext("d:status", namespaces=NS) or ""
-            (removed if " 404 " in status else changed).append(obj)
-        token = root.findtext("d:sync-token", namespaces=NS)
-        if token is None:
-            raise DavError(207, "sync-collection answered without a sync-token")
-        return DavChanges(token, changed, removed)
 
     # ── writing ───────────────────────────────────────────────────
 
@@ -264,23 +275,13 @@ class DavClient:
     def _file_href(self, path: str) -> str:
         return self._files_root + quote(path)
 
-    def _file(self, href: str, prop: "etree._Element") -> DavFile:
-        types = prop.find("d:resourcetype", NS)
-        size = _text(prop.find("d:getcontentlength", NS))
-        modified = _text(prop.find("d:getlastmodified", NS))
-        return DavFile(
-            path=unquote(href).removeprefix(unquote(self._files_root)).strip("/"),
-            is_folder=types is not None and types.find("d:collection", NS) is not None,
-            size=int(size) if size is not None else None,
-            modified=parsedate_to_datetime(modified).isoformat() if modified else "",
-            mime=_text(prop.find("d:getcontenttype", NS)) or "",
-            etag=_text(prop.find("d:getetag", NS)) or "",
-        )
+    def _read_file(self, href: str, prop: "etree._Element") -> DavFile:
+        return _read_file(self._files_root, href, prop)
 
     def list_files(self, path: str) -> list[DavFile]:
         """What lies directly in the folder ``path`` ("" = the user's top level)."""
         body = f'<d:propfind xmlns:d="DAV:"><d:prop>{_FILE_PROPS}</d:prop></d:propfind>'
-        found = [self._file(href, prop) for href, prop in self._multistatus("PROPFIND", self._file_href(path), "1", body)]
+        found = self._multistatus("PROPFIND", self._file_href(path), "1", body, self._read_file)
         return [entry for entry in found if entry.path != path.strip("/")]
 
     def search_files(self, folder: str, term: str) -> list[DavFile]:
@@ -292,7 +293,7 @@ class DavClient:
                 f'<d:where><d:like><d:prop><d:displayname/></d:prop><d:literal>%{escape(term)}%</d:literal></d:like></d:where>'
                 '<d:orderby><d:order><d:prop><d:getlastmodified/></d:prop><d:descending/></d:order></d:orderby>'
                 '</d:basicsearch></d:searchrequest>')
-        return [self._file(href, prop) for href, prop in self._multistatus("SEARCH", self._root, "0", body)]
+        return self._multistatus("SEARCH", self._root, "0", body, self._read_file)
 
     def read_file(self, path: str, receive: Callable[[bytes], object]) -> str:
         """Stream the file into ``receive``, which ends it by raising; nothing stays

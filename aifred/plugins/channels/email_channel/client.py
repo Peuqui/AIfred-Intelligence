@@ -34,6 +34,7 @@ from ....lib.config import LIST_DEFAULT
 from ....lib.credential_broker import broker
 from ....lib.document_store import PARSERS, document_text
 from ....lib.logging_utils import log_message
+from ....lib.lxml_thread import run_in_lxml_thread
 from ....lib.security import extract_sender_email
 from .config import (
     EMAIL_IMAP_PORT_DEFAULT,
@@ -166,7 +167,12 @@ def _decode_sender(raw: str | None) -> str:
 def _html_text(source: str) -> str:
     """The text of an HTML mail, without markup. A plain walk over the document, no
     article extractor: those drop short mails and whatever looks like boilerplate. The
-    bytes go to the parser because a str with an encoding declaration is refused."""
+    bytes go to the parser because a str with an encoding declaration is refused. Parsed and
+    read out in the lxml thread (see lxml_thread)."""
+    return run_in_lxml_thread(_html_text_in_lxml_thread, source)
+
+
+def _html_text_in_lxml_thread(source: str) -> str:
     parser = html.HTMLParser(encoding="utf-8")
     try:
         document = html.fromstring(source.encode("utf-8"), parser=parser)

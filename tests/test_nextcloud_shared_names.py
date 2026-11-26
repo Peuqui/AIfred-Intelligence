@@ -18,7 +18,7 @@ from aifred.plugins.tools.nextcloud.store import _EVENT, NextcloudStore
 
 def _calendar(uri: str, name: str, owner: str = "Peuqui") -> DavCollection:
     return DavCollection(href=f"/dav/calendars/aifred/{uri}/", kind=CALENDAR, name=name, owner=owner,
-                         components=frozenset({"VEVENT"}), writable=True, sync_token=None)
+                         components=frozenset({"VEVENT"}), writable=True)
 
 
 @pytest.fixture
