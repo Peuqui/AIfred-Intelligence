@@ -1665,6 +1665,9 @@ SCHEDULER_WEBHOOK_TIMEOUT_SECONDS = 30   # a job's webhook POST gives up after t
 PLAN_PART_TIMEOUT_SECONDS = env_int("PLAN_PART_TIMEOUT_SECONDS", 1800)  # one plan part (run + reminder) fails after this long; a hanging part blocked the serial scheduler loop and so every job (30 min ≈ 3x the average part, run 155: 4 parts in 33:47 min)
 READER_PROXY_HOST = "r.jina.ai"          # reading proxy: https://<host>/<address> is the page <address> (not part of its identity, lib/tools/url_utils.py)
 SCHEDULER_JOBS_FOLDER = "jobs"         # workspace folder with one folder per job: its notes and the data it keeps (lib/job_notes.py)
+# File endings of the data tables a job keeps in its folder: when one lies there, the run is told to compute what it needs from
+# it with a script it keeps beside it (prompts/<lang>/scheduler/notes_data.txt); the notes prompts ask for CSV.
+SCHEDULER_DATA_TABLE_SUFFIXES = (".csv", ".tsv")
 
 # ============================================================
 # AUTH CONFIGURATION

@@ -128,6 +128,14 @@ made or renamed after the job's name (`job_notes.sync`), and does the code enter
 (`_append_new_sources`). With the switch off none of this happens: no notes prompt, no `sync`, nothing appended. Switching
 it off leaves an existing file untouched; deleting the job deletes the folder as before.
 
+Data tables: the notes prompt asks for a CSV file with a header row and a fixed key column in the job folder for measurements
+and their history. When such a table lies there (`job_notes.data_tables`, endings from `SCHEDULER_DATA_TABLE_SUFFIXES`, now
+`.csv` and `.tsv`), `_notes_text` appends the piece `scheduler/notes_data` with the file names: what every run needs from the
+table (lowest values, trends, comparisons) is computed by a Python script in the same folder, which the first run writes and
+every later run only runs and improves when needed; the numbers in the report come from its output. A job without a table does
+not get the piece. Why (26.11.2026): every run wrote its analysis anew, and the numbers drifted from run to run (wrong dates of
+the lowest prices, a "new lowest price" that had stood in the table for days).
+
 `keeps_notes` has no default value: `JobStore.add` and `update` require it, and so do the API (`JobWrite`) and the tool
 `horarium_create` (required when creating, so the model decides or asks the user; optional in `horarium_update`). A
 database from before gets the column once at startup (`_ensure_schema`); all existing jobs are explicitly set on, because

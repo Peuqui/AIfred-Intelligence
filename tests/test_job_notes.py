@@ -69,3 +69,16 @@ def test_removing_deletes_the_folder_with_everything_in_it(workspace, monkeypatc
     assert not (workspace / folder).exists()
     assert (workspace / other).is_dir()
     asyncio.run(job_notes.remove(7))   # nothing there: nothing to do
+
+
+def test_the_data_tables_of_a_folder_are_its_csv_and_tsv_files_sorted(workspace):
+    folder, notes = job_notes.sync(9, "Preise")
+    for name in ("preise.csv", "Verlauf.TSV", "auswertung.py", "quellen.md"):
+        (workspace / folder / name).write_text("x")
+    (workspace / folder / "alt.csv").mkdir()  # a folder named like a table is no table
+    (workspace / notes).write_text("Notizen")
+    assert job_notes.data_tables(folder) == ["Verlauf.TSV", "preise.csv"]
+
+
+def test_a_missing_folder_has_no_data_tables(workspace):
+    assert job_notes.data_tables(f"{SCHEDULER_JOBS_FOLDER}/fehlt_job-99") == []

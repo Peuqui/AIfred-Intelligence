@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 
 from . import file_manager
-from .config import SCHEDULER_JOBS_FOLDER
+from .config import SCHEDULER_DATA_TABLE_SUFFIXES, SCHEDULER_JOBS_FOLDER
 
 _ID_SUFFIX = re.compile(r"_job-(\d+)$")
 # What an agent needs to keep notes: read them and write them (the prompt names these two).
@@ -70,6 +70,15 @@ def agent_can_keep_notes(agent_id: str) -> bool:
 
 def has_notes(notes_file: str) -> bool:
     return (file_manager.DOCUMENTS_DIR / notes_file).is_file()
+
+
+def data_tables(folder: str) -> list[str]:
+    """The data tables in the job's folder (file names, sorted): files with an ending of ``SCHEDULER_DATA_TABLE_SUFFIXES``."""
+    path = file_manager.DOCUMENTS_DIR / folder
+    if not path.is_dir():
+        return []
+    return sorted(child.name for child in path.iterdir()
+                  if child.is_file() and child.suffix.lower() in SCHEDULER_DATA_TABLE_SUFFIXES)
 
 
 async def remove(job_id: int) -> None:

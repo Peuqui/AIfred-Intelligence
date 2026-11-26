@@ -1002,7 +1002,14 @@ def _notes_text(job: Job, lang: str) -> str:
     key = "scheduler/notes" if job_notes.has_notes(notes_file) else "scheduler/notes_new"
     # The folder's web address: without it the model guessed it, and a chart linked as /_upload/jobs/… did not
     # resolve, so the job's mail was refused (23.11.2026).
-    return load_prompt(key, lang=lang, folder=folder, file=notes_file, url=f"{DOCUMENTS_URL}/{folder}").strip()
+    text = load_prompt(key, lang=lang, folder=folder, file=notes_file, url=f"{DOCUMENTS_URL}/{folder}").strip()
+    # Only a job that keeps a data table hears of the script that computes from it: a job without data would
+    # otherwise start making tables and scripts it has no use for. Each run wrote its own analysis before, and the
+    # numbers drifted from run to run (26.11.2026: dates of the lowest prices, a "new low" that stood in the table for days).
+    tables = job_notes.data_tables(folder)
+    if tables:
+        text += "\n\n" + load_prompt("scheduler/notes_data", lang=lang, tables=", ".join(f"`{t}`" for t in tables)).strip()
+    return text
 
 
 # ============================================================

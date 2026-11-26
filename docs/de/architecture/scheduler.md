@@ -129,6 +129,14 @@ Akte ein (`_append_new_sources`). Ist der Schalter aus, geschieht nichts davon: 
 Anhängen. Schaltet man ihn aus, bleibt eine vorhandene Akte unberührt liegen; das Löschen des Jobs löscht den Ordner wie
 bisher.
 
+Datentabellen: Der Notiz-Prompt verlangt für Messwerte und Verläufe eine CSV-Datei mit Kopfzeile und fester Schlüsselspalte im
+Job-Ordner. Liegt dort eine Tabelle (`job_notes.data_tables`, Endungen aus `SCHEDULER_DATA_TABLE_SUFFIXES`, derzeit `.csv` und
+`.tsv`), hängt `_notes_text` den Baustein `scheduler/notes_data` mit den Dateinamen an: Was jeder Lauf aus der Tabelle braucht
+(Tiefstwerte, Trends, Vergleiche), rechnet ein Python-Skript im selben Ordner, das der erste Lauf schreibt und jeder weitere
+nur ausführt und bei Bedarf verbessert; Zahlen im Bericht kommen aus seiner Ausgabe. Ein Job ohne Tabelle bekommt den Baustein
+nicht. Grund (26.11.2026): Jeder Lauf schrieb seine Auswertung neu, und die Zahlen schwankten von Lauf zu Lauf (falsche Daten
+der Tiefstpreise, ein „neuer Tiefstpreis“, der seit Tagen in der Tabelle stand).
+
 `keeps_notes` hat keinen Standardwert: `JobStore.add` und `update` verlangen es, ebenso die API (`JobWrite`) und das
 Werkzeug `horarium_create` (Pflicht beim Anlegen, damit das Modell entscheidet oder den Benutzer fragt; bei
 `horarium_update` optional). Eine Datenbank aus der Zeit davor bekommt die Spalte einmal beim Start (`_ensure_schema`);

@@ -563,3 +563,35 @@ def test_a_job_without_parts_says_in_the_debug_console_that_it_is_one_turn(monke
     job = sched.get_job_store().add("Gruß", "interval", "60", {"message": "Sag hallo."}, keeps_notes=True)
     asyncio.run(sched._execute_job(job))
     assert lines == [f"⏰ Horarium job 'Gruß' (id={job.job_id}) starts · agent Agent · one turn"]
+
+
+def test_a_job_without_a_data_table_hears_nothing_of_a_script(monkeypatch) -> None:
+    Run(monkeypatch)
+    job = _job()
+    _write_notes(job, "# Akte\n")
+    text = sched._notes_text(job, "de")
+    assert "CSV-Datei mit Kopfzeile" in text   # how a table is to be made, should the job make one
+    assert "Datentabellen dieses Jobs" not in text and "Python-Skript" not in text
+
+
+def test_a_job_with_a_data_table_is_told_its_name_and_to_compute_from_it_with_a_kept_script(monkeypatch) -> None:
+    Run(monkeypatch)
+    job = _job()
+    _write_notes(job, "# Akte\n")
+    folder, _ = job_notes.sync(job.job_id, job.name)
+    assert file_manager.write_file(f"{folder}/preise.csv", "Datum,Teil,Preis\n").success
+    assert file_manager.write_file(f"{folder}/auswertung.py", "print(1)\n").success
+    text = sched._notes_text(job, "de")
+    assert "Datentabellen dieses Jobs: `preise.csv`." in text
+    assert "führe es aus, statt es neu zu schreiben" in text
+    assert "This job's data tables: `preise.csv`." in sched._notes_text(job, "en")
+
+
+def test_a_new_job_with_a_table_but_no_notes_yet_gets_both_texts(monkeypatch) -> None:
+    Run(monkeypatch)
+    job = _job()
+    folder, notes_file = job_notes.sync(job.job_id, job.name)
+    assert file_manager.write_file(f"{folder}/werte.tsv", "a\tb\n").success
+    assert not job_notes.has_notes(notes_file)
+    text = sched._notes_text(job, "de")
+    assert "gibt es noch nicht" in text and "Datentabellen dieses Jobs: `werte.tsv`." in text
