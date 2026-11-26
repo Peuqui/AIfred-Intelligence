@@ -15,6 +15,7 @@ import email.utils
 import imaplib
 import pathlib
 import re
+import socket
 from datetime import datetime, timezone, UTC
 from typing import TYPE_CHECKING
 
@@ -87,11 +88,20 @@ def _save_checkpoint(last_uid: int, uidvalidity: int) -> None:
     )
 
 
-def _logout_quietly(imap: imaplib.IMAP4_SSL) -> None:
-    """A broken connection cannot say goodbye; it is dropped either way."""
+def _close_connection(imap: imaplib.IMAP4_SSL) -> None:
+    """Drop the listener's connection without a goodbye (no LOGOUT: in IDLE it never gets an answer).
+
+    The socket goes down first: that ends a thread still blocked in a read on it. ``imap.shutdown()`` alone waits for
+    that reader, because closing the buffered file takes the lock the reader holds. A dead connection reports
+    ``ENOTCONN`` or ``EBADF``; the connection is gone either way.
+    """
     try:
-        imap.logout()
-    except (imaplib.IMAP4.error, OSError):
+        imap.socket().shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+    try:
+        imap.shutdown()
+    except OSError:
         pass
 
 
@@ -324,23 +334,23 @@ class EmailChannel(BaseChannel):
             except asyncio.CancelledError:
                 self.channel_log("Email Plugin: shutting down")
                 if imap:
-                    _logout_quietly(imap)
+                    _close_connection(imap)
                 return
 
             except OSError as exc:
                 if "IDLE" in str(exc) and "timeout" in str(exc):
                     # Normal IDLE timeout — not an error, just reconnect immediately
                     if imap:
-                        _logout_quietly(imap)
+                        _close_connection(imap)
                     continue
                 self.channel_log(f"Email Plugin: error — {exc}, reconnecting in {_RECONNECT_DELAY_SECONDS}s", "error")
                 if imap:
-                    _logout_quietly(imap)
+                    _close_connection(imap)
                 await asyncio.sleep(_RECONNECT_DELAY_SECONDS)
             except Exception as exc:  # noqa: BLE001 — the listener reconnects whatever went wrong
                 self.channel_log(f"Email Plugin: error — {exc}, reconnecting in {_RECONNECT_DELAY_SECONDS}s", "error")
                 if imap:
-                    _logout_quietly(imap)
+                    _close_connection(imap)
                 await asyncio.sleep(_RECONNECT_DELAY_SECONDS)
 
     # ── IDLE cycle ────────────────────────────────────────────
@@ -363,13 +373,13 @@ class EmailChannel(BaseChannel):
         await asyncio.to_thread(imap.send, tag + b" IDLE\r\n")
 
         read = asyncio.ensure_future(asyncio.to_thread(_read_idle_response, imap))
-        finished, _ = await asyncio.wait({read}, timeout=_IDLE_TIMEOUT_SECONDS)
-        if not finished:
-            self.channel_log("Email Plugin: IDLE timeout (no events), re-entering IDLE")
-
-        # Exit IDLE — DONE + the answer can hang on dead connections.
-        # Use a short timeout so we don't wait for the outer watchdog.
         try:
+            finished, _ = await asyncio.wait({read}, timeout=_IDLE_TIMEOUT_SECONDS)
+            if not finished:
+                self.channel_log("Email Plugin: IDLE timeout (no events), re-entering IDLE")
+
+            # Exit IDLE — DONE + the answer can hang on dead connections.
+            # Use a short timeout so we don't wait for the outer watchdog.
             await asyncio.wait_for(asyncio.to_thread(imap.send, b"DONE\r\n"), timeout=10)
             response = await asyncio.wait_for(read, timeout=10)
             if response.startswith(tag):
@@ -379,6 +389,10 @@ class EmailChannel(BaseChannel):
         except TimeoutError:
             # DONE/answer hung — connection is dead, let outer loop reconnect
             raise OSError("IDLE exit timeout")
+        finally:
+            # On cancellation the read is still pending; the listener closes the connection, which ends its thread.
+            # Without this the read's error would surface later as "exception was never retrieved".
+            read.cancel()
 
     # ── Single-mail processing ─────────────────────────────────
 

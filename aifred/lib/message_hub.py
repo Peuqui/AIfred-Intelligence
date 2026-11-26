@@ -183,19 +183,28 @@ class MessageHub:
         # Wait for the thread to start its event loop; the wait blocks, so it runs off the server's loop
         await asyncio.to_thread(self._started.wait, MESSAGE_HUB_THREAD_TIMEOUT_SEC)
 
+    async def _end_workers_then_loop(self) -> None:
+        """Runs in the hub loop: the workers end first, then the loop stops.
+
+        A worker's own shutdown still needs the loop and the tasks of its library (Telegram's updater.stop() waits for
+        its update fetcher). Stopping the loop right away let the cleanup in ``_thread_main`` cancel those tasks while
+        the workers were still shutting down (26.11.2026: "Fetching updates was aborted due to CancelledError()").
+        """
+        tasks = [worker.task for worker in self._workers.values() if worker.task and not worker.task.done()]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        asyncio.get_running_loop().stop()
+
     async def stop_all(self) -> None:
         """Stop all workers and shut down the worker thread."""
         if not self._loop or not self._thread:
             return
 
-        # Cancel all tasks from the main thread (thread-safe)
         for worker in self._workers.values():
             if worker.task and not worker.task.done():
-                self._loop.call_soon_threadsafe(worker.task.cancel)
                 _hub_log(f"Message Hub: cancelling worker '{worker.name}'")
-
-        # Stop the event loop (thread-safe)
-        self._loop.call_soon_threadsafe(self._loop.stop)
+        asyncio.run_coroutine_threadsafe(self._end_workers_then_loop(), self._loop)
 
         # Wait for thread to finish; the join blocks, so it runs off the server's loop
         await asyncio.to_thread(self._thread.join, MESSAGE_HUB_THREAD_TIMEOUT_SEC)
