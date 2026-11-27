@@ -3,7 +3,6 @@ import { RefreshCw } from "lucide-vue-next";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { ChatEntry } from "../api/types";
 import { t } from "../i18n";
-import { clip } from "../lib/clip";
 import { renderMarkdown } from "../lib/markdown";
 import { isSpeaking, toggleReading } from "../lib/speech";
 import TtsIcon from "./TtsIcon.vue";
@@ -22,29 +21,26 @@ const emit = defineEmits<{ readAgain: [timestamp: string] }>();
 const isRequest = computed(() => props.entry.role === "user");
 const isOwn = computed(() => isRequest.value && !props.entry.agent);
 // The user's text is shown as typed, plain (tags in it are text, not markup); the images of their message above it,
-// from the entry's metadata. A long text shows its beginning, "more" the rest. An answer is Markdown with the
-// server's own HTML parts.
-const USER_PREVIEW_CHARS = 600;
-const USER_PREVIEW_LINES = 8;
+// from the entry's metadata. A long text shows its first lines on the screen (--request-preview-lines), "more" the
+// rest. An answer is Markdown with the server's own HTML parts.
 const html = computed(() => (isRequest.value ? "" : renderMarkdown(props.entry.content)));
 const images = computed(() => props.entry.metadata?.images ?? []);
-const preview = computed(() => clip(props.entry.content, USER_PREVIEW_CHARS, USER_PREVIEW_LINES));
-const tooLong = computed(() => isRequest.value && preview.value !== props.entry.content.trim());
 // Shown in full: opened by its link in the history, or by the link of the question that sticks (which keeps it open
 // there, so that it does not shrink the moment it leaves the top edge).
 const expanded = ref(false);
 const metadata = computed(() => props.entry.metadata ?? { audio_urls: [], browser_speech: [] });
 const canReplay = computed(() => (metadata.value.audio_urls?.length ?? 0) + (metadata.value.browser_speech?.length ?? 0) > 0);
 
-// Whether the folded question has more to show is known by measuring: the screen's line breaks are not the text's.
+// Whether a cut text has more to show is known by measuring: the screen's line breaks are not the text's.
 const content = ref<HTMLElement>();
 const unfolded = ref(false);
 const overflowing = ref(false);
 const folded = computed(() => !!props.pinned && !!props.stuck && !unfolded.value);
-const userText = computed(() => (expanded.value ? props.entry.content : preview.value));
+// In the history a request shows its first lines until it is opened; the question that sticks has its own fold.
+const clamped = computed(() => isRequest.value && !expanded.value && !folded.value);
 // The link under the question: the one of the question that sticks folds it to a few lines or opens it; in the history it
 // shows the beginning or all. Opened while it sticks, it stays open in the history.
-const linkShown = computed(() => (props.pinned && props.stuck ? overflowing.value || unfolded.value : tooLong.value));
+const linkShown = computed(() => (props.pinned && props.stuck ? overflowing.value || unfolded.value : overflowing.value || expanded.value));
 const linkOpen = computed(() => (props.stuck ? unfolded.value : expanded.value));
 function toggleMore(): void {
   if (props.stuck) {
@@ -71,6 +67,8 @@ function measure(): void {
   const element = content.value;
   const bubbleElement = root.value;
   if (!element || !bubbleElement) return;
+  // Opened nothing is cut off; the link stays, to fold again.
+  if (folded.value || clamped.value) overflowing.value = element.scrollHeight > element.clientHeight + 1;
   // Pinning switched off while folded: the space the fold left goes with it.
   if (!props.pinned) {
     spaceBelow.value = 0;
@@ -78,8 +76,6 @@ function measure(): void {
   }
   if (!props.stuck) fullHeight.value = bubbleElement.offsetHeight;
   spaceBelow.value = folded.value ? Math.max(0, fullHeight.value - bubbleElement.offsetHeight) : 0;
-  // Unfolded nothing is cut off; the link stays, to fold again.
-  if (folded.value) overflowing.value = element.scrollHeight > element.clientHeight + 1;
 }
 const resizes = new ResizeObserver(measure);
 onMounted(() => {
@@ -88,7 +84,7 @@ onMounted(() => {
   if (root.value) resizes.observe(root.value);
 });
 onBeforeUnmount(() => resizes.disconnect());
-watch(() => [props.entry.content, props.pinned, props.stuck, folded.value], () => void nextTick(measure));
+watch(() => [props.entry.content, props.pinned, props.stuck, folded.value, clamped.value], () => void nextTick(measure));
 
 function play(): void {
   toggleReading(metadata.value.audio_urls ?? [], metadata.value.browser_speech ?? [], props.entry.timestamp || null);
@@ -150,7 +146,7 @@ function pictureGone(event: Event): void {
     <div v-if="isRequest && images.length" class="thumbs" @click="enlarge" @error.capture="pictureGone">
       <img v-for="image in images" :key="image.url" :src="image.url" :alt="image.name" :title="image.name" />
     </div>
-    <p v-if="isRequest" ref="content" class="content plain" :class="{ folded }">{{ userText }}</p>
+    <p v-if="isRequest" ref="content" class="content plain" :class="{ folded, clamped }">{{ entry.content.trim() }}</p>
     <!-- eslint-disable-next-line vue/no-v-html -- sanitized by renderMarkdown (DOMPurify) -->
     <div v-else ref="content" class="content markdown" :class="{ folded }" @click="enlarge" @error.capture="pictureGone" v-html="html" />
     <button v-if="linkShown" type="button" class="more" @click="toggleMore">
@@ -198,7 +194,9 @@ header { font-size: var(--text-small); font-weight: 600; color: var(--aifred-pri
 .plain { margin: 0; white-space: pre-wrap; }
 .thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .thumbs img { width: 50px; height: 50px; object-fit: cover; border-radius: 4px; cursor: zoom-in; }
-.content.folded { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--pinned-question-lines); overflow: hidden; }
+.content.folded, .content.clamped { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+.content.folded { -webkit-line-clamp: var(--pinned-question-lines); }
+.content.clamped { -webkit-line-clamp: var(--request-preview-lines); }
 .more { background: none; border: none; padding: 0; margin-top: 2px; font: inherit; font-size: var(--text-small); color: var(--aifred-text-muted); text-decoration: underline; cursor: pointer; }
 .content :deep(em.metrics) { font-size: var(--text-small); color: var(--aifred-text-secondary); }
 /* Every collapsible (thinking, sources, …) a box of its own inside the answer, as on the Reflex page: lighter than the

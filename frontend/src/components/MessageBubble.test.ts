@@ -59,20 +59,66 @@ describe("MessageBubble user text", () => {
     expect(wrapper.find(".content").text()).toBe("Was ist das?");
   });
 
-  it("shows a long text clipped, with a link that shows all of it and one that folds it again", async () => {
-    const lines = Array.from({ length: 30 }, (_, at) => `Zeile ${at + 1}`);
-    const wrapper = userBubble(lines.join("\n"));
-    expect(wrapper.find(".content").text()).toBe(`${lines.slice(0, 8).join("\n")}…`);
-    await wrapper.find(".more").trigger("click");
-    expect(wrapper.find(".content").text()).toBe(lines.join("\n"));
-    await wrapper.find(".more").trigger("click");
-    expect(wrapper.find(".content").text()).toBe(`${lines.slice(0, 8).join("\n")}…`);
+  it("shows a long text as its first lines, with a link that shows all of it and one that folds it again", async () => {
+    // jsdom has no layout: the text needs 400 px, the first lines show 100.
+    const restore = layout(400, 100);
+    try {
+      const lines = Array.from({ length: 30 }, (_, at) => `Zeile ${at + 1}`);
+      const wrapper = userBubble(lines.join("\n"));
+      await flushPromises();
+      expect(wrapper.find(".content").classes()).toContain("clamped");
+      expect(wrapper.find(".content").text()).toBe(lines.join("\n"));
+      await wrapper.find(".more").trigger("click");
+      expect(wrapper.find(".content").classes()).not.toContain("clamped");
+      await wrapper.find(".more").trigger("click");
+      expect(wrapper.find(".content").classes()).toContain("clamped");
+    } finally {
+      restore();
+    }
   });
 
-  it("has no link for a short text", () => {
-    expect(userBubble("Kurz").find(".more").exists()).toBe(false);
+  it("has no link for a text that fits in its first lines", async () => {
+    const restore = layout(60, 60);
+    try {
+      const wrapper = userBubble("Kurz");
+      await flushPromises();
+      expect(wrapper.find(".more").exists()).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  it("shows a job's long request as its first lines too", async () => {
+    const restore = layout(900, 100);
+    try {
+      setActivePinia(createPinia());
+      const wrapper = mount(MessageBubble, {
+        props: { entry: {
+          role: "user", content: "Du führst einen geplanten Job aus.\n".repeat(20), agent: "scheduler",
+          agent_display_name: "Horarium · Gebet", agent_emoji: "⏰", mode: "", timestamp: "", time_display: "06:45",
+          has_audio: false, tts_note: "", metadata: { images: [] },
+        }, speechOn: false },
+      });
+      await flushPromises();
+      expect(wrapper.find(".content").classes()).toContain("clamped");
+      expect(wrapper.find(".more").exists()).toBe(true);
+    } finally {
+      restore();
+    }
   });
 });
+
+// The text's full height and the height its box shows, for every element (jsdom has no layout).
+function layout(scrollHeight: number, clientHeight: number): () => void {
+  const scroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+  const client = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => scrollHeight });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => clientHeight });
+  return () => {
+    if (scroll) Object.defineProperty(HTMLElement.prototype, "scrollHeight", scroll);
+    if (client) Object.defineProperty(HTMLElement.prototype, "clientHeight", client);
+  };
+}
 
 function spokenBubble(readingRequested: boolean): ReturnType<typeof mount> {
   setActivePinia(createPinia());
