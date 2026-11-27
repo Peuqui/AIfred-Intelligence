@@ -39,9 +39,11 @@ export function useChatScroll(box: Ref<HTMLElement | null>, sessionId: () => str
     scroller.scrollTop + element.getBoundingClientRect().top - scroller.getBoundingClientRect().top - TOP_ROOM_PX - pinnedRoom(element);
 
   // The line at the upper edge, or the end where what follows the line fits the screen first. The reader who follows
-  // is never taken back up (neverUp); a chat that is opened starts from wherever the last one left the box.
+  // is never taken back up (neverUp); a chat that is opened starts from wherever the last one left the box. A line the
+  // mark has passed (faded, ChatView.vue) stands above nothing unread: then the oldest unread bubble takes its part.
   function linePosition(scroller: HTMLElement, neverUp: boolean): number {
-    const line = scroller.querySelector<HTMLElement>("[data-read-mark]");
+    const oldestUnread = unreadKeys()[0];
+    const line = scroller.querySelector<HTMLElement>("[data-read-mark]:not([data-passed])") ?? (oldestUnread === undefined ? undefined : bubble(oldestUnread));
     if (!line) return endTop(scroller);
     const target = Math.min(endTop(scroller), topOf(scroller, line));
     return neverUp ? Math.max(scroller.scrollTop, target) : target;

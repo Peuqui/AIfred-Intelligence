@@ -63,15 +63,34 @@ const turns = computed(() => {
   }
   return grouped;
 });
-// Where the "read up to here" line stands: above the entry with this key; null: no line.
+// Where the "read up to here" line belongs now: above the entry with this key; null: nothing unread.
 const entryKey = (entry: ChatEntry): string => entry.timestamp + entry.role;
 const readLineBefore = computed<string | null>(() => {
   const at = lineBeforeIndex(chat.history, chat.readUntil);
   const entry = at === null ? undefined : chat.history[at];
   return entry ? entryKey(entry) : null;
 });
-// A click on a bubble below the line says "read up to here" (not on what has a click of its own, not the end of
-// dragging to select text: the press is where the pointer went down in the box).
+// Where the line stands while the chat is open: put there when the chat opens (or, with nothing unread then, when the
+// first unread answer comes in), and not moved afterwards. Once the mark passes it, it only fades out and keeps its room:
+// a line that went away above and came back further down made everything between jump (Peuqui 27.11.2026).
+const lineKey = ref<string | null>(null);
+watch(
+  () => [chat.sessionId, chat.history.length, readLineBefore.value] as const,
+  ([sessionId], before) => {
+    if (before && sessionId !== before[0]) lineKey.value = null;
+    // A line of the chat shown before (its history not here yet, or another one now) does not count.
+    const standing = lineKey.value !== null && chat.history.some((entry) => entryKey(entry) === lineKey.value);
+    if (!standing) lineKey.value = readLineBefore.value;
+  },
+  { immediate: true },
+);
+const linePassed = computed(() => {
+  const entry = chat.history.find((item) => entryKey(item) === lineKey.value);
+  return entry !== undefined && !isUnread(entry, chat.readUntil);
+});
+// A click (or tap) anywhere on a bubble below the line says "read up to here", also on its own buttons, links, pictures
+// and the heads of its collapsibles, which still do their own thing (Peuqui 27.11.2026); not the end of dragging to
+// select text: the press is where the pointer went down in the box.
 let press: Press | null = null;
 function bubbleClicked(entry: ChatEntry, event: MouseEvent): void {
   if (isPlainClick(event, press)) void chat.markRead(entry.timestamp);
@@ -269,7 +288,7 @@ onMounted(() => void start());
           <div class="bubbles">
           <section v-for="(turn, at) in turns" :key="turn.key" :data-key="turn.key" class="turn">
             <template v-for="entry in turn.entries" :key="entryKey(entry)">
-              <ReadMark v-if="readLineBefore === entryKey(entry)" />
+              <ReadMark v-if="lineKey === entryKey(entry)" :passed="linePassed" />
               <MessageBubble
                 :class="{ question: entry.role === 'user', pinned: entry.role === 'user' && pinQuestion }"
                 :entry="entry"

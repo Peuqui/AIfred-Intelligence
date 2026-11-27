@@ -43,10 +43,9 @@ function clickOn(html: string, selector: string): MouseEvent {
   return seen!;
 }
 
-test("a click on text counts, a click on a button, link, picture, input or the head of a collapsible does not", () => {
+test("a click counts wherever on the bubble: on text, a button, link, picture, input or the head of a collapsible", () => {
   const body = '<article><p id="t">Text</p><button id="b">x</button><a id="a" href="#">l</a><img id="i" alt=""><input id="n"><details><summary id="s"><b id="sb">Denken</b></summary></details></article>';
-  expect(isPlainClick(clickOn(body, "#t"), null)).toBe(true);
-  for (const id of ["#b", "#a", "#i", "#n", "#s", "#sb"]) expect(isPlainClick(clickOn(body, id), null), id).toBe(false);
+  for (const id of ["#t", "#b", "#a", "#i", "#n", "#s", "#sb"]) expect(isPlainClick(clickOn(body, id), null), id).toBe(true);
 });
 
 test("a click into text that is already selected counts; the end of dragging to select text does not", () => {

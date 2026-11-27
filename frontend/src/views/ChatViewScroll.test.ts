@@ -209,10 +209,10 @@ test("pictures that load after opening at a remembered place: the bubble stays a
   expect(box.scrollTop).toBe(at(6) + 150 + BUBBLE - VIEW + 40);
 });
 
-test("marking read lets go of what the box held: 'all read' takes the line away and the view stays where it is", async () => {
+test("marking read lets go of what the box held: 'all read' fades the line and the view stays where it is", async () => {
   const { box, chat } = await shown("t05");
   const before = box.scrollTop;
-  chat.readUntil = stamp(11); // as "all read" does (the line goes, the content gets shorter)
+  chat.readUntil = stamp(11); // as "all read" does (the line fades and keeps its room)
   await flushPromises();
   await grow();
   expect(box.scrollTop).toBe(before);
@@ -409,4 +409,16 @@ test("scrolling does not set the mark", async () => {
   await readerScrollsTo(wrapper, 0);
   expect(chat.readUntil).toBe("t05");
   expect(posted).toEqual([]);
+});
+
+test("a faded line stands above nothing unread: the button goes to the oldest unread bubble, not to the line", async () => {
+  heights[keyOf(9)] = 400;
+  const { chat, wrapper, box } = await shown("t05");
+  // Read up to entry 7: the line (above entry 7) fades and keeps its room; entries 9 and 11 are still unread.
+  chat.readUntil = stamp(7);
+  await flushPromises();
+  await readerScrollsTo(wrapper, 0);
+  await wrapper.find("button.new-below").trigger("click");
+  // Entry 9 stands after the faded line and the entries before it; the question of its turn (entry 8) sticks above it.
+  expect(box.scrollTop).toBe(at(9) + LINE + GAP - 12 - BUBBLE);
 });
