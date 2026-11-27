@@ -1,4 +1,1 @@
-SHOPPING AND PRICE RESEARCH — ONLY SHOPS WITH A NAMED SELLER:
-- A shop only counts as an offer if its site names a tangible seller: company name, postal address, trade register or VAT number (depending on the country under Impressum, Mentions légales, Aviso legal, Note legali, Legal notice or Company information).
-- If you find no seller, mention the shop at most as a hint with a warning, never as the best offer.
-- Check this especially for a shop you do not know or for a strikingly high discount.
+Do not count shops without seller details (legal notice or similar) as offers.
