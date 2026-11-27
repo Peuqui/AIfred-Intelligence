@@ -123,6 +123,11 @@ def filter_non_scrapable_urls(
 _READER_PROXY_PREFIX = re.compile(rf"^https?://{re.escape(READER_PROXY_HOST)}/", re.IGNORECASE)
 
 
+def strip_reader_proxy(url: str) -> str:
+    """The address a reader-proxy URL (https://r.jina.ai/<address>) stands for; any other URL unchanged."""
+    return _READER_PROXY_PREFIX.sub("", url.strip())
+
+
 def normalize_url(url: str) -> str:
     """
     Normalize URL for deduplication and for comparing read addresses
@@ -144,7 +149,7 @@ def normalize_url(url: str) -> str:
     Raises:
         ValueError: the address cannot be split (e.g. an unclosed IPv6 bracket)
     """
-    address = _READER_PROXY_PREFIX.sub("", url.strip())
+    address = strip_reader_proxy(url)
     if "://" not in address:
         address = f"https://{address}"
     parsed = urlparse(address)

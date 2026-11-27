@@ -8,7 +8,7 @@
     "en": "Researches the web: for current questions AIfred searches with several queries, ranks the hits, reads the best pages and summarises their content. AIfred can also fetch a known address directly. Searching goes through a self-hosted SearXNG instance plus Tavily and Brave, provided their API keys are in the .env file."
   },
   "web_fetch_watch_notice": {
-    "de": "Wachhund: Ein Agent ruft {host} mit einem auffällig langen Adressteil ({chars} Zeichen) auf, der vorher weder in deiner Nachricht noch in Suchergebnissen oder abgerufenen Seiten stand. Darin könnten mitgeschickte Daten stecken. Abgerufen wird trotzdem; prüf bitte, ob das zu deinem Auftrag passt.",
-    "en": "Watchdog: an agent is fetching {host} with an unusually long address part ({chars} characters) that appeared neither in your message nor in search results or fetched pages. It could carry data out. The page is fetched anyway; please check whether this fits your request."
+    "de": "Wachhund: Ein Agent ruft {host} mit einem auffällig langen Adressteil ({chars} Zeichen) auf, der dem Agenten vorher nirgends vorlag (weder in deiner Nachricht noch im Auftrag oder in Ergebnissen seiner Werkzeuge). Darin könnten mitgeschickte Daten stecken. Abgerufen wird trotzdem; prüf bitte, ob das zu deinem Auftrag passt.",
+    "en": "Watchdog: an agent is fetching {host} with an unusually long address part ({chars} characters) that the agent had not been given anywhere before (neither in your message nor in the task or in the results of its tools). It could carry data out. The page is fetched anyway; please check whether this fits your request."
   }
 }

@@ -300,7 +300,7 @@ class TestTranscriptSections:
 
     def test_the_research_tools_of_the_plugin_say_themselves_that_their_result_is_no_transcript_text(self):
         from aifred.plugins.tools.research import get_research_tools
-        tools = get_research_tools(lang="de", llm_history=[], user_query="", session_id="s")
+        tools = get_research_tools(lang="de", llm_history=[], session_id="s")
         assert {tool.name: tool.transcript_without_result for tool in tools} == {"web_search": True, "web_fetch": True}
 
     def test_read_file_says_itself_that_the_file_content_is_no_transcript_text(self):

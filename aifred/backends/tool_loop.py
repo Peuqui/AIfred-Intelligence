@@ -21,6 +21,7 @@ from aifred.lib.config import (
     STREAM_RETRY_DELAY_S,
     STREAM_RETRY_WINDOW_S,
 )
+from aifred.lib.model_input import model_input_var
 from aifred.lib.perf_metrics import InferenceWork, ThinkingClock
 from aifred.lib.timer import Timer
 
@@ -319,11 +320,22 @@ class _Turn:
             message["reasoning_content"] = self.round_text.reasoning
         self.messages.append(message)
 
+    def input_text(self) -> str:
+        """What the model was given when it wrote the call being run (lib/model_input.py): the system, user and
+        tool messages before the last assistant message (the round's own tool results came after the call). The
+        messages list is replaced on compression, so this reads ``self.messages`` anew each time."""
+        from aifred.lib.context_manager import message_text
+        last_assistant = max((i for i, msg in enumerate(self.messages) if msg["role"] == "assistant"), default=len(self.messages))
+        return "\n".join(message_text(msg) for msg in self.messages[:last_assistant] if msg["role"] != "assistant")
+
     async def _run_tool_call(self, call: ToolCall) -> AsyncIterator[dict[str, Any]]:
         """Run one tool call; yields the UI items, the ``kept_result`` item (what a later turn sees of the
         result, for ``run`` alone) and, last, the ``tool_result`` item (capped, with the description of sandbox
         screenshots)."""
         assert self.toolkit is not None
+        # Set per call, not reset: a sub-agent's loop (inside a tool call) sets its own, and this turn's next
+        # call sets this one again. A reset would fail when the generator is closed from another task.
+        model_input_var.set(self.input_text)
         # Full arguments: the sub-agent transcript shows the code a tool ran; debug views shorten them.
         yield {"type": "tool_call", "name": call.name, "arguments": call.arguments}
         result = ""

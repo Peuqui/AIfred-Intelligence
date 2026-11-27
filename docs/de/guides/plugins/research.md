@@ -28,11 +28,17 @@ Suchanfragen formuliert er im Tool-Call.
 |-----------|-----|---------|--------------|
 | `url` | String | ja | Vollständige URL zum Abrufen (muss mit `http://` oder `https://` beginnen). Wird vor dem Abruf gegen einen SSRF-Schutz validiert. |
 
-**Wachhund** (seit 22.11.2026, meldet nur, sperrt nichts): Ruft ein Agent eine Adresse auf, die weder der Nutzer
-geschrieben hat noch in Suchergebnissen oder abgerufenen Seiten dieses Zuges stand, und trägt sie einen Teil
-(Pfadstück, Parameterwert) ab `WEB_FETCH_WATCH_PART_CHARS` (64) Zeichen, könnten darin mitgeschickte Daten stecken,
-etwa auf eine untergeschobene Anweisung hin. Dann steht eine Warnung `🐕 web_fetch watchdog` im Debug-Log und ein
-gelber Hinweis im Chat der Sitzung; abgerufen wird trotzdem (`carried_part` im Plugin).
+**Wachhund** (seit 22.11.2026, neu gefasst 26.11.2026; meldet nur, sperrt nichts): Als bekannt zählt eine Adresse,
+die wörtlich in dem stand, was das Modell vor dem Erzeugen des Aufrufs als Eingabe bekam: alle Nachrichten mit Rolle
+`system` (Systemprompt, Auftragstext, Notizen), `user` und `tool` (auch `read_file` und andere Werkzeuge) der laufenden
+Anfrage, soweit sie vor der letzten Assistent-Nachricht stehen. Eigene Ausgaben des Modells (Text, Aufrufargumente) und
+Werkzeugergebnisse derselben Runde, die erst nach dem Erzeugen des Aufrufs vorlagen, zählen nicht. Eine Adresse über den
+Leseproxy (`https://r.jina.ai/<Adresse>`) ist bekannt, wenn die eingebettete Adresse es ist. Ist die Adresse unbekannt und
+trägt sie einen Teil (Pfadstück, Parameterwert) ab `WEB_FETCH_WATCH_PART_CHARS` (64) Zeichen, könnten darin
+mitgeschickte Daten stecken, etwa auf eine untergeschobene Anweisung hin. Dann steht eine Warnung
+`🐕 web_fetch watchdog` im Debug-Log und ein gelber Hinweis im Chat der Sitzung; abgerufen wird trotzdem (`carried_part`
+im Plugin). Die Eingabe liefert die Werkzeugschleife je Aufruf über `lib/model_input.py`; ein Unteragent sieht seine
+eigene Eingabe.
 
 ## Pipeline (`web_search`)
 

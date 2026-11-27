@@ -10,7 +10,6 @@ den ``prompts/<de|en>/``-Fragmenten (granted_tools-gated). Die Pipeline
 
 import asyncio
 import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -20,17 +19,17 @@ from urllib.parse import parse_qsl, urlparse
 from ....lib.config import WEB_FETCH_WATCH_PART_CHARS
 from ....lib.function_calling import Tool
 from ....lib.i18n import t
+from ....lib.model_input import model_input_text
 from ....lib.plugin_base import PluginContext, load_plugin_i18n, load_tool_description, load_tool_parameters
 from ....lib.security import TIER_READONLY
+from ....lib.tools.url_utils import strip_reader_proxy
 
-_URL_RE = re.compile(r"https?://[^\s<>\"'`)\]]+")
-
-
-def carried_part(url: str, known: set[str], own_words: str) -> str:
+def carried_part(url: str, model_input: str) -> str:
     """The longest part of ``url`` (path piece, parameter value, fragment) that could carry data out, empty when
-    the URL is known (the user wrote it, a search result or fetched page of this turn showed it) or no part reaches
+    the URL is known (it stood verbatim in what the model was given before it wrote this call: see
+    lib/model_input.py; a reader-proxy address counts as known when the address it embeds is) or no part reaches
     WEB_FETCH_WATCH_PART_CHARS. The watchdog of web_fetch: it reports, it never blocks."""
-    if url in known or url in own_words:
+    if url in model_input or strip_reader_proxy(url) in model_input:
         return ""
     parsed = urlparse(url)
     parts = [*parsed.path.split("/"), *(value for _, value in parse_qsl(parsed.query, keep_blank_values=True)),
@@ -40,16 +39,12 @@ def carried_part(url: str, known: set[str], own_words: str) -> str:
 
 
 def get_research_tools(
-    lang: str = "de", llm_history: list | None = None, user_query: str = "", session_id: str = "",
+    lang: str = "de", llm_history: list | None = None, session_id: str = "",
 ) -> list[Tool]:
     """web_search (search, ranking against the conversation, scraping) and web_fetch."""
-    from ....lib.context_manager import message_text
     from ....lib.research_tools import research_result_text, run_web_search
 
     _llm_history: list = llm_history or []
-    # What the watchdog counts as known: the user's own words and the addresses this turn's results showed.
-    own_words = "\n".join([user_query, *(message_text(msg) for msg in _llm_history if msg.get("role") == "user")])
-    shown: set[str] = set()
 
     async def _execute_web_search(queries: list[str]) -> AsyncGenerator[dict[str, Any], None]:
         """Tool executor (async-generator-shaped, see ToolKit.execute_streaming): the result text of the llm_history
@@ -60,7 +55,6 @@ def get_research_tools(
 
         queries = queries[:3]
         result, source_count, read_urls = await run_web_search(queries, _llm_history)
-        shown.update(_URL_RE.findall(result or ""))
         if result:
             from ....lib.security import wrap_untrusted_data
             result = wrap_untrusted_data(result, "web_research")
@@ -88,7 +82,7 @@ def get_research_tools(
             return
 
         log_message(f"🌐 web_fetch: {url}")
-        carried = carried_part(url, shown, own_words)
+        carried = carried_part(url, model_input_text())
         if carried:
             host = urlparse(url).netloc
             log_message(f"🐕 web_fetch watchdog: {host} with a {len(carried)}-char part not seen before: {url[:300]}",
@@ -105,7 +99,6 @@ def get_research_tools(
 
         if result.get("success") and result.get("content"):
             content = result["content"]
-            shown.update(_URL_RE.findall(content))
             word_count = result.get("word_count", 0)
             log_message(f"✅ web_fetch: {word_count} words from {url}")
             from ....lib.security import wrap_untrusted_data
@@ -146,7 +139,7 @@ class ResearchPlugin:
         return True
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
-        return get_research_tools(lang=ctx.lang, llm_history=ctx.llm_history, user_query=ctx.user_query,
+        return get_research_tools(lang=ctx.lang, llm_history=ctx.llm_history,
                                   session_id=ctx.session_id)
 
     def get_prompt_instructions(self, lang: str, granted_tools: set[str]) -> str:
