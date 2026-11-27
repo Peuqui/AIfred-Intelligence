@@ -584,6 +584,7 @@ def test_a_job_with_a_data_table_is_told_its_name_and_to_compute_from_it_with_a_
     text = sched._notes_text(job, "de")
     assert "Datentabellen dieses Jobs: `preise.csv`." in text
     assert "führe es aus, statt es neu zu schreiben" in text
+    assert "feste Daten gehören nicht hinein" in text and "keiner Sache zuordnen kann" in text
     assert "This job's data tables: `preise.csv`." in sched._notes_text(job, "en")
 
 
