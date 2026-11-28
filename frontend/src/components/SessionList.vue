@@ -81,7 +81,7 @@ function removeAll(): void {
       <li v-for="session in sessions.list" :key="session.session_id" :class="{ active: session.session_id === current }">
         <input v-if="selecting" v-model="chosen" type="checkbox" :value="session.session_id" class="pick" />
         <button class="entry" @click="openSession(session.session_id)">
-          <span class="title">{{ session.title || t("untitled_chat") }}<span v-if="unreadOf(session)" class="unread">{{ tCount("session_unread", unreadOf(session)) }}</span></span>
+          <span class="title"><span class="name">{{ session.title || t("untitled_chat") }}</span><span v-if="unreadOf(session)" class="unread" role="img" :aria-label="tCount('session_unread', unreadOf(session))" /></span>
           <span class="meta">{{ session.last_message_display }} · {{ session.message_count }}</span>
         </button>
         <button v-if="!selecting" class="remove" :title="t('delete_chat')" @click="emit('remove', [session.session_id])"><Trash2 :size="16" /></button>
@@ -115,9 +115,11 @@ ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: col
 li { display: flex; align-items: center; border-radius: 6px; }
 li.active, li:hover { background: var(--aifred-input-bg); }
 .entry { flex: 1; min-width: 0; text-align: left; padding: 6px 8px; display: flex; flex-direction: column; }
-.title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The green of the read line in the chat. */
-.unread { margin-left: 8px; font-size: var(--text-small); font-weight: 600; color: var(--aifred-accent-success); }
+.title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Unread answers in the chat: a dot in the green of the read line, beside the title so that a long one does not cut it
+   off (Peuqui 28.11.2026: smaller than "N new"). It stays until the last answer is read. */
+.unread { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--aifred-accent-success); }
 .meta { font-size: var(--text-small); color: var(--aifred-text-muted); }
 .remove { opacity: 0.5; padding: 4px 8px; }
 .remove:hover { opacity: 1; }

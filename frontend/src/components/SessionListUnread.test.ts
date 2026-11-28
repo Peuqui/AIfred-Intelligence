@@ -1,4 +1,4 @@
-// The list of chats names how many answers of a chat are still unread.
+// The list of chats marks a chat with unread answers by a green dot (its label says how many) until the last is read.
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { expect, test, vi } from "vitest";
@@ -26,13 +26,13 @@ test("the open chat counts what it shows: its mark moved, its \"new\" goes at on
   chat.readUntil = "";
   const wrapper = mount(SessionList, { props: { current: "a" } });
   await wrapper.find("button.toggle").trigger("click");
-  expect(wrapper.findAll(".unread").map((node) => node.text())).toEqual(["session_unread 1", "session_unread 2"]);
+  expect(wrapper.findAll(".unread").map((node) => node.attributes("aria-label"))).toEqual(["session_unread 1", "session_unread 2"]);
   chat.readUntil = "t1"; // the bubble was clicked; the server's list still says 1
   await wrapper.vm.$nextTick();
-  expect(wrapper.findAll(".unread").map((node) => node.text())).toEqual(["session_unread 2"]);
+  expect(wrapper.findAll(".unread").map((node) => node.attributes("aria-label"))).toEqual(["session_unread 2"]);
 });
 
-test("a chat with unread answers shows how many, one without shows nothing", () => {
+test("a chat with unread answers shows the dot (labelled with how many), one without shows nothing", () => {
   setActivePinia(createPinia());
   sessionsColumn.value = true;
   useSessions().list = [row("a", 3), row("b", 0)] as never;
@@ -40,6 +40,6 @@ test("a chat with unread answers shows how many, one without shows nothing", () 
   wrapper.find("button.toggle").trigger("click");
   return wrapper.vm.$nextTick().then(() => {
     const unread = wrapper.findAll(".unread");
-    expect(unread.map((node) => node.text())).toEqual(["session_unread 3"]);
+    expect(unread.map((node) => node.attributes("aria-label"))).toEqual(["session_unread 3"]);
   });
 });

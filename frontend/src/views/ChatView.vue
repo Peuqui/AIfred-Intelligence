@@ -63,30 +63,14 @@ const turns = computed(() => {
   }
   return grouped;
 });
-// Where the "read up to here" line belongs now: above the entry with this key; null: nothing unread.
+// Where the "read up to here" line stands: above the entry with this key, between what is read and what is not; null:
+// nothing unread. It moves with the mark; it takes no room (ReadMark.vue), so nothing jumps when it does (Peuqui
+// 27.11.2026: a line with room of its own that went away above and came back further down made everything between jump).
 const entryKey = (entry: ChatEntry): string => entry.timestamp + entry.role;
 const readLineBefore = computed<string | null>(() => {
   const at = lineBeforeIndex(chat.history, chat.readUntil);
   const entry = at === null ? undefined : chat.history[at];
   return entry ? entryKey(entry) : null;
-});
-// Where the line stands while the chat is open: put there when the chat opens (or, with nothing unread then, when the
-// first unread answer comes in), and not moved afterwards. Once the mark passes it, it only fades out and keeps its room:
-// a line that went away above and came back further down made everything between jump (Peuqui 27.11.2026).
-const lineKey = ref<string | null>(null);
-watch(
-  () => [chat.sessionId, chat.history.length, readLineBefore.value] as const,
-  ([sessionId], before) => {
-    if (before && sessionId !== before[0]) lineKey.value = null;
-    // A line of the chat shown before (its history not here yet, or another one now) does not count.
-    const standing = lineKey.value !== null && chat.history.some((entry) => entryKey(entry) === lineKey.value);
-    if (!standing) lineKey.value = readLineBefore.value;
-  },
-  { immediate: true },
-);
-const linePassed = computed(() => {
-  const entry = chat.history.find((item) => entryKey(item) === lineKey.value);
-  return entry !== undefined && !isUnread(entry, chat.readUntil);
 });
 // A click (or tap) anywhere on a bubble below the line says "read up to here", also on its own buttons, links, pictures
 // and the heads of its collapsibles, which still do their own thing (Peuqui 27.11.2026); not the end of dragging to
@@ -288,7 +272,7 @@ onMounted(() => void start());
           <div class="bubbles">
           <section v-for="(turn, at) in turns" :key="turn.key" :data-key="turn.key" class="turn">
             <template v-for="entry in turn.entries" :key="entryKey(entry)">
-              <ReadMark v-if="lineKey === entryKey(entry)" :passed="linePassed" />
+              <ReadMark v-if="readLineBefore === entryKey(entry)" />
               <MessageBubble
                 :class="{ question: entry.role === 'user', pinned: entry.role === 'user' && pinQuestion }"
                 :entry="entry"
@@ -434,11 +418,13 @@ h2 { margin: 0; font-size: 1.1rem; }
 @media (max-width: 760px) {
   .messages { height: var(--chat-height-mobile); }
 }
+/* --bubble-gap: the room between two bubbles; the read line stands in it (ReadMark.vue). */
 .bubbles {
-  color: var(--aifred-text-primary); display: flex; flex-direction: column; gap: 10px; zoom: var(--chat-zoom);
+  --bubble-gap: 10px;
+  color: var(--aifred-text-primary); display: flex; flex-direction: column; gap: var(--bubble-gap); zoom: var(--chat-zoom);
   --vw: calc(1vw / var(--chat-zoom)); --vh: calc(1vh / var(--chat-zoom)); --dvh: calc(1dvh / var(--chat-zoom));
 }
-.turn { display: flex; flex-direction: column; gap: 10px; }
+.turn { display: flex; flex-direction: column; gap: var(--bubble-gap); }
 /* Above the collapsibles' headers, which stick too (formatting.py writes them with z-index 2 into the answer). */
 .turn > .pinned { position: sticky; top: 0; z-index: 3; box-shadow: 0 4px 10px var(--aifred-page-bg); }
 .notice { color: var(--aifred-accent-amber); --icon-own: currentColor; }

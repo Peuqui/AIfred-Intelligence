@@ -36,12 +36,13 @@ vi.stubGlobal("ResizeObserver", class {
 
 const VIEW = 300;
 const BUBBLE = 100;
-const LINE = 20;
 const GAP = 10;
+// The line takes no room (ReadMark.vue): it stands in the middle of the gap above the bubble after it.
+const LINE_ABOVE = GAP / 2;
 const heights: Record<string, number> = {};
 
-const itemsOf = (box: Element): HTMLElement[] => [...box.querySelectorAll<HTMLElement>("[data-entry], [data-read-mark]")];
-const heightOf = (item: HTMLElement): number => (item.dataset.entry ? (heights[item.dataset.entry] ?? BUBBLE) : LINE);
+const itemsOf = (box: Element): HTMLElement[] => [...box.querySelectorAll<HTMLElement>("[data-entry]")];
+const heightOf = (item: HTMLElement): number => heights[item.dataset.entry!] ?? BUBBLE;
 const offsetOf = (item: HTMLElement): number => {
   let offset = 0;
   for (const other of itemsOf(item.closest(".messages")!)) {
@@ -68,8 +69,9 @@ Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
   if (isBox(this)) return rectangle(0, VIEW);
   const box = this.closest<HTMLElement>(".messages");
   const item = this as HTMLElement;
-  if (box && (item.dataset.entry || item.dataset.readMark !== undefined)) {
-    return rectangle(offsetOf(item) - box.scrollTop, heightOf(item));
+  if (box && item.dataset.entry) return rectangle(offsetOf(item) - box.scrollTop, heightOf(item));
+  if (box && item.dataset.readMark !== undefined) {
+    return rectangle(offsetOf(item.nextElementSibling as HTMLElement) - LINE_ABOVE - box.scrollTop, 0);
   }
   return rectangle(0, 0);
 };
@@ -86,7 +88,7 @@ const stamp = (index: number): string => `t${String(index).padStart(2, "0")}`;
 const entries = (count: number, from = 0) => Array.from({ length: count }, (_, at) => entry((from + at) % 2 === 0 ? "user" : "assistant", stamp(from + at)));
 const history = entries(12);
 const keyOf = (index: number): string => stamp(index) + (index % 2 === 0 ? "user" : "assistant");
-// Where entry i stands in the content without a line: the line adds LINE + GAP to everything after it.
+// Where entry i stands in the content (the line adds nothing).
 const at = (index: number): number => index * (BUBBLE + GAP);
 const FIRST_FOLLOWING_END = at(12) - GAP - VIEW; // 1010: the end of the 12 entries without a line
 
@@ -125,9 +127,10 @@ const grow = async (): Promise<void> => {
 
 // --- opening ---
 
-// The line after entry 5 stands directly above the answer of entry 7 (position 770), not above its question: a job's
-// question can be long. That question (entry 6) sticks over it, so the line stands at the upper edge below the question.
-const LINE_AFTER_5 = at(7) - 12 - BUBBLE;
+// The line after entry 5 stands directly above the answer of entry 7 (in the gap above it, 765), not above its question:
+// a job's question can be long. That question (entry 6) sticks over it, so the line stands at the upper edge below the
+// question.
+const LINE_AFTER_5 = at(7) - LINE_ABOVE - 12 - BUBBLE;
 
 test("opening with unread: the line above the first unread answer stands at the upper edge, below the question that sticks", async () => {
   const { box } = await shown("t05");
@@ -273,8 +276,8 @@ test("the button takes the box to the line above the oldest unread bubble, at th
   await flushPromises();
   expect(wrapper.find("button.new-below").text()).toBe("unread_below 3");
   await wrapper.find("button.new-below").trigger("click");
-  // The line stands after entry 11, at at(12) = 1320; the question of its turn is entry 10.
-  expect(box.scrollTop).toBe(at(12) - 12 - BUBBLE);
+  // The line stands after entry 11, in the gap above at(12) = 1320; the question of its turn is entry 10.
+  expect(box.scrollTop).toBe(at(12) - LINE_ABOVE - 12 - BUBBLE);
   expect(chat.readUntil).toBe("t11");
   expect(posted).toEqual([]);
   // The one beyond the view is still counted, the ones in view are not.
@@ -290,7 +293,7 @@ test("a new question with its answer below the view: the button shows the line a
   expect(wrapper.find("button.new-below").text()).toBe("unread_below 1");
   await wrapper.find("button.new-below").trigger("click");
   // The line stands above the answer (entry 13, at at(13)); the question of entry 12 sticks over it.
-  expect(box.scrollTop).toBe(at(13) - 12 - BUBBLE);
+  expect(box.scrollTop).toBe(at(13) - LINE_ABOVE - 12 - BUBBLE);
   const line = box.querySelector<HTMLElement>("[data-read-mark]")!.getBoundingClientRect();
   expect(line.top).toBe(BUBBLE + 12);
 });
@@ -305,8 +308,8 @@ test("a later unread bubble below the view: the line lies behind the reader, the
   await wrapper.find("button.new-below").trigger("click");
   expect(wrapper.find("button.new-below").text()).toBe("unread_below 1");
   await wrapper.find("button.new-below").trigger("click");
-  // Entry 14 stands after the line and the 400 high entry 13; the question of its turn (entry 12) sticks above it.
-  const later = at(14) + LINE + GAP + (400 - BUBBLE);
+  // Entry 14 stands after the 400 high entry 13; the question of its turn (entry 12) sticks above it.
+  const later = at(14) + (400 - BUBBLE);
   expect(box.scrollTop).toBe(later - 12 - BUBBLE);
 });
 
@@ -322,8 +325,8 @@ test("something new while the reader follows with unread: the box moves on only 
   const { chat, box } = await shown("t11");
   chat.history = [...history, entry("assistant", "t12"), entry("assistant", "t13"), entry("assistant", "t14")] as never;
   await flushPromises();
-  // The line after entry 11 at at(12), under the question of entry 10; the content reaches far enough below it.
-  const line = at(12) - 12 - BUBBLE;
+  // The line after entry 11 above at(12), under the question of entry 10; the content reaches far enough below it.
+  const line = at(12) - LINE_ABOVE - 12 - BUBBLE;
   expect(box.scrollTop).toBe(line);
   chat.history = [...chat.history, entry("assistant", "t15")] as never;
   await flushPromises();
@@ -360,7 +363,7 @@ test("the reader's own message takes the box to the end although they read above
   // Following again: the next answer, unread, moves the box on to its line.
   chat.history = [...chat.history, entry("assistant", "t13"), entry("assistant", "t14"), entry("assistant", "t15")] as never;
   await flushPromises();
-  expect(box.scrollTop).toBe(at(13) - 12 - BUBBLE); // the line above the answer, below the reader's question (entry 12)
+  expect(box.scrollTop).toBe(at(13) - LINE_ABOVE - 12 - BUBBLE); // the line above the answer, below the reader's question (entry 12)
 });
 
 test("a refused message: what was typed comes back, the refusal shows, and the next user bubble is not taken for it", async () => {
@@ -411,14 +414,14 @@ test("scrolling does not set the mark", async () => {
   expect(posted).toEqual([]);
 });
 
-test("a faded line stands above nothing unread: the button goes to the oldest unread bubble, not to the line", async () => {
+test("the mark moved on: the line stands above the oldest unread bubble that is left, the button goes there", async () => {
   heights[keyOf(9)] = 400;
   const { chat, wrapper, box } = await shown("t05");
-  // Read up to entry 7: the line (above entry 7) fades and keeps its room; entries 9 and 11 are still unread.
+  // Read up to entry 7: the line moves above entry 9; entries 9 and 11 are still unread.
   chat.readUntil = stamp(7);
   await flushPromises();
   await readerScrollsTo(wrapper, 0);
   await wrapper.find("button.new-below").trigger("click");
-  // Entry 9 stands after the faded line and the entries before it; the question of its turn (entry 8) sticks above it.
-  expect(box.scrollTop).toBe(at(9) + LINE + GAP - 12 - BUBBLE);
+  // The line in the gap above entry 9; the question of its turn (entry 8) sticks above it.
+  expect(box.scrollTop).toBe(at(9) - LINE_ABOVE - 12 - BUBBLE);
 });

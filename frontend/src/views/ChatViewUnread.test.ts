@@ -44,10 +44,10 @@ async function shown(readUntil: string) {
   return { chat, wrapper };
 }
 
-// The bubbles and lines of the list in the order they stand, as text; a line the mark has passed (faded) as "(---)".
+// The bubbles and the line of the list in the order they stand, as text.
 const sequence = (wrapper: Awaited<ReturnType<typeof shown>>["wrapper"]): string[] =>
   [...wrapper.element.querySelectorAll(".bubbles article, .bubbles .read-mark")].map((node) => {
-    if (node.classList.contains("read-mark")) return node.classList.contains("passed") ? "(---)" : "---";
+    if (node.classList.contains("read-mark")) return "---";
     return node.querySelector(".content")?.textContent?.trim() ?? "";
   });
 
@@ -67,13 +67,13 @@ test("nothing unread: no line", async () => {
   expect(sequence(wrapper)).not.toContain("---");
 });
 
-test("a click on a bubble below the line moves the mark to it; the line fades where it stands; a click above changes nothing", async () => {
+test("a click on a bubble below the line moves the mark to it and the line below it; a click above changes nothing", async () => {
   const { chat, wrapper } = await shown("t1");
   await wrapper.findAll("article")[3]!.trigger("click"); // "Antwort zwei"
   expect(chat.readUntil).toBe("t3");
   await flushPromises();
-  // It does not move down above "Antwort drei": the line going away above and coming back below made everything jump.
-  expect(sequence(wrapper)).toEqual(["Frage eins", "Antwort eins", "Frage zwei", "(---)", "Antwort zwei", "Antwort drei"]);
+  // Between what is read and what is not (the line takes no room, ReadMark.vue: nothing jumps).
+  expect(sequence(wrapper)).toEqual(["Frage eins", "Antwort eins", "Frage zwei", "Antwort zwei", "---", "Antwort drei"]);
   await wrapper.findAll("article")[1]!.trigger("click"); // "Antwort eins", above the line
   expect(chat.readUntil).toBe("t3");
   expect(posted).toEqual([JSON.stringify({ timestamp: "t3" })]);
@@ -91,23 +91,30 @@ test("a click on a part of a bubble with a click of its own (link, button, the h
   }
 });
 
-test("with nothing unread on opening, the line comes above the first answer that comes in; a faded line stays and none comes", async () => {
+test("with nothing unread, the line comes above the first answer that comes in; read, the next one gets it", async () => {
   const { chat, wrapper } = await shown("t4");
   chat.history = [...history, entry("assistant", "t5", "Antwort vier")] as never;
   await flushPromises();
   expect(sequence(wrapper).slice(-2)).toEqual(["---", "Antwort vier"]);
   chat.readUntil = "t5";
   await flushPromises();
+  expect(sequence(wrapper)).not.toContain("---");
+  // The parts of a job come one after the other: each that comes after all was read is new (Peuqui 27.11.2026).
   chat.history = [...chat.history, entry("assistant", "t6", "Antwort fünf")] as never;
   await flushPromises();
-  expect(sequence(wrapper).slice(-3)).toEqual(["(---)", "Antwort vier", "Antwort fünf"]);
+  expect(sequence(wrapper).slice(-3)).toEqual(["Antwort vier", "---", "Antwort fünf"]);
 });
 
-test("another chat opened: its line stands where its mark says, the faded one of the chat before is gone", async () => {
+test("an answer that comes in while older ones are unread: the line stays above the oldest unread", async () => {
   const { chat, wrapper } = await shown("t1");
-  chat.readUntil = "t4";
+  chat.history = [...history, entry("assistant", "t5", "Antwort vier")] as never;
   await flushPromises();
-  expect(sequence(wrapper)).toContain("(---)");
+  expect(sequence(wrapper)).toEqual(["Frage eins", "Antwort eins", "Frage zwei", "---", "Antwort zwei", "Antwort drei", "Antwort vier"]);
+});
+
+test("another chat opened: its line stands where its mark says", async () => {
+  const { chat, wrapper } = await shown("t4");
+  expect(sequence(wrapper)).not.toContain("---");
   chat.sessionId = "s2";
   chat.history = [entry("user", "u0", "Andere Frage"), entry("assistant", "u1", "Andere Antwort")] as never;
   chat.readUntil = "";
