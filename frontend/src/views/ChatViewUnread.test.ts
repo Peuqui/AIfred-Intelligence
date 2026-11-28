@@ -91,6 +91,40 @@ test("a click on a part of a bubble with a click of its own (link, button, the h
   }
 });
 
+// jsdom has no layout: the bubbles stand 100 apart (each 90 high, a gap of 10), the box is 500 wide with no scroll bar
+// room of its own beyond that.
+function laidOut(wrapper: Awaited<ReturnType<typeof shown>>["wrapper"]): HTMLElement {
+  wrapper.findAll("article").forEach((article, at) => {
+    article.element.getBoundingClientRect = () => ({ top: at * 100, bottom: at * 100 + 90, left: 0, right: 500 }) as DOMRect;
+  });
+  const box = wrapper.find(".messages").element as HTMLElement;
+  box.getBoundingClientRect = () => ({ top: 0, bottom: 600, left: 0, right: 515 }) as DOMRect;
+  Object.defineProperty(box, "clientWidth", { configurable: true, value: 500 });
+  return box;
+}
+
+test("a click beside the bubbles reads up to the last bubble that begins above it: in a gap, below the last one", async () => {
+  const { chat, wrapper } = await shown("t1");
+  const box = laidOut(wrapper);
+  // The gap below "Antwort zwei" (the 4th bubble, 300 to 390).
+  box.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 200, clientY: 395 }));
+  expect(chat.readUntil).toBe("t3");
+  // Below the last bubble ("Antwort drei", from 400): everything.
+  wrapper.find(".bubbles").element.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 200, clientY: 560 }));
+  expect(chat.readUntil).toBe("t4");
+  expect(posted).toEqual([JSON.stringify({ timestamp: "t3" }), JSON.stringify({ timestamp: "t4" })]);
+});
+
+test("a click on the box's scroll bar or the end of dragging beside the bubbles reads nothing", async () => {
+  const { chat, wrapper } = await shown("t1");
+  const box = laidOut(wrapper);
+  box.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 508, clientY: 560 }));
+  box.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 100, clientY: 395 }));
+  box.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 100, clientY: 560 }));
+  expect(chat.readUntil).toBe("t1");
+  expect(posted).toEqual([]);
+});
+
 test("with nothing unread, the line comes above the first answer that comes in; read, the next one gets it", async () => {
   const { chat, wrapper } = await shown("t4");
   chat.history = [...history, entry("assistant", "t5", "Antwort vier")] as never;

@@ -72,12 +72,29 @@ const readLineBefore = computed<string | null>(() => {
   const entry = at === null ? undefined : chat.history[at];
   return entry ? entryKey(entry) : null;
 });
-// A click (or tap) anywhere on a bubble below the line says "read up to here", also on its own buttons, links, pictures
-// and the heads of its collapsibles, which still do their own thing (Peuqui 27.11.2026); not the end of dragging to
-// select text: the press is where the pointer went down in the box.
+// A click (or tap) anywhere in the box says "read up to here" (Peuqui 28.11.2026): on a bubble, up to that one, also on
+// its own buttons, links, pictures and the heads of its collapsibles, which still do their own thing (Peuqui
+// 27.11.2026); beside the bubbles (a gap, the room below the last one, the answer being written), up to the last bubble
+// that begins above the click. Not the end of dragging to select text (the press is where the pointer went down in the
+// box), not a click on the box's scroll bar.
 let press: Press | null = null;
-function bubbleClicked(entry: ChatEntry, event: MouseEvent): void {
-  if (isPlainClick(event, press)) void chat.markRead(entry.timestamp);
+function bubbleReadTo(event: MouseEvent): string | undefined {
+  const box = messages.value;
+  if (!box || !(event.target instanceof Element)) return undefined;
+  const clicked = event.target.closest<HTMLElement>("[data-entry]");
+  if (clicked) return clicked.dataset.entry;
+  if (event.target === box && event.clientX >= box.getBoundingClientRect().left + box.clientLeft + box.clientWidth) return undefined;
+  let above: string | undefined;
+  for (const bubble of box.querySelectorAll<HTMLElement>("[data-entry]")) {
+    if (bubble.getBoundingClientRect().top <= event.clientY) above = bubble.dataset.entry;
+  }
+  return above;
+}
+function boxClicked(event: MouseEvent): void {
+  if (!isPlainClick(event, press)) return;
+  const key = bubbleReadTo(event);
+  const entry = chat.history.find((item) => entryKey(item) === key);
+  if (entry) void chat.markRead(entry.timestamp);
 }
 // The turn whose question sticks at the top edge of the box now: its turn begins above the box's top edge and still
 // reaches into it. Only that question is folded to a few lines; where it stands in the history it shows in full.
@@ -268,6 +285,7 @@ onMounted(() => void start());
           @touchmove.passive="takenByHand"
           @keydown="onKey"
           @pointerdown="pressed"
+          @click="boxClicked"
         >
           <div class="bubbles">
           <section v-for="(turn, at) in turns" :key="turn.key" :data-key="turn.key" class="turn">
@@ -284,7 +302,6 @@ onMounted(() => void start());
                 :color="entry.agent ? colors[entry.agent] : undefined"
                 :reading-requested="chat.readingRequested === entry.timestamp"
                 @read-again="chat.readAgain"
-                @click="bubbleClicked(entry, $event)"
               />
             </template>
             <!-- The answer being written belongs to the last turn, where it lands once done: inside the turn its question
